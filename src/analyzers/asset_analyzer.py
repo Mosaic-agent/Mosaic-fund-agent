@@ -157,4 +157,5 @@ def analyze_holding(holding: Holding, demo_mode: bool = False) -> AssetAnalysis:
         summary=llm_result.get("summary", ""),
         key_insights=llm_result.get("key_insights", []),
         risk_signals=llm_result.get("risk_signals", []),
+        recommendation=llm_result.get("recommendation", ""),
     )

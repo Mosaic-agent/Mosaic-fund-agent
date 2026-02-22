@@ -227,14 +227,33 @@ class PortfolioAgent:
                 "Run 'analyze --demo' for a full demo analysis."
             )
 
-        from langchain_core.messages import HumanMessage
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from src.utils.report_loader import load_latest_report, _compact_context
 
         try:
-            result = self._agent.invoke(
-                {"messages": [HumanMessage(content=question)]}
-            )
-            messages = result.get("messages", [])
-            return messages[-1].content if messages else "No answer generated."
+            messages = []
+
+            # Inject the most recent analyze report so the agent can answer
+            # questions without re-fetching everything from scratch.
+            last_report = load_latest_report(settings.output_dir)
+            if last_report:
+                context = _compact_context(last_report)
+                messages.append(
+                    SystemMessage(
+                        content=(
+                            "The user's most recent portfolio analysis is shown below. "
+                            "Use it as context when answering — call tools only if you need "
+                            "fresher or more detailed data than what is provided here.\n\n"
+                            f"--- LAST PORTFOLIO REPORT ---\n{context}\n--- END REPORT ---"
+                        )
+                    )
+                )
+
+            messages.append(HumanMessage(content=question))
+
+            result = self._agent.invoke({"messages": messages})
+            msgs = result.get("messages", [])
+            return msgs[-1].content if msgs else "No answer generated."
         except Exception as exc:
             logger.error("Agent query failed: %s", exc)
             return f"Error: {exc}"

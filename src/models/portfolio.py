@@ -204,6 +204,10 @@ class AssetAnalysis(BaseModel):
     summary: str = Field(default="", description="5-bullet AI investment insight summary")
     key_insights: list[str] = Field(default_factory=list, description="Bullet insight points")
     risk_signals: list[str] = Field(default_factory=list, description="Identified risk signals")
+    recommendation: str = Field(
+        default="",
+        description="LLM recommendation: BUY / SELL / HOLD / WATCH",
+    )
 
 
 # ── Final Report Models ────────────────────────────────────────────────────────
@@ -234,3 +238,4 @@ class PortfolioReport(BaseModel):
     )
     portfolio_risks: list[str] = Field(default_factory=list)
     actionable_insights: list[str] = Field(default_factory=list)
+    rebalancing_signals: list[str] = Field(default_factory=list)

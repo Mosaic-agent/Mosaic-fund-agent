@@ -72,6 +72,12 @@ def _risk_color(score: float) -> str:
     return "green"
 
 
+def _rec_color(rec: str) -> str:
+    return {"BUY": "green", "SELL": "red", "HOLD": "yellow", "WATCH": "cyan"}.get(
+        rec.upper(), "white"
+    )
+
+
 def _pnl_color(pct: str) -> str:
     try:
         val = float(pct.strip("%"))
@@ -337,6 +343,7 @@ def print_report_to_console(report: dict[str, Any], console: Console | None = No
     table.add_column("P&L %", justify="right", min_width=8)
     table.add_column("Sentiment", justify="center", min_width=10)
     table.add_column("Risk", justify="center", min_width=6)
+    table.add_column("Signal", justify="center", min_width=8)
     table.add_column("Sector", min_width=18)
 
     for h in holdings:
@@ -344,6 +351,8 @@ def print_report_to_console(report: dict[str, Any], console: Console | None = No
         pnl_str = f"{pnl:+.1f}%"
         sent = h.get("sentiment_score", 0.0)
         risk = h.get("risk_score", 5.0)
+        rec = h.get("recommendation", "")
+        rec_str = f"[{_rec_color(rec)}]{rec}[/{_rec_color(rec)}]" if rec else "[dim]—[/dim]"
 
         table.add_row(
             h.get("symbol", ""),
@@ -354,6 +363,7 @@ def print_report_to_console(report: dict[str, Any], console: Console | None = No
             f"[{'green' if pnl >= 0 else 'red'}]{pnl_str}[/{'green' if pnl >= 0 else 'red'}]",
             f"[{_sentiment_color(sent)}]{sent:+.2f}[/{_sentiment_color(sent)}]",
             f"[{_risk_color(risk)}]{risk:.0f}[/{_risk_color(risk)}]",
+            rec_str,
             h.get("sector", "Unknown"),
         )
 
@@ -447,6 +457,15 @@ def print_report_to_console(report: dict[str, Any], console: Console | None = No
     if insights:
         insight_text = "\n".join(f"  → {i}" for i in insights)
         console.print(Panel(insight_text, title="[bold green]Actionable Insights[/bold green]", border_style="green"))
+        console.print()
+
+    # ── Rebalancing Signals ───────────────────────────────────────────────────
+    rebalancing = report.get("rebalancing_signals", [])
+    if rebalancing:
+        rebal_text = "\n".join(f"  ⟳ {s}" for s in rebalancing)
+        console.print(
+            Panel(rebal_text, title="[bold yellow]Rebalancing Signals[/bold yellow]", border_style="yellow")
+        )
         console.print()
 
     console.rule("[dim]End of Report[/dim]")

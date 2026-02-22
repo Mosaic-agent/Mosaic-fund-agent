@@ -433,6 +433,7 @@ def build_portfolio_report(
             "latest_results": a.quarterly_result.model_dump() if a.quarterly_result else {},
             "key_insights": a.key_insights,
             "risk_signals": a.risk_signals,
+            "recommendation": a.recommendation,
             "inav_analysis": a.inav_data,
             "historic_inav": a.historic_inav_data,
         }
@@ -446,4 +447,5 @@ def build_portfolio_report(
         sector_allocation=sector_allocation,
         portfolio_risks=llm_portfolio.get("portfolio_risks", []),
         actionable_insights=llm_portfolio.get("actionable_insights", []),
+        rebalancing_signals=llm_portfolio.get("rebalancing_signals", []),
     )
