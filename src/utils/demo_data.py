@@ -13,7 +13,8 @@ from src.models.portfolio import Holding, InstrumentType, Portfolio
 
 def get_demo_holdings() -> list[Holding]:
     """
-    Return a sample portfolio of 6 NSE holdings (4 stocks + 2 ETFs).
+    Return a sample portfolio of 5 NSE holdings (3 stocks + 2 ETFs).
+    GOLDBEES is the largest position to represent a high-conviction gold allocation.
     Prices are approximate — Yahoo Finance will fetch live current prices.
     """
     return [
@@ -24,15 +25,6 @@ def get_demo_holdings() -> list[Holding]:
             quantity=10,
             average_price=1350.0,
             last_price=1419.4,
-            instrument_type=InstrumentType.STOCK,
-        ),
-        Holding(
-            tradingsymbol="TCS",
-            exchange="NSE",
-            isin="INE467B01029",
-            quantity=5,
-            average_price=3200.0,
-            last_price=2686.2,
             instrument_type=InstrumentType.STOCK,
         ),
         Holding(
@@ -66,8 +58,8 @@ def get_demo_holdings() -> list[Holding]:
             tradingsymbol="GOLDBEES",
             exchange="NSE",
             isin="INF204KB16F8",
-            quantity=30,
-            average_price=55.0,
+            quantity=300,
+            average_price=48.0,
             last_price=62.0,
             instrument_type=InstrumentType.ETF,
         ),
