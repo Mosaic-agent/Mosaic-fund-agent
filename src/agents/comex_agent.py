@@ -1,18 +1,18 @@
 """
 src/agents/comex_agent.py
 ──────────────────────────
-Deep Agents-powered COMEX commodity pre-market signal agent.
+COMEX commodity pre-market signal agent.
 
-Built with create_deep_agent (github.com/langchain-ai/deepagents) — the same
-LangGraph agent harness used by NewsSentimentAgent.
+Routing strategy:
+  Local model  (LLM_BASE_URL set)  →  _run_direct()  — no LangGraph, no LLM.
+                                       The 14B / small GGUF models cannot
+                                       reliably stop after one tool call, so
+                                       we skip the agent loop entirely and
+                                       call get_comex_signals() directly.
+  Cloud model  (OpenAI / Anthropic)  →  LangGraph deep-agent with loop guard.
 
-Responsibilities:
-  • Fetch live spot prices for all 5 COMEX commodities (XAU, XAG, XPT, XPD, HG)
-    from gold-api.com and compare against Yahoo Finance previous-day closes
-  • Classify each commodity as STRONG BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG BEARISH
-  • Identify which Indian NSE ETFs / stocks are directly affected
-  • Return a structured pre-market context dict that PortfolioAgent embeds in
-    the final report and the `comex` CLI command displays
+This guarantees COMEX data is always returned fast, without burning LM Studio
+tokens or hanging in an infinite tool-call loop.
 
 Usage (CLI):
     python src/main.py comex
@@ -201,20 +201,34 @@ COMEX_TOOLS = [fetch_all_comex_signals, fetch_single_commodity, get_comex_pre_ma
 
 class ComexAgent:
     """
-    Deep Agents-powered COMEX commodity pre-market signal agent.
+    COMEX commodity pre-market signal agent.
 
-    Uses create_deep_agent from the deepagents SDK on top of LangGraph.
-    Falls back to _run_direct() (direct tool call) when:
-      - deepagents is not installed
-      - The local LLM's context window is too small for the agent system prompt
-      - The agent fails to return parseable JSON
-
-    This guarantees a result is always returned regardless of LLM availability.
+    Local model  → _run_direct() immediately (no LangGraph, no loop risk).
+    Cloud model  → LangGraph deep-agent with recursion_limit + call-counter guard.
     """
 
     def __init__(self) -> None:
-        self._llm = self._build_llm()
-        self._agent = self._build_deep_agent()
+        self._is_local = settings.is_local_model
+        if self._is_local:
+            # Skip LLM + agent construction entirely for local models.
+            # The deep-agent loop cannot be reliably prevented on small GGUFs,
+            # so we bypass LangGraph and call get_comex_signals() directly.
+            logger.info(
+                "ComexAgent — LOCAL DIRECT mode | model: %s @ %s "
+                "(LangGraph skipped to prevent tool-call loop)",
+                settings.llm_model,
+                settings.llm_base_url,
+            )
+            self._llm = None
+            self._agent = None
+        else:
+            logger.info(
+                "ComexAgent — CLOUD REACT mode | provider: %s | model: %s",
+                settings.llm_provider,
+                settings.llm_model,
+            )
+            self._llm = self._build_llm()
+            self._agent = self._build_deep_agent()
 
     # ── LLM builder ───────────────────────────────────────────────────────────
 
@@ -289,18 +303,24 @@ class ComexAgent:
         """
         Run COMEX pre-market signal analysis.
 
-        When the deep agent is available it will plan, call the tools, and
-        return the structured JSON result.  Falls back to _run_direct()
-        (immediate tool call, no LLM) on any failure.
-
-        Loop protection:
-          - recursion_limit=6 passed to LangGraph (hard cap on graph steps)
-          - per-invocation tool call counter (_MAX_TOOL_CALLS=2)
-          - If loop_detected marker returned, falls back to _run_direct()
+        Local model  → calls get_comex_signals() directly, zero LLM tokens used.
+        Cloud model  → LangGraph deep-agent with recursion_limit=6 + call-counter guard.
 
         Returns:
             Full COMEX signals dict from get_comex_signals().
         """
+        # ── LOCAL: bypass LangGraph entirely ──────────────────────────────────────
+        # Small GGUF models (14B and below) cannot reliably stop after one
+        # tool call.  Sending the data through an agent loop wastes ~30 minutes
+        # and returns no additional value over calling the fetcher directly.
+        if self._is_local:
+            logger.info(
+                "ComexAgent.run() — local model, fetching COMEX directly "
+                "(no LLM tokens consumed)"
+            )
+            return self._run_direct()
+
+        # ── CLOUD: LangGraph deep-agent with loop guard ───────────────────────
         if self._agent is None:
             logger.info("ComexAgent deep agent unavailable — running direct.")
             return self._run_direct()

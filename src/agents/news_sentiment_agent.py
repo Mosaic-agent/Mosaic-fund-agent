@@ -209,20 +209,31 @@ SENTIMENT_TOOLS = [collate_news_sentiment, get_newsapi_stock_news, get_stock_new
 
 class NewsSentimentAgent:
     """
-    Deep Agents-powered news sentiment analysis agent.
+    News sentiment analysis agent.
 
-    Uses create_deep_agent from the deepagents SDK
-    (github.com/langchain-ai/deepagents) — a LangGraph agent harness
-    with built-in planning, context management, and sub-agent support.
-
-    The agent orchestrates calls to collate_news_sentiment (which fetches
-    from both NewsAPI and GNews internally) and returns a structured report.
-    Falls back to _run_direct() if the LLM / deep agent is unavailable.
+    Local model  → _run_direct() immediately (no LangGraph, no loop risk).
+    Cloud model  → LangGraph deep-agent with recursion_limit + 1-call instruction.
     """
 
     def __init__(self) -> None:
-        self._llm = self._build_llm()
-        self._agent = self._build_deep_agent()
+        self._is_local = settings.is_local_model
+        if self._is_local:
+            logger.info(
+                "NewsSentimentAgent — LOCAL DIRECT mode | model: %s @ %s "
+                "(LangGraph skipped to prevent tool-call loop)",
+                settings.llm_model,
+                settings.llm_base_url,
+            )
+            self._llm = None
+            self._agent = None
+        else:
+            logger.info(
+                "NewsSentimentAgent — CLOUD REACT mode | provider: %s | model: %s",
+                settings.llm_provider,
+                settings.llm_model,
+            )
+            self._llm = self._build_llm()
+            self._agent = self._build_deep_agent()
 
     # ── LLM builder ───────────────────────────────────────────────────────────
 
@@ -313,6 +324,14 @@ class NewsSentimentAgent:
         """
         if self._agent is None:
             logger.info("Deep agent unavailable — running direct collation.")
+            return self._run_direct(symbol, company_name)
+
+        # ── LOCAL: bypass LangGraph entirely ─────────────────────────────────────
+        if self._is_local:
+            logger.info(
+                "NewsSentimentAgent.run() — local model, running direct "
+                "(no LLM tokens consumed for news collation)"
+            )
             return self._run_direct(symbol, company_name)
 
         query = f"{symbol}|{company_name}" if company_name else symbol
