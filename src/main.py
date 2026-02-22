@@ -220,8 +220,9 @@ def config() -> None:
 
     rows = [
         # [NON-SENSITIVE] settings shown as-is
-        ("LLM Provider", settings.llm_provider, "No"),
+        ("LLM Provider", settings.llm_provider if not settings.llm_base_url else "local (OpenAI-compatible)", "No"),
         ("LLM Model", settings.llm_model, "No"),
+        ("LLM Base URL", settings.llm_base_url if settings.llm_base_url else "(cloud default)", "No"),
         ("Kite MCP URL", settings.kite_mcp_url, "No"),
         ("Kite MCP Timeout (s)", str(settings.kite_mcp_timeout), "No"),
         ("News Articles/Stock", str(settings.news_articles_per_stock), "No"),
