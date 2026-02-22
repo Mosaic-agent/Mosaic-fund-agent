@@ -95,6 +95,11 @@ def analyze(
             "No Zerodha login or LLM API keys required."
         ),
     ),
+    no_dashboard: bool = typer.Option(
+        False,
+        "--no-dashboard",
+        help="Skip auto-generating the HTML dashboard after analysis.",
+    ),
 ) -> None:
     """
     Run full portfolio intelligence analysis on your Zerodha holdings.
@@ -162,6 +167,77 @@ def analyze(
     # Print to terminal
     if not quiet:
         print_report_to_console(report, console=console)
+
+    # Auto-generate HTML dashboard
+    if not no_dashboard:
+        try:
+            from src.agents.visualization_agent import VisualizationAgent
+            with console.status("[cyan]Generating HTML dashboard…[/cyan]"):
+                viz = VisualizationAgent(output_dir=settings.output_dir)
+                dash_path = viz.generate(report)
+            console.print(f"[green]✓ Dashboard ready:[/green] {dash_path}")
+            console.print(
+                "[dim]  Open in browser: [/dim]"
+                f"[link=file://{dash_path}]{dash_path}[/link]"
+            )
+        except Exception as exc:
+            console.print(f"[yellow]⚠ Dashboard generation failed (non-fatal):[/yellow] {exc}")
+            logging.exception("Dashboard generation failed")
+
+
+@app.command()
+def dashboard(
+    no_open: bool = typer.Option(
+        False,
+        "--no-open",
+        help="Generate the dashboard but do not open it in the browser.",
+    ),
+) -> None:
+    """
+    Generate an interactive HTML dashboard from the latest portfolio report.
+
+    Reads the most recent JSON report from the output directory and renders
+    a self-contained React dashboard (no build step required).  The file is
+    saved to ./output/dashboard.html and opened in your default browser
+    unless --no-open is passed.
+
+    Example:
+      python src/main.py dashboard
+      python src/main.py dashboard --no-open
+    """
+    _setup_logging()
+
+    from src.utils.report_loader import load_latest_report
+    from src.agents.visualization_agent import VisualizationAgent
+
+    report = load_latest_report(output_dir=settings.output_dir)
+    if not report:
+        console.print(
+            "[bold red]✗ No portfolio report found.[/bold red]\n"
+            "  Run [bold]python src/main.py analyze[/bold] first to generate one."
+        )
+        raise typer.Exit(code=1)
+
+    with console.status("[cyan]Rendering dashboard…[/cyan]"):
+        try:
+            viz = VisualizationAgent(output_dir=settings.output_dir)
+            dash_path = viz.generate(report)
+        except Exception as exc:
+            console.print(f"[bold red]✗ Dashboard generation failed:[/bold red] {exc}")
+            logging.exception("Dashboard generation failed")
+            raise typer.Exit(code=1)
+
+    console.print(
+        Panel(
+            f"[green]✓ Dashboard generated:[/green] {dash_path}",
+            title="[bold]Portfolio Dashboard[/bold]",
+            border_style="green",
+        )
+    )
+
+    if not no_open:
+        VisualizationAgent.open_in_browser(dash_path)
+        console.print("[dim]Opening in browser…[/dim]")
 
 
 @app.command()
