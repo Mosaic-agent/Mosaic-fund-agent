@@ -19,6 +19,15 @@ def get_demo_holdings() -> list[Holding]:
     """
     return [
         Holding(
+            tradingsymbol="GOLDBEES",
+            exchange="NSE",
+            isin="INF204KB16F8",
+            quantity=300,
+            average_price=48.0,
+            last_price=62.0,
+            instrument_type=InstrumentType.ETF,
+        ),
+        Holding(
             tradingsymbol="RELIANCE",
             exchange="NSE",
             isin="INE002A01018",
@@ -52,15 +61,6 @@ def get_demo_holdings() -> list[Holding]:
             quantity=50,
             average_price=240.0,
             last_price=255.0,
-            instrument_type=InstrumentType.ETF,
-        ),
-        Holding(
-            tradingsymbol="GOLDBEES",
-            exchange="NSE",
-            isin="INF204KB16F8",
-            quantity=300,
-            average_price=48.0,
-            last_price=62.0,
             instrument_type=InstrumentType.ETF,
         ),
     ]
