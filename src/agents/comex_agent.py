@@ -191,7 +191,7 @@ class ComexAgent:
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
-                max_tokens=1024,
+                max_tokens=settings.llm_token_budget,
             )
 
         if settings.llm_provider.lower() == "anthropic":
@@ -200,7 +200,7 @@ class ComexAgent:
                 model=settings.llm_model,
                 api_key=settings.anthropic_api_key,
                 temperature=0,
-                max_tokens=1024,
+                max_tokens=settings.llm_token_budget,
             )
 
         from langchain_openai import ChatOpenAI
@@ -208,7 +208,7 @@ class ComexAgent:
             model=settings.llm_model,
             api_key=settings.openai_api_key,
             temperature=0,
-            max_tokens=1024,
+            max_tokens=settings.llm_token_budget,
         )
 
     # ── Agent builder ─────────────────────────────────────────────────────────

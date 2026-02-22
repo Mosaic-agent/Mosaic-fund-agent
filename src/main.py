@@ -223,6 +223,8 @@ def config() -> None:
         ("LLM Provider", settings.llm_provider if not settings.llm_base_url else "local (OpenAI-compatible)", "No"),
         ("LLM Model", settings.llm_model, "No"),
         ("LLM Base URL", settings.llm_base_url if settings.llm_base_url else "(cloud default)", "No"),
+        ("LLM Context Window (tokens)", str(settings.llm_context_window), "No"),
+        ("LLM Token Budget (output)", str(settings.llm_token_budget), "No"),
         ("Kite MCP URL", settings.kite_mcp_url, "No"),
         ("Kite MCP Timeout (s)", str(settings.kite_mcp_timeout), "No"),
         ("News Articles/Stock", str(settings.news_articles_per_stock), "No"),

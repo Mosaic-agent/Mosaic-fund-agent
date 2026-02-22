@@ -96,6 +96,41 @@ class Settings(BaseSettings):
         description="NewsAPI response cache TTL in seconds (default 1 hour)",
     )
 
+    # [NON-SENSITIVE] Input context window of the model in tokens.
+    # Recommended values:
+    #   DeepSeek-R1-14B local (LM Studio, Q4):  4096
+    #   DeepSeek-R1-14B local (LM Studio, Q8):  8192
+    #   GPT-4o / GPT-4o-mini (OpenAI cloud):   32768
+    #   Claude 3.5 Sonnet (Anthropic cloud):   200000
+    llm_context_window: int = Field(
+        default=4096,
+        description="Model input context window in tokens",
+    )
+
+    @property
+    def llm_token_budget(self) -> int:
+        """
+        Max *output* tokens to request from the model.
+        = 25 % of the context window, floored at 1024.
+        The 1024 minimum ensures DeepSeek <think>…</think> reasoning blocks
+        always have enough room even on the smallest local context.
+        """
+        return max(1024, self.llm_context_window // 4)
+
+    @property
+    def llm_prompt_budget(self) -> int:
+        """
+        Approx max characters allowed in a single prompt.
+        = 75 % of context window × 4 chars/token (conservative BPE estimate).
+        Use this to hard-truncate free-text fields before injecting into prompts.
+        """
+        return int(self.llm_context_window * 0.75 * 4)
+
+    @property
+    def is_local_model(self) -> bool:
+        """True when using a local OpenAI-compatible server (LM Studio, Ollama, etc.)."""
+        return bool(self.llm_base_url)
+
     # ── Application ───────────────────────────────────────────────────────────
 
     # [NON-SENSITIVE] Output directory for generated JSON/HTML reports

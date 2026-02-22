@@ -113,6 +113,7 @@ class PortfolioAgent:
                 # Local servers don't need a real key; use a placeholder if empty
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
+                max_tokens=settings.llm_token_budget,
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────
@@ -123,6 +124,7 @@ class PortfolioAgent:
                 model=settings.llm_model,
                 api_key=settings.anthropic_api_key,
                 temperature=0,
+                max_tokens=settings.llm_token_budget,
             )
 
         # ── OpenAI cloud (default) ─────────────────────────────────────────────
@@ -132,6 +134,7 @@ class PortfolioAgent:
             model=settings.llm_model,
             api_key=settings.openai_api_key,
             temperature=0,
+            max_tokens=settings.llm_token_budget,
         )
 
     def _build_agent(self) -> Any:

@@ -248,7 +248,7 @@ class NewsSentimentAgent:
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 temperature=0.1,
-                max_tokens=2048,
+                max_tokens=settings.llm_token_budget,
             )
 
         if settings.llm_provider.lower() == "anthropic":
@@ -257,7 +257,7 @@ class NewsSentimentAgent:
                 model=settings.llm_model,
                 api_key=settings.anthropic_api_key,
                 temperature=0.1,
-                max_tokens=2048,
+                max_tokens=settings.llm_token_budget,
             )
 
         from langchain_openai import ChatOpenAI
@@ -265,7 +265,7 @@ class NewsSentimentAgent:
             model=settings.llm_model,
             api_key=settings.openai_api_key,
             temperature=0.1,
-            max_tokens=2048,
+            max_tokens=settings.llm_token_budget,
         )
 
     # ── Agent builder ─────────────────────────────────────────────────────────

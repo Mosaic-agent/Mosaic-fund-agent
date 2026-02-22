@@ -52,7 +52,7 @@ def _get_llm() -> Any:
             base_url=settings.llm_base_url,
             api_key=settings.openai_api_key or "local",
             temperature=0.2,
-            max_tokens=1024,
+            max_tokens=settings.llm_token_budget,
         )
 
     # ── Anthropic cloud ───────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ def _get_llm() -> Any:
             model=settings.llm_model,
             api_key=settings.anthropic_api_key,
             temperature=0.2,
-            max_tokens=1024,
+            max_tokens=settings.llm_token_budget,
         )
 
     # ── OpenAI cloud (default) ────────────────────────────────────────────────
@@ -72,7 +72,7 @@ def _get_llm() -> Any:
         model=settings.llm_model,
         api_key=settings.openai_api_key,
         temperature=0.2,
-        max_tokens=1024,
+        max_tokens=settings.llm_token_budget,
     )
 
 
@@ -226,7 +226,7 @@ def summarize_asset(asset_data: dict[str, Any]) -> dict[str, Any]:
         news_summary = "\n".join(
             f"- [{item.get('sentiment', 'NEUTRAL')}] {item.get('title', '')} "
             f"({item.get('source', '')})"
-            for item in news_items[:5]
+            for item in news_items[:settings.news_articles_per_stock]
         )
     else:
         news_summary = "No recent news available."
@@ -252,7 +252,7 @@ def summarize_asset(asset_data: dict[str, Any]) -> dict[str, Any]:
                 "pb_ratio": yf_data.get("pb_ratio", "N/A"),
                 "high_52w": yf_data.get("52_week_high", "N/A"),
                 "low_52w": yf_data.get("52_week_low", "N/A"),
-                "description": (yf_data.get("description", "") or "")[:300],
+                "description": (yf_data.get("description", "") or "")[:min(1200, settings.llm_prompt_budget // 20)],
                 "return_30d": momentum.get("return_30d_pct", "N/A"),
                 "return_90d": momentum.get("return_90d_pct", "N/A"),
                 "momentum_signal": momentum.get("momentum_signal", "N/A"),

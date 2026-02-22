@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Any
 
+from config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,7 @@ def load_latest_report(output_dir: str = "./output") -> dict[str, Any] | None:
         return None
 
 
-def _compact_context(report: dict[str, Any]) -> str:
+def _compact_context(report: dict[str, Any], context_window: int | None = None) -> str:
     """
     Build a token-efficient context string from a portfolio report.
 
@@ -59,7 +61,22 @@ def _compact_context(report: dict[str, Any]) -> str:
 
     The full report is intentionally NOT injected to avoid blowing the context
     window — the agent can call tools for deeper data if needed.
+
+    The structural caps (sectors, risks, rebalancing signals, insights) scale
+    automatically with *context_window* so local small models get a lean
+    context while large cloud models receive more detail.
     """
+    cw = context_window if context_window is not None else settings.llm_context_window
+    if cw <= 8192:
+        # Small local model — keep context minimal
+        max_sectors, max_risks, max_rebal, max_insights = 3, 3, 3, 2
+    elif cw <= 32768:
+        # Mid-range (GPT-4o-mini, GPT-3.5, etc.) — balanced detail
+        max_sectors, max_risks, max_rebal, max_insights = 5, 4, 4, 3
+    else:
+        # Large cloud model (GPT-4o, Claude 3.5, etc.) — full detail
+        max_sectors, max_risks, max_rebal, max_insights = 8, 6, 6, 5
+
     lines: list[str] = []
 
     # Portfolio summary
@@ -81,7 +98,7 @@ def _compact_context(report: dict[str, Any]) -> str:
     # Top sectors
     sector_alloc = report.get("sector_allocation", {})
     if sector_alloc:
-        top = sorted(sector_alloc.items(), key=lambda x: x[1], reverse=True)[:5]
+        top = sorted(sector_alloc.items(), key=lambda x: x[1], reverse=True)[:max_sectors]
         lines.append("Top sectors: " + ", ".join(f"{s}={v:.1f}%" for s, v in top))
 
     # Per-holding compact summary
@@ -103,19 +120,19 @@ def _compact_context(report: dict[str, Any]) -> str:
     risks = report.get("portfolio_risks", [])
     if risks:
         lines.append("Portfolio risks:")
-        lines.extend(f"  - {r}" for r in risks[:4])
+        lines.extend(f"  - {r}" for r in risks[:max_risks])
 
     # Rebalancing signals
     rebalancing = report.get("rebalancing_signals", [])
     if rebalancing:
         lines.append("Rebalancing signals:")
-        lines.extend(f"  - {s}" for s in rebalancing[:4])
+        lines.extend(f"  - {s}" for s in rebalancing[:max_rebal])
 
     # Actionable insights (top 3)
     insights = report.get("actionable_insights", [])
     if insights:
         lines.append("Actionable insights:")
-        lines.extend(f"  - {i}" for i in insights[:3])
+        lines.extend(f"  - {i}" for i in insights[:max_insights])
 
     # Timestamp
     generated_at = report.get("generated_at", "")
