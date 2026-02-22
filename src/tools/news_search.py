@@ -22,6 +22,28 @@ from src.models.portfolio import NewsItem, Sentiment
 
 logger = logging.getLogger(__name__)
 
+# ── GNews URL-expansion patch ─────────────────────────────────────────────────
+# gnews resolves each Google-redirect URL via requests.head() with no timeout,
+# which can hang indefinitely on slow networks.  We replace process_url with a
+# version that uses a short timeout and falls back to the raw Google URL.
+
+try:
+    from gnews.utils import utils as _gnews_utils
+    import requests as _requests
+
+    def _process_url_with_timeout(item, exclude_websites=None, proxy=None):  # type: ignore[no-redef]
+        raw = item.link if hasattr(item, "link") else item.get("link", "")
+        try:
+            resp = _requests.head(raw, timeout=5, allow_redirects=True)
+            return resp.url
+        except Exception:
+            return raw
+
+    _gnews_utils.process_url = _process_url_with_timeout
+except Exception:
+    pass  # If the patch fails, gnews still works (just potentially slower)
+
+
 # ── GNews Client ─────────────────────────────────────────────────────────────
 
 def _make_gnews_client() -> GNews:

@@ -237,6 +237,7 @@ def config() -> None:
         # [SENSITIVE] settings are masked
         ("OpenAI API Key", masked(settings.openai_api_key), "⚠ YES"),
         ("Anthropic API Key", masked(settings.anthropic_api_key), "⚠ YES"),
+        ("NewsAPI Key", masked(settings.newsapi_key), "⚠ YES"),
         ("Kite API Key", masked(settings.kite_api_key), "⚠ YES"),
         ("Kite API Secret", masked(settings.kite_api_secret), "⚠ YES"),
     ]
@@ -256,6 +257,156 @@ def config() -> None:
     else:
         console.print("\n[bold green]✓ All required configuration fields are set.[/bold green]")
     console.print()
+
+
+@app.command()
+def news(
+    symbol: str = typer.Argument(..., help="NSE/BSE trading symbol e.g. RELIANCE, TCS"),
+    company: str = typer.Option(
+        "",
+        "--company",
+        "-c",
+        help="Optional full company name for richer news queries.",
+    ),
+) -> None:
+    """
+    Multi-source news sentiment analysis for a stock symbol.
+
+    Fetches articles from NewsAPI.org (premium Indian publications) AND
+    Google News (GNews RSS), deduplicates, scores sentiment, and displays
+    a rich collated report powered by the Deep Agents framework.
+
+    Examples:
+      python src/main.py news RELIANCE
+      python src/main.py news RELIANCE --company "Reliance Industries"
+      python src/main.py news TCS -c "Tata Consultancy Services"
+    """
+    from rich.columns import Columns
+    from rich.text import Text
+
+    _setup_logging()
+
+    symbol_upper = symbol.strip().upper()
+    display_name = f"{symbol_upper} — {company}" if company else symbol_upper
+
+    console.print(
+        Panel(
+            f"[bold]News Sentiment Analysis[/bold]  [cyan]{display_name}[/cyan]\n"
+            "[dim]Sources: NewsAPI.org (premium) + Google News (GNews) · Deep Agents[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    from src.agents.news_sentiment_agent import NewsSentimentAgent
+
+    agent = NewsSentimentAgent()
+
+    with console.status(f"[cyan]Fetching news for {symbol_upper} from both sources…[/cyan]"):
+        try:
+            report = agent.run(symbol_upper, company)
+        except Exception as exc:
+            console.print(f"[bold red]✗ News analysis failed:[/bold red] {exc}")
+            raise typer.Exit(code=1)
+
+    if not report or report.get("total_articles", 0) == 0:
+        console.print(
+            f"[yellow]⚠ No news articles found for {symbol_upper}.[/yellow]\n"
+            "  Check your NEWSAPI_KEY in .env and your network connection."
+        )
+        raise typer.Exit(code=0)
+
+    # ── Sentiment banner ──────────────────────────────────────────────────────
+    overall = report.get("overall_sentiment", "NEUTRAL")
+    score = report.get("sentiment_score", 0.0)
+    score_bar = "█" * int(abs(score) * 10)
+    sentiment_color = {"POSITIVE": "green", "NEGATIVE": "red", "NEUTRAL": "yellow"}.get(overall, "white")
+
+    console.print(
+        Panel(
+            f"[bold {sentiment_color}]{overall}[/bold {sentiment_color}]  "
+            f"Score: [{sentiment_color}]{score:+.3f}[/{sentiment_color}]  "
+            f"[dim]{score_bar or '─'}[/dim]\n"
+            f"[dim]Total articles: {report.get('total_articles')}  │  "
+            f"NewsAPI: {report.get('newsapi_count', 0)}  │  "
+            f"GNews: {report.get('gnews_count', 0)}  │  "
+            f"Deduped: {report.get('deduplicated_count', 0)}[/dim]",
+            title=f"[bold]Overall Sentiment — {symbol_upper}[/bold]",
+            border_style=sentiment_color,
+        )
+    )
+
+    # ── Breakdown table ───────────────────────────────────────────────────────
+    breakdown = report.get("sentiment_breakdown", {})
+    bd_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+    bd_table.add_column("Sentiment", min_width=12)
+    bd_table.add_column("Count", justify="right", min_width=8)
+    bd_table.add_column("Share", justify="right", min_width=8)
+    bd_table.add_row(
+        "[green]Positive[/green]",
+        str(report.get("positive_count", 0)),
+        f"[green]{breakdown.get('positive_pct', 0):.1f}%[/green]",
+    )
+    bd_table.add_row(
+        "[red]Negative[/red]",
+        str(report.get("negative_count", 0)),
+        f"[red]{breakdown.get('negative_pct', 0):.1f}%[/red]",
+    )
+    bd_table.add_row(
+        "[yellow]Neutral[/yellow]",
+        str(report.get("neutral_count", 0)),
+        f"[yellow]{breakdown.get('neutral_pct', 0):.1f}%[/yellow]",
+    )
+    console.print(bd_table)
+
+    # ── Top headlines ─────────────────────────────────────────────────────────
+    pos_heads = report.get("top_positive_headlines", [])
+    neg_heads = report.get("top_negative_headlines", [])
+
+    if pos_heads:
+        console.print(Panel(
+            "\n".join(f"  [green]▲[/green] {h}" for h in pos_heads),
+            title="[bold green]Top Positive Headlines[/bold green]",
+            border_style="green",
+        ))
+    if neg_heads:
+        console.print(Panel(
+            "\n".join(f"  [red]▼[/red] {h}" for h in neg_heads),
+            title="[bold red]Top Negative Headlines[/bold red]",
+            border_style="red",
+        ))
+
+    # ── Full article list ─────────────────────────────────────────────────────
+    articles = report.get("articles", [])
+    if articles:
+        art_table = Table(
+            title=f"All Articles ({len(articles)})",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta",
+        )
+        art_table.add_column("#", justify="right", min_width=3)
+        art_table.add_column("Src", min_width=7)
+        art_table.add_column("Sentiment", min_width=9, justify="center")
+        art_table.add_column("Source / Publisher", min_width=20)
+        art_table.add_column("Headline", min_width=50)
+        art_table.add_column("Published", min_width=12)
+
+        sent_color_map = {"POSITIVE": "green", "NEGATIVE": "red", "NEUTRAL": "yellow"}
+        for idx, art in enumerate(articles, 1):
+            sc = sent_color_map.get(art.get("sentiment", "NEUTRAL"), "white")
+            tag = art.get("_source_tag", "")
+            tag_color = "blue" if tag == "NewsAPI" else "cyan"
+            art_table.add_row(
+                str(idx),
+                f"[{tag_color}]{tag}[/{tag_color}]",
+                f"[{sc}]{art.get('sentiment', '—')}[/{sc}]",
+                art.get("source", "")[:22],
+                art.get("title", "")[:60],
+                str(art.get("published_at", ""))[:16],
+            )
+        console.print(art_table)
+
+    console.rule("[dim]End of News Report[/dim]")
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────

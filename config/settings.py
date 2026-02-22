@@ -62,7 +62,11 @@ class Settings(BaseSettings):
 
     # [NON-SENSITIVE] MCP request timeout in seconds
     kite_mcp_timeout: int = Field(default=30, description="Kite MCP connection timeout (s)")
+    # ── NewsAPI ───────────────────────────────────────────────────────────────────
 
+    # [SENSITIVE] NewsAPI.org API key – https://newsapi.org/register
+    # Used by NewsSentimentAgent to pull premium Indian financial news.
+    newsapi_key: str = Field(default="", description="NewsAPI.org API key")
     # ── Gold / COMEX API ──────────────────────────────────────────────────────
 
     # [SENSITIVE] gold-api.com API key – https://gold-api.com/
@@ -133,6 +137,12 @@ class Settings(BaseSettings):
                 warnings.append(
                     "[SENSITIVE] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set."
                 )
+
+        if not self.newsapi_key:
+            warnings.append(
+                "[SENSITIVE] NEWSAPI_KEY is not set. NewsAPI news enrichment will be skipped. "
+                "Get a free key at https://newsapi.org/register"
+            )
 
         if not self.gold_api_key:
             warnings.append(

@@ -23,6 +23,8 @@ fake-useragent>=1.5.0            # Rotate user-agents to avoid scraping blocks
 
 # ── News ──────────────────────────────────────────────────────────────────────
 gnews>=0.3.7                     # Google News scraper — no API key required
+newsapi-python>=0.2.7            # NewsAPI.org client — premium Indian financial news
+deepagents>=0.1.0                # LangGraph agent harness — create_deep_agent
 
 # ── Configuration & Validation ────────────────────────────────────────────────
 pydantic>=2.7.0                  # Data models and schema validation
