@@ -176,6 +176,9 @@ Stock Count: {stock_count}
 ## Holdings Summary
 {holdings_summary}
 
+## COMEX Pre-Market Commodity Signals
+{comex_summary}
+
 ---
 Generate a JSON response:
 {{
@@ -198,10 +201,43 @@ Generate a JSON response:
 
 Health score guide: 100=perfectly healthy, 0=critical issues.
 Diversification score: 100=well diversified, 0=heavily concentrated.
-Focus on Indian market context: NSE/BSE sector cycles, FII/DII patterns, RBI policy impact.""",
+Focus on Indian market context: NSE/BSE sector cycles, FII/DII patterns, RBI policy impact.
+Use COMEX signals to adjust risk assessment for commodity-linked ETFs (e.g. GOLDBEES tracks XAU Gold).
+A bullish Gold (XAU) COMEX signal is a direct pre-market tailwind for GOLDBEES/gold ETFs.
+A bearish Gold (XAU) COMEX signal is a headwind and increases risk for gold ETF positions.""",
         ),
     ]
 )
+
+
+# ── COMEX prompt formatter ─────────────────────────────────────────────────────
+
+def _format_comex_for_prompt(comex_signals: dict[str, Any]) -> str:
+    """
+    Render COMEX signals as a compact, LLM-readable string for injection
+    into the portfolio summary prompt.
+
+    Returns a plain string (never raises).
+    """
+    if not comex_signals or "error" in comex_signals or "commodities" not in comex_signals:
+        return "COMEX data unavailable (no API key or fetch failed)."
+
+    commodities = comex_signals.get("commodities", {})
+    overall     = comex_signals.get("overall_signal", "UNKNOWN")
+    pre_market  = comex_signals.get("pre_market", False)
+    timing      = "pre-market" if pre_market else "intraday"
+
+    lines = [f"Overall COMEX signal: {overall} ({timing})"]
+    for sym, cdata in commodities.items():
+        pct     = f"{cdata['change_pct']:+.2f}%" if cdata.get("change_pct") is not None else "N/A"
+        etfs    = ", ".join(cdata.get("nse_etfs", [])) or "no direct NSE ETF"
+        emoji   = cdata.get("emoji", "")
+        signal  = cdata.get("signal", "UNKNOWN")
+        lines.append(
+            f"  {emoji} {cdata.get('name', sym)} ({sym}): {signal} {pct}"
+            f"  |  NSE exposure: {etfs}"
+        )
+    return "\n".join(lines)
 
 
 # ── Core summarization functions ──────────────────────────────────────────────
@@ -302,6 +338,9 @@ def summarize_portfolio(portfolio_data: dict[str, Any]) -> dict[str, Any]:
         )
     ) or "No sector data available."
 
+    # Format COMEX signals
+    comex_str = _format_comex_for_prompt(portfolio_data.get("comex_signals", {}))
+
     # Format holdings summary
     holdings = portfolio_data.get("holdings_analysis", [])
     holdings_str = "\n".join(
@@ -324,6 +363,7 @@ def summarize_portfolio(portfolio_data: dict[str, Any]) -> dict[str, Any]:
                 "stock_count": portfolio_data.get("stock_count", 0),
                 "sector_allocation": sector_str,
                 "holdings_summary": holdings_str,
+                "comex_summary": comex_str,
             }
         )
         return result
@@ -519,6 +559,47 @@ def summarize_portfolio_demo(portfolio_data: dict[str, Any]) -> dict[str, Any]:
     watch = [h["symbol"] for h in holdings if h.get("risk_score", 5) > 6 and h.get("pnl_percent", 0) < 0]
     if watch:
         rebalancing.append(f"Re-evaluate risk/reward for: {', '.join(watch)}")
+
+    # ── COMEX augmentation ────────────────────────────────────────────────────
+    comex = portfolio_data.get("comex_signals", {})
+    if comex and "commodities" in comex:
+        commodities = comex["commodities"]
+        overall_comex = comex.get("overall_signal", "NEUTRAL")
+        holding_syms = {h.get("symbol", "").upper() for h in holdings}
+
+        for comex_sym, cdata in commodities.items():
+            signal    = cdata.get("signal", "NEUTRAL")
+            chg_pct   = cdata.get("change_pct")
+            pct_str   = f"{chg_pct:+.2f}%" if chg_pct is not None else ""
+            name      = cdata.get("name", comex_sym)
+            emoji     = cdata.get("emoji", "")
+            linked    = [e for e in cdata.get("nse_etfs", []) if e in holding_syms]
+
+            for etf_sym in linked:
+                if "BEARISH" in signal:
+                    risks.append(
+                        f"{emoji} COMEX {name} ({comex_sym}) {signal} {pct_str}"
+                        f" — {etf_sym} faces pre-market headwind"
+                    )
+                    rebalancing.append(
+                        f"Monitor {etf_sym} at open: {name} {pct_str} pre-market"
+                    )
+                elif "BULLISH" in signal:
+                    insights.append(
+                        f"{emoji} COMEX {name} {signal} {pct_str}"
+                        f" — {etf_sym} has pre-market tailwind; consider adding on dips"
+                    )
+
+        # Overall COMEX macro context for equity holdings
+        if overall_comex in ("BEARISH", "STRONG BEARISH"):
+            risks.append(
+                f"COMEX overall {overall_comex} — commodity risk-off may weigh on equities"
+            )
+        elif overall_comex in ("BULLISH", "STRONG BULLISH"):
+            insights.append(
+                f"COMEX overall {overall_comex} — commodity strength may support metals/energy"
+            )
+
     rebalancing = rebalancing or ["No immediate rebalancing required"]
 
     return {

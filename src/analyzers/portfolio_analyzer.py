@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Any
+from typing import Any, Optional
 
 from src.models.portfolio import (
     AssetAnalysis,
@@ -319,10 +319,112 @@ def compute_portfolio_health(
     return round(max(0, min(100, total)), 1)
 
 
+# ── COMEX enrichment helpers ──────────────────────────────────────────────────
+
+# Reverse map: NSE symbol → list of COMEX symbols with direct exposure
+# Built dynamically from the COMEX data's nse_etfs lists.
+# Hardcoded fallback for offline / no GOLD_API_KEY scenarios.
+_STATIC_COMEX_MAP: dict[str, list[str]] = {
+    "GOLDBEES":  ["XAU"],
+    "KOTAKGOLD": ["XAU"],
+    "HDFCGOLD":  ["XAU"],
+    "ICICIGOLD":  ["XAU"],
+    "NIPPON":    ["XAU"],
+    "SILVERBEES": ["XAG"],
+    "VEDL":      ["HG"],
+    "HINDALCO":  ["HG"],
+}
+
+
+def _apply_comex_to_holdings(
+    holdings: list[dict[str, Any]],
+    comex_signals: Optional[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Enrich per-holding output dicts with COMEX-derived risk signals and
+    adjusted recommendations for commodity-linked NSE ETFs/stocks.
+
+    Uses the nse_etfs mapping in the COMEX data (with _STATIC_COMEX_MAP
+    as fallback) to identify which holdings are affected.
+
+    Appends COMEX signals to risk_signals and upgrades/downgrades
+    recommendation for strong pre-market moves.
+    """
+    if not comex_signals or "error" in comex_signals:
+        return holdings
+
+    commodities: dict[str, dict] = comex_signals.get("commodities", {})
+    if not commodities:
+        # No live data — try static fallback labels only (no signal strength)
+        return holdings
+
+    # Build reverse map from live COMEX nse_etfs + static fallback
+    symbol_to_comex: dict[str, list[tuple[str, str, Optional[float]]]] = {}
+    for comex_sym, cdata in commodities.items():
+        signal    = cdata.get("signal", "UNKNOWN")
+        chg_pct   = cdata.get("change_pct")
+        comex_name = cdata.get("name", comex_sym)
+        emoji     = cdata.get("emoji", "")
+        for nse_sym in cdata.get("nse_etfs", []):
+            symbol_to_comex.setdefault(nse_sym, []).append(
+                (comex_sym, comex_name, signal, chg_pct, emoji)
+            )
+
+    # Also add static fallback symbols not covered by live data
+    for nse_sym, comex_syms in _STATIC_COMEX_MAP.items():
+        for comex_sym in comex_syms:
+            if comex_sym in commodities and nse_sym not in symbol_to_comex:
+                cdata = commodities[comex_sym]
+                symbol_to_comex.setdefault(nse_sym, []).append((
+                    comex_sym,
+                    cdata.get("name", comex_sym),
+                    cdata.get("signal", "UNKNOWN"),
+                    cdata.get("change_pct"),
+                    cdata.get("emoji", ""),
+                ))
+
+    for holding in holdings:
+        sym = holding.get("symbol", "").upper()
+        if sym not in symbol_to_comex:
+            continue
+
+        risk_signals: list[str] = list(holding.get("risk_signals") or [])
+        comex_linked: list[str] = []
+
+        for (comex_sym, comex_name, signal, chg_pct, emoji) in symbol_to_comex[sym]:
+            pct_str = f"{chg_pct:+.2f}%" if chg_pct is not None else "N/A"
+            comex_linked.append(comex_sym)
+
+            if "BEARISH" in signal:
+                tag = "⚠ " if "STRONG" in signal else ""
+                risk_signals.append(
+                    f"{tag}COMEX {emoji}{comex_name} ({comex_sym}) {signal} {pct_str}"
+                    f" — pre-market headwind for {sym}"
+                )
+                # Downgrade BUY → HOLD on strong bearish
+                if signal == "STRONG BEARISH" and holding.get("recommendation") == "BUY":
+                    holding["recommendation"] = "HOLD"
+            elif "BULLISH" in signal:
+                risk_signals.append(
+                    f"COMEX {emoji}{comex_name} ({comex_sym}) {signal} {pct_str}"
+                    f" — pre-market tailwind for {sym}"
+                )
+                # Upgrade HOLD → BUY on strong bullish commodity
+                if signal == "STRONG BULLISH" and holding.get("recommendation") == "HOLD":
+                    holding["recommendation"] = "BUY"
+
+        holding["risk_signals"] = risk_signals
+        if comex_linked:
+            holding["comex_linked_commodities"] = comex_linked
+
+    return holdings
+
+
 def build_portfolio_report(
     portfolio: Portfolio,
     analyses: list[AssetAnalysis],
     use_llm_scoring: bool = True,
+    comex_signals: Optional[dict[str, Any]] = None,
 ) -> PortfolioReport:
     """
     Aggregate all asset analyses and portfolio metrics into a final report.
@@ -332,6 +434,9 @@ def build_portfolio_report(
         analyses:        List of enriched AssetAnalysis per holding.
         use_llm_scoring: Use the LLM for portfolio-level summary.
                          False → rule-based fallback (no API key needed).
+        comex_signals:   Live COMEX commodity signals from ComexAgent.
+                         Injected into per-holding risk signals and the
+                         LLM portfolio prompt for commodity-aware scoring.
 
     Returns:
         PortfolioReport matching the required JSON output schema.
@@ -389,6 +494,7 @@ def build_portfolio_report(
             "stock_count": len(stock_list),
             "sector_allocation": sector_allocation,
             "holdings_analysis": holdings_summary_for_llm,
+            "comex_signals": comex_signals or {},
         }
     )
 
@@ -441,6 +547,11 @@ def build_portfolio_report(
         }
         for a in analyses
     ]
+
+    # Enrich per-holding output with COMEX-derived risk signals and
+    # adjusted recommendations for commodity-linked ETFs (e.g. GOLDBEES → XAU)
+    if comex_signals:
+        holdings_analysis_out = _apply_comex_to_holdings(holdings_analysis_out, comex_signals)
 
     return PortfolioReport(
         generated_at=datetime.now().isoformat(),

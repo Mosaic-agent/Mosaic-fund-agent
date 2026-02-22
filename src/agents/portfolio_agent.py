@@ -174,7 +174,7 @@ class PortfolioAgent:
             console.print(
                 "\n[bold cyan]Step 1/4:[/bold cyan] "
                 "[yellow]DEMO MODE[/yellow] — Using sample NSE portfolio "
-                "(RELIANCE, TCS, HDFCBANK, INFY, NIFTYBEES, GOLDBEES)"
+                "(GOLDBEES, RELIANCE, HDFCBANK, INFY, NIFTYBEES)"
             )
             if self._use_llm_scoring:
                 console.print(
@@ -234,29 +234,34 @@ class PortfolioAgent:
 
         console.print(f"[green]✓ Enriched {len(analyses)} holdings[/green]")
 
-        # ── Step 4: Portfolio-Level Report ────────────────────────────────────
-        console.print("\n[bold cyan]Step 3/4:[/bold cyan] Generating portfolio-level intelligence...")
-
-        report = build_portfolio_report(portfolio, analyses, use_llm_scoring=self._use_llm_scoring)
-
-        console.print("[green]✓ Portfolio analysis complete[/green]")
-
-        # ── Step 4b: COMEX pre-market signals (ComexAgent) ─────────────────────
-        console.print("\n[bold cyan]COMEX:[/bold cyan] Fetching commodity pre-market signals...")
+        # ── Step 3: COMEX pre-market signals ────────────────────────────────────
+        console.print("\n[bold cyan]Step 3/4:[/bold cyan] Fetching COMEX commodity pre-market signals...")
         try:
             from src.agents.comex_agent import ComexAgent
-            comex = ComexAgent().run()
+            comex: dict = ComexAgent().run()
             console.print(
-                f"[green]✓ COMEX signals:[/green] {comex.get('overall_signal', '—')}  "
+                f"[green]✓ COMEX:[/green] {comex.get('overall_signal', '—')}  "
                 f"({comex.get('summary', '')})"
             )
         except Exception as _exc:
             logger.debug("COMEX fetch failed: %s", _exc)
             comex = {"error": str(_exc)}
+            console.print("[yellow]⚠ COMEX unavailable — scoring without commodity signals[/yellow]")
 
-        # Convert to dict and attach COMEX
+        # ── Step 4: Portfolio-Level Report (with COMEX context) ───────────────
+        console.print("\n[bold cyan]Step 4/4:[/bold cyan] Generating portfolio-level intelligence...")
+
+        report = build_portfolio_report(
+            portfolio, analyses,
+            use_llm_scoring=self._use_llm_scoring,
+            comex_signals=comex,
+        )
+
+        console.print("[green]✓ Portfolio analysis complete[/green]")
+
         report_dict = report.model_dump()
         report_dict["comex_signals"] = comex
+        return report_dict
         return report_dict
 
     def ask(self, question: str) -> str:
