@@ -37,8 +37,14 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Which LLM provider to use: "openai" or "anthropic"
     llm_provider: str = Field(default="openai", description="LLM provider")
 
-    # [NON-SENSITIVE] Model name to use (gpt-4o-mini, claude-3-haiku, etc.)
+    # [NON-SENSITIVE] Model name to use (gpt-4o-mini, claude-3-haiku, deepseek-r1:7b, etc.)
     llm_model: str = Field(default="gpt-4o-mini", description="LLM model name")
+
+    # [NON-SENSITIVE] Custom base URL for OpenAI-compatible local inference servers.
+    # Ollama:    http://localhost:11434/v1
+    # LM Studio: http://localhost:1234/v1
+    # Leave blank to use the official OpenAI/Anthropic cloud endpoints.
+    llm_base_url: str = Field(default="", description="Custom OpenAI-compatible base URL (local models)")
 
     # ── Zerodha Kite MCP ─────────────────────────────────────────────────────
 
@@ -113,21 +119,25 @@ class Settings(BaseSettings):
         """
         warnings: list[str] = []
 
-        if not self.openai_api_key and not self.anthropic_api_key:
-            warnings.append(
-                "[SENSITIVE] Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set. "
-                "Set at least one in your .env file."
-            )
+        # Skip API key checks when using a local model via a custom base URL
+        using_local = bool(self.llm_base_url)
 
-        if self.llm_provider == "openai" and not self.openai_api_key:
-            warnings.append(
-                "[SENSITIVE] LLM_PROVIDER=openai but OPENAI_API_KEY is not set."
-            )
+        if not using_local:
+            if not self.openai_api_key and not self.anthropic_api_key:
+                warnings.append(
+                    "[SENSITIVE] Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set. "
+                    "Set at least one in your .env file."
+                )
 
-        if self.llm_provider == "anthropic" and not self.anthropic_api_key:
-            warnings.append(
-                "[SENSITIVE] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set."
-            )
+            if self.llm_provider == "openai" and not self.openai_api_key:
+                warnings.append(
+                    "[SENSITIVE] LLM_PROVIDER=openai but OPENAI_API_KEY is not set."
+                )
+
+            if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+                warnings.append(
+                    "[SENSITIVE] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set."
+                )
 
         if not self.newsapi_key:
             warnings.append(

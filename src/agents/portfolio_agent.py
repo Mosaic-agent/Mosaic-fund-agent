@@ -76,9 +76,35 @@ class PortfolioAgent:
     def _build_llm(self) -> Any:
         """
         Build the LLM instance from config.
+
+        Supports three modes:
+          1. Local model (LLM_BASE_URL set) — any OpenAI-compatible server
+             e.g. Ollama (http://localhost:11434/v1) or LM Studio (http://localhost:1234/v1)
+             Set LLM_MODEL to the model name your server expects, e.g. deepseek-r1:7b
+          2. OpenAI cloud  — LLM_PROVIDER=openai  (default)
+          3. Anthropic cloud — LLM_PROVIDER=anthropic
+
         [SENSITIVE] API keys are loaded from config/settings.py → .env
         """
         provider = settings.llm_provider.lower()
+
+        # ── Local / custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.) ──
+        if settings.llm_base_url:
+            from langchain_openai import ChatOpenAI
+            logger.info(
+                "Using local LLM: model=%s  base_url=%s",
+                settings.llm_model,
+                settings.llm_base_url,
+            )
+            return ChatOpenAI(
+                model=settings.llm_model,
+                base_url=settings.llm_base_url,
+                # Local servers don't need a real key; use a placeholder if empty
+                api_key=settings.openai_api_key or "local",
+                temperature=0,
+            )
+
+        # ── Anthropic cloud ────────────────────────────────────────────────────
         if provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
             # [SENSITIVE] anthropic_api_key from .env
@@ -87,14 +113,15 @@ class PortfolioAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
             )
-        else:
-            from langchain_openai import ChatOpenAI
-            # [SENSITIVE] openai_api_key from .env
-            return ChatOpenAI(
-                model=settings.llm_model,
-                api_key=settings.openai_api_key,
-                temperature=0,
-            )
+
+        # ── OpenAI cloud (default) ─────────────────────────────────────────────
+        from langchain_openai import ChatOpenAI
+        # [SENSITIVE] openai_api_key from .env
+        return ChatOpenAI(
+            model=settings.llm_model,
+            api_key=settings.openai_api_key,
+            temperature=0,
+        )
 
     def _build_agent(self) -> Any:
         """Build the LangGraph ReAct agent with all tools."""
