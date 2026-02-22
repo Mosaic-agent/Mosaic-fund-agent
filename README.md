@@ -132,9 +132,65 @@ Reports are saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`.
 
 ## How it's built
 
-![Agent Orchestration](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Mosaic-agent/Mosaic-fund-agent/main/docs/architecture.puml)
+```mermaid
+flowchart TD
+    User(["👤 User"])
 
-> Source: [docs/architecture.puml](docs/architecture.puml)
+    subgraph CLI ["CLI — src/main.py (typer)"]
+        CLICmd["analyze [--demo --max N --quiet]\nask &quot;question&quot;\nconfig"]
+    end
+
+    subgraph Agent ["PortfolioAgent — portfolio_agent.py"]
+        subgraph Pipeline ["analyze → Sequential Pipeline (run_full_analysis)"]
+            S1["① Fetch Holdings\nKiteMCPClient → Zerodha Kite MCP\nOAuth browser login · demo: built-in sample data"]
+            S2["② Enrich Each Holding\nasset_analyzer.py — runs once per holding"]
+            S3["③ LLM Scoring\nsummarization.py\nrisk 1–10 · sentiment −1 to +1 · 5 insights"]
+            S4["④ Portfolio Aggregation\nportfolio_analyzer.py\nsector allocation · health score · rebalancing"]
+            S5["⑤ COMEX Pre-Market Signals\ncomex_fetcher.py\nXAU XAG HG XPT XPD — live spot vs prev close"]
+            S6["⑥ Format & Save\noutput.py\nRich terminal panels · JSON ./output/*.json"]
+            S1 --> S2 --> S3 --> S4 --> S5 --> S6
+        end
+
+        subgraph ReActLoop ["ask → LangGraph ReAct Loop"]
+            ReAct["LLM reasons over registered tools\nreason → act → observe · repeats until done"]
+        end
+    end
+
+    subgraph Tools ["Enrichment Tools (Step ②)"]
+        YF["yahoo_finance.py\nprice · P/E · sector · 30-day momentum"]
+        NS["news_search.py\nNewsAPI.org — last 7 days"]
+        ES["earnings_scraper.py\nScreener.in · Yahoo Finance fallback"]
+        IV["inav_fetcher.py (ETF only)\nNSE live iNAV — every 15 seconds"]
+        HI["historic_inav.py (ETF only)\nAMFI 30-day NAV via MFAPI.in"]
+    end
+
+    subgraph Ext ["External Services"]
+        KiteSvc[("Zerodha Kite MCP\nmcp.kite.trade")]
+        YFSvc[("Yahoo Finance\n.NS / .BO / GC=F SI=F HG=F")]
+        NewsSvc[("NewsAPI.org")]
+        ScrnSvc[("Screener.in")]
+        NSESvc[("NSE API + MFAPI.in")]
+        GoldSvc[("gold-api.com\nx-access-token auth")]
+        LLMSvc[("OpenAI / Anthropic\nGPT-4o-mini · Claude Haiku")]
+    end
+
+    User --> CLICmd
+    CLICmd -->|analyze| S1
+    CLICmd -->|ask| ReAct
+
+    S2 --- YF & NS & ES & IV & HI
+
+    S1 -.->|OAuth + REST| KiteSvc
+    YF -.-> YFSvc
+    NS -.-> NewsSvc
+    ES -.-> ScrnSvc
+    IV & HI -.-> NSESvc
+    S3 -.->|"demo: rule-based, no LLM key needed"| LLMSvc
+    S5 -.->|live spot prices| GoldSvc
+    S5 -.->|futures prev close| YFSvc
+```
+
+> Source: [docs/architecture.mmd](docs/architecture.mmd)
 
 ### How the agent is orchestrated
 
