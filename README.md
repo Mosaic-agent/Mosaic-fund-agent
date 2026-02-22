@@ -132,21 +132,55 @@ Reports are saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`.
 
 ## How it's built
 
-```
-CLI (src/main.py · typer)
-  └── Portfolio Agent (src/agents/portfolio_agent.py · LangGraph ReAct)
-        ├── Kite MCP client          ← holdings fetch (OAuth, no key needed)
-        ├── Asset Analyzer           ← per-holding enrichment pipeline
-        │     ├── yahoo_finance.py   ← price, P/E, sector, 30d momentum
-        │     ├── news_search.py     ← NewsAPI.org (last 7 days)
-        │     ├── earnings_scraper.py← Screener.in + Yahoo Finance fallback
-        │     ├── inav_fetcher.py    ← NSE live iNAV, ETFs only
-        │     └── historic_inav.py   ← MFAPI.in 30-day NAV history, ETFs only
-        ├── summarization.py         ← LLM risk + sentiment scoring
-        ├── portfolio_analyzer.py    ← sector alloc, health score, rebalancing
-        ├── comex_fetcher.py         ← pre-market commodity signals
-        └── output.py                ← Rich terminal panels + JSON writer
-```
+![Agent Orchestration](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Mosaic-agent/Mosaic-fund-agent/main/docs/architecture.puml)
+
+> Source: [docs/architecture.puml](docs/architecture.puml)
+
+### How the agent is orchestrated
+
+`PortfolioAgent` has two distinct execution modes depending on which CLI
+command you run:
+
+**`analyze` — sequential pipeline (`run_full_analysis`)**
+
+The main workflow is a direct, ordered pipeline — not a ReAct loop. Each step
+runs once and passes its output to the next:
+
+1. **Fetch holdings** — `KiteMCPClient` calls the hosted Zerodha Kite MCP
+   server over HTTP. OAuth browser login on first run; session cached after.
+   `--demo` bypasses this entirely using a hardcoded sample portfolio.
+
+2. **Enrich each holding** — `asset_analyzer.py` runs a sub-pipeline per
+   holding: Yahoo Finance for price/sector data, NewsAPI for recent articles,
+   Screener.in for quarterly results, and (for ETFs only) the NSE iNAV API
+   plus 30-day AMFI history from MFAPI.in.
+
+3. **LLM scoring** — `summarization.py` calls GPT-4o-mini or Claude Haiku
+   with the enriched data and returns a risk score (1–10), sentiment score
+   (−1 to +1), five key insights, and a one-paragraph summary per holding.
+   In `--demo` mode this is replaced by rule-based scoring — no API key needed.
+
+4. **Portfolio aggregation** — `portfolio_analyzer.py` rolls up all scored
+   holdings into sector allocation, concentration risk, a health score (0–100),
+   and rebalancing suggestions.
+
+5. **COMEX signals** — `comex_fetcher.py` hits gold-api.com for live spot
+   prices and Yahoo Finance futures for the previous close, then classifies each
+   commodity as STRONG BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG BEARISH.
+   All fields from the external API are validated before use (symbol whitelist,
+   positive-float price, string-length cap, regex injection guard).
+
+6. **Output** — `output.py` renders Rich terminal panels and writes a JSON
+   report to `./output/`.
+
+**`ask` — LangGraph ReAct loop**
+
+The `ask` command uses a proper ReAct (Reason + Act) agent built with
+LangGraph. The LLM is given all registered tools (Yahoo Finance, news search,
+earnings, iNAV) and loops — reasoning about which tool to call next, observing
+the result, and reasoning again — until it has enough information to answer
+the question. This is a different code path from `analyze` and is only used
+for ad-hoc freeform queries.
 
 Config lives in `config/settings.py`. Every field is annotated
 `# [SENSITIVE]` or `# [NON-SENSITIVE]`. Sensitive fields come exclusively
