@@ -35,7 +35,7 @@ from src.utils.symbol_mapper import get_company_name
 logger = logging.getLogger(__name__)
 
 
-def analyze_holding(holding: Holding, demo_mode: bool = False) -> AssetAnalysis:
+def analyze_holding(holding: Holding, use_llm_scoring: bool = True) -> AssetAnalysis:
     """
     Perform full enrichment and analysis for a single Zerodha holding.
 
@@ -45,9 +45,11 @@ def analyze_holding(holding: Holding, demo_mode: bool = False) -> AssetAnalysis:
       3. NewsAPI – recent Indian financial news
       4. Screener.in / Yahoo – quarterly results
       5. LLM – investment insights, risk score, sentiment score
+         (falls back to rule-based scoring when use_llm_scoring=False)
 
     Args:
-        holding: A Holding model from Zerodha Kite MCP.
+        holding:         A Holding model from Zerodha Kite MCP.
+        use_llm_scoring: Use the LLM for scoring. False → rule-based fallback.
 
     Returns:
         AssetAnalysis with all enriched data and AI-generated scores.
@@ -134,7 +136,7 @@ def analyze_holding(holding: Holding, demo_mode: bool = False) -> AssetAnalysis:
         "quarterly_result": quarterly.model_dump() if quarterly else {},
     }
 
-    llm_result = summarize_asset_demo(asset_payload) if demo_mode else summarize_asset(asset_payload)
+    llm_result = summarize_asset(asset_payload) if use_llm_scoring else summarize_asset_demo(asset_payload)
 
     # ── Build AssetAnalysis model ─────────────────────────────────────────────
     return AssetAnalysis(

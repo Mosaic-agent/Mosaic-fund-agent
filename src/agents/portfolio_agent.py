@@ -66,12 +66,23 @@ class PortfolioAgent:
 
     def __init__(self, demo_mode: bool = False) -> None:
         self._demo_mode = demo_mode
-        if not demo_mode:
+        # Always attempt to build the LLM — even in demo mode.
+        # demo_mode only controls the data source (sample holdings vs Kite).
+        # LLM scoring is used whenever an LLM is successfully initialised.
+        try:
             self._llm = self._build_llm()
             self._agent = self._build_agent()
-        else:
+        except Exception as exc:
+            logger.warning(
+                "LLM not available (%s) — falling back to rule-based scoring.", exc
+            )
             self._llm = None
             self._agent = None
+
+    @property
+    def _use_llm_scoring(self) -> bool:
+        """True when an LLM is configured and ready; False → rule-based fallback."""
+        return self._llm is not None
 
     def _build_llm(self) -> Any:
         """
@@ -162,6 +173,13 @@ class PortfolioAgent:
                 "[yellow]DEMO MODE[/yellow] — Using sample NSE portfolio "
                 "(RELIANCE, TCS, HDFCBANK, INFY, NIFTYBEES, GOLDBEES)"
             )
+            if self._use_llm_scoring:
+                console.print(
+                    "[dim]  LLM scoring active — "
+                    f"{settings.llm_model} @ {settings.llm_base_url or 'cloud'}[/dim]"
+                )
+            else:
+                console.print("[dim]  No LLM configured — using rule-based scoring.[/dim]")
             holdings = get_demo_holdings()
         else:
             console.print(
@@ -198,7 +216,7 @@ class PortfolioAgent:
             for holding in holdings:
                 progress.update(task, description=f"Analyzing [bold]{holding.tradingsymbol}[/bold]...")
                 try:
-                    analysis = analyze_holding(holding, demo_mode=self._demo_mode)
+                    analysis = analyze_holding(holding, use_llm_scoring=self._use_llm_scoring)
                     analyses.append(analysis)
                     console.print(
                         f"  [green]✓[/green] {holding.tradingsymbol} "
@@ -216,7 +234,7 @@ class PortfolioAgent:
         # ── Step 4: Portfolio-Level Report ────────────────────────────────────
         console.print("\n[bold cyan]Step 3/4:[/bold cyan] Generating portfolio-level intelligence...")
 
-        report = build_portfolio_report(portfolio, analyses, demo_mode=self._demo_mode)
+        report = build_portfolio_report(portfolio, analyses, use_llm_scoring=self._use_llm_scoring)
 
         console.print("[green]✓ Portfolio analysis complete[/green]")
 

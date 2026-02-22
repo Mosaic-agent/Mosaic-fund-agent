@@ -322,14 +322,16 @@ def compute_portfolio_health(
 def build_portfolio_report(
     portfolio: Portfolio,
     analyses: list[AssetAnalysis],
-    demo_mode: bool = False,
+    use_llm_scoring: bool = True,
 ) -> PortfolioReport:
     """
     Aggregate all asset analyses and portfolio metrics into a final report.
 
     Args:
-        portfolio: Raw portfolio from Zerodha (for totals).
-        analyses:  List of enriched AssetAnalysis per holding.
+        portfolio:       Raw portfolio from Zerodha (for totals).
+        analyses:        List of enriched AssetAnalysis per holding.
+        use_llm_scoring: Use the LLM for portfolio-level summary.
+                         False → rule-based fallback (no API key needed).
 
     Returns:
         PortfolioReport matching the required JSON output schema.
@@ -375,7 +377,7 @@ def build_portfolio_report(
         for a in analyses
     ]
 
-    _summarize_fn = summarize_portfolio_demo if demo_mode else summarize_portfolio
+    _summarize_fn = summarize_portfolio if use_llm_scoring else summarize_portfolio_demo
     llm_portfolio = _summarize_fn(
         {
             "total_invested": total_invested,
