@@ -22,7 +22,7 @@ lxml>=5.2.0                      # Faster HTML parser backend for BeautifulSoup
 fake-useragent>=1.5.0            # Rotate user-agents to avoid scraping blocks
 
 # ── News ──────────────────────────────────────────────────────────────────────
-newsapi-python>=0.2.7            # NewsAPI.org client – free tier 100 req/day
+gnews>=0.3.7                     # Google News scraper — no API key required
 
 # ── Configuration & Validation ────────────────────────────────────────────────
 pydantic>=2.7.0                  # Data models and schema validation

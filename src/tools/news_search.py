@@ -1,47 +1,37 @@
 """
 src/tools/news_search.py
 ─────────────────────────
-LangChain tool for fetching Indian financial news via NewsAPI.org.
+LangChain tool for fetching Indian financial news via GNews (Google News).
 
-Free tier limits:
-  • 100 requests / day
-  • Articles up to 30 days old
-  • 100 articles per request (we cap at NEWS_ARTICLES_PER_STOCK)
+No API key required — GNews scrapes Google News RSS feeds.
+Rate-limit friendly: no daily quota.
 
-News sources targeted for Indian markets:
-  • The Economic Times (economictimes.indiatimes.com)
-  • Business Standard (business-standard.com)
-  • LiveMint (livemint.com)
-  • Moneycontrol (moneycontrol.com)
-  • NDTV Profit (profit.ndtv.com)
-
-[SENSITIVE] NEWSAPI_KEY must be set in .env – never hard-coded here.
+[NON-SENSITIVE] No credentials needed for this module.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
 from typing import Any
 
+from gnews import GNews
 from langchain_core.tools import tool
-from newsapi import NewsApiClient
 
 from config.settings import settings
 from src.models.portfolio import NewsItem, Sentiment
 
 logger = logging.getLogger(__name__)
 
-# ── Indian financial news domains ─────────────────────────────────────────────
-INDIAN_NEWS_DOMAINS = (
-    "economictimes.indiatimes.com,"
-    "business-standard.com,"
-    "livemint.com,"
-    "moneycontrol.com,"
-    "profit.ndtv.com,"
-    "financialexpress.com,"
-    "thehinduBusinessLine.com"
-)
+# ── GNews Client ─────────────────────────────────────────────────────────────
+
+def _make_gnews_client() -> GNews:
+    """Create a GNews client configured for Indian English financial news."""
+    return GNews(
+        language="en",
+        country="IN",
+        max_results=settings.news_articles_per_stock,
+        period=f"{settings.news_lookback_days}d",
+    )
 
 
 # ── Sentiment heuristic ───────────────────────────────────────────────────────
@@ -76,80 +66,53 @@ def _infer_sentiment(text: str) -> Sentiment:
     return Sentiment.NEUTRAL
 
 
-def _newsapi_client() -> NewsApiClient | None:
-    """
-    Create a NewsApiClient using the [SENSITIVE] NEWSAPI_KEY from config.
-    Returns None if the key is not configured.
-    """
-    # [SENSITIVE] Key loaded from config/settings.py → .env
-    key = settings.newsapi_key
-    if not key:
-        logger.warning(
-            "NEWSAPI_KEY is not set. News enrichment will be skipped. "
-            "Get a free key at https://newsapi.org/register"
-        )
-        return None
-    return NewsApiClient(api_key=key)
-
-
 def fetch_news_for_symbol(symbol: str, company_name: str = "") -> list[NewsItem]:
     """
-    Fetch recent news articles for a given NSE/BSE stock symbol.
+    Fetch recent news articles for a given NSE/BSE stock symbol via Google News.
 
     Args:
         symbol:       Zerodha trading symbol e.g. 'RELIANCE', 'TCS'
         company_name: Optional full company name for better query results.
 
     Returns:
-        List of NewsItem models (up to NEWS_ARTICLES_PER_STOCK from config).
+        List of NewsItem models (up to news_articles_per_stock from config).
     """
-    client = _newsapi_client()
-    if client is None:
-        return []
-
-    from_date = (datetime.utcnow() - timedelta(days=settings.news_lookback_days)).strftime(
-        "%Y-%m-%d"
-    )
-
-    # Build query: symbol + company name gives best Indian market coverage
-    query = symbol
-    if company_name:
-        query = f'"{company_name}" OR "{symbol}"'
+    client = _make_gnews_client()
+    query = f"{company_name} NSE stock" if company_name else f"{symbol} NSE stock"
 
     try:
-        response = client.get_everything(
-            q=query,
-            domains=INDIAN_NEWS_DOMAINS,
-            from_param=from_date,
-            language="en",
-            sort_by="publishedAt",
-            page_size=settings.news_articles_per_stock,
-        )
+        articles = client.get_news(query)
     except Exception as exc:
-        logger.warning("NewsAPI request failed for %s: %s", symbol, exc)
+        logger.warning("GNews request failed for %s: %s", symbol, exc)
         return []
 
-    articles = response.get("articles", [])
-    items: list[NewsItem] = []
+    # Fallback: bare symbol query if primary returned nothing
+    if not articles:
+        try:
+            articles = client.get_news(symbol)
+        except Exception:
+            return []
 
+    items: list[NewsItem] = []
     for article in articles[: settings.news_articles_per_stock]:
         title = article.get("title") or ""
         description = article.get("description") or ""
-        combined_text = f"{title} {description}"
+        publisher = article.get("publisher", {})
+        source = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
 
         items.append(
             NewsItem(
                 title=title,
-                source=article.get("source", {}).get("name", ""),
-                published_at=article.get("publishedAt", ""),
-                url=article.get("url", ""),
+                source=source,
+                published_at=str(article.get("published date", "")),
+                url=article.get("url") or "",
                 description=description,
-                sentiment=_infer_sentiment(combined_text),
+                sentiment=_infer_sentiment(f"{title} {description}"),
             )
         )
 
     logger.info(
-        "Fetched %d news articles for %s (lookback=%d days)",
+        "Fetched %d news articles for %s (lookback=%dd)",
         len(items),
         symbol,
         settings.news_lookback_days,
@@ -162,17 +125,17 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "") -> list[NewsItem]
 @tool
 def get_stock_news(input_str: str) -> dict[str, Any]:
     """
-    Fetch the latest Indian financial news for a stock symbol using NewsAPI.
+    Fetch the latest Indian financial news for a stock symbol using Google News.
 
     Input format: "SYMBOL" or "SYMBOL|Company Full Name"
     Examples:
-      "RELIANCE"                   → searches for RELIANCE news
-      "TCS|Tata Consultancy"       → searches for TCS OR Tata Consultancy news
+      "RELIANCE"                   → searches for RELIANCE NSE stock news
+      "TCS|Tata Consultancy"       → searches for Tata Consultancy NSE stock news
 
     Returns a list of news articles with title, source, date, URL,
     sentiment (POSITIVE/NEUTRAL/NEGATIVE), and overall sentiment summary.
 
-    Note: Requires NEWSAPI_KEY in .env. Free tier allows 100 requests/day.
+    Note: No API key required — powered by Google News RSS via gnews.
     """
     parts = input_str.strip().split("|")
     symbol = parts[0].strip().upper()
@@ -185,7 +148,7 @@ def get_stock_news(input_str: str) -> dict[str, Any]:
             "symbol": symbol,
             "articles": [],
             "overall_sentiment": "NEUTRAL",
-            "note": "No articles found or NewsAPI key not configured.",
+            "note": "No articles found.",
         }
 
     # Aggregate sentiment

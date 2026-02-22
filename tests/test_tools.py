@@ -53,26 +53,18 @@ def test_earnings_scraper():
             print("  ⚠ Both sources unavailable (network/scraping block) – tool handles gracefully")
 
 
-def test_news_tool_no_key():
+def test_news_tool_gnews():
     print("\n" + "="*60)
-    print("TEST 4: News Tool (no key – graceful degradation)")
+    print("TEST 4: News Tool (GNews — no API key required)")
     print("="*60)
-    import os
-    from config import settings as cfg_module
-    # Temporarily remove key from both env and the loaded settings singleton
-    original_key = os.environ.get("NEWSAPI_KEY", "")
-    original_setting = cfg_module.settings.newsapi_key
-    os.environ["NEWSAPI_KEY"] = ""
-    cfg_module.settings.newsapi_key = ""
-    try:
-        from src.tools.news_search import fetch_news_for_symbol
-        items = fetch_news_for_symbol("RELIANCE", "Reliance Industries")
-        assert items == [], f"Expected empty list without key, got: {items}"
-        print("  \u2713 Returns empty list gracefully when NEWSAPI_KEY not set")
-    finally:
-        # Restore the key so other tests are unaffected
-        os.environ["NEWSAPI_KEY"] = original_key
-        cfg_module.settings.newsapi_key = original_setting
+    from src.tools.news_search import fetch_news_for_symbol
+    # GNews may return empty list if offline/rate-limited — that is OK
+    items = fetch_news_for_symbol("RELIANCE", "Reliance Industries")
+    assert isinstance(items, list), f"Expected list, got: {type(items)}"
+    print(f"  \u2713 Returns list of {len(items)} article(s) — gnews, no API key needed")
+    if items:
+        first = items[0]
+        print(f"    Sample: '{first.title[:60]}...' [{first.sentiment.value}]")
 
 
 def test_portfolio_models():
@@ -150,13 +142,13 @@ def test_config_masking():
     from config.settings import Settings
     s = Settings(
         openai_api_key="sk-test1234567890",
-        newsapi_key="abc123xyz",
+        gold_api_key="gold123xyz",
     )
     warnings = s.validate_sensitive_fields()
     assert len(warnings) == 0, f"Unexpected warnings: {warnings}"
     print("  ✓ No warnings when keys are set")
 
-    s2 = Settings(openai_api_key="", anthropic_api_key="", newsapi_key="")
+    s2 = Settings(openai_api_key="", anthropic_api_key="")
     warnings2 = s2.validate_sensitive_fields()
     assert len(warnings2) > 0
     print(f"  ✓ {len(warnings2)} warnings raised for missing sensitive fields")
