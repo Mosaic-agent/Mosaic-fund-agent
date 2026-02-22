@@ -1,598 +1,353 @@
-# 📊 Portfolio Insight — Zerodha Portfolio Intelligence Agent
+# Portfolio Insight
 
-A fully agentic AI system that reads your **Zerodha Kite** portfolio, enriches every holding with live market data, recent news, and quarterly results — then generates a rich terminal report with risk scores, sentiment, sector allocation, and actionable insights. Built for Indian equity markets (NSE & BSE).
+Ask your Zerodha portfolio a question. Get an actual answer.
 
-No manual data entry. No spreadsheets. Just run one command.
+This agent pulls your live holdings from Zerodha Kite, looks up recent news and
+quarterly results for each stock, checks COMEX metals prices before the Indian
+market opens, and writes a plain-English report — with risk scores, sector
+breakdown, and ETF premium/discount analysis baked in.
 
----
+No spreadsheets. No manual data entry. One command.
 
-## 🧠 What It Does
-
-```
-python src/main.py analyze   [--demo]  [--max N]  [--quiet]
-              │
-              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  STEP 1 — Holdings Fetch                                            │
-│  Zerodha Kite MCP  (https://mcp.kite.trade/mcp)                    │
-│    OAuth browser login on first run — no API key required           │
-│    demo mode: built-in sample NSE portfolio, no login needed        │
-│  → symbol, qty, average buy price, last price, exchange             │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │  list[Holding]
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  STEP 2 — Per-Holding Enrichment  (runs for every holding)         │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  Yahoo Finance  (.NS / .BO)                                  │   │
-│  │  → current price · P/E · EPS · 52-week range · market cap   │   │
-│  │  → sector · beta · forward PE · 30-day momentum (vs SMA30)  │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  NewsAPI.org  (free tier)                                    │   │
-│  │  → top 5 Indian financial news articles (last 7 days)        │   │
-│  │  → headline · source · published date · URL                 │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  Screener.in  (scraper + Yahoo Finance fallback)             │   │
-│  │  → latest quarterly results: revenue & net profit (₹ Cr)    │   │
-│  │  → YoY revenue growth %  ·  YoY profit growth %             │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  NSE iNAV API  (ETFs only)  — updated every 15 seconds      │   │
-│  │  fallback → Yahoo Finance navPrice  (delayed ~15 min)        │   │
-│  │  → iNAV per unit · market price                              │   │
-│  │  → premium/discount %  ·  label: PREMIUM / FAIR VALUE /     │   │
-│  │    DISCOUNT  (band: ±0.25%)                                  │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  MFAPI.in / AMFI  (ETFs only)  — 30-day historic iNAV       │   │
-│  │  → daily NAV vs market close → premium/discount time-series  │   │
-│  │  → sparkline (▁▂▄▇█)  ·  trend: WIDENING / NARROWING /      │   │
-│  │    STABLE  ·  peak premium date  ·  peak discount date       │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │  list[EnrichedHolding]
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  STEP 3 — LLM Scoring  (LangGraph ReAct Agent)                     │
-│  GPT-4o-mini  or  Claude Haiku  (configurable)                      │
-│  → risk score 1–10  (volatility · earnings · news combined)         │
-│  → sentiment score −1 to +1  (news + quarterly results)            │
-│  → 5-bullet key investment insights per holding                     │
-│  → risk signals list  ·  1-paragraph holding summary               │
-│  demo mode: rule-based scoring, no LLM key required                │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │  list[ScoredHolding]
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  STEP 4 — Portfolio Aggregation                                     │
-│  → sector allocation breakdown (% by current market value)         │
-│  → concentration risk (top-holding weight · HHI index)             │
-│  → diversification score 0–100  ·  health score 0–100              │
-│  → P&L: total invested · current value · return %                  │
-│  → actionable rebalancing insights                                  │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │  PortfolioReport
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  STEP 5 — COMEX Pre-Market Signals                                  │
-│                                                                     │
-│  gold-api.com  (x-access-token)  →  live COMEX spot prices         │
-│    XAU Gold · XAG Silver · XPT Platinum · XPD Palladium · HG Copper│
-│                                                                     │
-│  Yahoo Finance futures  →  previous trading-day close              │
-│    GC=F · SI=F · PL=F · PA=F · HG=F  (5d history, iloc[-2])        │
-│                                                                     │
-│  Signal  =  (live − prev_close) / prev_close × 100                 │
-│    > +1.0%  ⬆⬆ STRONG BULLISH  |  > +0.3%  ↑ BULLISH              │
-│    ±0.3%   → NEUTRAL           |  < −0.3%  ↓ BEARISH              │
-│                                   < −1.0%  ⬇⬇ STRONG BEARISH       │
-│                                                                     │
-│  Majority-vote across all symbols → overall_signal                 │
-│  Prompt-injection protection on all external API fields             │
-│    symbol whitelist · positive-float price · string length ·        │
-│    regex guard for injection patterns                               │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │  comex_signals dict
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  STEP 6 — Output                                                    │
-│                                                                     │
-│  Rich terminal report                                               │
-│    ┌── 🌐 COMEX Pre-Market Signals panel  (top of report)          │
-│    ├── Portfolio Overview  (value · P&L · health score)            │
-│    ├── Per-holding cards  (price · sentiment · risk · insights)     │
-│    ├── iNAV panel per ETF  (premium/discount · sparkline)           │
-│    └── Sector allocation  +  rebalancing recommendations            │
-│                                                                     │
-│  JSON file  →  ./output/portfolio_report_YYYYMMDD_HHMMSS.json      │
-└─────────────────────────────────────────────────────────────────────┘
-```
+> **Not financial advice.** This is a personal research tool.
+> Always verify before acting on any output.
 
 ---
 
-## 🏗️ Architecture
+## Why I built this
 
-### Component Map
+I kept forgetting to check whether GOLDBEES was trading at a premium before
+buying more. I also wanted to know — at a glance — whether any of my holdings
+had bad news in the last week without opening ten browser tabs.
 
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│  CLI  ·  src/main.py  ·  typer                                        │
-│  commands:  analyze  |  ask  |  config                                │
-└──────────────────────────────┬────────────────────────────────────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │   AGENT LAYER        │
-                    │  portfolio_agent.py  │
-                    │  LangGraph ReAct     │
-                    └──┬───────────────┬───┘
-                       │               │
-          ┌────────────▼──┐     ┌──────▼──────────────────────────────┐
-          │  DATA FETCH   │     │  ENRICHMENT PIPELINE                │
-          │               │     │  asset_analyzer.py                  │
-          │  Kite MCP     │     │                                     │
-          │  mcp_client.py│     │  yahoo_finance.py   price/sector    │
-          │  OAuth login  │     │  news_search.py     NewsAPI news    │
-          └──────┬────────┘     │  earnings_scraper.py Screener.in   │
-                 │              │  inav_fetcher.py    NSE iNAV (ETF) │
-                 │              │  historic_inav.py   AMFI 30d (ETF) │
-                 │              └──────────────┬──────────────────────┘
-                 └──────────────────┬──────────┘
-                                    │  list[EnrichedHolding]
-                                    ▼
-                    ┌───────────────────────────┐
-                    │  LLM SCORING              │
-                    │  summarization.py         │
-                    │  GPT-4o-mini / Claude     │
-                    │  risk · sentiment ·       │
-                    │  insights · summary       │
-                    └──────────────┬────────────┘
-                                   │  list[ScoredHolding]
-                                   ▼
-                    ┌───────────────────────────┐
-                    │  PORTFOLIO ANALYSIS       │
-                    │  portfolio_analyzer.py    │
-                    │  sector alloc · health    │
-                    │  score · rebalancing      │
-                    └──────────────┬────────────┘
-                                   │  PortfolioReport
-                                   ▼
-                    ┌───────────────────────────┐
-                    │  COMEX SIGNALS            │
-                    │  comex_fetcher.py         │
-                    │  gold-api.com + YF futures│
-                    │  BULLISH / BEARISH signal │
-                    │  + injection protection   │
-                    └──────────────┬────────────┘
-                                   │  report_dict
-                                   ▼
-                    ┌───────────────────────────┐
-                    │  OUTPUT                   │
-                    │  output.py                │
-                    │  Rich terminal panels     │
-                    │  JSON  ./output/*.json    │
-                    └───────────────────────────┘
-```
-
-### Project Structure
-
-```
-portfolio_insight/
-├── config/
-│   └── settings.py               # Pydantic settings — all sensitive fields marked
-├── src/
-│   ├── main.py                   # CLI entry point (analyze / ask / config)
-│   ├── clients/
-│   │   └── mcp_client.py         # Async HTTP client for Kite MCP server
-│   ├── models/
-│   │   └── portfolio.py          # Pydantic models: Holding, Portfolio, Report
-│   ├── tools/
-│   │   ├── zerodha_mcp_tools.py  # LangChain tools: get_holdings, get_positions
-│   │   ├── yahoo_finance.py      # yfinance wrapper — price, sector, momentum
-│   │   ├── news_search.py        # NewsAPI.org — Indian financial news
-│   │   ├── earnings_scraper.py   # Screener.in scraper + Yahoo Finance fallback
-│   │   ├── inav_fetcher.py       # ETF iNAV — NSE API (15s) + Yahoo fallback
-│   │   ├── historic_inav.py      # 30-day historic iNAV via MFAPI.in (AMFI)
-│   │   ├── comex_fetcher.py      # COMEX signals — gold-api.com + YF futures
-│   │   └── summarization.py      # LLM risk/sentiment scoring & insights
-│   ├── agents/
-│   │   └── portfolio_agent.py    # LangGraph ReAct agent + step orchestration
-│   ├── analyzers/
-│   │   ├── asset_analyzer.py     # Per-holding enrichment pipeline
-│   │   └── portfolio_analyzer.py # Sector allocation, health score, rebalancing
-│   ├── formatters/
-│   │   └── output.py             # Rich terminal panels + JSON file writer
-│   └── utils/
-│       └── symbol_mapper.py      # NSE ↔ Yahoo Finance ↔ company name
-├── tests/
-│   └── test_tools.py             # 11 tests (10 free · TEST 11 needs GOLD_API_KEY)
-├── output/                       # Generated JSON reports (git-ignored)
-├── .env.example                  # Config template — copy to .env
-├── .env                          # Your actual keys — NEVER commit
-└── requirements.txt              # Python dependencies
-```
-
-### External APIs & Data Sources
-
-```
-┌──────────────────────┬──────────────────────────┬───────────┬──────────┐
-│  Service             │  Used for                │  Cost     │  Auth    │
-├──────────────────────┼──────────────────────────┼───────────┼──────────┤
-│  Kite MCP (hosted)   │  Live portfolio holdings │  Free     │  OAuth   │
-│  Yahoo Finance       │  Prices, sector, history │  Free     │  None    │
-│  NewsAPI.org         │  Indian financial news   │  Free     │  API key │
-│  Screener.in         │  Quarterly results       │  Free     │  None    │
-│  NSE API             │  Live ETF iNAV (15s)     │  Free     │  None    │
-│  MFAPI.in (AMFI)     │  Historic NAV 30 days    │  Free     │  None    │
-│  gold-api.com        │  COMEX live spot prices  │  Free     │  API key │
-│  YF futures (GC=F…)  │  COMEX previous close    │  Free     │  None    │
-│  OpenAI / Anthropic  │  LLM scoring & insights  │  ~$0.05/r │  API key │
-└──────────────────────┴──────────────────────────┴───────────┴──────────┘
-```
+This does both, plus a few things I didn't originally plan for (COMEX signals
+turned out to be genuinely useful context before 9:15 AM IST).
 
 ---
 
-## ⚡ Quick Start
+## What it does
 
-### 1. Clone & set up environment
+1. Fetches your holdings from Zerodha via the free hosted Kite MCP server
+2. For each stock: pulls price data, recent news, and the latest quarterly results
+3. For each ETF: fetches live iNAV from NSE and calculates premium/discount
+4. Checks COMEX spot prices (Gold, Silver, Copper, Platinum, Palladium) vs
+   the previous close — useful context before NSE opens
+5. Scores each holding on risk (1–10) and sentiment (−1 to +1)
+6. Writes a terminal report and saves a JSON file to `./output/`
+
+All data sources are free. The only paid component is the LLM call
+(OpenAI or Anthropic) — roughly ₹4–12 per full portfolio run.
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- A Zerodha account
+- One of: OpenAI API key or Anthropic API key
+
+### Install
 
 ```bash
-cd /path/to/portfolio_insight
+git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git
+cd Mosaic-fund-agent
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure API keys
+### Configure
 
 ```bash
 cp .env.example .env
+# open .env and fill in your keys
 ```
 
-Open `.env` and fill in:
+The keys you need to get started:
 
-| Variable | Where to get it | Required? |
-|---|---|---|
-| `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | ✅ (or Anthropic) |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | ✅ (or OpenAI) |
-| `NEWSAPI_KEY` | [newsapi.org/register](https://newsapi.org/register) — free | ✅ recommended |
-| `GOLD_API_KEY` | [gold-api.com](https://gold-api.com/) — free | ✅ recommended |
-| `KITE_API_KEY` | Only for self-hosted MCP | ❌ not needed for hosted |
-| `KITE_API_SECRET` | Only for self-hosted MCP | ❌ not needed for hosted |
+```
+OPENAI_API_KEY=sk-...          # or use ANTHROPIC_API_KEY instead
+NEWSAPI_KEY=...                # free at newsapi.org — 100 req/day
+GOLD_API_KEY=...               # free at gold-api.com — for COMEX signals
+```
 
-> **Using the hosted Kite MCP server** (`https://mcp.kite.trade/mcp`) requires **no Kite API key** — you authenticate via browser OAuth when the agent runs.
+Kite API key and secret are **not required** — the hosted MCP server handles
+auth via browser OAuth.
 
-### 3. Verify your configuration
+Check your config looks right before running (sensitive values are masked):
 
 ```bash
 python src/main.py config
 ```
 
-This shows all settings with sensitive fields masked — never exposes raw keys.
+---
 
-### 4. Try the demo first (no Zerodha login needed)
+## Running it
+
+### Try the demo first
+
+No Zerodha login needed. Uses a sample portfolio with real live data from
+Yahoo Finance, NSE, and Screener.in:
 
 ```bash
-# Run on sample data (RELIANCE, TCS, HDFCBANK, INFY, NIFTYBEES, GOLDBEES)
-# Uses real live data from Yahoo Finance, NSE, Screener.in — no Zerodha auth
 python src/main.py analyze --demo
 ```
 
-### 5. Run on your real portfolio
+### Your real portfolio
 
 ```bash
-# Full portfolio analysis — will prompt for Zerodha browser login on first run
 python src/main.py analyze
+```
 
-# Limit to 3 holdings first (recommended to verify setup)
+First run will print a Zerodha login URL. Open it in your browser, log in,
+then press Enter. Session persists until Kite expires it.
+
+Test with a few holdings first to make sure everything is wired up:
+
+```bash
 python src/main.py analyze --max 3
-
-# Save JSON only, skip terminal display
-python src/main.py analyze --quiet
-
-# Ask a freeform question about your portfolio
-python src/main.py ask "Which of my stocks has the highest risk?"
-python src/main.py ask "Which ETFs are trading at a premium?"
 ```
 
----
-
-## 🔐 Zerodha Kite Authentication
-
-The agent uses the **free hosted MCP server** at `https://mcp.kite.trade/mcp`.
-
-When you run `analyze` for the first time (or when your session expires), the agent will print a browser URL:
-
-```
-[AUTH REQUIRED] Please open this URL in your browser to login:
-https://kite.zerodha.com/connect/login?...
-Press ENTER after completing authentication...
-```
-
-1. Open the URL in your browser
-2. Log in with your Zerodha credentials
-3. Press ENTER in the terminal — the agent continues automatically
-
----
-
-## 💬 CLI Commands
-
-### `analyze` — Full portfolio intelligence report
+### Ask a question
 
 ```bash
-python src/main.py analyze [OPTIONS]
-
-Options:
-  --max INTEGER    Limit to top N holdings (0 = all)  [default: 0]
-  --json/--no-json Save JSON report to ./output/      [default: True]
-  --quiet          Skip terminal display, JSON only
-  --help
+python src/main.py ask "which of my holdings has the worst news sentiment?"
+python src/main.py ask "am I overexposed to IT sector?"
+python src/main.py ask "which ETFs are trading at a premium right now?"
 ```
 
-### `ask` — Free-form question about your portfolio
+### Other options
 
 ```bash
-python src/main.py ask "Which of my stocks has the highest risk?"
-python src/main.py ask "What is my technology sector exposure?"
-python src/main.py ask "Which holdings have negative news sentiment?"
+python src/main.py analyze --quiet        # JSON output only, no terminal display
+python src/main.py analyze --max 5        # cap at 5 holdings
+python src/main.py config                 # show current settings (masked)
 ```
 
-### `config` — Show current configuration (non-sensitive)
-
-```bash
-python src/main.py config
-```
+Reports are saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`.
 
 ---
 
-## 📤 Output Format
+## How it's built
 
-Reports are saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`:
+```
+CLI (src/main.py · typer)
+  └── Portfolio Agent (src/agents/portfolio_agent.py · LangGraph ReAct)
+        ├── Kite MCP client          ← holdings fetch (OAuth, no key needed)
+        ├── Asset Analyzer           ← per-holding enrichment pipeline
+        │     ├── yahoo_finance.py   ← price, P/E, sector, 30d momentum
+        │     ├── news_search.py     ← NewsAPI.org (last 7 days)
+        │     ├── earnings_scraper.py← Screener.in + Yahoo Finance fallback
+        │     ├── inav_fetcher.py    ← NSE live iNAV, ETFs only
+        │     └── historic_inav.py   ← MFAPI.in 30-day NAV history, ETFs only
+        ├── summarization.py         ← LLM risk + sentiment scoring
+        ├── portfolio_analyzer.py    ← sector alloc, health score, rebalancing
+        ├── comex_fetcher.py         ← pre-market commodity signals
+        └── output.py                ← Rich terminal panels + JSON writer
+```
 
-```json
-{
-  "generated_at": "2026-02-22T14:30:00",
-  "portfolio_summary": {
-    "total_value": "₹5,23,450.00",
-    "total_invested": "₹4,85,000.00",
-    "total_pnl": "₹38,450.00",
-    "total_pnl_percent": "7.93%",
-    "health_score": 72.5,
-    "diversification_score": 65.0,
-    "num_holdings": 8,
-    "stock_count": 6,
-    "etf_count": 2,
-    "direct_equity_allocation_pct": 78.5,
-    "etf_allocation_pct": 21.5
-  },
-  "holdings_analysis": [
-    {
-      "symbol": "RELIANCE",
-      "exchange": "NSE",
-      "instrument_type": "STOCK",
-      "sector": "Energy",
-      "sentiment_score": 0.35,
-      "risk_score": 4.0,
-      "summary": "Reliance continues to demonstrate strength across its telecom and retail verticals...",
-      "key_insights": [
-        "Jio platform adds 5M subscribers YoY — telecom remains the growth engine",
-        "Retail segment revenue up 18% YoY driven by fashion and grocery expansion",
-        "...3 more bullets"
-      ],
-      "risk_signals": ["Oil price volatility", "High capex cycle ongoing"],
-      "key_news": [...],
-      "latest_results": {
-        "period": "Dec 2025",
-        "revenue_cr": 236000.0,
-        "net_profit_cr": 18540.0,
-        "revenue_yoy_pct": 8.2,
-        "profit_yoy_pct": 11.5
-      }
-    }
-  ],
-  "sector_allocation": {
-    "Technology": 35.2,
-    "Financial Services": 28.1,
-    "Energy": 18.4,
-    "FMCG": 10.0,
-    "Index ETF": 8.3
-  },
-  "portfolio_risks": [
-    "High technology sector concentration (35%) — exposed to IT slowdown risk",
-    "3 of 8 holdings show negative 30-day momentum"
-  ],
-  "actionable_insights": [
-    "Consider trimming TCS/Infosys position — both show BEARISH momentum",
-    "Add exposure to Healthcare or Consumer sectors to improve diversification",
-    "..."
-  ]
-}
+Config lives in `config/settings.py`. Every field is annotated
+`# [SENSITIVE]` or `# [NON-SENSITIVE]`. Sensitive fields come exclusively
+from `.env` — never hardcoded. `.env` is in `.gitignore`.
+
+### Project structure
+
+```
+portfolio_insight/
+├── config/
+│   └── settings.py               # Pydantic settings — all fields annotated
+├── src/
+│   ├── main.py                   # CLI entry point
+│   ├── clients/
+│   │   └── mcp_client.py         # Async HTTP client for Kite MCP
+│   ├── models/
+│   │   └── portfolio.py          # Pydantic models: Holding, Portfolio, Report
+│   ├── tools/
+│   │   ├── zerodha_mcp_tools.py  # get_holdings, get_positions
+│   │   ├── yahoo_finance.py      # price, sector, momentum
+│   │   ├── news_search.py        # NewsAPI.org
+│   │   ├── earnings_scraper.py   # Screener.in + Yahoo Finance fallback
+│   │   ├── inav_fetcher.py       # NSE live iNAV (ETFs only)
+│   │   ├── historic_inav.py      # AMFI 30-day NAV history (ETFs only)
+│   │   ├── comex_fetcher.py      # COMEX signals via gold-api.com
+│   │   └── summarization.py      # LLM scoring
+│   ├── agents/
+│   │   └── portfolio_agent.py    # orchestration
+│   ├── analyzers/
+│   │   ├── asset_analyzer.py     # per-holding enrichment
+│   │   └── portfolio_analyzer.py # portfolio-level aggregation
+│   ├── formatters/
+│   │   └── output.py             # terminal + JSON output
+│   └── utils/
+│       └── symbol_mapper.py      # NSE ↔ Yahoo Finance ↔ company name
+├── tests/
+│   └── test_tools.py             # 11 tests
+├── output/                       # generated reports (git-ignored)
+├── .env.example
+└── requirements.txt
 ```
 
 ---
 
-## 🛠️ Data Sources
+## Data sources
 
-| Data Type | Source | Cost | Limit |
-|---|---|---|---|
-| Portfolio holdings | Zerodha Kite MCP (hosted) | **Free** | Live data |
-| Stock prices & metrics | Yahoo Finance (`.NS` / `.BO`) | **Free** | Unlimited |
-| Price history & momentum | Yahoo Finance | **Free** | Unlimited |
-| Indian financial news | NewsAPI.org | **Free** | 100 req/day |
-| Quarterly results | Screener.in (scraper) | **Free** | Rate-limited |
-| Quarterly results (fallback) | Yahoo Finance financials | **Free** | Unlimited |
-| ETF iNAV (live, every 15s) | NSE API (`nseindia.com/api/etf`) | **Free** | Live during mkt hrs |
-| ETF iNAV (fallback) | Yahoo Finance navPrice | **Free** | Delayed |
-| Historic iNAV (30 days) | MFAPI.in — official AMFI data | **Free** | Daily NAV records |
-| COMEX live spot prices | gold-api.com (`/price/{symbol}`) | **Free** | Real-time |
-| COMEX previous close | Yahoo Finance futures (GC=F, SI=F…) | **Free** | Unlimited |
-| AI analysis & scoring | OpenAI GPT-4o-mini (default) | ~$0.01/run | Pay-per-use |
+Everything is free except the LLM:
 
-> **Estimated LLM cost per full run:** ~$0.05–0.15 for a 10-15 stock portfolio using `gpt-4o-mini`.  
-> Switch to `claude-3-haiku-20240307` (set `LLM_PROVIDER=anthropic`) for similar cost.
-
----
-
-## 📈 ETF iNAV Analysis
-
-For every ETF in your portfolio, the agent automatically fetches the **Indicative NAV (iNAV)** and calculates whether it is trading at a **premium or discount** to its fair value.
-
-### How It Works
-
-| Step | Detail |
-|---|---|
-| **1. ETF Detection** | Checks static symbol list (GOLDBEES, NIFTYBEES, etc.) + Yahoo Finance `quoteType` for unknowns |
-| **2. iNAV — Primary** | NSE API `nseindia.com/api/etf?symbol=…` — updated every **15 seconds** during market hours |
-| **3. iNAV — Fallback** | Yahoo Finance `navPrice` / `regularMarketPrice` (delayed ~15 min) |
-| **4. Premium / Discount** | `(market_price − iNAV) / iNAV × 100` — shown in terminal and JSON |
-
-### Premium / Discount Labels
-
-| Label | Threshold | Meaning |
+| What | Where | Notes |
 |---|---|---|
-| 🟡 **PREMIUM** | `> +0.25%` | ETF trading above its underlying NAV — often caused by demand surge |
-| 🟢 **DISCOUNT** | `< −0.25%` | ETF trading below NAV — potential buying opportunity |
-| 🔵 **FAIR VALUE** | `−0.25% to +0.25%` | Trading close to NAV — neutral |
+| Portfolio holdings | Zerodha Kite MCP (hosted) | Free, OAuth login |
+| Stock prices, P/E, sector | Yahoo Finance `.NS` / `.BO` | Free, no rate limit |
+| Indian financial news | NewsAPI.org | Free tier: 100 req/day |
+| Quarterly results | Screener.in (scraped) | Free, polite rate-limiting applied |
+| ETF iNAV — live | NSE API | Free, updates every 15s during market hours |
+| ETF iNAV — historic (30d) | MFAPI.in (official AMFI data) | Free |
+| COMEX spot prices | gold-api.com | Free with API key |
+| COMEX previous close | Yahoo Finance futures (GC=F etc.) | Free |
+| LLM scoring | OpenAI GPT-4o-mini or Claude Haiku | ~₹4–12 per run |
 
-### Sample Terminal Output (ETF Holdings)
-
-```
-╭─────────────── iNAV Analysis — GOLDBEES ───────────────╮
-│ iNAV (per unit):      ₹61.2300                         │
-│ Market Price:         ₹61.80                           │
-│ Premium / Discount:   +0.93%  ◀  PREMIUM               │
-│ Data Source:          NSE                              │
-│                                                        │
-│ ⚠ ETF trading above NAV — consider waiting to buy more │
-╰────────────────────────────────────────────────────────╯
-
-╭─────────────── iNAV Analysis — NIFTYBEES ──────────────╮
-│ iNAV (per unit):      ₹289.1500                        │
-│ Market Price:         ₹289.23                          │
-│ Premium / Discount:   +0.03%  ◀  FAIR VALUE            │
-│ Data Source:          NSE                              │
-│                                                        │
-│ ✅ ETF trading close to fair value.                    │
-╰────────────────────────────────────────────────────────╯
-```
-
-### iNAV in JSON Output
-
-```json
-{
-  "symbol": "GOLDBEES",
-  "instrument_type": "ETF",
-  "inav_analysis": {
-    "symbol": "GOLDBEES",
-    "is_etf": true,
-    "inav": 61.23,
-    "market_price": 61.80,
-    "premium_discount_pct": 0.93,
-    "premium_discount_label": "PREMIUM",
-    "source": "NSE",
-    "note": "Positive premium_discount_pct = ETF trading above iNAV (premium)."
-  }
-}
-```
+NewsAPI free tier caps at 100 requests/day. If you have more than ~15 holdings,
+the agent prioritises by portfolio weight so you don't blow the limit before
+covering your larger positions.
 
 ---
 
-## 🔒 Security — Handling Sensitive Configuration
+## ETF iNAV
 
-All sensitive fields are loaded **exclusively from `.env`** and never hard-coded.
+For ETF holdings, the agent checks whether the ETF is trading at a premium or
+discount to its indicative NAV:
 
-Every field in [config/settings.py](config/settings.py) is annotated with either `# [SENSITIVE]` or `# [NON-SENSITIVE]`.
+- **Premium (> +0.25%)** — ETF is more expensive than the underlying. Worth
+  waiting before buying more.
+- **Discount (< −0.25%)** — ETF is cheaper than the underlying. Can be a
+  buying opportunity.
+- **Fair value** — within ±0.25% of NAV. Nothing to act on.
 
-**Sensitive fields** (never commit these):
-- `OPENAI_API_KEY` — LLM provider key
-- `ANTHROPIC_API_KEY` — LLM provider key  
-- `NEWSAPI_KEY` — News search API key
-- `GOLD_API_KEY` — COMEX pre-market signals ([gold-api.com](https://gold-api.com/))
-- `KITE_API_KEY` — Only for self-hosted Kite MCP
-- `KITE_API_SECRET` — Only for self-hosted Kite MCP
+During market hours, iNAV comes from the NSE API (15-second refresh). Outside
+hours it falls back to Yahoo Finance's delayed navPrice — so the
+premium/discount figure will be less meaningful after 3:30 PM IST.
 
-**`.env` is in `.gitignore`** — it will never be accidentally committed.
+The 30-day historic iNAV shows a sparkline (`▁▂▄▇█`), trend direction
+(WIDENING / NARROWING / STABLE), and the dates of peak premium and discount
+over the period.
 
-```bash
-# Safe: shows masked values
-python src/main.py config
-
-# Output example:
-# OpenAI API Key    │  sk-p****90   │  ⚠ YES
-# NewsAPI Key       │  abc1****yz   │  ⚠ YES
-```
+Supported ETFs: GOLDBEES, NIFTYBEES, BANKBEES, SILVERBEES, JUNIORBEES,
+LIQUIDBEES, HNGSNGBEES, MAFANG, MAHKTECH, and others. Unknown ETF symbols
+are detected automatically via Yahoo Finance `quoteType`.
 
 ---
 
-## 🧪 Running Tests
+## COMEX pre-market signals
 
-Tests 1–10 run **without any API keys**. TEST 11 requires `GOLD_API_KEY` (free at [gold-api.com](https://gold-api.com/)) and will skip gracefully without it:
+Before Indian markets open, metals prices on COMEX are often the most useful
+leading indicator — especially if you hold gold/silver ETFs.
+
+The agent fetches live spot prices for Gold (XAU), Silver (XAG), Copper (HG),
+Platinum (XPT), and Palladium (XPD) from gold-api.com, compares them to the
+previous trading day's close from Yahoo Finance futures, and classifies each:
+
+```
+> +1.0%   STRONG BULLISH
+> +0.3%   BULLISH
+± 0.3%   NEUTRAL
+< -0.3%   BEARISH
+< -1.0%   STRONG BEARISH
+```
+
+This appears at the top of every terminal report. If you run the agent before
+9:15 AM IST you'll see context like "Gold up +1.8% overnight" before deciding
+whether to act on your GOLDBEES position.
+
+All fields from the external API are validated before use — symbol whitelist,
+positive-float price check, string length cap, and regex guard for
+prompt-injection patterns.
+
+---
+
+## Output format
+
+Terminal report panels:
+- COMEX pre-market signals (shown first)
+- Portfolio overview: total value, P&L, health score, diversification score
+- Per-holding: current price, sector, sentiment, risk, key insights, latest news
+- iNAV panel per ETF: premium/discount %, sparkline, 30-day trend
+- Sector allocation breakdown + rebalancing suggestions
+
+JSON report saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json` — structure
+includes `portfolio_summary`, `holdings_analysis`, `sector_allocation`,
+`portfolio_risks`, `actionable_insights`, and `comex_signals`.
+
+---
+
+## Tests
 
 ```bash
 python tests/test_tools.py
 ```
 
+11 tests. Tests 1–10 run without any API keys. Test 11 (COMEX live prices)
+needs `GOLD_API_KEY` and skips gracefully without it.
+
 ```
-TEST 1:  Yahoo Finance Tool         ✓  RELIANCE.NS live price, sector, momentum
-TEST 2:  Symbol Mapper              ✓  NSE ↔ Yahoo ↔ company name conversions
-TEST 3:  Earnings Scraper           ✓  Screener.in live INFY Dec 2025 results
-TEST 4:  News Tool (no key)         ✓  Graceful empty return without API key
-TEST 5:  Pydantic Portfolio Models  ✓  P&L, ETF detection, portfolio totals
-TEST 6:  Sector Allocation          ✓  Concentration risk, diversification score
-TEST 7:  Config Masking             ✓  Sensitive field warnings & masking
-TEST 8:  iNAV Fetcher               ✓  ETF detection, live iNAV, premium/discount batch
-TEST 9:  iNAV Premium/Discount      ✓  11 boundary scenarios (PREMIUM/DISCOUNT/FAIR VALUE)
-TEST 10: Historic iNAV              ✓  30-day AMFI data, sparkline, trend analysis
-TEST 11: COMEX Signals              ✓  Live gold-api.com XAU/XAG/HG + prompt-injection guards
+TEST 1:  Yahoo Finance         live price, sector, momentum
+TEST 2:  Symbol mapper         NSE ↔ Yahoo ↔ company name
+TEST 3:  Earnings scraper      Screener.in + Yahoo fallback
+TEST 4:  News (no key)         graceful empty return
+TEST 5:  Portfolio models      P&L, ETF detection, totals
+TEST 6:  Sector allocation     concentration risk, diversification score
+TEST 7:  Config masking        sensitive field warnings
+TEST 8:  iNAV fetcher          live iNAV, premium/discount, batch
+TEST 9:  iNAV boundaries       11 PREMIUM/DISCOUNT/FAIR VALUE edge cases
+TEST 10: Historic iNAV         30-day AMFI data, sparkline, trend
+TEST 11: COMEX signals         live XAU/XAG/HG + prompt-injection guards
 
-RESULTS: 11 passed, 0 failed
+11 passed, 0 failed
 ```
 
 ---
 
-## ⚙️ Configuration Reference
+## Known limitations
 
-All settings can be overridden in `.env`. Non-sensitive defaults are safe to commit.
-
-| Variable | Default | Sensitive? | Description |
-|---|---|---|---|
-| `OPENAI_API_KEY` | — | ⚠️ Yes | OpenAI API key |
-| `ANTHROPIC_API_KEY` | — | ⚠️ Yes | Anthropic API key |
-| `LLM_PROVIDER` | `openai` | No | `openai` or `anthropic` |
-| `LLM_MODEL` | `gpt-4o-mini` | No | Model name |
-| `KITE_MCP_URL` | `https://mcp.kite.trade/mcp` | No | MCP endpoint |
-| `KITE_API_KEY` | — | ⚠️ Yes | Self-hosted only |
-| `KITE_API_SECRET` | — | ⚠️ Yes | Self-hosted only |
-| `KITE_MCP_TIMEOUT` | `30` | No | Request timeout (s) |
-| `NEWSAPI_KEY` | — | ⚠️ Yes | NewsAPI.org key |
-| `GOLD_API_KEY` | — | ⚠️ Yes | COMEX pre-market signals (gold-api.com) |
-| `NEWS_ARTICLES_PER_STOCK` | `5` | No | Max articles per stock |
-| `NEWS_LOOKBACK_DAYS` | `7` | No | Days back for news (max 30 on free tier) |
-| `MAX_HOLDINGS_PER_RUN` | `0` | No | Holdings cap (0 = all) |
-| `SCRAPE_DELAY_SECONDS` | `2.0` | No | Polite delay between scrapes |
-| `OUTPUT_DIR` | `./output` | No | Report output folder |
-| `LOG_LEVEL` | `INFO` | No | `DEBUG` / `INFO` / `WARNING` |
+- **NewsAPI free tier:** 100 requests/day. With a large portfolio, not every
+  stock gets news — top holdings by weight are prioritised.
+- **Screener.in scraping:** HTML scraping occasionally breaks when they update
+  their layout. Yahoo Finance financials is the fallback.
+- **iNAV outside market hours:** NSE iNAV API is only live 9:15 AM – 3:30 PM IST.
+  The Yahoo Finance fallback is less accurate outside those hours.
+- **COMEX coverage:** Only the 5 commodities gold-api.com supports (XAU, XAG,
+  HG, XPT, XPD). No crude oil or agri commodities.
+- **LLM consistency:** Scores and summaries can vary slightly between runs on
+  identical data. Normal LLM behaviour.
 
 ---
 
-## 🗺️ Supported Symbols
+## Configuration reference
 
-The symbol mapper covers **100+ NSE large/mid-cap stocks** and common ETFs including:
-
-**Indices & ETFs:** `NIFTYBEES`, `JUNIORBEES`, `GOLDBEES`, `BANKBEES`, `LIQUIDBEES`
-
-**Sectors:** IT (TCS, INFY, WIPRO, HCL), Banking (HDFC, ICICI, SBI, KOTAK), Pharma (SUNPHARMA, DRREDDY, CIPLA), FMCG (HUL, ITC, NESTLE), Auto (MARUTI, TATAMOTOR, BAJAJ-AUTO), Energy (RELIANCE, ONGC, BPCL), and more.
-
-Unknown symbols gracefully fall back to Yahoo Finance lookup with `.NS` suffix.
+```
+OPENAI_API_KEY          [SENSITIVE]   OpenAI key
+ANTHROPIC_API_KEY       [SENSITIVE]   alternative to OpenAI
+LLM_PROVIDER            openai        "openai" or "anthropic"
+LLM_MODEL               gpt-4o-mini
+NEWSAPI_KEY             [SENSITIVE]   newsapi.org free key
+GOLD_API_KEY            [SENSITIVE]   gold-api.com free key
+KITE_MCP_URL            https://mcp.kite.trade/mcp
+KITE_API_KEY            [SENSITIVE]   only for self-hosted MCP
+KITE_API_SECRET         [SENSITIVE]   only for self-hosted MCP
+KITE_MCP_TIMEOUT        30            seconds
+NEWS_ARTICLES_PER_STOCK 5
+NEWS_LOOKBACK_DAYS      7             max 30 on free tier
+MAX_HOLDINGS_PER_RUN    0             0 = no cap
+SCRAPE_DELAY_SECONDS    2.0           be polite to Screener.in
+OUTPUT_DIR              ./output
+LOG_LEVEL               INFO
+```
 
 ---
 
-## 📋 Requirements
+## Disclaimer
 
-- Python 3.11+
-- Active Zerodha account (for Kite MCP authentication)
-- OpenAI or Anthropic API key (paid, ~$0.05–0.15 per full run)
-- NewsAPI free key (100 req/day — optional but recommended)
-- Internet access for Yahoo Finance and Screener.in
+This tool is for personal research only. It is not financial advice.
+The author is not responsible for investment decisions made using this output.
+Always do your own research before buying or selling any security.
+
