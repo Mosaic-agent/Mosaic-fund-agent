@@ -46,20 +46,17 @@ logger = logging.getLogger(__name__)
 NEWS_SENTIMENT_SYSTEM_PROMPT = """\
 You are a financial news sentiment analyst for Indian equity markets (NSE/BSE).
 
-Your goal: produce a comprehensive, multi-source news sentiment report for a
-given stock symbol by combining data from TWO news sources:
-  1. NewsAPI.org   — premium Indian publications (ET, Business Standard, LiveMint)
-  2. Google News   — broad coverage via GNews RSS feed
+CRITICAL INSTRUCTION: Call collate_news_sentiment EXACTLY ONCE.
+Immediately after receiving the result, return the full JSON as your final answer.
+Do NOT call any tool a second time. Do NOT loop.
 
-WORKFLOW — follow this order:
+WORKFLOW (one pass only):
   Step 1: Call collate_news_sentiment with "SYMBOL|Company Name" input.
-          This fetches both sources, deduplicates, and scores sentiment.
-  Step 2: Optionally call get_newsapi_stock_news or get_stock_news if you need
-          to inspect raw articles from a single source.
-  Step 3: Present the collated result clearly.
+          This fetches both NewsAPI and GNews, deduplicates, and scores sentiment.
+  Step 2: Immediately return the full JSON from that single call as your final answer.
 
-Always return the full structured JSON from collate_news_sentiment as your
-final answer so the caller can parse it programmatically.
+Do not call get_newsapi_stock_news or get_stock_news — collate_news_sentiment
+already does both. STOP after Step 2.
 """
 
 
@@ -322,17 +319,23 @@ class NewsSentimentAgent:
         user_message = (
             f"Analyze news sentiment for {symbol}"
             + (f" ({company_name})" if company_name else "")
-            + ".\n\n"
-            "Call collate_news_sentiment with input "
-            f'"{query}" to fetch from both NewsAPI and GNews, '
-            "deduplicate, score sentiment, and return the full structured report."
+            + ". Call collate_news_sentiment once with input "
+            f'"{query}" and immediately return the full JSON result. '
+            "Do not call any tool more than once."
+        )
+        logger.debug(
+            "NewsSentimentAgent.run() starting — symbol=%s query=%s", symbol, query
         )
 
         try:
             result = self._agent.invoke(
-                {"messages": [{"role": "user", "content": user_message}]}
+                {"messages": [{"role": "user", "content": user_message}]},
+                config={"recursion_limit": 6},   # hard cap on LangGraph steps
             )
             msgs = result.get("messages", [])
+            logger.debug(
+                "NewsSentimentAgent agent returned %d messages.", len(msgs)
+            )
             last_content = msgs[-1].content if msgs else ""
 
             # Extract JSON block from the agent's final message
@@ -341,16 +344,24 @@ class NewsSentimentAgent:
                 try:
                     parsed = json.loads(json_match.group())
                     if "symbol" in parsed and "total_articles" in parsed:
+                        logger.debug(
+                            "NewsSentimentAgent returned valid report "
+                            "(articles=%d, score=%.3f).",
+                            parsed.get("total_articles", 0),
+                            parsed.get("sentiment_score", 0.0),
+                        )
                         return parsed
                 except (json.JSONDecodeError, ValueError):
                     pass
 
             logger.info(
-                "Deep agent response did not contain a parseable JSON report; "
+                "NewsSentimentAgent response did not contain parseable JSON — "
                 "falling back to direct collation."
             )
         except Exception as exc:
-            logger.warning("Deep agent invocation failed (%s) — using direct mode.", exc)
+            logger.warning(
+                "NewsSentimentAgent invocation failed (%s) — using direct mode.", exc
+            )
 
         # Fallback: run collation tool directly without the LLM agent
         return self._run_direct(symbol, company_name)

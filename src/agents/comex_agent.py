@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from typing import Any
 
 from langchain_core.tools import tool
@@ -40,31 +42,53 @@ from src.tools.comex_fetcher import (
 
 logger = logging.getLogger(__name__)
 
+# ── Per-invocation loop guard ──────────────────────────────────────────────────
+# Each ComexAgent.run() resets _invoke_state before calling the deep agent.
+# The tool checks the counter and refuses to run more than MAX_TOOL_CALLS times,
+# which breaks the DeepSeek infinite-tool-call loop without killing the process.
+
+_MAX_TOOL_CALLS = 2          # allow 1 real call + 1 safety margin
+_invoke_state = threading.local()  # thread-safe; works with async too
+
+
+def _reset_call_counter() -> None:
+    _invoke_state.call_count = 0
+    _invoke_state.start_time = time.monotonic()
+
+
+def _increment_call_counter() -> int:
+    if not hasattr(_invoke_state, "call_count"):
+        _invoke_state.call_count = 0
+        _invoke_state.start_time = time.monotonic()
+    _invoke_state.call_count += 1
+    elapsed = time.monotonic() - _invoke_state.start_time
+    logger.debug(
+        "ComexAgent tool call #%d  elapsed=%.1fs",
+        _invoke_state.call_count,
+        elapsed,
+    )
+    return _invoke_state.call_count
+
 # ── System prompt ──────────────────────────────────────────────────────────────
 
 COMEX_SYSTEM_PROMPT = """\
 You are an Indian commodity pre-market analyst for NSE/BSE traders.
 
-Your goal: run a comprehensive COMEX signal analysis BEFORE the Indian market
-opens (NSE opens at 09:15 IST) by calling fetch_all_comex_signals.
+CRITICAL INSTRUCTION: Call fetch_all_comex_signals EXACTLY ONCE.
+As soon as you receive the tool result, output the JSON immediately as your
+final answer. Do NOT call any tool a second time. Do NOT loop.
 
-WORKFLOW:
-  Step 1: Call fetch_all_comex_signals to get live vs previous-close signals
-          for Gold (XAU), Silver (XAG), Platinum (XPT), Palladium (XPD), Copper (HG).
-  Step 2: Optionally call fetch_single_commodity for a deeper look at one symbol.
-  Step 3: Identify which Indian ETFs are affected:
-          XAU → GOLDBEES, KOTAKGOLD, HDFCGOLD, ICICIGOLD
-          XAG → SILVERBEES
-          HG  → VEDL (Vedanta), HINDALCO (indirect)
-  Step 4: Flag any STRONG signal (>±1%) as high priority.
-  Step 5: Return the full structured JSON from fetch_all_comex_signals as your
-          final answer — do not paraphrase, return the raw JSON so the caller
-          can parse it programmatically.
+WORKFLOW (one pass only):
+  Step 1: Call fetch_all_comex_signals — get live signals for XAU, XAG, XPT, XPD, HG.
+  Step 2: Immediately return the full JSON from that single call as your final answer.
 
-Key context for Indian markets:
-  • A bullish Gold (XAU) signal is bearish for equity markets (risk-off)
-  • A strong Copper (HG) rally signals global growth — positive for metals/mining
-  • Pre-market signals are most actionable BEFORE 09:00 IST
+Indian market context:
+  XAU bullish → risk-off, bearish for equities → affects GOLDBEES, KOTAKGOLD
+  XAG bullish → SILVERBEES
+  HG  bullish → global growth signal → positive for VEDL, HINDALCO
+  Flag STRONG signals (>±1%) as high priority.
+
+STOP after Step 2. Do not call any tool again.
 """
 
 
@@ -88,8 +112,30 @@ def fetch_all_comex_signals() -> dict[str, Any]:
     Each commodity entry includes: live_price, prev_close, change_usd, change_pct,
     signal (STRONG BULLISH → STRONG BEARISH), nse_etfs, source.
 
+    Call this tool ONCE. After receiving the result, return it immediately.
+    Do NOT call this tool again.
+
     Requires GOLD_API_KEY in .env.
     """
+    call_n = _increment_call_counter()
+    logger.info(
+        "ComexAgent fetch_all_comex_signals invoked (call #%d / max %d)",
+        call_n,
+        _MAX_TOOL_CALLS,
+    )
+    if call_n > _MAX_TOOL_CALLS:
+        logger.warning(
+            "ComexAgent loop detected! Tool called %d times — returning "
+            "loop_detected marker so agent stops.",
+            call_n,
+        )
+        return {
+            "loop_detected": True,
+            "message": (
+                "fetch_all_comex_signals has already been called. "
+                "Use the result from call #1. Stop calling this tool."
+            ),
+        }
     return get_comex_signals()
 
 
@@ -247,6 +293,11 @@ class ComexAgent:
         return the structured JSON result.  Falls back to _run_direct()
         (immediate tool call, no LLM) on any failure.
 
+        Loop protection:
+          - recursion_limit=6 passed to LangGraph (hard cap on graph steps)
+          - per-invocation tool call counter (_MAX_TOOL_CALLS=2)
+          - If loop_detected marker returned, falls back to _run_direct()
+
         Returns:
             Full COMEX signals dict from get_comex_signals().
         """
@@ -254,17 +305,27 @@ class ComexAgent:
             logger.info("ComexAgent deep agent unavailable — running direct.")
             return self._run_direct()
 
+        # Reset the per-invocation loop guard before each run
+        _reset_call_counter()
+        logger.debug("ComexAgent.run() started — call counter reset.")
+
         user_message = (
-            "Run a complete COMEX pre-market analysis for all 5 commodities "
-            "(XAU, XAG, XPT, XPD, HG). "
-            "Call fetch_all_comex_signals and return the full JSON result."
+            "Call fetch_all_comex_signals once and return the full JSON result. "
+            "Do not call any tool more than once."
         )
 
         try:
             result = self._agent.invoke(
-                {"messages": [{"role": "user", "content": user_message}]}
+                {"messages": [{"role": "user", "content": user_message}]},
+                config={"recursion_limit": 6},   # hard cap: 6 LangGraph steps max
             )
             msgs = result.get("messages", [])
+            logger.debug(
+                "ComexAgent.run() agent returned %d messages; "
+                "tool was called %d time(s).",
+                len(msgs),
+                getattr(_invoke_state, "call_count", 0),
+            )
             last_content = msgs[-1].content if msgs else ""
 
             # Extract JSON block from the agent's final message
@@ -273,16 +334,30 @@ class ComexAgent:
             if json_match:
                 try:
                     parsed = json.loads(json_match.group())
+                    if parsed.get("loop_detected"):
+                        logger.warning(
+                            "ComexAgent loop_detected in parsed result — "
+                            "falling back to direct mode."
+                        )
+                        return self._run_direct()
                     if "commodities" in parsed or "overall_signal" in parsed:
+                        logger.debug("ComexAgent returned valid COMEX JSON.")
                         return parsed
                 except (json.JSONDecodeError, ValueError):
                     pass
 
             logger.info(
-                "ComexAgent response did not contain parseable JSON — falling back."
+                "ComexAgent response did not contain parseable JSON "
+                "(tool calls=%d) — falling back.",
+                getattr(_invoke_state, "call_count", 0),
             )
         except Exception as exc:
-            logger.warning("ComexAgent invocation failed (%s) — using direct mode.", exc)
+            logger.warning(
+                "ComexAgent invocation failed after %d tool call(s): %s — "
+                "using direct mode.",
+                getattr(_invoke_state, "call_count", 0),
+                exc,
+            )
 
         return self._run_direct()
 
