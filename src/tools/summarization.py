@@ -34,13 +34,29 @@ logger = logging.getLogger(__name__)
 
 def _get_llm() -> Any:
     """
-    Return a LangChain LLM based on LLM_PROVIDER setting.
+    Return a LangChain LLM based on settings.
+
+    Priority:
+      1. LLM_BASE_URL set → local OpenAI-compatible server (Ollama, LM Studio, etc.)
+      2. LLM_PROVIDER=anthropic → Anthropic cloud
+      3. Default → OpenAI cloud
 
     [SENSITIVE] API keys loaded from config/settings.py → .env
     """
-    provider = settings.llm_provider.lower()
+    from langchain_openai import ChatOpenAI
 
-    if provider == "anthropic":
+    # ── Local / custom OpenAI-compatible endpoint ─────────────────────────────
+    if settings.llm_base_url:
+        return ChatOpenAI(
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            api_key=settings.openai_api_key or "local",
+            temperature=0.2,
+            max_tokens=1024,
+        )
+
+    # ── Anthropic cloud ───────────────────────────────────────────────────────
+    if settings.llm_provider.lower() == "anthropic":
         from langchain_anthropic import ChatAnthropic
         # [SENSITIVE] anthropic_api_key loaded from .env
         return ChatAnthropic(
@@ -49,16 +65,15 @@ def _get_llm() -> Any:
             temperature=0.2,
             max_tokens=1024,
         )
-    else:
-        # Default: OpenAI
-        from langchain_openai import ChatOpenAI
-        # [SENSITIVE] openai_api_key loaded from .env
-        return ChatOpenAI(
-            model=settings.llm_model,
-            api_key=settings.openai_api_key,
-            temperature=0.2,
-            max_tokens=1024,
-        )
+
+    # ── OpenAI cloud (default) ────────────────────────────────────────────────
+    # [SENSITIVE] openai_api_key loaded from .env
+    return ChatOpenAI(
+        model=settings.llm_model,
+        api_key=settings.openai_api_key,
+        temperature=0.2,
+        max_tokens=1024,
+    )
 
 
 # ── Prompt Template ────────────────────────────────────────────────────────────
