@@ -32,6 +32,12 @@ python src/main.py analyze
       → overall portfolio health score (0–100)
       → actionable rebalancing insights
               ↓
+  COMEX Pre-Market Signals  (gold-api.com + Yahoo Finance futures)
+      → live spot prices: Gold, Silver, Platinum, Palladium, Copper
+      → day-over-day change vs previous close
+      → STRONG BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG BEARISH
+      → overall commodity signal + affected NSE ETFs highlighted
+              ↓
   Rich terminal report  +  JSON file (./output/)
 ```
 
@@ -56,6 +62,7 @@ portfolio_insight/
 │   │   ├── earnings_scraper.py   # Screener.in scraper + Yahoo Finance fallback
 │   │   ├── inav_fetcher.py       # ETF iNAV — NSE API (15s) + Yahoo fallback
 │   │   ├── historic_inav.py      # 30-day historic iNAV from AMFI via MFAPI.in
+│   │   ├── comex_fetcher.py      # COMEX signals — gold-api.com + Yahoo futures
 │   │   └── summarization.py      # LLM risk/sentiment scoring & insights
 │   ├── agents/
 │   │   └── portfolio_agent.py    # LangGraph ReAct agent + orchestration
@@ -67,7 +74,7 @@ portfolio_insight/
 │   └── utils/
 │       └── symbol_mapper.py      # NSE symbol ↔ Yahoo Finance ↔ company name
 ├── tests/
-│   └── test_tools.py        # Test suite (8 tests, no API keys needed)
+│   └── test_tools.py        # Test suite (11 tests — 10 free, 1 requires GOLD_API_KEY)
 ├── output/                  # Generated JSON reports (git-ignored)
 ├── .env.example             # Config template — copy to .env
 ├── .env                     # Your actual keys — NEVER commit this
@@ -100,6 +107,7 @@ Open `.env` and fill in:
 | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | ✅ (or Anthropic) |
 | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) | ✅ (or OpenAI) |
 | `NEWSAPI_KEY` | [newsapi.org/register](https://newsapi.org/register) — free | ✅ recommended |
+| `GOLD_API_KEY` | [gold-api.com](https://gold-api.com/) — free | ✅ recommended |
 | `KITE_API_KEY` | Only for self-hosted MCP | ❌ not needed for hosted |
 | `KITE_API_SECRET` | Only for self-hosted MCP | ❌ not needed for hosted |
 
@@ -267,6 +275,8 @@ Reports are saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`:
 | ETF iNAV (live, every 15s) | NSE API (`nseindia.com/api/etf`) | **Free** | Live during mkt hrs |
 | ETF iNAV (fallback) | Yahoo Finance navPrice | **Free** | Delayed |
 | Historic iNAV (30 days) | MFAPI.in — official AMFI data | **Free** | Daily NAV records |
+| COMEX live spot prices | gold-api.com (`/price/{symbol}`) | **Free** | Real-time |
+| COMEX previous close | Yahoo Finance futures (GC=F, SI=F…) | **Free** | Unlimited |
 | AI analysis & scoring | OpenAI GPT-4o-mini (default) | ~$0.01/run | Pay-per-use |
 
 > **Estimated LLM cost per full run:** ~$0.05–0.15 for a 10-15 stock portfolio using `gpt-4o-mini`.  
@@ -348,6 +358,7 @@ Every field in [config/settings.py](config/settings.py) is annotated with either
 - `OPENAI_API_KEY` — LLM provider key
 - `ANTHROPIC_API_KEY` — LLM provider key  
 - `NEWSAPI_KEY` — News search API key
+- `GOLD_API_KEY` — COMEX pre-market signals ([gold-api.com](https://gold-api.com/))
 - `KITE_API_KEY` — Only for self-hosted Kite MCP
 - `KITE_API_SECRET` — Only for self-hosted Kite MCP
 
@@ -366,7 +377,7 @@ python src/main.py config
 
 ## 🧪 Running Tests
 
-All 10 tests run **without any API keys** (except Yahoo Finance and Screener.in which are free):
+Tests 1–10 run **without any API keys**. TEST 11 requires `GOLD_API_KEY` (free at [gold-api.com](https://gold-api.com/)) and will skip gracefully without it:
 
 ```bash
 python tests/test_tools.py
@@ -383,8 +394,9 @@ TEST 7:  Config Masking             ✓  Sensitive field warnings & masking
 TEST 8:  iNAV Fetcher               ✓  ETF detection, live iNAV, premium/discount batch
 TEST 9:  iNAV Premium/Discount      ✓  11 boundary scenarios (PREMIUM/DISCOUNT/FAIR VALUE)
 TEST 10: Historic iNAV              ✓  30-day AMFI data, sparkline, trend analysis
+TEST 11: COMEX Signals              ✓  Live gold-api.com XAU/XAG/HG + prompt-injection guards
 
-RESULTS: 10 passed, 0 failed
+RESULTS: 11 passed, 0 failed
 ```
 
 ---
@@ -404,6 +416,7 @@ All settings can be overridden in `.env`. Non-sensitive defaults are safe to com
 | `KITE_API_SECRET` | — | ⚠️ Yes | Self-hosted only |
 | `KITE_MCP_TIMEOUT` | `30` | No | Request timeout (s) |
 | `NEWSAPI_KEY` | — | ⚠️ Yes | NewsAPI.org key |
+| `GOLD_API_KEY` | — | ⚠️ Yes | COMEX pre-market signals (gold-api.com) |
 | `NEWS_ARTICLES_PER_STOCK` | `5` | No | Max articles per stock |
 | `NEWS_LOOKBACK_DAYS` | `7` | No | Days back for news (max 30 on free tier) |
 | `MAX_HOLDINGS_PER_RUN` | `0` | No | Holdings cap (0 = all) |
