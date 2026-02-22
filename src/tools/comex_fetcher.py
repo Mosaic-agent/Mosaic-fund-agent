@@ -48,6 +48,7 @@ import requests
 import yfinance as yf
 
 from config.settings import settings
+from src.utils.cache import cache_age_seconds, cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -360,6 +361,24 @@ def get_comex_signals(symbols: list[str] | None = None) -> dict:
     if not symbols:
         return {"error": "No valid COMEX symbols to fetch."}
 
+    # ── Cache check ───────────────────────────────────────────────────────────
+    # gold-api.com has a strict daily quota on the free tier.  We cache the
+    # full result for comex_cache_ttl_seconds (default 1 hour) so repeated
+    # CLI runs and analysis re-runs never waste quota.
+    _cache_key = "comex_" + "_".join(sorted(symbols))
+    _ttl = settings.comex_cache_ttl_seconds
+    if _ttl > 0:
+        cached = cache_get(_cache_key, ttl_seconds=_ttl)
+        if cached is not None:
+            age = cache_age_seconds(_cache_key) or 0
+            logger.info(
+                "COMEX: serving cached response (age %.0fm %.0fs / TTL %dh)",
+                age // 60, age % 60, _ttl // 3600,
+            )
+            cached["_cache_hit"] = True
+            cached["_cache_age_seconds"] = round(age)
+            return cached
+
     # IST context
     try:
         from zoneinfo import ZoneInfo
@@ -446,10 +465,17 @@ def get_comex_signals(symbols: list[str] | None = None) -> dict:
     else:
         overall_signal = "NEUTRAL"
 
-    return {
+    result = {
         "run_time_ist":   run_time_ist,
         "pre_market":     pre_market,
         "commodities":    commodities,
         "summary":        summary,
         "overall_signal": overall_signal,
     }
+
+    # Persist to cache (skip when TTL=0 or all fetches failed)
+    if _ttl > 0:
+        cache_set(_cache_key, result)
+        logger.info("COMEX: response cached under '%s' (TTL %dh)", _cache_key, _ttl // 3600)
+
+    return result

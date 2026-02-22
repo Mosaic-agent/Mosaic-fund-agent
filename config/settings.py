@@ -80,6 +80,22 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] How many days back to search for news (free tier max: 30)
     news_lookback_days: int = Field(default=7, description="News lookback window in days")
 
+    # [NON-SENSITIVE] How long to cache COMEX gold-api.com responses (seconds).
+    # gold-api.com free tier has a strict daily request quota — caching avoids
+    # burning requests on repeated analysis runs within the same hour.
+    # Set to 0 to disable caching (always fetch live).
+    comex_cache_ttl_seconds: int = Field(
+        default=3600,
+        description="COMEX API response cache TTL in seconds (default 1 hour)",
+    )
+
+    # [NON-SENSITIVE] How long to cache NewsAPI.org responses (seconds).
+    # Free tier allows only 100 requests/day — caching prevents throttling.
+    newsapi_cache_ttl_seconds: int = Field(
+        default=3600,
+        description="NewsAPI response cache TTL in seconds (default 1 hour)",
+    )
+
     # ── Application ───────────────────────────────────────────────────────────
 
     # [NON-SENSITIVE] Output directory for generated JSON/HTML reports

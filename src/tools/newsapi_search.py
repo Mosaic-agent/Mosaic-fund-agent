@@ -27,6 +27,7 @@ from newsapi import NewsApiClient
 from config.settings import settings
 from src.models.portfolio import NewsItem, Sentiment
 from src.tools.news_search import _infer_sentiment
+from src.utils.cache import cache_age_seconds, cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
     """
     Fetch recent articles for a stock symbol from NewsAPI.org.
 
+    Responses are cached for newsapi_cache_ttl_seconds (default 1 hour) to
+    protect the free-tier 100 req/day quota from repeated runs.
+
     Args:
         symbol:       NSE/BSE trading symbol e.g. 'RELIANCE', 'TCS'
         company_name: Optional full company name for richer query coverage.
@@ -73,6 +77,30 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
     Returns:
         List of NewsItem models; empty list if key not set or request fails.
     """
+    # ── Cache check ──────────────────────────────────────────────────────────
+    _cache_key = f"newsapi_{symbol.upper()}_{settings.news_lookback_days}d"
+    _ttl = settings.newsapi_cache_ttl_seconds
+    if _ttl > 0:
+        cached_raw = cache_get(_cache_key, ttl_seconds=_ttl)
+        if cached_raw is not None:
+            age = cache_age_seconds(_cache_key) or 0
+            logger.info(
+                "NewsAPI: serving cached response for %s (age %.0fm%.0fs / TTL %dh)",
+                symbol, age // 60, age % 60, _ttl // 3600,
+            )
+            # Re-hydrate dicts back to NewsItem models
+            return [
+                NewsItem(
+                    title=a["title"],
+                    source=a["source"],
+                    published_at=a["published_at"],
+                    url=a["url"],
+                    description=a.get("description", ""),
+                    sentiment=Sentiment(a["sentiment"]),
+                )
+                for a in cached_raw
+            ]
+
     client = _newsapi_client()
     if client is None:
         return []
@@ -118,6 +146,25 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
         symbol,
         settings.news_lookback_days,
     )
+
+    # Persist to cache so next call within TTL window skips the HTTP request
+    if _ttl > 0 and items:
+        cache_set(
+            _cache_key,
+            [
+                {
+                    "title": i.title,
+                    "source": i.source,
+                    "published_at": i.published_at,
+                    "url": i.url,
+                    "description": i.description,
+                    "sentiment": i.sentiment.value,
+                }
+                for i in items
+            ],
+        )
+        logger.debug("NewsAPI: response cached under '%s' (TTL %dh)", _cache_key, _ttl // 3600)
+
     return items
 
 
