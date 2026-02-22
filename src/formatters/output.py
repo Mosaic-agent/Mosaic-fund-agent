@@ -185,6 +185,95 @@ def _render_historic_inav_panel(hist: dict, symbol: str, console: Console) -> No
     )
 
 
+def _render_comex_panel(comex: dict, console: Console) -> None:
+    """
+    Render a COMEX commodity pre-market signal panel.
+
+    Shows live vs previous-close prices for Gold, Silver, Platinum,
+    Palladium, Copper and a per-commodity BULLISH/BEARISH/NEUTRAL signal.
+    """
+    if comex.get("error"):
+        console.print(
+            Panel(
+                f"[dim]{comex['error']}[/dim]",
+                title="[bold]🌐 COMEX Pre-Market Signals[/bold]",
+                border_style="dim",
+            )
+        )
+        return
+
+    overall  = comex.get("overall_signal", "UNKNOWN")
+    summary  = comex.get("summary", "")
+    run_time = comex.get("run_time_ist", "")
+    pre_mkt  = comex.get("pre_market", False)
+    commodities = comex.get("commodities", {})
+
+    signal_color = {
+        "STRONG BULLISH": "bright_green",
+        "BULLISH":        "green",
+        "NEUTRAL":        "yellow",
+        "BEARISH":        "red",
+        "STRONG BEARISH": "bright_red",
+        "UNKNOWN":        "white",
+    }
+    signal_icon = {
+        "STRONG BULLISH": "⬆⬆",
+        "BULLISH":        "↑",
+        "NEUTRAL":        "→",
+        "BEARISH":        "↓",
+        "STRONG BEARISH": "⬇⬇",
+        "UNKNOWN":        "?",
+    }
+
+    pre_mkt_note = "  [italic dim](pre-market — NSE not yet open)[/italic dim]" if pre_mkt else ""
+    overall_clr  = signal_color.get(overall, "white")
+    overall_icon = signal_icon.get(overall, "?")
+
+    # Build commodity rows
+    rows: list[str] = []
+    for sym, c in commodities.items():
+        sig   = c.get("signal", "UNKNOWN")
+        clr   = signal_color.get(sig, "white")
+        icon  = signal_icon.get(sig, "?")
+        name  = c.get("name", sym)
+        emoji = c.get("emoji", "")
+        live  = c.get("live_price")
+        prev  = c.get("prev_close")
+        chg   = c.get("change_pct")
+        unit  = c.get("unit", "")
+        etfs  = c.get("nse_etfs", [])
+
+        live_str  = f"${live:,.4f}" if live is not None else "N/A"
+        prev_str  = f"${prev:,.4f}" if prev is not None else "N/A"
+        chg_str   = f"{chg:+.3f}%" if chg is not None else "N/A"
+        etf_str   = f"  NSE: {', '.join(etfs)}" if etfs else ""
+
+        rows.append(
+            f"  {emoji} [bold]{name} ({sym})[/bold]  [{clr}]{icon} {sig}[/{clr}]\n"
+            f"     Live: {live_str}   Prev Close: {prev_str}   "
+            f"Change: [{clr}]{chg_str}[/{clr}]   Unit: {unit}{etf_str}"
+        )
+
+    body = (
+        f"[bold]Overall Signal:[/bold]  [{overall_clr}]{overall_icon} {overall}[/{overall_clr}]"
+        f"{pre_mkt_note}\n"
+        f"[dim]{summary}[/dim]\n\n"
+        + "\n\n".join(rows)
+        + (f"\n\n[dim]Run time: {run_time}[/dim]" if run_time else "")
+    )
+
+    border = signal_color.get(overall, "dim")
+    console.print(
+        Panel(
+            body.strip(),
+            title="[bold]🌐 COMEX Pre-Market Signals[/bold]",
+            border_style=border,
+            padding=(0, 1),
+        )
+    )
+    console.print()
+
+
 def print_report_to_console(report: dict[str, Any], console: Console | None = None) -> None:
     """
     Pretty-print the portfolio intelligence report to the terminal using Rich.
@@ -208,6 +297,11 @@ def print_report_to_console(report: dict[str, Any], console: Console | None = No
     if generated_at:
         console.print(f"[dim]Generated: {generated_at}[/dim]", justify="center")
     console.print()
+
+    # ── COMEX Pre-Market Signals ──────────────────────────────────────────────
+    comex = report.get("comex_signals")
+    if comex:
+        _render_comex_panel(comex, console)
 
     # ── Portfolio Summary Panel ───────────────────────────────────────────────
     pnl_pct = summary.get("total_pnl_percent", "0%")

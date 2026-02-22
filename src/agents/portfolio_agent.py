@@ -193,8 +193,22 @@ class PortfolioAgent:
 
         console.print("[green]✓ Portfolio analysis complete[/green]")
 
-        # Convert to dict
+        # ── Step 4b: COMEX pre-market signals ────────────────────────────────
+        console.print("\n[bold cyan]COMEX:[/bold cyan] Fetching commodity pre-market signals...")
+        try:
+            from src.tools.comex_fetcher import get_comex_signals
+            comex = get_comex_signals()
+            console.print(
+                f"[green]✓ COMEX signals:[/green] {comex.get('overall_signal', '—')}  "
+                f"({comex.get('summary', '')})"
+            )
+        except Exception as _exc:
+            logger.debug("COMEX fetch failed: %s", _exc)
+            comex = {"error": str(_exc)}
+
+        # Convert to dict and attach COMEX
         report_dict = report.model_dump()
+        report_dict["comex_signals"] = comex
         return report_dict
 
     def ask(self, question: str) -> str:
