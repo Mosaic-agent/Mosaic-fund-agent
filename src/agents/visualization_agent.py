@@ -234,7 +234,26 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 </script>
 
 <script type="text/babel">
-const { useState } = React;
+const { useState, useEffect, useRef } = React;
+
+// ── Auto-refresh hook ──────────────────────────────────────────
+const REFRESH_SECS = 300;  // 5 minutes
+
+function useCountdown() {
+  const [secs, setSecs] = useState(REFRESH_SECS);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecs(s => {
+        if (s <= 1) { location.reload(); return REFRESH_SECS; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  const m = String(Math.floor(secs / 60)).padStart(2, '0');
+  const s = String(secs % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
 
 const DATA = window.__PORTFOLIO_DATA__;
 
@@ -707,6 +726,7 @@ function Dashboard() {
   const s = d.portfolio_summary;
   const pnl_col = s.total_pnl >= 0 ? '#22c55e' : '#ef4444';
   const health_col = s.health_score >= 70 ? '#22c55e' : s.health_score >= 40 ? '#facc15' : '#ef4444';
+  const countdown = useCountdown();
   const gen_dt = new Date(d.generated_at).toLocaleString('en-IN', {
     timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric',
     hour:'2-digit', minute:'2-digit'
@@ -726,16 +746,22 @@ function Dashboard() {
             &nbsp;·&nbsp; Generated: {gen_dt} IST
           </p>
         </div>
-        {d.comex.overall_signal && (
-          <span className="self-start md:self-auto text-sm px-4 py-1.5 rounded-full font-semibold"
-            style={{
-              background: signal_color(d.comex.overall_signal) + '22',
-              color:       signal_color(d.comex.overall_signal),
-              border:      `1px solid ${signal_color(d.comex.overall_signal)}`
-            }}>
-            COMEX: {d.comex.overall_signal}
+        <div className="flex items-center gap-3 self-start md:self-auto flex-wrap">
+          {d.comex.overall_signal && (
+            <span className="text-sm px-4 py-1.5 rounded-full font-semibold"
+              style={{
+                background: signal_color(d.comex.overall_signal) + '22',
+                color:       signal_color(d.comex.overall_signal),
+                border:      `1px solid ${signal_color(d.comex.overall_signal)}`
+              }}>
+              COMEX: {d.comex.overall_signal}
+            </span>
+          )}
+          <span className="text-xs px-3 py-1.5 rounded-full font-mono"
+            style={{background:'#1e293b', color:'#64748b', border:'1px solid #334155'}}>
+            ↻ {countdown}
           </span>
-        )}
+        </div>
       </div>
 
       {/* ── 4 metric cards ── */}
