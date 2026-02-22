@@ -409,6 +409,132 @@ def news(
     console.rule("[dim]End of News Report[/dim]")
 
 
+@app.command()
+def comex() -> None:
+    """
+    Run COMEX commodity pre-market signal analysis.
+
+    Fetches live spot prices from gold-api.com for Gold (XAU), Silver (XAG),
+    Platinum (XPT), Palladium (XPD), and Copper (HG), compares against
+    previous-day Yahoo Finance futures closes, and classifies each as
+    STRONG BULLISH / BULLISH / NEUTRAL / BEARISH / STRONG BEARISH.
+
+    Identifies which Indian NSE ETFs and stocks are directly affected.
+    Powered by the Deep Agents framework (create_deep_agent).
+
+    Requires GOLD_API_KEY in .env.
+    """
+    _setup_logging()
+
+    console.print(
+        Panel(
+            "[bold]🌍 COMEX Pre-Market Signal Analysis[/bold]\n"
+            "[dim]Sources: gold-api.com (live) + Yahoo Finance (prev close) · Deep Agents[/dim]",
+            border_style="yellow",
+        )
+    )
+
+    from src.agents.comex_agent import ComexAgent
+
+    with console.status("[yellow]Fetching COMEX live prices…[/yellow]"):
+        try:
+            report = ComexAgent().run()
+        except Exception as exc:
+            console.print(f"[bold red]✗ COMEX analysis failed:[/bold red] {exc}")
+            raise typer.Exit(code=1)
+
+    if report.get("error"):
+        console.print(
+            f"[yellow]⚠ {report['error']}[/yellow]\n"
+            "  Set GOLD_API_KEY in .env — get a free key at https://gold-api.com/"
+        )
+        raise typer.Exit(code=0)
+
+    # ── Overall banner ───────────────────────────────────────────────────────
+    overall   = report.get("overall_signal", "UNKNOWN")
+    summary   = report.get("summary", "")
+    run_time  = report.get("run_time_ist", "")
+    pre_mkt   = report.get("pre_market", False)
+
+    sig_color = {
+        "STRONG BULLISH": "bright_green",
+        "BULLISH":        "green",
+        "NEUTRAL":        "yellow",
+        "BEARISH":        "red",
+        "STRONG BEARISH": "bright_red",
+    }.get(overall, "white")
+    sig_icon  = {
+        "STRONG BULLISH": "⬆⬆",
+        "BULLISH":        "↑",
+        "NEUTRAL":        "→",
+        "BEARISH":        "↓",
+        "STRONG BEARISH": "⬇⬇",
+    }.get(overall, "?")
+    pre_note = "  [italic dim](pre-market — NSE not yet open)[/italic dim]" if pre_mkt else ""
+
+    console.print(
+        Panel(
+            f"[bold {sig_color}]{sig_icon} {overall}[/bold {sig_color}]{pre_note}\n"
+            f"[dim]{summary}[/dim]"
+            + (f"\n[dim]Run time: {run_time}[/dim]" if run_time else ""),
+            title="[bold]🌍 Overall Signal[/bold]",
+            border_style=sig_color,
+        )
+    )
+
+    # ── Commodity table ────────────────────────────────────────────────────
+    commodities = report.get("commodities", {})
+    if commodities:
+        c_table = Table(
+            title="Commodity Signals",
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta",
+        )
+        c_table.add_column("", min_width=3, justify="center")   # emoji
+        c_table.add_column("Symbol", min_width=6)
+        c_table.add_column("Name", min_width=10)
+        c_table.add_column("Signal", min_width=15, justify="center")
+        c_table.add_column("Change", min_width=9, justify="right")
+        c_table.add_column("Live Price", min_width=14, justify="right")
+        c_table.add_column("Prev Close", min_width=14, justify="right")
+        c_table.add_column("NSE ETFs / Stocks", min_width=30)
+
+        icon_map = {
+            "STRONG BULLISH": ("⬆⬆", "bright_green"),
+            "BULLISH":        ("↑",   "green"),
+            "NEUTRAL":        ("→",   "yellow"),
+            "BEARISH":        ("↓",   "red"),
+            "STRONG BEARISH": ("⬇⬇", "bright_red"),
+        }
+
+        for sym, c in commodities.items():
+            sig    = c.get("signal", "UNKNOWN")
+            icon_s, clr = icon_map.get(sig, ("?", "white"))
+            chg    = c.get("change_pct")
+            live   = c.get("live_price")
+            prev   = c.get("prev_close")
+            etfs   = c.get("nse_etfs", [])
+            unit   = c.get("unit", "")
+            chg_str  = f"[{clr}]{chg:+.3f}%[/{clr}]" if chg is not None else "[dim]N/A[/dim]"
+            live_str = f"${live:,.2f}" if live is not None else "N/A"
+            prev_str = f"${prev:,.2f}" if prev is not None else "N/A"
+            etf_str  = ", ".join(etfs) if etfs else "[dim]—[/dim]"
+            c_table.add_row(
+                c.get("emoji", ""),
+                f"[bold]{sym}[/bold]",
+                c.get("name", sym),
+                f"[{clr}]{icon_s} {sig}[/{clr}]",
+                chg_str,
+                live_str,
+                prev_str,
+                etf_str,
+            )
+        console.print(c_table)
+
+    console.rule("[dim]End of COMEX Report[/dim]")
+
+
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

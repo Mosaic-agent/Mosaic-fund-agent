@@ -238,11 +238,11 @@ class PortfolioAgent:
 
         console.print("[green]✓ Portfolio analysis complete[/green]")
 
-        # ── Step 4b: COMEX pre-market signals ────────────────────────────────
+        # ── Step 4b: COMEX pre-market signals (ComexAgent) ─────────────────────
         console.print("\n[bold cyan]COMEX:[/bold cyan] Fetching commodity pre-market signals...")
         try:
-            from src.tools.comex_fetcher import get_comex_signals
-            comex = get_comex_signals()
+            from src.agents.comex_agent import ComexAgent
+            comex = ComexAgent().run()
             console.print(
                 f"[green]✓ COMEX signals:[/green] {comex.get('overall_signal', '—')}  "
                 f"({comex.get('summary', '')})"
