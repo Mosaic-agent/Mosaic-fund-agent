@@ -203,12 +203,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <!-- React + ReactDOM (UMD) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Recharts (needs react + react-dom on window first) -->
-  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
   <!-- Babel standalone for JSX transpilation -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Lucide React -->
-  <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.min.js"></script>
 
   <script>
     tailwind.config = {
@@ -238,11 +234,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 </script>
 
 <script type="text/babel">
-const {
-  BarChart, Bar, AreaChart, Area, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, Legend
-} = Recharts;
-
 const { useState } = React;
 
 const DATA = window.__PORTFOLIO_DATA__;
@@ -361,94 +352,157 @@ function ComexPanel({ comex }) {
   );
 }
 
-// ── Sector Allocation Bar Chart ────────────────────────────────────────────
+// ── Sector Allocation Bar Chart (pure SVG) ────────────────────────────────
 const SECTOR_COLORS = [
   '#6366f1','#22d3ee','#f59e0b','#10b981',
   '#ec4899','#8b5cf6','#f97316','#14b8a6',
 ];
 
-function SectorChart({ data }) {
+function SvgSectorChart({ data }) {
+  const ROW_H = 30, GAP = 8, LABEL_W = 150, BAR_MAX = 260, TEXT_W = 64;
+  const svgH = data.length * (ROW_H + GAP) + 8;
+  const svgW = LABEL_W + BAR_MAX + TEXT_W;
   return (
     <div className="bg-card rounded-2xl p-5 border border-border">
       <SectionTitle>📊 Sector Allocation</SectionTitle>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} layout="vertical" margin={{left:0,right:20}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false}/>
-          <XAxis type="number" domain={[0,100]} tick={{fill:'#94a3b8',fontSize:11}}
-            tickFormatter={v=>`${v}%`}/>
-          <YAxis type="category" dataKey="name" width={130}
-            tick={{fill:'#94a3b8',fontSize:11}}/>
-          <Tooltip
-            formatter={(v)=>[`${v.toFixed(2)}%`,'Weight']}
-            contentStyle={{background:'#1e293b',border:'1px solid #334155',borderRadius:'8px',color:'#f1f5f9'}}/>
-          <Bar dataKey="value" radius={[0,4,4,0]}>
-            {data.map((_, i) => (
-              <Cell key={i} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]}/>
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" style={{display:'block'}}>
+        {data.map((d, i) => {
+          const y = 4 + i * (ROW_H + GAP);
+          const barW = (d.value / 100) * BAR_MAX;
+          const col = SECTOR_COLORS[i % SECTOR_COLORS.length];
+          return (
+            <g key={d.name}>
+              <text x={LABEL_W - 8} y={y + ROW_H * 0.63}
+                textAnchor="end" fill="#94a3b8" fontSize="12" fontFamily="system-ui,sans-serif">
+                {d.name}
+              </text>
+              <rect x={LABEL_W} y={y + 4} width={Math.max(barW, 4)} height={ROW_H - 8}
+                fill={col} rx="4" opacity="0.9"/>
+              <text x={LABEL_W + barW + 8} y={y + ROW_H * 0.63}
+                fill="#cbd5e1" fontSize="12" fontFamily="system-ui,sans-serif">
+                {d.value.toFixed(1)}%
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
 
-// ── iNAV Area Chart ────────────────────────────────────────────────────────
-function InavChart({ records, symbol }) {
-  if (!records || records.length === 0) return null;
+// ── iNAV Chart (pure SVG) ─────────────────────────────────────────────────
+function SvgInavChart({ records, symbol }) {
+  if (!records || records.length < 2) return null;
+
+  const W = 480;
+  const P = {t:18, r:12, b:22, l:42};
+  const innerW = W - P.l - P.r;
+  const AREA_H = 150, BAR_H = 80;
+  const aIH = AREA_H - P.t - P.b;  // inner height of area chart
+  const bIH = BAR_H  - P.t - P.b;  // inner height of bar chart
+  const n = records.length;
+
+  // ── area chart scales ──
+  const navVals = records.map(r => r.nav);
+  const mktVals = records.map(r => r.market_close);
+  const allV = [...navVals, ...mktVals];
+  const minY = Math.min(...allV) * 0.9985;
+  const maxY = Math.max(...allV) * 1.0015;
+  const rangeY = (maxY - minY) || 1;
+  const xAt = i => P.l + (n > 1 ? i / (n - 1) : 0.5) * innerW;
+  const yAt = v  => P.t + (1 - (v - minY) / rangeY) * aIH;
+  const pathFor = vals => vals.map((v, i) =>
+    `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`
+  ).join(' ');
+  const navPath = pathFor(navVals);
+  const mktPath = pathFor(mktVals);
+  const bottom  = (P.t + aIH).toFixed(1);
+  const navArea = `${navPath} L${xAt(n-1).toFixed(1)},${bottom} L${P.l},${bottom} Z`;
+  const mktArea = `${mktPath} L${xAt(n-1).toFixed(1)},${bottom} L${P.l},${bottom} Z`;
+
+  // ── bar chart (P/D %) ──
+  const pcts    = records.map(r => r.pct);
+  const maxAbs  = Math.max(...pcts.map(Math.abs), 0.5);
+  const zeroY   = P.t + bIH * 0.5;
+  const barW    = (innerW / n) * 0.65;
+  const barHFor = v => Math.max(Math.abs(v) / maxAbs * (bIH / 2), 1);
+
+  // x-axis label indices (~5 spread)
+  const step = Math.max(1, Math.floor(n / 4));
+  const xLbl = [...new Set([0, ...Array.from({length:3},(_,i)=>(i+1)*step), n-1])]
+    .filter(i => i < n);
+
+  const gapY  = AREA_H + 10;
+  const totalH = gapY + BAR_H;
+  const yTicks = [minY, (minY + maxY) / 2, maxY];
+
   return (
     <div className="mt-4">
       <p className="text-xs text-slate-400 mb-2 font-semibold">
-        {symbol} — iNAV vs Market Price (30-day)
+        {symbol} — iNAV vs Market Price
       </p>
-      <ResponsiveContainer width="100%" height={160}>
-        <AreaChart data={records} margin={{top:4,right:8,bottom:0,left:0}}>
-          <defs>
-            <linearGradient id={`nav-${symbol}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-            </linearGradient>
-            <linearGradient id={`mkt-${symbol}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#22d3ee" stopOpacity={0.2}/>
-              <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155"/>
-          <XAxis dataKey="date" tick={{fill:'#64748b',fontSize:9}}
-            tickFormatter={d=>d.slice(5)}/>
-          <YAxis tick={{fill:'#64748b',fontSize:9}} domain={['auto','auto']}
-            tickFormatter={v=>v.toFixed(0)}/>
-          <Tooltip
-            contentStyle={{background:'#0f172a',border:'1px solid #334155',borderRadius:'8px',fontSize:'11px'}}
-            formatter={(v,n)=>[`₹${v.toFixed(2)}`, n==='nav' ? 'iNAV' : 'Market']}/>
-          <Legend iconSize={8} wrapperStyle={{fontSize:'10px',color:'#94a3b8'}}
-            formatter={v=>v==='nav'?'iNAV':'Market'}/>
-          <Area type="monotone" dataKey="nav"
-            stroke="#6366f1" fill={`url(#nav-${symbol})`} strokeWidth={1.5}
-            dot={false} name="nav"/>
-          <Area type="monotone" dataKey="market_close"
-            stroke="#22d3ee" fill={`url(#mkt-${symbol})`} strokeWidth={1.5}
-            dot={false} name="market_close"/>
-        </AreaChart>
-      </ResponsiveContainer>
+      <svg viewBox={`0 0 ${W} ${totalH}`} width="100%" style={{display:'block'}}>
+        <defs>
+          <linearGradient id={`gn-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#6366f1" stopOpacity="0.35"/>
+            <stop offset="100%" stopColor="#6366f1" stopOpacity="0.02"/>
+          </linearGradient>
+          <linearGradient id={`gm-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#22d3ee" stopOpacity="0.2"/>
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.02"/>
+          </linearGradient>
+        </defs>
 
-      {/* Premium/Discount bar chart */}
-      <p className="text-xs text-slate-400 mt-4 mb-1 font-semibold">Premium / Discount %</p>
-      <ResponsiveContainer width="100%" height={90}>
-        <BarChart data={records} margin={{top:0,right:8,bottom:0,left:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false}/>
-          <XAxis dataKey="date" tick={{fill:'#64748b',fontSize:9}} tickFormatter={d=>d.slice(5)}/>
-          <YAxis tick={{fill:'#64748b',fontSize:9}} tickFormatter={v=>v+'%'}/>
-          <Tooltip
-            contentStyle={{background:'#0f172a',border:'1px solid #334155',borderRadius:'8px',fontSize:'11px'}}
-            formatter={(v)=>[`${v.toFixed(2)}%`,'P/D']}/>
-          <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 2"/>
-          <Bar dataKey="pct" radius={[3,3,0,0]}>
-            {records.map((r,i)=>(
-              <Cell key={i} fill={r.pct >= 0 ? '#22c55e' : '#ef4444'}/>
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+        {/* ── Area chart ── */}
+        {yTicks.map((v, ti) => {
+          const y = yAt(v);
+          return (
+            <g key={ti}>
+              <line x1={P.l} y1={y} x2={P.l + innerW} y2={y}
+                stroke="#334155" strokeDasharray="4 2" strokeWidth="0.6"/>
+              <text x={P.l - 4} y={y + 3.5} textAnchor="end"
+                fill="#64748b" fontSize="9" fontFamily="system-ui,sans-serif">
+                ₹{v.toFixed(0)}
+              </text>
+            </g>
+          );
+        })}
+        <path d={navArea} fill={`url(#gn-${symbol})`}/>
+        <path d={mktArea} fill={`url(#gm-${symbol})`}/>
+        <path d={navPath} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinejoin="round"/>
+        <path d={mktPath} fill="none" stroke="#22d3ee" strokeWidth="1.5" strokeLinejoin="round"/>
+        {/* Legend */}
+        <rect x={P.l}    y={3} width={8} height={8} fill="#6366f1" rx="2"/>
+        <text x={P.l+10} y={10} fill="#94a3b8" fontSize="9" fontFamily="system-ui,sans-serif">iNAV</text>
+        <rect x={P.l+46} y={3} width={8} height={8} fill="#22d3ee" rx="2"/>
+        <text x={P.l+56} y={10} fill="#94a3b8" fontSize="9" fontFamily="system-ui,sans-serif">Market</text>
+
+        {/* ── P/D bar chart ── */}
+        <g transform={`translate(0,${gapY})`}>
+          <text x={P.l} y={P.t - 4} fill="#94a3b8" fontSize="9" fontFamily="system-ui,sans-serif">
+            Premium / Discount %
+          </text>
+          <line x1={P.l} y1={P.t + bIH*0.5} x2={P.l + innerW} y2={P.t + bIH*0.5}
+            stroke="#475569" strokeDasharray="4 2" strokeWidth="0.8"/>
+          <text x={P.l - 4} y={P.t + bIH*0.5 + 3.5} textAnchor="end"
+            fill="#64748b" fontSize="9" fontFamily="system-ui,sans-serif">0</text>
+          {records.map((r, i) => {
+            const bh = barHFor(r.pct);
+            const bx = xAt(i) - barW / 2;
+            const by = r.pct >= 0 ? zeroY - bh : zeroY;
+            return (
+              <rect key={i} x={bx} y={by} width={barW} height={bh}
+                fill={r.pct >= 0 ? '#22c55e' : '#ef4444'} rx="2" opacity="0.85"/>
+            );
+          })}
+          {xLbl.map(i => (
+            <text key={i} x={xAt(i)} y={P.t + bIH + 14}
+              textAnchor="middle" fill="#64748b" fontSize="8" fontFamily="system-ui,sans-serif">
+              {records[i].date.slice(5)}
+            </text>
+          ))}
+        </g>
+      </svg>
     </div>
   );
 }
@@ -625,7 +679,7 @@ function HoldingCard({ h }) {
           )}
 
           {/* Historic iNAV chart */}
-          <InavChart records={h.historic_records} symbol={h.symbol}/>
+          <SvgInavChart records={h.historic_records} symbol={h.symbol}/>
         </div>
       )}
     </div>
@@ -715,7 +769,7 @@ function Dashboard() {
       {/* ── 2-col: COMEX + Sector ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ComexPanel comex={d.comex}/>
-        <SectorChart data={d.sector_data}/>
+        <SvgSectorChart data={d.sector_data}/>
       </div>
 
       {/* ── Holdings ── */}
