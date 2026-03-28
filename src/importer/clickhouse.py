@@ -143,6 +143,23 @@ PARTITION BY toYYYYMM(snapshot_at)
 ORDER BY (symbol, snapshot_at)
 """
 
+_DDL_ML_PREDICTIONS = """
+CREATE TABLE IF NOT EXISTS market_data.ml_predictions (
+    as_of                Date,
+    horizon_days         UInt8,
+    expected_return_pct  Float64,
+    confidence_low       Float64,
+    confidence_high      Float64,
+    regime_signal        String,
+    cv_r2_mean           Float64,
+    n_training_rows      UInt32,
+    goldbees_close       Float64,
+    created_at           DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(created_at)
+ORDER BY (as_of, horizon_days)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -177,7 +194,7 @@ class ClickHouseImporter:
         for ddl in (
             _DDL_DATABASE, _DDL_DAILY_PRICES, _DDL_MF_NAV, _DDL_WATERMARKS,
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
-            _DDL_FX_RATES,
+            _DDL_FX_RATES, _DDL_ML_PREDICTIONS,
         ):
             self._client.command(ddl)
         logger.debug("ClickHouse schema verified.")
@@ -417,6 +434,42 @@ class ClickHouseImporter:
             column_names=["trade_date", "symbol", "open", "high", "low", "close", "source"],
         )
         return len(rows)
+
+    def insert_ml_prediction(self, row: dict) -> None:
+        """Upsert one ML prediction row (idempotent via ReplacingMergeTree)."""
+        self._client.insert(
+            "market_data.ml_predictions",
+            [[
+                row["as_of"], row["horizon_days"],
+                row["expected_return_pct"], row["confidence_low"],
+                row["confidence_high"], row["regime_signal"],
+                row["cv_r2_mean"], row["n_training_rows"],
+                row["goldbees_close"],
+            ]],
+            column_names=[
+                "as_of", "horizon_days", "expected_return_pct",
+                "confidence_low", "confidence_high", "regime_signal",
+                "cv_r2_mean", "n_training_rows", "goldbees_close",
+            ],
+        )
+
+    def insert_ml_prediction(self, row: dict) -> None:
+        """Upsert one ML prediction row (idempotent via ReplacingMergeTree)."""
+        self._client.insert(
+            "market_data.ml_predictions",
+            [[
+                row["as_of"], row["horizon_days"],
+                row["expected_return_pct"], row["confidence_low"],
+                row["confidence_high"], row["regime_signal"],
+                row["cv_r2_mean"], row["n_training_rows"],
+                row["goldbees_close"],
+            ]],
+            column_names=[
+                "as_of", "horizon_days", "expected_return_pct",
+                "confidence_low", "confidence_high", "regime_signal",
+                "cv_r2_mean", "n_training_rows", "goldbees_close",
+            ],
+        )
 
     def close(self) -> None:
         self._client.close()

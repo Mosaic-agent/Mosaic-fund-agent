@@ -413,6 +413,42 @@ SELECT
 FROM market_data.fx_rates FINAL
 GROUP BY symbol
 ORDER BY symbol""",
+
+    "ML Predictions \u2014 all logged forecasts": """\
+SELECT
+    as_of,
+    horizon_days,
+    expected_return_pct,
+    confidence_low,
+    confidence_high,
+    regime_signal,
+    round(cv_r2_mean, 4) AS cv_r2_mean,
+    n_training_rows,
+    goldbees_close
+FROM market_data.ml_predictions FINAL
+ORDER BY as_of DESC, horizon_days""",
+
+    "ML Predictions \u2014 accuracy check (predicted vs actual)": """\
+SELECT
+    m.as_of,
+    m.horizon_days,
+    m.expected_return_pct,
+    m.regime_signal,
+    m.goldbees_close                                            AS close_at_pred,
+    argMax(p.close, p.trade_date)                               AS close_at_expiry,
+    round((argMax(p.close, p.trade_date) / m.goldbees_close - 1) * 100, 3) AS actual_return_pct,
+    round(((argMax(p.close, p.trade_date) / m.goldbees_close - 1) * 100)
+          - m.expected_return_pct, 3)                           AS error_pct
+FROM market_data.ml_predictions FINAL m
+LEFT JOIN market_data.daily_prices FINAL p
+    ON p.symbol = 'GOLDBEES'
+   AND p.category = 'etfs'
+   AND p.trade_date > m.as_of
+   AND p.trade_date <= m.as_of + toIntervalDay(m.horizon_days + 3)
+GROUP BY m.as_of, m.horizon_days, m.expected_return_pct,
+         m.regime_signal, m.goldbees_close
+HAVING close_at_expiry > 0
+ORDER BY m.as_of DESC""",
 }
 
 
@@ -1453,3 +1489,126 @@ with tab_wis:
                 st.error(f"Who Is Selling analysis failed: {exc}")
     else:
         st.info("Click **🔍 Analyse Now** to run the real-time signal check.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ML FORECAST — LightGBM 5-day forward return predictor
+    # Independent of the expert-system button above.
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    st.subheader("🤖 LightGBM 5-Day Forecast")
+    st.caption(
+        "Learns **soft thresholds** from all 4 signals jointly via walk-forward "
+        "cross-validation. Unlike the expert system (hard IF/THEN rules), the model "
+        "discovers that e.g. 15% COT crowding is dangerous *when* the GOLDBEES "
+        "discount is also widening simultaneously.  \n"
+        "**Target:** `(price[t+5] / price[t] − 1) × 100`  ·  "
+        "**Validation:** TimeSeriesSplit — no look-ahead leakage"
+    )
+
+    ml_cfg_col, ml_run_col = st.columns([2, 1])
+    with ml_cfg_col:
+        ml_horizon  = st.slider("Forecast horizon (trading days)", 3, 15, 5, 1, key="ml_horizon")
+        ml_n_splits = st.slider("CV folds", 3, 8, 5, 1, key="ml_splits")
+    with ml_run_col:
+        st.write("")  # vertical spacer
+        st.write("")
+        run_ml = st.button("📊 Run ML Forecast", type="secondary",
+                           use_container_width=True, key="ml_btn")
+        st.caption("~5–10 seconds: assemble → engineer → train → predict")
+
+    if run_ml:
+        with st.spinner("Assembling master table → engineering features → walk-forward training → predicting…"):
+            try:
+                from src.ml.trend_predictor import run_trend_prediction
+                ml = run_trend_prediction(
+                    horizon=ml_horizon,
+                    n_splits=ml_n_splits,
+                    verbose=False,
+                    ch_host=CH_HOST,
+                    ch_port=CH_PORT,
+                    ch_database=CH_DB,
+                    ch_user=CH_USER,
+                    ch_password=CH_PASS,
+                )
+
+                _ML_SIGNAL_COLORS = {
+                    "BUY":         "#4CAF50",
+                    "WATCH_LONG":  "#8BC34A",
+                    "HOLD":        "#FFC107",
+                    "WATCH_SHORT": "#FF9800",
+                    "SELL":        "#F44336",
+                }
+                sig_color = _ML_SIGNAL_COLORS.get(ml["regime_signal"], "#888888")
+
+                # Regime banner
+                st.markdown(
+                    f"<div style='background:{sig_color}22;border-left:5px solid {sig_color};"
+                    f"padding:12px 18px;border-radius:6px;margin-bottom:12px'>"
+                    f"<span style='font-size:1.2em;font-weight:700;color:{sig_color}'>"
+                    f"ML SIGNAL: {ml['regime_signal']}</span><br/>"
+                    f"<span style='font-size:0.9em;color:#ccc'>{ml['regime_rationale']}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Key metrics
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                mc1.metric(
+                    f"Expected {ml['horizon_days']}-Day Return",
+                    f"{ml['expected_return_pct']:+.2f}%",
+                )
+                mc2.metric(
+                    "Confidence Band",
+                    f"[{ml['confidence_low']:+.1f}%, {ml['confidence_high']:+.1f}%]",
+                )
+                mc3.metric("CV R² Mean", f"{ml['cv_r2_mean']:.4f}")
+                mc4.metric("Training Rows", f"{ml['n_training_rows']:,}")
+
+                # Feature importance bar chart
+                st.subheader("Feature Importances")
+                fi = ml["feature_importances"].copy()
+                fi["feature"] = fi["feature"].str.replace("f_", "", regex=False)
+                fi = fi.set_index("feature")
+                st.bar_chart(fi["importance"], height=240, color="#2196F3")
+                st.caption(
+                    "Importance = average LightGBM split gain over last 3 CV folds. "
+                    "Higher = the model relies on this signal more."
+                )
+
+                # Walk-forward CV R² per fold
+                with st.expander("Walk-Forward CV R² per fold"):
+                    folds_df = pd.DataFrame({
+                        "fold": [f"Fold {i+1}" for i in range(len(ml["cv_r2_scores"]))],
+                        "r2":   ml["cv_r2_scores"],
+                    }).set_index("fold")
+                    st.bar_chart(folds_df["r2"], height=160, color="#9C27B0")
+                    st.caption(
+                        "Each fold trains on earlier data only and tests on later data. "
+                        "R² > 0 = model has out-of-sample predictive power. "
+                        "Negative R² = that fold was noisier than the mean baseline."
+                    )
+
+            except ImportError:
+                st.error(
+                    "LightGBM not installed.  \n"
+                    "Run: `.venv/bin/pip install lightgbm` then restart Streamlit."
+                )
+            except ValueError as exc:
+                st.warning(str(exc))
+            except Exception as exc:
+                st.error(f"ML Forecast error: {exc}")
+
+    else:
+        with st.expander("ℹ Expert System vs LightGBM — when to use which"):
+            st.markdown("""
+| | Expert System | LightGBM Forecast |
+|---|---|---|
+| **Thresholds** | Hard (25% COT = crowded) | Soft (learned from data) |
+| **Signal interaction** | Each signal checked independently | Models all signals jointly |
+| **Explainability** | Full (rules visible) | Partial (feature importance) |
+| **Data needed** | Just today's values | Historical training data (≥ 120 rows) |
+| **Strengths** | Fast, interpretable, always runs | Captures non-linear cross-signal effects |
+| **Weaknesses** | Misses cross-signal amplification | Needs history; can overfit |
+
+**Use both together:** Expert system as an immediate sanity check; LightGBM for position-sizing decisions where the interaction between signals matters.
+            """)
