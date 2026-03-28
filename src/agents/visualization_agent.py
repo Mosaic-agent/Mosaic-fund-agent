@@ -882,7 +882,15 @@ class VisualizationAgent:
     # ------------------------------------------------------------------
     @staticmethod
     def open_in_browser(path: str) -> None:
-        """Open *path* in the system default browser."""
+        """Open *path* in the system default browser.
+
+        Skipped automatically when the NO_BROWSER environment variable is set
+        (e.g. inside a Docker container where no display is available).
+        The HTML file is still generated and accessible via the mounted volume.
+        """
+        if os.environ.get("NO_BROWSER"):
+            logger.info("NO_BROWSER set — skipping browser open for: %s", path)
+            return
         url = f"file://{os.path.abspath(path)}"
         logger.info("Opening dashboard in browser: %s", url)
         webbrowser.open(url)

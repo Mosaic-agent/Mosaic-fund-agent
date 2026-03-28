@@ -615,5 +615,112 @@ def comex() -> None:
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
+@app.command()
+def ui(
+    port: int = typer.Option(8501, "--port", "-p", help="Port to serve the Streamlit UI on."),
+    host: str = typer.Option("localhost", "--host", help="Address to bind to."),
+) -> None:
+    """
+    Launch the Mosaic Data Hub web UI (Streamlit).
+
+    Opens a browser at http://<host>:<port> with three tabs:
+      📥 Import Data — trigger historical data imports
+      🔍 SQL Query   — run SQL against ClickHouse
+      📊 Explorer    — interactive charts (Gold, GOLDBEES, iNAV)
+    """
+    import subprocess
+
+    ui_path = str(Path(__file__).resolve().parent / "ui" / "app.py")
+    cmd = [
+        sys.executable, "-m", "streamlit", "run", ui_path,
+        f"--server.port={port}",
+        f"--server.address={host}",
+        "--server.headless=false",
+    ]
+    console.print(
+        Panel(
+            f"[bold]🌐 Mosaic Data Hub[/bold]\n"
+            f"[dim]Opening at [link=http://{host}:{port}]http://{host}:{port}[/link][/dim]",
+            border_style="cyan",
+        )
+    )
+    subprocess.run(cmd)
+
+
+@app.command(name="import")
+def import_data(
+    category: str = typer.Option(
+        "all",
+        "--category",
+        "-c",
+        help=(
+            "Comma-separated categories to import: "
+            "stocks, etfs, commodities, indices, mf, all. "
+            "Default: all."
+        ),
+    ),
+    lookback_days: int = typer.Option(
+        730,
+        "--lookback",
+        "-l",
+        help="Days of history on first run (default 730 = ~2 years).",
+    ),
+    full_reimport: bool = typer.Option(
+        False,
+        "--full",
+        help="Ignore watermarks and re-fetch the full lookback window.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Fetch data but do NOT write to ClickHouse. Prints row counts only.",
+    ),
+) -> None:
+    """
+    Import historical market data (stocks, ETFs, MF NAV, commodities, indices)
+    into ClickHouse.
+
+    First run: fetches the full lookback window (default 2 years).
+    Subsequent runs: delta-sync only — fetches from last watermark to today.
+
+    \b
+    Examples:
+      mosaic import                          # full sync, all categories
+      mosaic import --category stocks,etfs   # only stocks and ETFs
+      mosaic import --category mf            # only mutual fund NAV
+      mosaic import --dry-run                # preview without writing
+      mosaic import --full --lookback 365    # re-import last 1 year
+    """
+    _setup_logging()
+
+    categories = [c.strip().lower() for c in category.split(",") if c.strip()]
+
+    console.print(
+        Panel(
+            f"[bold]📥 Historical Data Importer[/bold]\n"
+            f"[dim]Categories: {', '.join(categories)} · "
+            f"Lookback: {lookback_days}d · "
+            f"{'Full re-import' if full_reimport else 'Delta sync'}"
+            f"{' · DRY RUN' if dry_run else ''}[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    from src.importer.cli import run_import
+
+    run_import(
+        categories=categories,
+        lookback_days=lookback_days,
+        full_reimport=full_reimport,
+        dry_run=dry_run,
+        console=console,
+        clickhouse_host=settings.clickhouse_host,
+        clickhouse_port=settings.clickhouse_port,
+        clickhouse_database=settings.clickhouse_database,
+        clickhouse_user=settings.clickhouse_user,
+        clickhouse_password=settings.clickhouse_password,
+    )
+
+
 if __name__ == "__main__":
     app()

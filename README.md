@@ -8,6 +8,11 @@ market opens, writes a plain-English report — with risk scores, sector
 breakdown, and ETF premium/discount analysis baked in — and generates a
 **self-contained HTML dashboard** that auto-refreshes every 5 minutes.
 
+A built-in **Streamlit data hub** lets you import and store historical OHLCV,
+MF NAV, and live iNAV data in ClickHouse, run arbitrary SQL against it, and run
+**composite anomaly detection** (Robust Z-Score + Random Forest Residuals +
+Isolation Forest) directly through a browser UI — no code required.
+
 No spreadsheets. No manual data entry. One command.
 
 > **Not financial advice.** This is a personal research tool.
@@ -22,27 +27,49 @@ buying more. I also wanted to know — at a glance — whether any of my holding
 had bad news in the last week without opening ten browser tabs.
 
 This does both, plus a few things I didn't originally plan for (COMEX signals
-turned out to be genuinely useful context before 9:15 AM IST).
+turned out to be genuinely useful context before 9:15 AM IST, and the anomaly
+detector has already flagged two meaningful gold flash-crash days).
 
 ---
 
 ## What it does
+
+### Portfolio Intelligence (original)
 
 1. Fetches your holdings from Zerodha via the free hosted Kite MCP server
 2. For each stock: pulls price data, recent news, and the latest quarterly results
 3. For each ETF: fetches live iNAV from NSE and calculates premium/discount
 4. Checks COMEX spot prices (Gold, Silver, Copper, Platinum, Palladium) vs
    the previous close — useful context before NSE opens
-5. COMEX signals are wired into per-holding risk signals and the portfolio
-   summary so the LLM has commodity context when scoring
-6. Scores each holding on risk (1–10) and sentiment (−1 to +1)
-7. Writes a terminal report and saves a JSON file to `./output/`
-8. **Generates a self-contained HTML dashboard** (`./output/dashboard.html`)
-   with interactive charts, auto-refresh countdown, and holding deep-dives
+5. Scores each holding on risk (1–10) and sentiment (−1 to +1)
+6. Writes a terminal report and saves a JSON file to `./output/`
+7. Generates a self-contained HTML dashboard with interactive charts, auto-refresh,
+   and holding deep-dives
 
-All data sources are free. The only paid component is the LLM call
-(OpenAI, Anthropic, or any local OpenAI-compatible model) — roughly ₹4–12
-per full portfolio run on cloud models; free with a local model.
+### Data Hub + Anomaly Detection (new)
+
+8. **Historical importer** — pulls 2 years of OHLCV from Yahoo Finance (stocks,
+   ETFs, commodities, indices), MF NAV from MFAPI.in (AMFI official), and live
+   iNAV snapshots from NSE into **ClickHouse** (`market_data` database)
+9. **Streamlit UI** (`localhost:8501`) — four tabs:
+   - **📥 Import** — trigger category imports with live log output
+   - **🔍 SQL Query** — ad-hoc SQL editor with 8 presets and CSV export
+   - **📊 Explorer** — interactive charts: COMEX Gold, GOLDBEES NAV vs market,
+     premium/discount, iNAV time-series, any-symbol price explorer
+   - **🔬 Anomaly Detection** — composite ML pipeline (see below)
+10. **Composite anomaly detection** (`src/ml/anomaly.py`) — three-step pipeline:
+    - **Robust Z-Score (MAD)** — rolling median/MAD instead of mean/σ; immune
+      to trending price inflation that causes standard Z to miss crashes
+    - **Random Forest Residual Z** — trains RF on lagged prices + MA7/MA30;
+      the residual isolates the *unexpected* component; Z_resid classifies
+      regime (Strong Trend / Flash Crash / Volatile Breakout / Normal)
+    - **Isolation Forest Confidence Multiplier** — `Final_Z = Z_robust × (1 + IF_confidence)`;
+      boosts days suspicious to both algorithms, filtering noise
+    - Output: price chart with colour-coded regime dots, Z decomposition chart,
+      IF confidence area chart, RF actual vs predicted, downloadable anomaly CSV
+
+All data sources are free. The only paid component is the LLM call — roughly
+₹4–12 per full portfolio run on cloud models; free with a local model.
 
 ---
 
@@ -51,9 +78,9 @@ per full portfolio run on cloud models; free with a local model.
 ### Prerequisites
 
 - Python 3.11+
-- A Zerodha account
-- One of: OpenAI API key, Anthropic API key, **or** a local LLM via LM Studio /
-  Ollama / any OpenAI-compatible server
+- A Zerodha account (for live portfolio; `--demo` mode needs nothing)
+- One of: OpenAI API key, Anthropic API key, **or** a local LLM (LM Studio / Ollama)
+- **Docker** — for ClickHouse (required only for the data hub / anomaly features)
 
 ### Install
 
@@ -84,18 +111,18 @@ GOLD_API_KEY=...               # free at gold-api.com — for COMEX signals
 
 ```
 LLM_BASE_URL=http://localhost:1234/v1   # your local server URL
-LLM_MODEL=DeepSeek-R1-Distill-Qwen-14B-GGUF  # or any local model name
-LLM_CONTEXT_WINDOW=4096                 # set to your model's context window
+LLM_MODEL=DeepSeek-R1-Distill-Qwen-14B-GGUF
+LLM_CONTEXT_WINDOW=4096
 ```
 
-When `LLM_BASE_URL` is set, COMEX and news agents skip LangGraph entirely and
-call tool functions directly — bypassing the multi-turn loop that small local
-models struggle with.
+### Start ClickHouse (for data hub features)
 
-Kite API key and secret are **not required** — the hosted MCP server handles
-auth via browser OAuth.
+```bash
+docker compose up clickhouse -d
+# ClickHouse is now at localhost:8123, database: market_data
+```
 
-Check your config looks right before running (sensitive values are masked):
+Check your config:
 
 ```bash
 python src/main.py config
@@ -105,45 +132,21 @@ python src/main.py config
 
 ## Running it
 
-### Try the demo first
-
-No Zerodha login needed. Uses a sample portfolio (GOLDBEES + RELIANCE) with
-real live data from Yahoo Finance, NSE, and Screener.in:
+### Portfolio analysis
 
 ```bash
+# Demo (no Zerodha login, no API keys needed)
 python src/main.py analyze --demo
-```
 
-This also auto-generates `./output/dashboard.html` at the end.
-
-### Your real portfolio
-
-```bash
+# Live portfolio
 python src/main.py analyze
-```
-
-First run will print a Zerodha login URL. Open it in your browser, log in,
-then press Enter. Session persists until Kite expires it.
-
-Test with a few holdings first:
-
-```bash
-python src/main.py analyze --max 3
+python src/main.py analyze --max 3   # test with 3 holdings first
 ```
 
 ### HTML Dashboard
 
 ```bash
 python src/main.py dashboard
-```
-
-Reads the latest JSON report and opens `./output/dashboard.html` in your
-browser. The dashboard auto-refreshes every 5 minutes.
-
-The `analyze` command generates the dashboard automatically. To skip it:
-
-```bash
-python src/main.py analyze --no-dashboard
 ```
 
 ### Ask a question
@@ -154,7 +157,7 @@ python src/main.py ask "am I overexposed to IT sector?"
 python src/main.py ask "which ETFs are trading at a premium right now?"
 ```
 
-### COMEX pre-market signals only
+### COMEX pre-market signals
 
 ```bash
 python src/main.py comex
@@ -171,44 +174,147 @@ python src/main.py news GOLDBEES --company "Nippon India Gold BeES"
 
 ```bash
 python src/main.py analyze --quiet        # JSON + dashboard only, no terminal display
-python src/main.py analyze --max 5        # cap at 5 holdings
-python src/main.py dashboard --no-open    # generate dashboard without opening browser
+python src/main.py analyze --no-dashboard # skip HTML generation
 python src/main.py config                 # show current settings (masked)
 ```
 
-Reports are saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`.
+---
+
+## Data Hub + Streamlit UI
+
+### Start the UI
+
+```bash
+# Via CLI
+python src/main.py ui
+
+# Or directly
+streamlit run src/ui/app.py
+
+# Via Docker Compose (UI + ClickHouse together)
+docker compose up -d
+```
+
+Open **http://localhost:8501** in your browser.
+
+### Import data from the command line
+
+```bash
+# Import 2 years of COMEX Gold
+python src/main.py import --category commodities
+
+# Import GOLDBEES ETF OHLCV + AMFI NAV
+python src/main.py import --category etfs --category mf
+
+# Live iNAV snapshot from NSE
+python src/main.py import --category inav
+
+# Full re-import (ignore watermarks)
+python src/main.py import --category commodities --full
+
+# Dry run (fetch but don't write)
+python src/main.py import --category stocks --dry-run
+```
+
+Subsequent runs are **delta-synced** — only new data since the last import is
+fetched (3-day overlap for late corrections).
+
+### Supported import categories
+
+| Category | Source | Symbols |
+|---|---|---|
+| `stocks` | Yahoo Finance (`.NS`) | 50 NSE large/mid-caps |
+| `etfs` | Yahoo Finance (`.NS`) | 15 NSE ETFs |
+| `commodities` | Yahoo Finance (futures) | Gold, Silver, Copper, Crude Oil, etc. |
+| `indices` | Yahoo Finance | Nifty50, Sensex, S&P500, Nasdaq, etc. |
+| `mf` | MFAPI.in (AMFI official) | NAV history for 13 ETF schemes |
+| `inav` | NSE API (live) | 15 ETFs — iNAV + market price + premium/discount |
+| `cot` | CFTC Socrata API (free) | Weekly Gold COT — Managed Money + Commercials positioning |
+| `cb_reserves` | IMF IFS REST API (free) | Monthly gold reserves for 9 central banks (CN, IN, RU, US, DE, TR, GB, JP, PL) |
+| `etf_aum` | Yahoo Finance (free) | Daily AUM snapshot for GLD, IAU, SGOL, PHYS + implied gold tonnes |
+
+### ClickHouse tables
+
+| Table | Engine | Purpose |
+|---|---|---|
+| `daily_prices` | ReplacingMergeTree | OHLCV for stocks, ETFs, commodities, indices |
+| `mf_nav` | ReplacingMergeTree | Daily MF/ETF NAV from AMFI via MFAPI.in |
+| `inav_snapshots` | ReplacingMergeTree | Live iNAV + premium/discount snapshots |
+| `import_watermarks` | ReplacingMergeTree | Delta-sync watermarks per source+symbol |
+| `cot_gold` | ReplacingMergeTree | Weekly CFTC COT — `mm_net`, `comm_net`, `open_interest` |
+| `cb_gold_reserves` | ReplacingMergeTree | Monthly central bank gold reserves in metric tonnes |
+| `etf_aum` | ReplacingMergeTree | Daily ETF AUM (USD) + implied gold tonnes |
+
+---
+
+## Anomaly Detection — How it works
+
+The **🔬 Anomaly Detection** tab in the UI runs a three-step composite pipeline
+on any symbol in ClickHouse.
+
+### Step 1 — Robust Z-Score (MAD)
+
+Standard Z inflates σ when prices trend, causing it to report near-zero on a
+real crash (the high prices leading up to the crash bloat the standard deviation).
+
+Rolling MAD Z stays centred on the local median and resists outlier inflation:
+
+$$Z_{robust} = 0.6745 \times \frac{x - \tilde{x}_{rolling}}{\text{MAD}_{rolling}}$$
+
+Applied to `daily_return %` and `range %` (high−low / close), averaged for a
+combined `z_robust` score.
+
+### Step 2 — Random Forest Residual Z-Score
+
+Trains a Random Forest regressor on lagged close prices (`lag_1..lag_N`),
+`MA7`, `MA30`, and lagged volume. The **residual** (actual − predicted)
+isolates the unexpected component of each day's price move.
+
+`Z_resid` is the rolling MAD Z-score of those residuals.
+
+| `z_robust` | `z_resid` | Regime |
+|---|---|---|
+| High | Low | 📈 Strong Trend (HODL) — predictable uptrend |
+| Low | High | ⚡ Flash Crash / Black Swan (EXIT) — unexpected shock |
+| High | High | 🔥 Volatile Breakout — caution |
+| Low | Low | ✅ Normal |
+
+### Step 3 — Isolation Forest Confidence Multiplier
+
+Isolation Forest is run on `[daily_return, range_pct, z_robust]`. Its
+`score_samples` output is normalised to [0 → 1] (1 = most anomalous).
+
+$$Z_{final} = Z_{robust} \times (1 + IF_{confidence})$$
+
+This **boosts** days suspicious to both algorithms while filtering out noise
+where only one signal fires.
+
+### Configurable parameters
+
+| Parameter | Default | Range | Effect |
+|---|---|---|---|
+| IF Contamination | 5% | 1–20% | Expected anomaly fraction |
+| Final-Z threshold | 2.5 | 1.0–5.0 | Flagging sensitivity |
+| RF lag features | 5 | 3–10 | How much history RF sees |
+| Z-score rolling window | 30 | 10–60 | Rolling MAD lookback |
 
 ---
 
 ## HTML Dashboard
 
 The dashboard is a **self-contained HTML file** — no Node.js, no build step,
-no server required. Open it in any modern browser.
+no server required.
+
+**Tech stack:** React 18 + Babel Standalone (CDN) + Tailwind CSS (CDN) + pure SVG charts.
 
 **What it shows:**
-
-- **Header** — portfolio metadata, COMEX overall signal badge, and a live
-  countdown to the next auto-refresh (default: 5 minutes, calls `location.reload()`)
-- **4 metric cards** — total value, total P&L (%), health score, ETF/equity
-  allocation split
-- **COMEX signals table** — live commodity signals with colour-coded
-  STRONG BULLISH → STRONG BEARISH badges and linked NSE ETFs
-- **Sector allocation chart** — horizontal bar chart (pure SVG, no external
-  chart library)
-- **Holdings deep-dive** — collapsible cards per holding showing:
-  - Current price, quantity, P&L %, recommendation badge
-  - Risk score (colour-coded), sentiment score
-  - Key insights + risk signals (including COMEX-linked alerts)
-  - Quarterly results (revenue, net profit, EPS with YoY change)
-  - iNAV analysis (ETFs only) — current premium/discount label
-  - Historic iNAV chart — iNAV vs market price area chart + premium/discount
-    % bar chart over the last 30 days (pure SVG)
-  - COMEX-linked commodity badges
-- **Portfolio Risks / Actionable Insights / Rebalancing Signals** — three
-  bullet-list panels at the bottom
-
-**Tech stack:** React 18 + Babel Standalone (CDN) + Tailwind CSS (CDN) +
-pure SVG charts. No Recharts, no bundler, no server.
+- Header — portfolio metadata, COMEX signal badge, auto-refresh countdown (5 min)
+- 4 metric cards — total value, total P&L (%), health score, ETF/equity split
+- COMEX signals table — colour-coded STRONG BULLISH → STRONG BEARISH badges
+- Sector allocation chart — horizontal bar chart (pure SVG)
+- Holdings deep-dive — collapsible cards with price, P&L, risk/sentiment scores,
+  iNAV analysis (ETFs), quarterly results, COMEX-linked alerts
+- Portfolio Risks / Actionable Insights / Rebalancing Signals panels
 
 ---
 
@@ -219,174 +325,78 @@ flowchart TD
     User(["👤 User"])
 
     subgraph CLI ["CLI — src/main.py (typer)"]
-        CLICmd["analyze [--demo --max N --quiet --no-dashboard]\nask &quot;question&quot;\ndashboard [--no-open]\nnews SYMBOL\ncomex\nconfig"]
+        CLICmd["analyze · ask · comex · news · dashboard · config\nimport · ui"]
     end
 
     subgraph Agent ["PortfolioAgent — portfolio_agent.py"]
-        subgraph Pipeline ["analyze → Sequential Pipeline (run_full_analysis)"]
-            S1["① Fetch Holdings\nKiteMCPClient → Zerodha Kite MCP\nOAuth browser login · demo: built-in sample data"]
-            S2["② Enrich Each Holding\nasset_analyzer.py — runs once per holding"]
-            S3["③ LLM Scoring\nsummarization.py\nrisk 1–10 · sentiment −1 to +1 · 5 insights"]
-            S4["④ Portfolio Aggregation\nportfolio_analyzer.py\nsector allocation · health score · rebalancing"]
-            S5["⑤ COMEX Pre-Market Signals\ncomex_fetcher.py\nXAU XAG HG XPT XPD — live spot vs prev close\nwired into per-holding risk_signals + LLM prompt"]
-            S6["⑥ Format & Save\noutput.py\nRich terminal panels · JSON ./output/*.json"]
-            S7["⑦ HTML Dashboard\nvisualization_agent.py\nself-contained React dashboard · auto-refresh 5m"]
+        subgraph Pipeline ["analyze → Sequential Pipeline"]
+            S1["① Fetch Holdings — Zerodha Kite MCP"]
+            S2["② Enrich Each Holding — asset_analyzer.py"]
+            S3["③ LLM Scoring — summarization.py"]
+            S4["④ Portfolio Aggregation — portfolio_analyzer.py"]
+            S5["⑤ COMEX Signals — comex_fetcher.py"]
+            S6["⑥ Format & Save — output.py"]
+            S7["⑦ HTML Dashboard — visualization_agent.py"]
             S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
         end
-
-        subgraph ReActLoop ["ask → LangGraph ReAct Loop"]
-            ReAct["LLM reasons over registered tools\nreason → act → observe · repeats until done"]
-        end
     end
 
-    subgraph SubAgents ["Sub-Agents"]
-        CA["ComexAgent\nlocal model: direct fetch\ncloud model: LangGraph deep-agent"]
-        NA["NewsSentimentAgent\nlocal model: direct fetch\ncloud model: LangGraph deep-agent"]
-        VA["VisualizationAgent\nno LLM · pure data transform + SVG render"]
-    end
-
-    subgraph Tools ["Enrichment Tools (Step ②)"]
-        YF["yahoo_finance.py\nprice · P/E · sector · 30-day momentum"]
-        NS["newsapi_search.py + gnews.py\nNewsAPI.org + Google News RSS"]
-        ES["earnings_scraper.py\nScreener.in · Yahoo Finance fallback"]
-        IV["inav_fetcher.py (ETF only)\nNSE live iNAV — every 15 seconds"]
-        HI["historic_inav.py (ETF only)\nAMFI 30-day NAV via MFAPI.in"]
-    end
-
-    subgraph Ext ["External Services"]
-        KiteSvc[("Zerodha Kite MCP\nmcp.kite.trade")]
-        YFSvc[("Yahoo Finance\n.NS / .BO / GC=F SI=F HG=F")]
-        NewsSvc[("NewsAPI.org + GNews RSS")]
-        ScrnSvc[("Screener.in")]
-        NSESvc[("NSE API + MFAPI.in")]
-        GoldSvc[("gold-api.com\nx-access-token auth")]
-        LLMSvc[("OpenAI / Anthropic / Local LLM\nGPT-4o-mini · Claude · LM Studio")]
+    subgraph DataHub ["Data Hub"]
+        IMP["src/importer/ — delta-sync importer\nYahoo Finance · MFAPI.in · NSE iNAV"]
+        CH[("ClickHouse\nmarket_data\ndaily_prices · mf_nav\ninav_snapshots · import_watermarks")]
+        UI["src/ui/app.py — Streamlit UI\n📥 Import · 🔍 SQL · 📊 Explorer · 🔬 Anomaly"]
+        ML["src/ml/anomaly.py\nRobust Z (MAD) + RF Residuals\n+ Isolation Forest"]
+        IMP --> CH
+        UI --> CH
+        UI --> ML
     end
 
     User --> CLICmd
     CLICmd -->|analyze| S1
-    CLICmd -->|ask| ReAct
-    CLICmd -->|dashboard| VA
-    CLICmd -->|comex| CA
-    CLICmd -->|news| NA
-
-    S5 --- CA
-    S6 --- VA
-    S2 --- YF & NS & ES & IV & HI
-    NS --- NA
-
-    S1 -.->|OAuth + REST| KiteSvc
-    YF -.-> YFSvc
-    NS -.-> NewsSvc
-    ES -.-> ScrnSvc
-    IV & HI -.-> NSESvc
-    S3 -.->|"demo: rule-based, no LLM key needed"| LLMSvc
-    S5 -.->|live spot prices| GoldSvc
-    S5 -.->|futures prev close| YFSvc
+    CLICmd -->|import| IMP
+    CLICmd -->|ui| UI
 ```
-
-> Source: [docs/architecture.mmd](docs/architecture.mmd)
-
-### How the agent is orchestrated
-
-`PortfolioAgent` has two distinct execution modes depending on which CLI
-command you run:
-
-**`analyze` — sequential pipeline (`run_full_analysis`)**
-
-The main workflow is a direct, ordered pipeline — not a ReAct loop. Each step
-runs once and passes its output to the next:
-
-1. **Fetch holdings** — `KiteMCPClient` calls the hosted Zerodha Kite MCP
-   server over HTTP. OAuth browser login on first run; session cached after.
-   `--demo` bypasses this entirely using a hardcoded sample portfolio.
-
-2. **Enrich each holding** — `asset_analyzer.py` runs a sub-pipeline per
-   holding: Yahoo Finance for price/sector data, multi-source news (NewsAPI +
-   Google News RSS), Screener.in for quarterly results, and (for ETFs only)
-   the NSE iNAV API plus 30-day AMFI history from MFAPI.in.
-
-3. **LLM scoring** — `summarization.py` calls the configured LLM with the
-   enriched data and returns a risk score (1–10), sentiment score (−1 to +1),
-   five key insights, and a one-paragraph summary per holding. In `--demo`
-   mode this is replaced by rule-based scoring — no API key needed.
-
-4. **Portfolio aggregation** — `portfolio_analyzer.py` rolls up all scored
-   holdings into sector allocation, concentration risk, a health score (0–100),
-   and rebalancing suggestions.
-
-5. **COMEX signals** — `ComexAgent` fetches live spot prices and classifies
-   each commodity. Signals are injected into per-holding `risk_signals` (e.g.
-   "COMEX 🥇Gold (XAU) STRONG BULLISH +2.65% — pre-market tailwind") and
-   into the portfolio-level LLM prompt for richer analysis.
-
-6. **Output** — `output.py` renders Rich terminal panels and writes a JSON
-   report to `./output/`.
-
-7. **Dashboard** — `VisualizationAgent` reads the report dict, strips/converts
-   all monetary strings to floats, null-guards ETF-only fields, and renders
-   `./output/dashboard.html`. Opened in the browser automatically unless
-   `--no-dashboard` is passed.
-
-**`ask` — LangGraph ReAct loop**
-
-The `ask` command uses a proper ReAct (Reason + Act) agent built with
-LangGraph. The LLM is given all registered tools (Yahoo Finance, news search,
-earnings, iNAV) and loops — reasoning about which tool to call next, observing
-the result, and reasoning again — until it has enough information to answer
-the question.
-
-**Local model path — bypassing LangGraph**
-
-Small local models (< 30B parameters) cannot reliably follow "call this tool
-once then stop" instructions in a multi-turn loop. When `LLM_BASE_URL` is set,
-`ComexAgent` and `NewsSentimentAgent` detect `is_local_model = True` and skip
-LangGraph entirely — tool functions are called directly, no LLM involved.
-Cloud model path is unchanged.
-
-Config lives in `config/settings.py`. Every field is annotated
-`# [SENSITIVE]` or `# [NON-SENSITIVE]`. Sensitive fields come exclusively
-from `.env` — never hardcoded. `.env` is in `.gitignore`.
 
 ### Project structure
 
 ```
-portfolio_insight/
 ├── config/
-│   └── settings.py               # Pydantic settings — all fields annotated
+│   └── settings.py               # Pydantic settings (ClickHouse + LLM + API keys)
 ├── src/
-│   ├── main.py                   # CLI entry point (analyze, ask, dashboard, news, comex, config)
+│   ├── main.py                   # CLI — analyze, ask, dashboard, news, comex, config, import, ui
+│   ├── agents/                   # portfolio, comex, news, visualization agents
+│   ├── analyzers/                # asset_analyzer.py, portfolio_analyzer.py
 │   ├── clients/
-│   │   └── mcp_client.py         # Async HTTP client for Kite MCP
+│   │   └── mcp_client.py         # Async Zerodha Kite MCP client (JSON-RPC 2.0)
+│   ├── formatters/
+│   │   └── output.py             # Rich terminal + JSON report
+│   ├── importer/                 # Historical data importer module
+│   │   ├── cli.py                # run_import() — delta-sync logic
+│   │   ├── clickhouse.py         # ClickHouse schema DDL + bulk inserts + watermarks
+│   │   ├── registry.py           # Symbol registry (stocks, ETFs, commodities, indices, MF, iNAV)
+│   │   └── fetchers/
+│   │       ├── yfinance_fetcher.py   # OHLCV via yfinance (batch, MultiIndex-safe)
+│   │       ├── mfapi_fetcher.py      # MF NAV from MFAPI.in (AMFI official)
+│   │       ├── nse_inav_fetcher.py   # Live iNAV snapshot from NSE API
+│   │       ├── cot_fetcher.py        # CFTC COT Gold (hedge fund positioning)
+│   │       ├── imf_reserves_fetcher.py  # IMF IFS central bank gold reserves
+│   │       └── etf_aum_fetcher.py    # Gold ETF AUM snapshots (GLD, IAU, SGOL, PHYS)
+│   ├── ml/
+│   │   └── anomaly.py            # Composite anomaly detection 
 │   ├── models/
 │   │   └── portfolio.py          # Pydantic models: Holding, Portfolio, Report
-│   ├── tools/
-│   │   ├── zerodha_mcp_tools.py  # get_holdings, get_positions
-│   │   ├── yahoo_finance.py      # price, sector, momentum
-│   │   ├── newsapi_search.py     # NewsAPI.org
-│   │   ├── gnews.py              # Google News RSS
-│   │   ├── earnings_scraper.py   # Screener.in + Yahoo Finance fallback
-│   │   ├── inav_fetcher.py       # NSE live iNAV (ETFs only)
-│   │   ├── historic_inav.py      # AMFI 30-day NAV history (ETFs only)
-│   │   ├── comex_fetcher.py      # COMEX signals via gold-api.com
-│   │   └── summarization.py      # LLM scoring
-│   ├── agents/
-│   │   ├── portfolio_agent.py    # main orchestration
-│   │   ├── comex_agent.py        # COMEX sub-agent (local: direct / cloud: LangGraph)
-│   │   ├── news_sentiment_agent.py # news sub-agent (local: direct / cloud: LangGraph)
-│   │   └── visualization_agent.py  # HTML dashboard generator (no LLM)
-│   ├── analyzers/
-│   │   ├── asset_analyzer.py     # per-holding enrichment
-│   │   └── portfolio_analyzer.py # portfolio-level aggregation
-│   ├── formatters/
-│   │   └── output.py             # terminal + JSON output
-│   └── utils/
-│       ├── symbol_mapper.py      # NSE ↔ Yahoo Finance ↔ company name
-│       ├── report_loader.py      # load latest JSON report for ask()
-│       └── demo_data.py          # sample portfolio for --demo mode
+│   ├── tools/                    # yahoo_finance, news, earnings, inav, comex, summarization
+│   ├── ui/
+│   │   └── app.py                # Streamlit 4-tab data hub UI
+│   └── utils/                    # cache, symbol_mapper, report_loader, demo_data
 ├── tests/
-│   └── test_tools.py             # 11 tests
-├── output/                       # generated reports + dashboard (git-ignored)
+│   ├── test_tools.py             # 11 unit tests (no API keys needed for 10/11)
+│   ├── test_cache.py             # cache round-trip + TTL + speedup
+│   ├── test_inav_cli.py          # iNAV scenarios (mocked)
+│   ├── test_news_sentiment.py    # smoke test (live APIs)
+│   └── _test_importer.py         # 7 integration tests against live ClickHouse
+├── docker-compose.yml            # clickhouse + mosaic CLI + ui (Streamlit)
+├── Dockerfile
 ├── .env.example
 └── requirements.txt
 ```
@@ -395,184 +405,121 @@ portfolio_insight/
 
 ## Data sources
 
-Everything is free except the LLM:
-
 | What | Where | Notes |
 |---|---|---|
 | Portfolio holdings | Zerodha Kite MCP (hosted) | Free, OAuth login |
-| Stock prices, P/E, sector | Yahoo Finance `.NS` / `.BO` | Free, no rate limit |
-| Indian financial news | NewsAPI.org | Free tier: 100 req/day |
-| Indian financial news | Google News RSS (GNews) | Free, no key needed |
-| Quarterly results | Screener.in (scraped) | Free, polite rate-limiting applied |
-| ETF iNAV — live | NSE API | Free, updates every 15s during market hours |
-| ETF iNAV — historic (30d) | MFAPI.in (official AMFI data) | Free |
+| Stock / ETF / commodity OHLCV | Yahoo Finance `.NS`, `GC=F`, etc. | Free, no rate limit |
+| Indian financial news | NewsAPI.org | Free: 100 req/day |
+| Indian financial news | Google News RSS (GNews) | Free, no key |
+| Quarterly results | Screener.in (scraped) | Free, polite delays |
+| ETF iNAV — live | NSE API | Free, 15-second refresh |
+| ETF iNAV — historic / NAV | MFAPI.in (AMFI official) | Free |
 | COMEX spot prices | gold-api.com | Free with API key |
-| COMEX previous close | Yahoo Finance futures (GC=F etc.) | Free |
-| LLM scoring | OpenAI / Anthropic / Local LLM | ~₹4–12/run cloud; free local |
-
-NewsAPI free tier caps at 100 requests/day. If you have more than ~15 holdings,
-the agent prioritises by portfolio weight so you don't blow the limit before
-covering your larger positions.
+| COMEX previous close | Yahoo Finance futures | Free |
+| CFTC COT (hedge fund positioning) | publicreporting.cftc.gov | Free, no auth |
+| Central bank reserves | IMF IFS REST API | Free, no auth |
+| Gold ETF AUM flows | Yahoo Finance (totalAssets) | Free |
+| Historical storage | ClickHouse (Docker) | Free, self-hosted |
+| LLM scoring | OpenAI / Anthropic / Local | ~₹4–12/run cloud; free local |
 
 ---
 
 ## ETF iNAV
 
-For ETF holdings, the agent checks whether the ETF is trading at a premium or
-discount to its indicative NAV:
+- **Premium (> +0.25%)** — ETF more expensive than underlying. Wait before buying.
+- **Discount (< −0.25%)** — ETF cheaper than underlying. Potential buying opportunity.
+- **Fair value** — within ±0.25% of NAV.
 
-- **Premium (> +0.25%)** — ETF is more expensive than the underlying. Worth
-  waiting before buying more.
-- **Discount (< −0.25%)** — ETF is cheaper than the underlying. Can be a
-  buying opportunity.
-- **Fair value** — within ±0.25% of NAV. Nothing to act on.
+Live iNAV from NSE API (9:15 AM – 3:30 PM IST). Yahoo Finance fallback outside hours.
 
-During market hours, iNAV comes from the NSE API (15-second refresh). Outside
-hours it falls back to Yahoo Finance's delayed navPrice — so the
-premium/discount figure will be less meaningful after 3:30 PM IST.
+Schedule periodic iNAV imports to build a time-series:
 
-The 30-day historic iNAV shows a sparkline (`▁▂▄▇█`), trend direction
-(WIDENING / NARROWING / STABLE), and the dates of peak premium and discount
-over the period. The dashboard renders this as an interactive SVG area chart
-(iNAV vs market price) plus a green/red bar chart for the daily P/D %.
+```bash
+# crontab — every 15 min during market hours (IST)
+*/15 9-15 * * 1-5 cd /path/to/project && .venv/bin/python src/main.py import --category inav
 
-Supported ETFs: GOLDBEES, NIFTYBEES, BANKBEES, SILVERBEES, JUNIORBEES,
-LIQUIDBEES, HNGSNGBEES, MAFANG, MAHKTECH, and others. Unknown ETF symbols
-are detected automatically via Yahoo Finance `quoteType`.
+# COT — Fridays after 3:30 PM ET (CFTC release)
+30 22 * * 5  cd /path/to/project && .venv/bin/python src/main.py import --category cot
+
+# IMF reserves — monthly with ~6-week lag; run weekly to catch it
+0 9 * * 1   cd /path/to/project && .venv/bin/python src/main.py import --category cb_reserves
+
+# ETF AUM — daily after US market close
+0 23 * * 1-5 cd /path/to/project && .venv/bin/python src/main.py import --category etf_aum
+```
 
 ---
 
 ## COMEX pre-market signals
 
-Before Indian markets open, metals prices on COMEX are often the most useful
-leading indicator — especially if you hold gold/silver ETFs.
+Fetches live spot Gold (XAU), Silver (XAG), Copper (HG), Platinum (XPT), and
+Palladium (XPD) from gold-api.com vs previous close from Yahoo Finance futures.
 
-The agent fetches live spot prices for Gold (XAU), Silver (XAG), Copper (HG),
-Platinum (XPT), and Palladium (XPD) from gold-api.com, compares them to the
-previous trading day's close from Yahoo Finance futures, and classifies each:
+Signal thresholds: `> +1.0%` STRONG BULLISH → `< -1.0%` STRONG BEARISH.
 
-```
-> +1.0%   STRONG BULLISH
-> +0.3%   BULLISH
-± 0.3%   NEUTRAL
-< -0.3%   BEARISH
-< -1.0%   STRONG BEARISH
-```
-
-COMEX signals are surfaced in three places:
-
-1. **Terminal report** — at the top of every `analyze` run
-2. **Per-holding risk signals** — e.g. "COMEX 🥇Gold (XAU) STRONG BULLISH
-   +2.65% — pre-market tailwind for GOLDBEES"
-3. **Dashboard** — colour-coded signals table with NSE ETF linkages
-
-All fields from the external API are validated before use — symbol whitelist,
-positive-float price check, string length cap, and regex guard for
-prompt-injection patterns.
-
----
-
-## Output format
-
-**Terminal report panels:**
-- COMEX pre-market signals (shown first)
-- Portfolio overview: total value, P&L, health score, diversification score
-- Per-holding: current price, sector, sentiment, risk, key insights, latest news
-- iNAV panel per ETF: premium/discount %, sparkline, 30-day trend
-- Sector allocation breakdown + rebalancing suggestions
-
-**JSON report** saved to `./output/portfolio_report_YYYYMMDD_HHMMSS.json`:
-- `portfolio_summary` — value, P&L, health/diversification scores
-- `holdings_analysis` — full per-holding data including iNAV and historic records
-- `sector_allocation` — `{ "Sector": weight_pct, ... }`
-- `portfolio_risks`, `actionable_insights`, `rebalancing_signals`
-- `comex_signals` — live commodity data with NSE ETF linkages
-
-**HTML dashboard** saved to `./output/dashboard.html` — see [HTML Dashboard](#html-dashboard) above.
+Signals surface in the terminal report, per-holding risk panels, and the HTML dashboard.
 
 ---
 
 ## Tests
 
 ```bash
+# Unit tests (no API keys needed for 10/11)
 python tests/test_tools.py
-```
 
-11 tests. Tests 1–10 run without any API keys. Test 11 (COMEX live prices)
-needs `GOLD_API_KEY` and skips gracefully without it.
-
-```
-TEST 1:  Yahoo Finance         live price, sector, momentum
-TEST 2:  Symbol mapper         NSE ↔ Yahoo ↔ company name
-TEST 3:  Earnings scraper      Screener.in + Yahoo fallback
-TEST 4:  News (no key)         graceful empty return
-TEST 5:  Portfolio models      P&L, ETF detection, totals
-TEST 6:  Sector allocation     concentration risk, diversification score
-TEST 7:  Config masking        sensitive field warnings
-TEST 8:  iNAV fetcher          live iNAV, premium/discount, batch
-TEST 9:  iNAV boundaries       11 PREMIUM/DISCOUNT/FAIR VALUE edge cases
-TEST 10: Historic iNAV         30-day AMFI data, sparkline, trend
-TEST 11: COMEX signals         live XAU/XAG/HG + prompt-injection guards
-
-11 passed, 0 failed
+# Importer integration tests (requires ClickHouse running)
+python tests/_test_importer.py
 ```
 
 ---
 
 ## Known limitations
 
-- **NewsAPI free tier:** 100 requests/day. With a large portfolio, not every
-  stock gets news — top holdings by weight are prioritised.
-- **Screener.in scraping:** HTML scraping occasionally breaks when they update
-  their layout. Yahoo Finance financials is the fallback.
-- **iNAV outside market hours:** NSE iNAV API is only live 9:15 AM – 3:30 PM IST.
-  The Yahoo Finance fallback is less accurate outside those hours.
-- **COMEX coverage:** Only the 5 commodities gold-api.com supports (XAU, XAG,
-  HG, XPT, XPD). No crude oil or agri commodities.
-- **Local LLMs:** Models below ~30B parameters struggle with multi-turn tool
-  orchestration. The `is_local_model` bypass handles this for COMEX and news
-  agents but the main `ask` ReAct loop still benefits from a larger model.
-- **LLM consistency:** Scores and summaries can vary slightly between runs on
-  identical data. Normal LLM behaviour.
+- **NewsAPI free tier:** 100 requests/day. Top holdings by weight are prioritised.
+- **Screener.in scraping:** Fragile to HTML layout changes; Yahoo Finance is the fallback.
+- **iNAV outside market hours:** NSE API only live 9:15 AM – 3:30 PM IST.
+- **COMEX coverage:** Only the 5 metals gold-api.com supports.
+- **Local LLMs:** Models < 30B struggle with multi-turn tool orchestration.
+  COMEX and news agents bypass LangGraph for local models automatically.
+- **Anomaly detection:** Requires ≥ 60 rows per symbol in ClickHouse. Run
+  an import first.
 
 ---
 
 ## Configuration reference
 
 ```
-OPENAI_API_KEY          [SENSITIVE]   OpenAI key
-ANTHROPIC_API_KEY       [SENSITIVE]   alternative to OpenAI
-LLM_PROVIDER            openai        "openai" or "anthropic"
+# LLM
+OPENAI_API_KEY          [SENSITIVE]
+ANTHROPIC_API_KEY       [SENSITIVE]
+LLM_PROVIDER            openai            # "openai" | "anthropic"
 LLM_MODEL               gpt-4o-mini
-LLM_BASE_URL                          set for local model (LM Studio / Ollama)
-LLM_CONTEXT_WINDOW      4096          model context window — drives token budgets
-NEWSAPI_KEY             [SENSITIVE]   newsapi.org free key
-GOLD_API_KEY            [SENSITIVE]   gold-api.com free key
+LLM_BASE_URL                              # set for local model
+LLM_CONTEXT_WINDOW      4096
+
+# APIs
+NEWSAPI_KEY             [SENSITIVE]
+GOLD_API_KEY            [SENSITIVE]
+
+# Zerodha MCP
 KITE_MCP_URL            https://mcp.kite.trade/mcp
-KITE_API_KEY            [SENSITIVE]   only for self-hosted MCP
-KITE_API_SECRET         [SENSITIVE]   only for self-hosted MCP
-KITE_MCP_TIMEOUT        30            seconds
+KITE_API_KEY            [SENSITIVE]       # only for self-hosted MCP
+KITE_API_SECRET         [SENSITIVE]
+KITE_MCP_TIMEOUT        30
+
+# ClickHouse (data hub)
+CLICKHOUSE_HOST         localhost
+CLICKHOUSE_PORT         8123
+CLICKHOUSE_DATABASE     market_data
+CLICKHOUSE_USER         default
+CLICKHOUSE_PASSWORD
+
+# Behaviour
 NEWS_ARTICLES_PER_STOCK 5
-NEWS_LOOKBACK_DAYS      7             max 30 on free tier
-MAX_HOLDINGS_PER_RUN    0             0 = no cap
-SCRAPE_DELAY_SECONDS    2.0           be polite to Screener.in
+NEWS_LOOKBACK_DAYS      7
+MAX_HOLDINGS_PER_RUN    0                 # 0 = no cap
+SCRAPE_DELAY_SECONDS    2.0
 OUTPUT_DIR              ./output
 LOG_LEVEL               INFO
 ```
-
-`LLM_CONTEXT_WINDOW` drives three derived settings (visible in `config` command):
-- `llm_token_budget` = `max(1024, context_window / 4)` — max output tokens per LLM call
-- `llm_prompt_budget` = `context_window * 3` chars — max prompt content per call
-- `is_local_model` = `True` when `LLM_BASE_URL` is set
-
-Recommended values: `8192` for 8B models, `32768` for 32B models,
-`131072` for 70B+ models or cloud APIs.
-
----
-
-## Disclaimer
-
-This tool is for personal research only. It is not financial advice.
-The author is not responsible for investment decisions made using this output.
-Always do your own research before buying or selling any security.
 

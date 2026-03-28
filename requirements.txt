@@ -31,6 +31,14 @@ pydantic>=2.7.0                  # Data models and schema validation
 pydantic-settings>=2.3.0        # Settings management from .env file
 python-dotenv>=1.0.0             # Load .env into environment
 
+# ── ClickHouse (historical data importer) ─────────────────────────────────────
+clickhouse-connect>=0.7.0        # Official ClickHouse Python client (HTTP)
+
+# ── Web UI ────────────────────────────────────────────────────────────────────
+streamlit>=1.35.0                # Data management UI (streamlit run src/ui/app.py)
+altair>=5.0.0                    # Declarative charts for anomaly detection tab
+scikit-learn>=1.4.0              # Isolation Forest + Random Forest anomaly detection
+
 # ── Output & CLI ──────────────────────────────────────────────────────────────
 rich>=13.7.0                     # Beautiful terminal output / progress bars
 typer>=0.12.0                    # CLI framework for on-demand commands

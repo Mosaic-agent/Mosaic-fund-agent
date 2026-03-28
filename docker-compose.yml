@@ -1,0 +1,98 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    ports:
+      - "8123:8123"   # HTTP interface (used by clickhouse-connect)
+      - "9000:9000"   # Native TCP interface
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: market_data
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ui:
+    build: .
+    image: mosaic-fund-agent
+    entrypoint: ["streamlit", "run", "src/ui/app.py",
+                 "--server.address=0.0.0.0",
+                 "--server.port=8501",
+                 "--server.headless=true"]
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  mosaic:
+    build: .
+    image: mosaic-fund-agent
+
+    # Load all API keys from the .env file on the host.
+    # The file is NEVER copied into the image — it stays on your machine.
+    env_file: .env
+
+    environment:
+      # Suppress webbrowser.open() — the HTML file is still generated and
+      # accessible on the host via the ./output volume mount below.
+      NO_BROWSER: "1"
+      # Reports + disk cache both live inside ./output (cache at ./output/.cache/)
+      OUTPUT_DIR: /app/output
+      # Connect to the ClickHouse service defined above
+      CLICKHOUSE_HOST: clickhouse
+
+    volumes:
+      # Persist JSON reports and the HTML dashboard on the host filesystem.
+      # The disk cache (output/.cache/) is included automatically.
+      - ./output:/app/output
+
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+    # ENTRYPOINT is fixed to `python src/main.py` in the Dockerfile.
+    # Override the default CMD per call:
+    #
+    #   Demo (no API keys needed):
+    #     docker compose run mosaic analyze --demo
+    #
+    #   Live portfolio analysis:
+    #     docker compose run mosaic analyze
+    #
+    #   Import 2 years of historical data (first run):
+    #     docker compose run mosaic import
+    #
+    #   Delta sync (only new data since last import):
+    #     docker compose run mosaic import
+    #
+    #   Import specific categories:
+    #     docker compose run mosaic import --category stocks,etfs
+    #
+    #   Ask the AI agent a question:
+    #     docker compose run mosaic ask "what is my riskiest holding?"
+    #
+    #   COMEX pre-market commodity signals:
+    #     docker compose run mosaic comex
+    #
+    #   News sentiment for a symbol:
+    #     docker compose run mosaic news RELIANCE --company "Reliance Industries"
+    #
+    #   Regenerate HTML dashboard from the latest saved report:
+    #     docker compose run mosaic dashboard
+    #
+    #   Show active configuration (sensitive fields masked):
+    #     docker compose run mosaic config
+
+volumes:
+  clickhouse-data:

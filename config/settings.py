@@ -145,6 +145,23 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Seconds to wait between web-scraping requests (be polite)
     scrape_delay_seconds: float = Field(default=2.0, description="Delay between scrape requests")
 
+    # ── ClickHouse (historical data importer) ────────────────────────────────
+
+    # [NON-SENSITIVE] ClickHouse server host
+    clickhouse_host: str = Field(default="localhost", description="ClickHouse host")
+
+    # [NON-SENSITIVE] ClickHouse HTTP port (default 8123)
+    clickhouse_port: int = Field(default=8123, description="ClickHouse HTTP port")
+
+    # [NON-SENSITIVE] ClickHouse database name
+    clickhouse_database: str = Field(default="market_data", description="ClickHouse database")
+
+    # [NON-SENSITIVE] ClickHouse username
+    clickhouse_user: str = Field(default="default", description="ClickHouse username")
+
+    # [SENSITIVE] ClickHouse password (leave blank for default no-auth setup)
+    clickhouse_password: str = Field(default="", description="ClickHouse password")
+
     # ── Indian Market Constants ───────────────────────────────────────────────
 
     # [NON-SENSITIVE] Yahoo Finance suffix for NSE-listed stocks

@@ -1,0 +1,39 @@
+# Secrets — never bake into the image
+.env
+
+# Version control
+.git/
+.gitignore
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated output (mounted as a volume at runtime)
+output/
+
+# Test suite
+tests/
+
+# Docs & assets
+docs/
+*.md
+*.mmd
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
