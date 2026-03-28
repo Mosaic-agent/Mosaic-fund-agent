@@ -296,6 +296,67 @@ Rich terminal output + JSON persistence.
 
 ## ML Module (`src/ml/`)
 
+### `trend_predictor.py`
+
+LightGBM 5-day (configurable) forward return predictor for GOLDBEES.  
+Soft-threshold complement to the `who_is_selling_agent.py` expert system.
+
+**Public API**: `run_trend_prediction(horizon, n_splits, verbose, ch_host, ch_port, ch_database, ch_user, ch_password) → dict`
+
+**Pipeline steps:**
+
+| Step | Function | Purpose |
+|------|----------|---------|
+| 1 | `build_master_table(ch_client)` | Joins daily_prices + mf_nav + fx_rates + etf_aum + cot_gold into one flat table |
+| 2 | `engineer_features(df)` | Computes 9 `f_*` alpha factors from raw columns |
+| 3 | `label_forward_return(df, horizon)` | `target = (close[t+horizon] / close[t] − 1) × 100` |
+| 4 | `fit_walk_forward(df, n_splits, gap)` | `TimeSeriesSplit` walk-forward; returns final model + CV R² scores |
+| 5 | Persistence | Upserts to `market_data.ml_predictions` + appends to `predictions_log.jsonl` |
+
+**Alpha features** (`f_` prefix — auto-selected by `fit_walk_forward`):
+
+| Feature | Formula | Signal |
+|---------|---------|--------|
+| `f_cot_pct_oi` | `mm_net / open_interest × 100` | Speculator over-positioning |
+| `f_spread_pct` | `(goldbees_close − nav) / nav × 100` | Retail panic discount |
+| `f_aum_mom_30d` | 30-day pct_change of GLD AUM | Institutional flow |
+| `f_usdinr_vol14` | 14-day log-return std of USDINR × 100 | Currency stress |
+| `f_usdinr_60d` | 60-day USDINR pct_change | Macro regime |
+| `f_goldbees_ret5` | 5-day price return | Near-term momentum |
+| `f_goldbees_ret20` | 20-day price return | Medium-term momentum |
+| `f_ma_ratio` | `close / 20-day MA` | Mean reversion |
+| `f_spread_delta5` | 5-day diff of `f_spread_pct` | Accelerating panic |
+
+**Coverage filter**: keeps rows where ≥ `len(feature_cols) // 2` features are non-NaN  
+(prevents sparse `f_aum_mom_30d` from eliminating all training rows).
+
+**Regime thresholds** (on predicted return %):
+
+| Signal | Threshold |
+|--------|-----------|
+| BUY | pred ≥ +1.5% |
+| WATCH_LONG | pred ≥ +0.5% |
+| HOLD | pred ≥ −0.5% |
+| WATCH_SHORT | pred ≥ −1.5% |
+| SELL | pred < −1.5% |
+
+**ClickHouse table** (`market_data.ml_predictions`):
+- `ORDER BY (as_of, horizon_days)` — `ReplacingMergeTree(created_at)` — idempotent upsert
+- Columns: `as_of`, `horizon_days`, `expected_return_pct`, `confidence_low`, `confidence_high`,
+  `regime_signal`, `cv_r2_mean`, `n_training_rows`, `goldbees_close`, `created_at`
+- Accuracy scoring: join with `daily_prices` on `p.trade_date > m.as_of AND p.trade_date <= m.as_of + horizon_days + 3`
+  (built-in SQL preset in app.py)
+
+**Key implementation notes**:
+- Uses `X.iloc[train_idx]` (positional) not `X[train_idx]` (label) for TSS indexing
+- Passes DataFrame (not `.values`) to `model.predict()` to preserve feature names for LightGBM
+- USDINR log-return uses `replace(0, np.nan)` before log to avoid RuntimeWarning
+- Latest-row prediction uses coverage-aware selection (not `dropna().iloc[-1]`)
+- Connection params (`ch_host` etc.) passed through from app.py `CH_*` env vars
+- CLI smoke-test: `python src/ml/trend_predictor.py`
+
+---
+
 ### `anomaly.py`
 
 Self-contained composite anomaly detection for daily OHLCV time series.  
@@ -492,6 +553,8 @@ User runs: python -m src.main analyze
 | **Config** | `pydantic`, `pydantic-settings`, `python-dotenv` |
 | **Output / CLI** | `rich`, `typer` |
 | **ML / Anomaly** | `scikit-learn>=1.4.0` (IsolationForest, RandomForestRegressor), `altair>=5.0.0` (Vega-Lite charts in UI) |
+| **ML / Forecast** | `lightgbm>=4.3.0` (LGBMRegressor for 5-day forward return predictor) |
+| **ML / Forecast** | `lightgbm>=4.3.0` (LGBMRegressor for 5-day forward return predictor) |
 
 ---
 
@@ -526,5 +589,7 @@ User runs: python -m src.main analyze
 | `docs/architecture.mmd` | Mermaid architecture diagram |
 | `src/ml/__init__.py` | Package marker |
 | `src/ml/anomaly.py` | Composite anomaly detection — Robust Z + RF Residuals + Isolation Forest |
+| `src/ml/trend_predictor.py` | LightGBM 5-day forward return predictor — 9 alpha features, walk-forward CV, ClickHouse + JSONL persistence |
 | `src/ui/__init__.py` | Package marker |
-| `src/ui/app.py` | Streamlit 4-tab UI — Import / SQL Query / Explorer / Anomaly Detection |
+| `src/ui/app.py` | Streamlit 5-tab UI — Import / SQL Query / Explorer / Anomaly Detection / Who Is Selling? |
+| `predictions_log.jsonl` | Git-trackable JSONL log — one entry per (as_of, horizon_days); used for accuracy backtesting |

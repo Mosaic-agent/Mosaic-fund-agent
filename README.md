@@ -51,13 +51,36 @@ detector has already flagged two meaningful gold flash-crash days).
 8. **Historical importer** — pulls 2 years of OHLCV from Yahoo Finance (stocks,
    ETFs, commodities, indices), MF NAV from MFAPI.in (AMFI official), and live
    iNAV snapshots from NSE into **ClickHouse** (`market_data` database)
-9. **Streamlit UI** (`localhost:8501`) — four tabs:
+9. **Streamlit UI** (`localhost:8501`) — five tabs:
    - **📥 Import** — trigger category imports with live log output
-   - **🔍 SQL Query** — ad-hoc SQL editor with 8 presets and CSV export
+   - **🔍 SQL Query** — ad-hoc SQL editor with 20+ presets, CSV export, and
+     **Bulk Table Export** (CSV or Parquet) for all 9 tables
    - **📊 Explorer** — interactive charts: COMEX Gold, GOLDBEES NAV vs market,
-     premium/discount, iNAV time-series, any-symbol price explorer
+     premium/discount, iNAV time-series, COT positioning, ETF AUM flows,
+     central bank reserves, FX rates (rebased index + rolling correlation)
    - **🔬 Anomaly Detection** — composite ML pipeline (see below)
-10. **Composite anomaly detection** (`src/ml/anomaly.py`) — three-step pipeline:
+   - **🕵️ Who Is Selling?** — real-time sell-off attribution + LightGBM forecast
+10. **Who Is Selling?** (`src/tools/who_is_selling_agent.py`) — identifies *which*
+    market segment is driving a gold sell-off:
+    - 🇮🇳 **Retail Panic** — USDINR +3% in 60d AND GOLDBEES discount < −1%
+    - 🏦 **Institutional Exit** — GLD AUM proxy −3% in 30d
+    - 📋 **Speculator Crowding** — MM Net / OI > 25%
+    - 🌍 **CB Accumulation** — USDCNY stable AND WTI > $80
+    - Outputs a **regime** (RETAIL_PANIC / INSTITUTIONAL_EXIT / OVERLEVERED_LONGS /
+      SHORT_SQUEEZE_SETUP / CB_ACCUMULATION / MIXED / NEUTRAL) + recommendation
+11. **LightGBM 5-day forward return predictor** (`src/ml/trend_predictor.py`) —
+    soft-threshold complement to the expert system:
+    - **9 alpha features**: COT leverage, GOLDBEES spread, GLD AUM momentum,
+      USDINR vol (14d), USDINR trend (60d), price momentum (5d/20d), MA ratio,
+      spread delta
+    - **Walk-forward CV**: `TimeSeriesSplit` — no look-ahead leakage
+    - **Regime signals**: BUY / WATCH_LONG / HOLD / WATCH_SHORT / SELL
+    - **Persists** every prediction to `market_data.ml_predictions` (ClickHouse)
+      and `predictions_log.jsonl` (git-trackable) — enables accuracy scoring
+      5 trading days later via the SQL preset
+    - Requires ≥ 120 clean training rows; uses coverage-aware NaN filter so
+      sparse `etf_aum` column doesn't eliminate rows
+12. **Composite anomaly detection** (`src/ml/anomaly.py`) — three-step pipeline:
     - **Robust Z-Score (MAD)** — rolling median/MAD instead of mean/σ; immune
       to trending price inflation that causes standard Z to miss crashes
     - **Random Forest Residual Z** — trains RF on lagged prices + MA7/MA30;
@@ -232,6 +255,7 @@ fetched (3-day overlap for late corrections).
 | `cot` | CFTC Socrata API (free) | Weekly Gold COT — Managed Money + Commercials positioning |
 | `cb_reserves` | IMF IFS REST API (free) | Monthly gold reserves for 9 central banks (CN, IN, RU, US, DE, TR, GB, JP, PL) |
 | `etf_aum` | Yahoo Finance (free) | Daily AUM snapshot for GLD, IAU, SGOL, PHYS + implied gold tonnes |
+| `fx_rates` | Yahoo Finance (free) | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD |
 
 ### ClickHouse tables
 
@@ -244,6 +268,8 @@ fetched (3-day overlap for late corrections).
 | `cot_gold` | ReplacingMergeTree | Weekly CFTC COT — `mm_net`, `comm_net`, `open_interest` |
 | `cb_gold_reserves` | ReplacingMergeTree | Monthly central bank gold reserves in metric tonnes |
 | `etf_aum` | ReplacingMergeTree | Daily ETF AUM (USD) + implied gold tonnes |
+| `fx_rates` | ReplacingMergeTree | Daily OHLC for 5 USD pairs (INR, CNY, AED, SAR, KWD) |
+| `ml_predictions` | ReplacingMergeTree | LightGBM forecast log — `expected_return_pct`, `regime_signal`, `goldbees_close` per `(as_of, horizon_days)` |
 
 ---
 
@@ -382,12 +408,15 @@ flowchart TD
 │   │       ├── imf_reserves_fetcher.py  # IMF IFS central bank gold reserves
 │   │       └── etf_aum_fetcher.py    # Gold ETF AUM snapshots (GLD, IAU, SGOL, PHYS)
 │   ├── ml/
-│   │   └── anomaly.py            # Composite anomaly detection 
+│   │   ├── anomaly.py            # Composite anomaly detection (Robust Z + RF + IsolationForest)
+│   │   └── trend_predictor.py    # LightGBM 5-day forward return predictor
 │   ├── models/
 │   │   └── portfolio.py          # Pydantic models: Holding, Portfolio, Report
-│   ├── tools/                    # yahoo_finance, news, earnings, inav, comex, summarization
+│   ├── tools/
+│   │   ├── who_is_selling_agent.py  # 4-signal sell-off attribution + regime synthesis
+│   │   └── ...                   # yahoo_finance, news, earnings, inav, comex, summarization
 │   ├── ui/
-│   │   └── app.py                # Streamlit 4-tab data hub UI
+│   │   └── app.py                # Streamlit 5-tab data hub UI
 │   └── utils/                    # cache, symbol_mapper, report_loader, demo_data
 ├── tests/
 │   ├── test_tools.py             # 11 unit tests (no API keys needed for 10/11)
@@ -446,6 +475,9 @@ Schedule periodic iNAV imports to build a time-series:
 
 # ETF AUM — daily after US market close
 0 23 * * 1-5 cd /path/to/project && .venv/bin/python src/main.py import --category etf_aum
+
+# ML forecast — daily after Indian market close (persists to ClickHouse + JSONL)
+30 15 * * 1-5 cd /path/to/project && .venv/bin/python src/ml/trend_predictor.py
 ```
 
 ---
@@ -483,6 +515,11 @@ python tests/_test_importer.py
   COMEX and news agents bypass LangGraph for local models automatically.
 - **Anomaly detection:** Requires ≥ 60 rows per symbol in ClickHouse. Run
   an import first.
+- **LightGBM forecast:** Requires ≥ 120 clean training rows (GOLDBEES + NAV + COT
+  + FX). Use `--lookback 1000` on first import. CV R² is typically negative with
+  < 2 years of data — improves as history accumulates.
+- **ML predictions accuracy:** The `ml_predictions` accuracy SQL preset needs
+  ≥ `horizon_days` of subsequent price data before it can show `actual_return_pct`.
 
 ---
 
