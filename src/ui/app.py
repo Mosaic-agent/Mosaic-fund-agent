@@ -1898,7 +1898,7 @@ with tab_wis:
                 )
 
                 # Key metrics
-                mc1, mc2, mc3, mc4 = st.columns(4)
+                mc1, mc2, mc3, mc4, mc5 = st.columns(5)
                 mc1.metric(
                     f"Expected {ml['horizon_days']}-Day Return",
                     f"{ml['expected_return_pct']:+.2f}%",
@@ -1907,8 +1907,12 @@ with tab_wis:
                     "Confidence Band",
                     f"[{ml['confidence_low']:+.1f}%, {ml['confidence_high']:+.1f}%]",
                 )
-                mc3.metric("CV R² Mean", f"{ml['cv_r2_mean']:.4f}")
-                mc4.metric("Training Rows", f"{ml['n_training_rows']:,}")
+                mc3.metric("CV R² Mean", f"{ml['cv_r2_mean']:.4f}",
+                           help=">0.05 = useful predictive power. Negative = worse than mean baseline.")
+                mc4.metric("Hit Ratio",
+                           f"{ml.get('cv_hit_ratio_mean', 0)*100:.1f}%",
+                           help="Directional accuracy. >52% = statistical edge, >55% = strong edge.")
+                mc5.metric("Training Rows", f"{ml['n_training_rows']:,}")
 
                 # Feature importance bar chart
                 st.subheader("Feature Importances")
@@ -1932,6 +1936,20 @@ with tab_wis:
                         "Each fold trains on earlier data only and tests on later data. "
                         "R² > 0 = model has out-of-sample predictive power. "
                         "Negative R² = that fold was noisier than the mean baseline."
+                    )
+
+                # Walk-forward hit ratio per fold
+                with st.expander("Walk-Forward Hit Ratio per fold"):
+                    _hit_list = ml.get("cv_hit_ratios", [])
+                    hr_df = pd.DataFrame({
+                        "fold":      [f"Fold {i+1}" for i in range(len(_hit_list))],
+                        "hit_ratio": [h * 100 for h in _hit_list],
+                    }).set_index("fold")
+                    st.bar_chart(hr_df["hit_ratio"], height=160, color="#4CAF50")
+                    st.caption(
+                        "Hit Ratio = % of test days where the model predicted direction (Up/Down) correctly.  "
+                        "**50%** = random coin flip · **>52%** = statistical edge · **>55%** = strong edge.  "
+                        "Even a modest hit ratio can be profitable if combined with proper position sizing."
                     )
 
             except ImportError:

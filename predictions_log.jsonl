@@ -1,1 +1,2 @@
 {"as_of": "2026-03-28", "horizon_days": 5, "expected_return_pct": 2.157, "confidence_low": -0.37, "confidence_high": 4.683, "regime_signal": "BUY", "cv_r2_mean": -0.3509, "n_training_rows": 662, "goldbees_close": 117.53}
+{"as_of": "2026-03-29", "horizon_days": 5, "expected_return_pct": 2.157, "confidence_low": -0.37, "confidence_high": 4.683, "regime_signal": "BUY", "cv_r2_mean": -0.3509, "n_training_rows": 662, "goldbees_close": 117.53}

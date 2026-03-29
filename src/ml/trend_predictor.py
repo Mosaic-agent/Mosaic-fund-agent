@@ -8,20 +8,30 @@ alpha factors with *soft* thresholds learned from data, not hard IF/THEN rules.
 
 Alpha factors
 ─────────────
-  f_cot_pct_oi     COT Leverage      mm_net / open_interest × 100
-  f_spread_pct     Retail Spread     (price − nav) / nav × 100
-  f_aum_mom_30d    AUM Momentum      30-day rolling % Δ of GLD total assets
-  f_usdinr_vol14   Currency Stress   14-day USDINR log-return volatility × 100
-  f_usdinr_60d     INR Trend         60-day USDINR % change
-  f_goldbees_ret5  Price Momentum    5-day GOLDBEES return
-  f_goldbees_ret20 Price Momentum    20-day GOLDBEES return
-  f_ma_ratio       Mean-Reversion    close / 20-day MA
-  f_spread_delta5  Spread Momentum   5-day change in retail spread
+  f_logret1            Daily log return    ln(P_t/P_{t-1})            stationarity fix
+  f_goldbees_logret5   Log Momentum        5-day log return
+  f_goldbees_logret20  Log Momentum        20-day log return
+  f_ema_cross39        EMA signal          EMA(3)/EMA(9)−1            short-term trend
+  f_ema_cross920       EMA signal          EMA(9)/EMA(20)−1           medium trend
+  f_ma_ratio           Mean-Reversion      close / 20-day SMA
+  f_atr14_pct          Volatility regime   ATR(14) / close × 100
+  f_hvol10             Historical vol      10-day log-return σ × √252
+  f_cot_pct_oi         COT Leverage        mm_net / open_interest × 100
+  f_spread_pct         Retail Spread       (price − nav) / nav × 100
+  f_spread_delta5      Spread Momentum     5-day change in retail spread
+  f_aum_mom_30d        AUM Momentum        30-day log % Δ of GLD total assets
+  f_usdinr_vol14       Currency Stress     14-day USDINR log-return vol × 100
+  f_usdinr_60d         INR Trend           60-day USDINR log % change
+  f_dxy_proxy          DXY proxy           −(5-day USDINR log return × 100)
+  f_gold_logret5       COMEX momentum      5-day log return of COMEX GOLD
 
-Target: (price[t + horizon] / price[t] − 1) × 100
+Target: ln(close[t + horizon] / close[t])  — stationary log return
+  (converted back to % for display)
 
-Training: TimeSeriesSplit walk-forward — training window never overlaps test.
-Model:    LGBMRegressor — handles NaN rows natively (sparse COT / AUM columns).
+Training: TimeSeriesSplit expanding-window walk-forward (gap prevents leakage).
+  min_train_size ensures early folds always have sufficient history.
+Model:    LGBMRegressor with L1+L2 regularisation — handles NaN natively.
+Metrics:  CV R² per fold  +  Hit Ratio (directional accuracy)
 
 Public API
 ──────────
@@ -69,7 +79,8 @@ _MASTER_SQL = """
         f.close       AS usdinr,
         aum.aum_usd   AS gld_aum_usd,
         cot.mm_net    AS cot_mm_net,
-        cot.oi        AS cot_oi
+        cot.oi        AS cot_oi,
+        gold.gold_close AS gold_close
     FROM (
         SELECT trade_date, close
         FROM market_data.daily_prices FINAL
@@ -104,6 +115,11 @@ _MASTER_SQL = """
         WHERE c.report_date <= d.trade_date
         GROUP BY d.trade_date
     ) cot ON p.trade_date = cot.trade_date
+    LEFT JOIN (
+        SELECT trade_date, close AS gold_close
+        FROM market_data.daily_prices FINAL
+        WHERE symbol = 'GOLD' AND category = 'commodities'
+    ) gold ON p.trade_date = gold.trade_date
     ORDER BY p.trade_date ASC
 """
 
@@ -134,48 +150,74 @@ def build_master_table(ch_client) -> pd.DataFrame:
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Transform raw columns into alpha factors.
+    Transform raw columns into stationary alpha factors.
 
     All feature columns are prefixed with ``f_`` for automatic selection.
     Input must have: goldbees_close, goldbees_nav, usdinr, gld_aum_usd,
                      cot_mm_net, cot_oi.
+    Optional (silently skipped if absent): gold_close.
     """
     df = df.copy().sort_values("trade_date").reset_index(drop=True)
 
-    # 1. COT leverage — the speculator over-positioning signal
-    df["f_cot_pct_oi"] = (
-        df["cot_mm_net"] / df["cot_oi"].replace(0, np.nan) * 100
-    )
+    p   = df["goldbees_close"].replace(0, np.nan)
+    lnp = np.log(p)  # log price — differences give stationary log returns
 
-    # 2. Retail spread — GOLDBEES premium/discount to AMFI NAV
-    df["f_spread_pct"] = (
-        (df["goldbees_close"] - df["goldbees_nav"])
-        / df["goldbees_nav"].replace(0, np.nan) * 100
-    )
+    # ── 1. Stationary log-return features (fix level bias) ───────────────────
+    df["f_logret1"]           = lnp.diff(1)
+    df["f_goldbees_logret5"]  = lnp.diff(5)
+    df["f_goldbees_logret20"] = lnp.diff(20)
 
-    # 3. AUM momentum — 30-day % change in GLD total assets (institutional flow)
-    df["f_aum_mom_30d"] = df["gld_aum_usd"].pct_change(30, fill_method=None) * 100
+    # ── 2. EMA crossover signals (trend vs mean-reversion regime) ────────────
+    ema3  = p.ewm(span=3,  adjust=False).mean()
+    ema9  = p.ewm(span=9,  adjust=False).mean()
+    ema20 = p.ewm(span=20, adjust=False).mean()
+    df["f_ema_cross39"]  = ema3  / ema9.replace(0, np.nan)  - 1
+    df["f_ema_cross920"] = ema9  / ema20.replace(0, np.nan) - 1
 
-    # 4. Currency stress — 14-day USDINR log-return volatility × 100
-    # Replace 0/NaN before log to avoid divide-by-zero RuntimeWarning
-    usdinr_safe  = df["usdinr"].replace(0, np.nan)
-    usdinr_logret = np.log(usdinr_safe / usdinr_safe.shift(1))
-    df["f_usdinr_vol14"] = usdinr_logret.rolling(14).std() * 100
+    # ── 3. Mean-reversion: close / 20-day SMA ────────────────────────────────
+    df["f_ma_ratio"] = p / p.rolling(20).mean()
 
-    # 5. INR trend — 60-day USDINR % change (macro regime)
-    df["f_usdinr_60d"] = df["usdinr"].pct_change(60) * 100
+    # ── 4. Volatility regime features ────────────────────────────────────────
+    # ATR(14) as % of close — real range when OHLC present, logret proxy otherwise
+    if "goldbees_high" in df.columns and "goldbees_low" in df.columns:
+        h  = df["goldbees_high"].replace(0, np.nan)
+        lo = df["goldbees_low"].replace(0, np.nan)
+        tr = pd.concat([
+            h - lo,
+            (h - p.shift(1)).abs(),
+            (lo - p.shift(1)).abs(),
+        ], axis=1).max(axis=1)
+        df["f_atr14_pct"] = tr.rolling(14).mean() / p * 100
+    else:
+        df["f_atr14_pct"] = df["f_logret1"].abs().rolling(14).mean() * 100
 
-    # 6. GOLDBEES near/medium momentum
-    df["f_goldbees_ret5"]  = df["goldbees_close"].pct_change(5)  * 100
-    df["f_goldbees_ret20"] = df["goldbees_close"].pct_change(20) * 100
+    # 10-day historical volatility (annualised)
+    df["f_hvol10"] = df["f_logret1"].rolling(10).std() * np.sqrt(252)
 
-    # 7. Mean-reversion: close / 20-day MA (> 1 = extended, < 1 = oversold)
-    df["f_ma_ratio"] = (
-        df["goldbees_close"] / df["goldbees_close"].rolling(20).mean()
-    )
+    # ── 5. COT leverage — speculator over-positioning ────────────────────────
+    df["f_cot_pct_oi"] = df["cot_mm_net"] / df["cot_oi"].replace(0, np.nan) * 100
 
-    # 8. Spread momentum: 5-day change in retail discount (accelerating panic?)
+    # ── 6. Retail spread — GOLDBEES premium/discount to AMFI NAV ─────────────
+    nav_safe = df["goldbees_nav"].replace(0, np.nan)
+    df["f_spread_pct"]    = (p - nav_safe) / nav_safe * 100
     df["f_spread_delta5"] = df["f_spread_pct"].diff(5)
+
+    # ── 7. AUM momentum — 30-day log % change in GLD total assets ────────────
+    aum_safe = df["gld_aum_usd"].replace(0, np.nan)
+    df["f_aum_mom_30d"] = np.log(aum_safe / aum_safe.shift(30)) * 100
+
+    # ── 8. Currency stress + trend ────────────────────────────────────────────
+    inr_safe   = df["usdinr"].replace(0, np.nan)
+    inr_logret = np.log(inr_safe / inr_safe.shift(1))
+    df["f_usdinr_vol14"] = inr_logret.rolling(14).std() * 100
+    df["f_usdinr_60d"]   = np.log(inr_safe / inr_safe.shift(60)) * 100
+    # DXY proxy: USDINR up = Dollar strong = headwind for gold → negate
+    df["f_dxy_proxy"] = -np.log(inr_safe / inr_safe.shift(5)) * 100
+
+    # ── 9. COMEX Gold momentum ────────────────────────────────────────────────
+    if "gold_close" in df.columns:
+        gc = df["gold_close"].replace(0, np.nan)
+        df["f_gold_logret5"] = np.log(gc / gc.shift(5)) * 100
 
     return df
 
@@ -184,17 +226,18 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def label_forward_return(df: pd.DataFrame, horizon: int = _HORIZON) -> pd.DataFrame:
     """
-    Add the forward return target column.
+    Add the forward log-return target (stationary, eliminates level bias).
 
-        target = (close[t + horizon] / close[t] − 1) × 100
+        target = ln(close[t + horizon] / close[t])
 
+    Using log returns avoids the non-stationary level problem that causes
+    negative R² when the model's intercept drifts from the true mean.
     The last `horizon` rows will have NaN targets and are excluded from training.
     They are kept so the latest row can still be used for live prediction.
     """
     df = df.copy()
-    df["target"] = (
-        df["goldbees_close"].shift(-horizon) / df["goldbees_close"] - 1
-    ) * 100
+    p_safe = df["goldbees_close"].replace(0, np.nan)
+    df["target"] = np.log(p_safe.shift(-horizon) / p_safe)
     return df
 
 
@@ -204,9 +247,9 @@ def fit_walk_forward(
     df: pd.DataFrame,
     n_splits: int = _N_SPLITS,
     gap: int = _GAP,
-) -> tuple[Any, pd.DataFrame, list[float], pd.DataFrame, list[str]]:
+) -> tuple[Any, pd.DataFrame, list[float], list[float], pd.DataFrame, list[str]]:
     """
-    Train LGBMRegressor with TimeSeriesSplit walk-forward validation.
+    Train LGBMRegressor with expanding-window TimeSeriesSplit walk-forward CV.
 
     Parameters
     ----------
@@ -216,11 +259,12 @@ def fit_walk_forward(
 
     Returns
     -------
-    model        : LGBMRegressor fit on the last fold's full train set
-    fi_df        : feature importances averaged over last 3 folds
-    cv_r2_scores : list of out-of-sample R² per fold
-    df_clean     : training-eligible rows
-    feature_cols : list of feature names used
+    model         : LGBMRegressor fit on the last fold's full train set
+    fi_df         : feature importances averaged over last 3 folds
+    cv_r2_scores  : list of out-of-sample R² per fold
+    cv_hit_ratios : list of directional accuracy (hit ratio) per fold
+    df_clean      : training-eligible rows
+    feature_cols  : list of feature names used
     """
     try:
         import lightgbm as lgb
@@ -233,10 +277,9 @@ def fit_walk_forward(
 
     feature_cols = sorted(c for c in df.columns if c.startswith("f_"))
 
-    # Require non-NaN target; LightGBM handles missing feature values natively.
+    # Non-NaN target required; LightGBM handles missing feature values natively.
     # Keep rows where at least half the features are present so sparse columns
-    # like f_aum_mom_30d (only a few AUM snapshots in etf_aum) don't eliminate
-    # every row during dropna.
+    # (f_aum_mom_30d, f_gold_logret5) don't eliminate every row.
     df_clean = df.dropna(subset=["target"]).copy()
     min_features_required = max(1, len(feature_cols) // 2)
     feature_coverage = df_clean[feature_cols].notna().sum(axis=1)
@@ -248,30 +291,45 @@ def fit_walk_forward(
             "Run: mosaic import --category etfs mf cot"
         )
 
-    X = df_clean[feature_cols]   # keep as DataFrame so LightGBM retains feature names
+    X = df_clean[feature_cols]   # DataFrame preserves feature names in LightGBM
     y = df_clean["target"].values
 
+    # min_train_size: ensure early folds have enough history to train on
+    min_train_size = max(_MIN_ROWS // (n_splits + 1), 60)
     tscv = TimeSeriesSplit(n_splits=n_splits, gap=gap)
-    models: list[Any] = []
+    models: list[Any]   = []
     scores: list[float] = []
+    hit_ratios: list[float] = []
 
     for train_idx, test_idx in tscv.split(X):
+        if len(train_idx) < min_train_size:
+            continue  # skip folds where training set is too thin
         m = lgb.LGBMRegressor(
-            n_estimators      = 300,
-            learning_rate     = 0.04,
+            n_estimators      = 400,
+            learning_rate     = 0.03,
             max_depth         = 4,
             num_leaves        = 15,
             subsample         = 0.8,
-            colsample_bytree  = 0.8,
-            min_child_samples = 10,
-            reg_alpha         = 0.1,
-            reg_lambda        = 0.1,
+            colsample_bytree  = 0.7,
+            min_child_samples = 15,
+            reg_alpha         = 0.15,   # L1 — prunes noisy features
+            reg_lambda        = 0.15,   # L2 — shrinks coefficients
             random_state      = 42,
             verbose           = -1,
         )
         m.fit(X.iloc[train_idx], y[train_idx])
-        scores.append(float(m.score(X.iloc[test_idx], y[test_idx])))
+        y_pred = m.predict(X.iloc[test_idx])
+        y_true = y[test_idx]
+        scores.append(float(m.score(X.iloc[test_idx], y_true)))
+        # Hit ratio: fraction of days where predicted direction == actual
+        hit_ratios.append(float(np.mean(np.sign(y_pred) == np.sign(y_true))))
         models.append(m)
+
+    if not models:
+        raise ValueError(
+            "All CV folds were skipped (too few rows per fold). "
+            "Reduce n_splits or import more data."
+        )
 
     # Average importances over the last k folds for stability
     k = min(3, len(models))
@@ -285,12 +343,10 @@ def fit_walk_forward(
     )
 
     log.info(
-        "Walk-forward: %d folds, R² = %s, mean = %.4f",
-        n_splits,
-        [f"{s:.4f}" for s in scores],
-        np.mean(scores),
+        "Walk-forward: %d folds, R²mean=%.4f, hit_mean=%.3f",
+        len(models), np.mean(scores), np.mean(hit_ratios),
     )
-    return models[-1], fi_df, scores, df_clean, feature_cols
+    return models[-1], fi_df, scores, hit_ratios, df_clean, feature_cols
 
 
 # ── Step 5: Public API ────────────────────────────────────────────────────────
@@ -340,23 +396,22 @@ def run_trend_prediction(
     df_feat    = engineer_features(df_raw)
     df_labeled = label_forward_return(df_feat, horizon=horizon)
 
-    model, fi_df, scores, df_clean, feature_cols = fit_walk_forward(
+    model, fi_df, scores, hit_ratios, df_clean, feature_cols = fit_walk_forward(
         df_labeled, n_splits=n_splits, gap=_GAP
     )
 
     # Predict on the latest row that has sufficient feature coverage.
-    # Use the same threshold as training (>=50% features non-NaN).
-    # Pass as DataFrame so LightGBM keeps feature names and handles NaN.
-    df_feat_recent = df_feat[feature_cols].copy()
-    coverage_pred  = df_feat_recent.notna().sum(axis=1)
+    df_feat_recent   = df_feat[feature_cols].copy()
+    coverage_pred    = df_feat_recent.notna().sum(axis=1)
     df_pred_eligible = df_feat_recent[coverage_pred >= (len(feature_cols) // 2)]
     if df_pred_eligible.empty:
         raise ValueError(
             "No recent rows with sufficient feature coverage for prediction. "
             "Run: mosaic import --category etfs mf cot"
         )
-    latest_row = df_pred_eligible.iloc[[-1]]
-    pred       = float(model.predict(latest_row)[0])
+    latest_row  = df_pred_eligible.iloc[[-1]]
+    pred_logret = float(model.predict(latest_row)[0])   # log return (stationary)
+    pred        = (np.exp(pred_logret) - 1) * 100        # convert to % for display
 
     # Confidence band widens when CV scores are inconsistent
     cv_std    = float(np.std(scores))
@@ -403,6 +458,8 @@ def run_trend_prediction(
         "feature_importances": fi_df,
         "cv_r2_scores":        [round(s, 4) for s in scores],
         "cv_r2_mean":          round(float(np.mean(scores)), 4),
+        "cv_hit_ratios":       [round(h, 4) for h in hit_ratios],
+        "cv_hit_ratio_mean":   round(float(np.mean(hit_ratios)), 4),
         "n_training_rows":     len(df_clean),
         "horizon_days":        horizon,
         "as_of":               date.today(),
@@ -480,8 +537,8 @@ def run_trend_prediction(
             _f.write(json.dumps(_entry) + "\n")
     if verbose:
         log.info(
-            "Prediction: %+.3f%% in %dd | regime=%s | CV R²=%.4f",
-            pred, horizon, regime, result["cv_r2_mean"],
+            "Prediction: %+.3f%% in %dd | regime=%s | CV R²=%.4f | hit=%.3f",
+            pred, horizon, regime, result["cv_r2_mean"], result["cv_hit_ratio_mean"],
         )
     return result
 
@@ -506,6 +563,7 @@ if __name__ == "__main__":
     print(f"\n  {out['regime_rationale']}")
     print(f"\n  CV R² per fold : {out['cv_r2_scores']}")
     print(f"  CV R² mean     : {out['cv_r2_mean']}")
+    print(f"  Hit ratio mean : {out['cv_hit_ratio_mean']:.1%}  (>52% = useful edge)")
     print(f"  Training rows  : {out['n_training_rows']}")
     print(f"\n  Feature importances (top 5):")
     max_imp = out["feature_importances"]["importance"].max()
