@@ -595,14 +595,23 @@ with tab_explorer:
 
     st.divider()
 
-    # ── 3. Premium / Discount ─────────────────────────────────────────────────
+    # ── 3. Premium / Discount impact on GOLDBEES price ───────────────────────
     with st.container():
-        st.subheader("↕ GOLDBEES — Premium / Discount to NAV (%)")
+        st.subheader("↕ How Premium / Discount Impacts GOLDBEES Price")
+        st.caption(
+            "Premium = market buying pressure pushing price above NAV.  "
+            "Discount = selling pressure dragging price below NAV.  "
+            "The scatter and correlation views reveal whether today's spread predicts tomorrow's price move."
+        )
         try:
+            import altair as alt
+
             pddf = _query_df("""
                 SELECT
                     p.trade_date,
-                    round((p.close - n.nav) / n.nav * 100, 3) AS premium_disc_pct
+                    round(p.close, 4)                              AS price,
+                    round(n.nav,   4)                              AS nav,
+                    round((p.close - n.nav) / n.nav * 100, 3)     AS premium_disc_pct
                 FROM (
                     SELECT trade_date, close
                     FROM market_data.daily_prices FINAL
@@ -615,24 +624,181 @@ with tab_explorer:
                 ) n USING (trade_date)
                 ORDER BY trade_date ASC
             """)
+
             if not pddf.empty:
                 pddf["trade_date"] = pd.to_datetime(pddf["trade_date"])
-                pddf = pddf.set_index("trade_date")
-                st.bar_chart(pddf["premium_disc_pct"], height=240, color="#00B4D8")
-                st.caption(
-                    "**+** = ETF trading at premium (market > NAV)  "
-                    "·  **−** = ETF trading at discount (market < NAV)  "
-                    "·  Bands: ±0.25% = FAIR VALUE"
+
+                # Derived columns
+                pddf["next_day_return_pct"] = pddf["price"].pct_change(-1).mul(-100).round(3)  # tomorrow's return
+                pddf["price_return_pct"]    = pddf["price"].pct_change().mul(100).round(3)
+                pddf["signal"] = pddf["premium_disc_pct"].apply(
+                    lambda v: "🟢 Premium" if v >= 0 else "🔴 Discount"
                 )
+
+                # ── Summary metrics ─────────────────────────────────────────
                 avg = pddf["premium_disc_pct"].mean()
                 mx  = pddf["premium_disc_pct"].max()
                 mn  = pddf["premium_disc_pct"].min()
-                d1, d2, d3, d4 = st.columns(4)
-                d1.metric("Avg",         f"{avg:+.3f}%")
-                d2.metric("Max Premium", f"{mx:+.3f}%")
-                d3.metric("Max Discount", f"{mn:+.3f}%")
                 days_disc = int((pddf["premium_disc_pct"] < -0.25).sum())
-                d4.metric("Days at Discount", days_disc)
+                days_prem = int((pddf["premium_disc_pct"] > +0.25).sum())
+                corr_sameday  = pddf["premium_disc_pct"].corr(pddf["price_return_pct"])
+                corr_nextday  = pddf["premium_disc_pct"].corr(pddf["next_day_return_pct"])
+
+                m1, m2, m3, m4, m5, m6 = st.columns(6)
+                m1.metric("Avg Spread",      f"{avg:+.3f}%")
+                m2.metric("Max Premium",     f"{mx:+.3f}%")
+                m3.metric("Max Discount",    f"{mn:+.3f}%")
+                m4.metric("Days at Discount (>0.25%)", days_disc)
+                m5.metric("Same-day corr",   f"{corr_sameday:+.3f}",
+                           help="Pearson corr: spread vs same-day price return")
+                m6.metric("Next-day corr",   f"{corr_nextday:+.3f}",
+                           help="Pearson corr: today's spread vs tomorrow's price return (mean-reversion signal)")
+
+                tab_overlay, tab_scatter, tab_rolling = st.tabs([
+                    "📊 Price vs Spread overlay",
+                    "🔵 Scatter: Spread → Next-day Return",
+                    "📈 Rolling Correlation",
+                ])
+
+                # ── Tab 1: Dual-axis overlay ────────────────────────────────
+                with tab_overlay:
+                    st.caption(
+                        "🟢 **Green bars** = premium (market > NAV, buying pressure up)  "
+                        "·  🔴 **Red bars** = discount (selling pressure down)  "
+                        "·  🟡 **Line** = GOLDBEES price  ·  Grey band = ±0.25% fair-value zone"
+                    )
+                    _zero_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
+                        color="#666", strokeWidth=1, opacity=0.5
+                    ).encode(y="y:Q")
+                    _fair_band = alt.Chart(
+                        pd.DataFrame({"y1": [-0.25], "y2": [0.25]})
+                    ).mark_rect(opacity=0.07, color="#aaaaaa").encode(y="y1:Q", y2="y2:Q")
+
+                    _bars = alt.Chart(pddf).mark_bar(size=4).encode(
+                        x=alt.X("trade_date:T", title="Date",
+                                axis=alt.Axis(format="%b %Y", labelAngle=-35)),
+                        y=alt.Y("premium_disc_pct:Q",
+                                title="Premium / Discount (%)",
+                                scale=alt.Scale(zero=True),
+                                axis=alt.Axis(titleColor="#E74C3C", labelColor="#E74C3C")),
+                        color=alt.condition(
+                            alt.datum.premium_disc_pct >= 0,
+                            alt.value("#2ECC71"),
+                            alt.value("#E74C3C"),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date"),
+                            alt.Tooltip("premium_disc_pct:Q", title="Spread %", format="+.3f"),
+                            alt.Tooltip("price:Q", title="Price ₹", format=".2f"),
+                            "signal:N",
+                        ],
+                    )
+
+                    _price_line = alt.Chart(pddf).mark_line(
+                        color="#FFD700", strokeWidth=2
+                    ).encode(
+                        x="trade_date:T",
+                        y=alt.Y("price:Q", title="GOLDBEES Price (₹)",
+                                scale=alt.Scale(zero=False),
+                                axis=alt.Axis(titleColor="#FFD700", labelColor="#FFD700")),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date"),
+                            alt.Tooltip("price:Q", title="Price ₹", format=".2f"),
+                        ],
+                    )
+
+                    overlay = alt.layer(
+                        _fair_band + _zero_rule + _bars,
+                        _price_line,
+                    ).resolve_scale(y="independent").properties(height=300).interactive()
+
+                    st.altair_chart(overlay, use_container_width=True)
+
+                # ── Tab 2: Scatter spread → next-day return ─────────────────
+                with tab_scatter:
+                    st.caption(
+                        "Each dot = one trading day.  "
+                        "**X** = today's premium/discount %,  "
+                        "**Y** = next day's GOLDBEES price return %.  "
+                        "A downward slope (negative corr) = **mean-reversion**: "
+                        "discounts tend to be followed by price rebounds."
+                    )
+                    scatter_df = pddf[["trade_date", "premium_disc_pct",
+                                       "next_day_return_pct", "signal"]].dropna()
+
+                    scatter = alt.Chart(scatter_df).mark_circle(
+                        opacity=0.55, size=55
+                    ).encode(
+                        x=alt.X("premium_disc_pct:Q", title="Today's Spread % (+ = premium)"),
+                        y=alt.Y("next_day_return_pct:Q",
+                                title="Next-day Price Return %"),
+                        color=alt.Color("signal:N", scale=alt.Scale(
+                            domain=["🟢 Premium", "🔴 Discount"],
+                            range=["#2ECC71", "#E74C3C"],
+                        )),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date"),
+                            alt.Tooltip("premium_disc_pct:Q",  title="Spread %",      format="+.3f"),
+                            alt.Tooltip("next_day_return_pct:Q", title="Next-day ret %", format="+.3f"),
+                            "signal:N",
+                        ],
+                    )
+                    # OLS trend line
+                    trend = scatter.transform_regression(
+                        "premium_disc_pct", "next_day_return_pct"
+                    ).mark_line(color="#888888", strokeDash=[6, 3], strokeWidth=1.5)
+
+                    st.altair_chart(
+                        (scatter + trend).properties(height=320).interactive(),
+                        use_container_width=True,
+                    )
+                    st.info(
+                        f"Next-day return correlation with spread: **{corr_nextday:+.3f}**  \n"
+                        f"{'↩ Mean-reversion present — discounts tend to be followed by price recovery.' if corr_nextday < -0.05 else ('↗ Momentum present — premiums tend to attract more buying.' if corr_nextday > 0.05 else '↔ No strong predictive relationship between spread and next-day return.')}"
+                    )
+
+                # ── Tab 3: Rolling 30-day correlation ───────────────────────
+                with tab_rolling:
+                    st.caption(
+                        "Rolling 30-day Pearson correlation between the premium/discount spread "
+                        "and the **same-day** GOLDBEES price return.  "
+                        "**Positive** = premiums coincide with up-days (momentum).  "
+                        "**Negative** = spread and price move in opposite directions (arbitrage pressure)."
+                    )
+                    roll_win = st.slider("Rolling window (days)", 10, 90, 30, 5,
+                                         key="pd_roll_win")
+                    roll_df = pddf[["trade_date", "premium_disc_pct",
+                                    "price_return_pct"]].dropna().set_index("trade_date")
+                    roll_corr = (
+                        roll_df["premium_disc_pct"]
+                        .rolling(roll_win)
+                        .corr(roll_df["price_return_pct"])
+                        .rename("rolling_corr")
+                        .reset_index()
+                        .dropna()
+                    )
+                    _zero_r = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
+                        color="#888", strokeDash=[4, 2], strokeWidth=1
+                    ).encode(y="y:Q")
+                    _corr_line = alt.Chart(roll_corr).mark_line(
+                        color="#00B4D8", strokeWidth=2
+                    ).encode(
+                        x=alt.X("trade_date:T", title="Date",
+                                axis=alt.Axis(format="%b %Y", labelAngle=-35)),
+                        y=alt.Y("rolling_corr:Q", title="Rolling Correlation",
+                                scale=alt.Scale(domain=[-1, 1])),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date"),
+                            alt.Tooltip("rolling_corr:Q", title="Correlation", format="+.3f"),
+                        ],
+                    )
+                    st.altair_chart(
+                        (_zero_r + _corr_line).properties(height=260).interactive(),
+                        use_container_width=True,
+                    )
+
+        except ImportError as exc:
+            st.error(f"Missing dependency: {exc} — run `.venv/bin/pip install altair`")
         except Exception as exc:
             st.error(f"Premium/Discount chart: {exc}")
 
@@ -996,6 +1162,186 @@ with tab_explorer:
                             )
         except Exception as exc:
             st.error(f"FX chart: {exc}")
+
+    st.divider()
+
+    # ── 10. Global Anomaly Index vs GOLDBEES price ────────────────────────────
+    with st.container():
+        st.subheader("📊 Global Anomaly Index (last 180 days) vs GOLDBEES Price")
+        st.caption(
+            "Composite stress signal averaged across GOLD, GOLDBEES, NIFTY 50, S&P 500 and USDINR.  "
+            "Each asset's MAD-based rolling Z-score of daily returns is computed; "
+            "the **Global Anomaly Index** is the cross-asset mean of |Z|.  "
+            "Spikes indicate broad market stress coinciding with gold ETF price moves."
+        )
+        try:
+            import altair as alt
+            from src.ml.anomaly import robust_zscore
+
+            # Assets used to build the composite index
+            _GAI_ASSETS = [
+                ("GOLD",      "commodities"),
+                ("GOLDBEES",  "etfs"),
+                ("^NSEI",     "indices"),
+                ("^GSPC",     "indices"),
+                ("USDINR=X",  "fx_rates"),
+            ]
+            _since_180 = (pd.Timestamp.today() - pd.Timedelta(days=180)).strftime("%Y-%m-%d")
+
+            # Build IN list safely from the fixed asset tuples
+            _sym_in  = ", ".join(f"'{s}'" for s, _ in _GAI_ASSETS)
+            _cat_in  = ", ".join(f"'{c}'" for _, c in _GAI_ASSETS)
+
+            gai_raw = _query_df(f"""
+                SELECT trade_date,
+                       symbol,
+                       category,
+                       toFloat64(close) AS close
+                FROM market_data.daily_prices FINAL
+                WHERE (symbol, category) IN (
+                    {', '.join(f"('{s}', '{c}')" for s, c in _GAI_ASSETS)}
+                )
+                  AND trade_date >= '{_since_180}'
+                ORDER BY symbol, trade_date ASC
+            """)
+
+            # Also try fx_rates table for USDINR if not in daily_prices
+            _usdinr_backup = _query_df(f"""
+                SELECT trade_date,
+                       'USDINR=X' AS symbol,
+                       'fx_rates'  AS category,
+                       toFloat64(close) AS close
+                FROM market_data.fx_rates FINAL
+                WHERE symbol = 'USDINR'
+                  AND trade_date >= '{_since_180}'
+                ORDER BY trade_date ASC
+            """)
+
+            gai_raw = pd.concat([gai_raw, _usdinr_backup], ignore_index=True)
+            gai_raw["trade_date"] = pd.to_datetime(gai_raw["trade_date"])
+
+            # Pivot: one column per symbol
+            gai_pivot = gai_raw.pivot_table(
+                index="trade_date", columns="symbol", values="close", aggfunc="last"
+            ).sort_index()
+
+            if gai_pivot.shape[1] < 2 or len(gai_pivot) < 20:
+                st.info(
+                    "Not enough data to compute Global Anomaly Index.  \n"
+                    "Run **Import → commodities, etfs, indices, fx_rates** first."
+                )
+            else:
+                # Compute daily returns → robust Z → |Z| per asset → average
+                z_cols = []
+                for col in gai_pivot.columns:
+                    ret = gai_pivot[col].pct_change() * 100
+                    ret = ret.replace([float("inf"), float("-inf")], float("nan"))
+                    z = robust_zscore(ret, window=20).abs()
+                    z.name = col
+                    z_cols.append(z)
+
+                z_df = pd.concat(z_cols, axis=1).dropna(how="all")
+                # Global Anomaly Index = cross-asset mean of |Z|
+                gai_series = z_df.mean(axis=1, skipna=True).rename("Global Anomaly Index")
+
+                # GOLDBEES price for the overlay
+                gai_pb = _query_df(f"""
+                    SELECT trade_date, toFloat64(close) AS goldbees_close
+                    FROM market_data.daily_prices FINAL
+                    WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+                      AND trade_date >= '{_since_180}'
+                    ORDER BY trade_date ASC
+                """)
+                gai_pb["trade_date"] = pd.to_datetime(gai_pb["trade_date"])
+                gai_pb = gai_pb.set_index("trade_date")["goldbees_close"]
+
+                # Align on common dates
+                combined = pd.concat([gai_series, gai_pb], axis=1).dropna(how="any").reset_index()
+                combined.columns = ["trade_date", "anomaly_index", "goldbees"]
+
+                if combined.empty:
+                    st.info("Not enough overlapping data between anomaly index and GOLDBEES.")
+                else:
+                    # ── Summary metrics ─────────────────────────────────────
+                    m1, m2, m3, m4 = st.columns(4)
+                    ai = combined["anomaly_index"]
+                    pb = combined["goldbees"]
+                    m1.metric("Latest Anomaly Index", f"{ai.iloc[-1]:.3f}")
+                    m2.metric("180-day Peak",         f"{ai.max():.3f}",
+                              help="Highest cross-asset stress reading in window")
+                    m3.metric("GOLDBEES Latest",      f"₹{pb.iloc[-1]:.2f}")
+                    corr = ai.corr(pb.pct_change())
+                    m4.metric("Anomaly ↔ GB Return corr", f"{corr:+.3f}",
+                              help="Pearson correlation of anomaly index with GOLDBEES daily returns")
+
+                    # ── Dual-axis Altair chart ───────────────────────────────
+                    base = alt.Chart(combined).encode(
+                        x=alt.X("trade_date:T", title="Date",
+                                axis=alt.Axis(format="%b %d", labelAngle=-35))
+                    )
+
+                    # Left axis — Global Anomaly Index (bar)
+                    bar = base.mark_bar(opacity=0.55, color="#FF5722").encode(
+                        y=alt.Y(
+                            "anomaly_index:Q",
+                            title="Global Anomaly Index",
+                            scale=alt.Scale(zero=True),
+                            axis=alt.Axis(titleColor="#FF5722", labelColor="#FF5722"),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T",    title="Date"),
+                            alt.Tooltip("anomaly_index:Q", title="Anomaly Index", format=".3f"),
+                        ],
+                    )
+
+                    # Right axis — GOLDBEES price (line)
+                    line = base.mark_line(
+                        color="#FFD700", strokeWidth=2.2,
+                    ).encode(
+                        y=alt.Y(
+                            "goldbees:Q",
+                            title="GOLDBEES Price (₹)",
+                            scale=alt.Scale(zero=False),
+                            axis=alt.Axis(titleColor="#FFD700", labelColor="#FFD700"),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T",  title="Date"),
+                            alt.Tooltip("goldbees:Q",    title="GOLDBEES ₹", format=".2f"),
+                        ],
+                    )
+
+                    chart = alt.layer(bar, line).resolve_scale(y="independent").properties(
+                        height=340,
+                    ).interactive()
+
+                    st.altair_chart(chart, use_container_width=True)
+                    st.caption(
+                        "🟠 **Global Anomaly Index** (left axis) — cross-asset mean |MAD Z-score| "
+                        "of daily returns across GOLD, GOLDBEES, NIFTY 50, S&P 500 and USDINR  ·  "
+                        "🟡 **GOLDBEES price** (right axis, ₹)"
+                    )
+
+                    # ── Top stress days table ────────────────────────────────
+                    with st.expander("📋 Top 10 stress days", expanded=False):
+                        top_stress = (
+                            combined.sort_values("anomaly_index", ascending=False)
+                            .head(10)
+                            .copy()
+                            .reset_index(drop=True)
+                        )
+                        top_stress["trade_date"] = top_stress["trade_date"].dt.date
+                        top_stress["anomaly_index"] = top_stress["anomaly_index"].round(4)
+                        top_stress["goldbees"]      = top_stress["goldbees"].round(2)
+                        top_stress.columns = ["Date", "Anomaly Index", "GOLDBEES ₹"]
+                        st.dataframe(top_stress, use_container_width=True, hide_index=True)
+
+        except ImportError as exc:
+            st.error(
+                f"Missing dependency: {exc}  \n"
+                "Run: `.venv/bin/pip install altair scikit-learn`  then restart Streamlit."
+            )
+        except Exception as exc:
+            st.error(f"Global Anomaly Index chart error: {exc}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
