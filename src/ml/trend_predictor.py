@@ -268,10 +268,31 @@ def fit_walk_forward(
     """
     try:
         import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError(
-            "lightgbm is not installed. Run: .venv/bin/pip install lightgbm"
-        ) from exc
+    except (ImportError, OSError) as exc:
+        if "libomp" in str(exc) or "lightgbm" in str(exc).lower():
+            import os, sys
+            # macOS: inject the Homebrew libomp path so dlopen can find it
+            libomp_path = "/opt/homebrew/opt/libomp/lib"
+            current = os.environ.get("DYLD_LIBRARY_PATH", "")
+            if libomp_path not in current:
+                os.environ["DYLD_LIBRARY_PATH"] = (
+                    f"{libomp_path}:{current}" if current else libomp_path
+                )
+            # Force a fresh dlopen attempt by removing cached failed import
+            sys.modules.pop("lightgbm", None)
+            try:
+                import lightgbm as lgb  # noqa: F811
+            except (ImportError, OSError) as exc2:
+                raise OSError(
+                    "LightGBM could not load libomp.dylib.\n"
+                    "Fix: brew install libomp\n"
+                    "If the error persists, add to ~/.zshrc:\n"
+                    "  export DYLD_LIBRARY_PATH=/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
+                ) from exc2
+        else:
+            raise ImportError(
+                "lightgbm is not installed. Run: .venv/bin/pip install lightgbm"
+            ) from exc
 
     from sklearn.model_selection import TimeSeriesSplit
 

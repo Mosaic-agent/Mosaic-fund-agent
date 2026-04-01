@@ -115,6 +115,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**macOS only — OpenMP for LightGBM** (ML Forecast tab requires this):
+
+```bash
+brew install libomp
+```
+
+If you see a `libomp.dylib` error after installing, add this to your `~/.zshrc`:
+
+```bash
+export DYLD_LIBRARY_PATH="/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
+```
+
 ### Configure
 
 ```bash

@@ -39,6 +39,7 @@ streamlit>=1.35.0                # Data management UI (streamlit run src/ui/app.
 altair>=5.0.0                    # Declarative charts for anomaly detection tab
 scikit-learn>=1.4.0              # Isolation Forest + Random Forest anomaly detection
 lightgbm>=4.3.0                  # Gradient boosting for trend prediction (trend_predictor.py)
+                                 # macOS: brew install libomp  (required — LightGBM needs OpenMP)
 
 # ── Output & CLI ──────────────────────────────────────────────────────────────
 rich>=13.7.0                     # Beautiful terminal output / progress bars
