@@ -660,10 +660,10 @@ def import_data(
         ),
     ),
     lookback_days: int = typer.Option(
-        730,
+        3650,
         "--lookback",
         "-l",
-        help="Days of history on first run (default 730 = ~2 years).",
+        help="Days of history on first run (default 3650 = ~10 years).",
     ),
     full_reimport: bool = typer.Option(
         False,

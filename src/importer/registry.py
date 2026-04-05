@@ -78,13 +78,10 @@ ETFS: list[tuple[str, str]] = [
     ("PSUBNKBEES",  "PSUBNKBEES.NS"),
     ("SILVERBEES",  "SILVERBEES.NS"),
     ("HNGSNGBEES",  "HNGSNGBEES.NS"),
-    ("CPSETF",      "CPSETF.NS"),
     ("MAFANG",      "MAFANG.NS"),
-    ("KOTAKGOLD",   "KOTAKGOLD.NS"),
     ("HDFCNIFTY",   "HDFCNIFTY.NS"),
     ("SETFNIF50",   "SETFNIF50.NS"),
     ("ICICIB22",    "ICICIB22.NS"),
-    ("NETFIT",      "NETFIT.NS"),
 ]
 
 # Commodities via Yahoo Finance (XAU/USD, XAG/USD, etc.)
@@ -129,12 +126,18 @@ MF_SCHEME_CODES: dict[str, str] = {
     "SILVERBEES": "149758",
     "HNGSNGBEES": "140095",
     "PSUBNKBEES": "140089",
-    "CPSETF":     "128751",
     "MAFANG":     "148927",
-    "KOTAKGOLD":  "106193",
     "HDFCNIFTY":  "135853",
     "SETFNIF50":  "135106",
 }
+
+# Watchlist for MF portfolio holdings tracker
+# Each entry: (amfi_scheme_code, short_name, isin_growth)
+MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
+    ("152056", "DSP_MULTI_ASSET",   "INF740KA1TE9"),
+    ("120821", "QUANT_MULTI_ASSET", "INF966L01580"),
+    ("120334", "ICICI_MULTI_ASSET", "INF109K015K4"),
+]
 
 # ── Registry lookup ────────────────────────────────────────────────────────────
 
@@ -149,11 +152,11 @@ CATEGORY_MAP: dict[str, list[tuple[str, str]]] = {
 # Symbols for which NSE live iNAV snapshots are captured
 INAV_SYMBOLS: list[str] = [
     "GOLDBEES", "NIFTYBEES", "BANKBEES", "JUNIORBEES", "LIQUIDBEES",
-    "SILVERBEES", "HNGSNGBEES", "PSUBNKBEES", "CPSETF", "MAFANG",
-    "KOTAKGOLD", "HDFCNIFTY", "SETFNIF50", "ICICIB22", "NETFIT",
+    "SILVERBEES", "HNGSNGBEES", "PSUBNKBEES", "MAFANG",
+    "HDFCNIFTY", "SETFNIF50", "ICICIB22",
 ]
 
-ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "cot", "cb_reserves", "etf_aum"]
+ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings"]
 
 
 def get_symbols_for_categories(categories: list[str]) -> dict[str, list[tuple[str, str]]]:

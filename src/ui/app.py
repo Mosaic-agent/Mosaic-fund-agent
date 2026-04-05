@@ -115,8 +115,8 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis = st.tabs(
-    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?"]
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings = st.tabs(
+    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings"]
 )
 
 
@@ -137,18 +137,19 @@ with tab_import:
         st.subheader("Settings")
 
         ALL_CATS = ["stocks", "etfs", "commodities", "indices", "mf", "inav",
-                    "cot", "cb_reserves", "etf_aum", "fx_rates"]
+                    "cot", "cb_reserves", "etf_aum", "fx_rates", "mf_holdings"]
         CATEGORY_HELP = {
-            "stocks":      "50 NSE large/mid-caps (Yahoo Finance)",
-            "etfs":        "15 NSE ETFs — OHLCV (Yahoo Finance)",
-            "commodities": "Gold, Silver, Oil futures (Yahoo Finance)",
-            "indices":     "Nifty50, Sensex, S&P500, etc. (Yahoo Finance)",
-            "mf":          "ETF NAV history from MFAPI.in (AMFI official)",
-            "inav":        "Live iNAV snapshot from NSE API",
-            "cot":         "CFTC COT Gold — hedge fund & commercial positioning (weekly)",
-            "cb_reserves": "Central bank gold reserves — 9 countries via IMF IFS (monthly)",
-            "etf_aum":     "Gold ETF AUM — GLD, IAU, SGOL, PHYS + implied tonnes (daily)",
-            "fx_rates":    "USD FX rates — INR, CNY, AED, SAR, KWD daily OHLC (Yahoo Finance)",
+            "stocks":       "50 NSE large/mid-caps (Yahoo Finance)",
+            "etfs":         "15 NSE ETFs — OHLCV (Yahoo Finance)",
+            "commodities":  "Gold, Silver, Oil futures (Yahoo Finance)",
+            "indices":      "Nifty50, Sensex, S&P500, etc. (Yahoo Finance)",
+            "mf":           "ETF NAV history from MFAPI.in (AMFI official)",
+            "inav":         "Live iNAV snapshot from NSE API",
+            "cot":          "CFTC COT Gold — hedge fund & commercial positioning (weekly)",
+            "cb_reserves":  "Central bank gold reserves — 9 countries via IMF IFS (monthly)",
+            "etf_aum":      "Gold ETF AUM — GLD, IAU, SGOL, PHYS + implied tonnes (daily)",
+            "fx_rates":     "USD FX rates — INR, CNY, AED, SAR, KWD daily OHLC (Yahoo Finance)",
+            "mf_holdings":  "📦 Monthly portfolio holdings — DSP/Quant/ICICI Multi Asset (Morningstar)",
         }
 
         select_all = st.checkbox("All categories", value=False)
@@ -176,6 +177,31 @@ with tab_import:
                                      help="Ignore watermarks; re-fetch full window.")
         dry_run       = col_b.toggle("Dry run",       value=False,
                                      help="Fetch data but do NOT write to ClickHouse.")
+
+        # ── MF Holdings month picker (only shown when mf_holdings selected) ──
+        mf_holdings_month = None
+        if "mf_holdings" in (ALL_CATS if select_all else selected_cats):
+            st.divider()
+            st.markdown("**📦 MF Holdings — month to import**")
+            _today = date.today()
+            # Build list of first-of-month dates: Jan 2024 → current month
+            import calendar as _cal
+            _months: list[date] = []
+            _yr, _mo = 2024, 1
+            while (_yr, _mo) <= (_today.year, _today.month):
+                _months.append(date(_yr, _mo, 1))
+                _mo += 1
+                if _mo > 12:
+                    _mo, _yr = 1, _yr + 1
+            _months.reverse()  # newest first
+            mf_holdings_month = st.selectbox(
+                "Holdings month",
+                options=_months,
+                index=0,
+                format_func=lambda d: d.strftime("%B %Y"),
+                help="Morningstar shows the latest published portfolio. "
+                     "Pick the month label to tag the snapshot with.",
+            )
 
         st.divider()
         run_btn = st.button(
@@ -212,6 +238,7 @@ with tab_import:
                 clickhouse_database=CH_DB,
                 clickhouse_user=CH_USER,
                 clickhouse_password=CH_PASS,
+                mf_holdings_month=mf_holdings_month,
             )
             log_box.code(buf.getvalue() or "Done.", language="")
             status_box.success(
@@ -249,15 +276,15 @@ ORDER BY category, symbol""",
     "GOLDBEES — NAV vs market price (last 30 days)": """\
 SELECT
     p.trade_date,
-    round(p.close, 4)                              AS market_close,
-    round(n.nav,   4)                              AS amfi_nav,
-    round((p.close - n.nav) / n.nav * 100, 3)     AS premium_disc_pct
+    round(p.close, 4)                                                       AS market_close,
+    round(n.nav,   4)                                                       AS amfi_nav,
+    if(n.nav > 0, round((p.close - n.nav) / n.nav * 100, 3), NULL)        AS premium_disc_pct
 FROM (
     SELECT trade_date, close
     FROM market_data.daily_prices FINAL
     WHERE symbol = 'GOLDBEES' AND category = 'etfs'
 ) p
-JOIN (
+LEFT JOIN (
     SELECT nav_date AS trade_date, nav
     FROM market_data.mf_nav FINAL
     WHERE symbol = 'GOLDBEES'
@@ -559,26 +586,85 @@ with tab_explorer:
 
     st.divider()
 
+    # ── GOLDBEES discount alert ───────────────────────────────────────────────
+    try:
+        _alert_row = _query_df("""
+            SELECT
+                p.trade_date,
+                round(p.close, 4)  AS market_close,
+                round(n.nav,   4)  AS amfi_nav,
+                if(n.nav > 0, round((p.close - n.nav) / n.nav * 100, 3), NULL) AS premium_disc_pct
+            FROM (
+                SELECT trade_date, close
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+            ) p
+            LEFT JOIN (
+                SELECT nav_date AS trade_date, nav
+                FROM market_data.mf_nav FINAL
+                WHERE symbol = 'GOLDBEES'
+            ) n USING (trade_date)
+            WHERE n.nav > 0
+            ORDER BY p.trade_date DESC
+            LIMIT 1
+        """)
+        if not _alert_row.empty:
+            _disc  = float(_alert_row["premium_disc_pct"].iloc[0])
+            _price = float(_alert_row["market_close"].iloc[0])
+            _nav   = float(_alert_row["amfi_nav"].iloc[0])
+            _dt    = str(_alert_row["trade_date"].iloc[0])[:10]
+            if _disc <= -1.0:
+                st.error(
+                    f"🚨 **GOLDBEES Discount Alert** — as of {_dt}  \n"
+                    f"Market price **₹{_price:.2f}** is at **{_disc:+.3f}%** vs AMFI NAV ₹{_nav:.2f}  \n"
+                    f"Discount exceeds −1% threshold — potential buying opportunity or liquidity stress."
+                )
+            elif _disc < 0:
+                st.warning(
+                    f"⚠️ **GOLDBEES at Discount** — as of {_dt}  \n"
+                    f"Market price **₹{_price:.2f}** at **{_disc:+.3f}%** vs AMFI NAV ₹{_nav:.2f}"
+                )
+            else:
+                st.success(
+                    f"✅ **GOLDBEES at Premium** — as of {_dt}  \n"
+                    f"Market price **₹{_price:.2f}** at **{_disc:+.3f}%** vs AMFI NAV ₹{_nav:.2f}"
+                )
+    except Exception:
+        pass
+
     # ── 2. GOLDBEES market price vs NAV ──────────────────────────────────────
     with st.container():
-        st.subheader("📊 GOLDBEES — Market Close vs AMFI NAV (₹)")
+        _gb_c1, _gb_c2 = st.columns([5, 1])
+        _gb_c1.subheader("📊 GOLDBEES — Market Close vs AMFI NAV (₹)")
+        _gb_range_map = {"1Y": 365, "3Y": 1095, "5Y": 1825, "10Y": 3650, "All": 9999}
+        _gb_range = _gb_c2.selectbox(
+            "Range", list(_gb_range_map.keys()), index=1,
+            key="gb_nav_range", label_visibility="collapsed",
+        )
+        _gb_cutoff = (
+            pd.Timestamp.today() - pd.Timedelta(days=_gb_range_map[_gb_range])
+        ).strftime("%Y-%m-%d")
         try:
-            gbdf = _query_df("""
+            gbdf = _query_df(f"""
                 SELECT
                     p.trade_date,
-                    round(p.close, 4) AS market_close,
-                    round(n.nav,   4) AS amfi_nav
+                    round(p.market_close, 4)      AS market_close,
+                    nullIf(round(n.nav, 4), 0)    AS amfi_nav
                 FROM (
-                    SELECT trade_date, close
-                    FROM market_data.daily_prices FINAL
+                    SELECT trade_date, argMax(close, imported_at) AS market_close
+                    FROM market_data.daily_prices
                     WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+                      AND trade_date >= toDate('{_gb_cutoff}')
+                    GROUP BY trade_date
                 ) p
-                JOIN (
-                    SELECT nav_date AS trade_date, nav
-                    FROM market_data.mf_nav FINAL
+                LEFT JOIN (
+                    SELECT nav_date AS trade_date, argMax(nav, imported_at) AS nav
+                    FROM market_data.mf_nav
                     WHERE symbol = 'GOLDBEES'
+                      AND nav_date >= toDate('{_gb_cutoff}')
+                    GROUP BY nav_date
                 ) n USING (trade_date)
-                ORDER BY trade_date ASC
+                ORDER BY p.trade_date ASC
             """)
             if gbdf.empty:
                 st.info("No GOLDBEES data. Run **Import → etfs + mf**.")
@@ -588,7 +674,8 @@ with tab_explorer:
                 st.line_chart(gbdf[["market_close", "amfi_nav"]], height=280)
                 st.caption(
                     "**market_close** = NSE last traded price (Yahoo Finance)  "
-                    "·  **amfi_nav** = AMFI official NAV (MFAPI.in)"
+                    "·  **amfi_nav** = AMFI official NAV (MFAPI.in)  "
+                    "·  *Gaps = Muhurat trading / holidays where AMFI did not publish NAV*"
                 )
         except Exception as exc:
             st.error(f"GOLDBEES chart: {exc}")
@@ -610,14 +697,14 @@ with tab_explorer:
                 SELECT
                     p.trade_date,
                     round(p.close, 4)                              AS price,
-                    round(n.nav,   4)                              AS nav,
-                    round((p.close - n.nav) / n.nav * 100, 3)     AS premium_disc_pct
+                    nullIf(round(n.nav, 4), 0)                    AS nav,
+                    if(n.nav > 0, round((p.close - n.nav) / n.nav * 100, 3), NULL) AS premium_disc_pct
                 FROM (
                     SELECT trade_date, close
                     FROM market_data.daily_prices FINAL
                     WHERE symbol = 'GOLDBEES' AND category = 'etfs'
                 ) p
-                JOIN (
+                LEFT JOIN (
                     SELECT nav_date AS trade_date, nav
                     FROM market_data.mf_nav FINAL
                     WHERE symbol = 'GOLDBEES'
@@ -1976,3 +2063,222 @@ with tab_wis:
 
 **Use both together:** Expert system as an immediate sanity check; LightGBM for position-sizing decisions where the interaction between signals matters.
             """)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — MF HOLDINGS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_holdings:
+    st.header("📦 Multi-Asset Fund Holdings Tracker")
+
+    _FUND_LABELS = {
+        "DSP_MULTI_ASSET":   "DSP Multi Asset",
+        "QUANT_MULTI_ASSET": "Quant Multi Asset",
+        "ICICI_MULTI_ASSET": "ICICI Pru Multi Asset",
+    }
+    _ASSET_COLORS = {
+        "equity": "#1976D2",
+        "gold":   "#FFA726",
+        "bond":   "#43A047",
+        "cash":   "#90A4AE",
+        "other":  "#AB47BC",
+    }
+
+    # ── Check data availability ────────────────────────────────────────────
+    try:
+        _h_count_df = _query_df("SELECT count() AS n FROM market_data.mf_holdings")
+        _h_count = int(_h_count_df.iloc[0, 0]) if not _h_count_df.empty else 0
+    except Exception:
+        _h_count = 0
+
+    if _h_count == 0:
+        st.info(
+            "No holdings data yet.  \n"
+            "Run **📥 Import Data → mf_holdings** to fetch the latest monthly portfolio."
+        )
+        st.stop()
+
+    # ── Available months ───────────────────────────────────────────────────
+    _months_df = _query_df(
+        "SELECT DISTINCT as_of_month FROM market_data.mf_holdings FINAL ORDER BY as_of_month DESC"
+    )
+    _available_months = list(_months_df.iloc[:, 0]) if not _months_df.empty else []
+    if not _available_months:
+        st.warning("Holdings table exists but has no rows.")
+        st.stop()
+
+    # ── Controls ────────────────────────────────────────────────────────────
+    col_fund, col_month = st.columns([2, 1])
+    with col_fund:
+        selected_funds = st.multiselect(
+            "Funds",
+            options=list(_FUND_LABELS.keys()),
+            default=list(_FUND_LABELS.keys()),
+            format_func=lambda k: _FUND_LABELS[k],
+        )
+    with col_month:
+        selected_month = st.selectbox(
+            "Month",
+            options=_available_months,
+            format_func=lambda d: d.strftime("%b %Y") if hasattr(d, "strftime") else str(d),
+        )
+
+    if not selected_funds:
+        st.warning("Select at least one fund.")
+        st.stop()
+
+    # ── Load current month data ────────────────────────────────────────────
+    _fund_filter = ", ".join(f"'{f}'" for f in selected_funds)
+    _hold_df = _query_df(
+        f"""
+        SELECT scheme_code, fund_name, isin, security_name, asset_type,
+               market_value_cr, pct_of_nav
+        FROM market_data.mf_holdings FINAL
+        WHERE fund_name IN ({_fund_filter})
+          AND as_of_month = '{selected_month}'
+        ORDER BY fund_name, pct_of_nav DESC
+        """
+    )
+    if _hold_df.empty:
+        st.warning(f"No holdings for selected funds in {selected_month}.")
+        st.stop()
+
+    _hold_df.columns = ["scheme_code", "fund_name", "isin", "security_name",
+                        "asset_type", "market_value_cr", "pct_of_nav"]
+    _hold_df["fund_label"] = _hold_df["fund_name"].map(_FUND_LABELS).fillna(_hold_df["fund_name"])
+
+    # ══ 1. Asset allocation pie per fund ══════════════════════════════════
+    st.subheader("Asset Allocation")
+    pie_cols = st.columns(len(selected_funds))
+    for i, fund_key in enumerate(selected_funds):
+        with pie_cols[i]:
+            _fd = _hold_df[_hold_df["fund_name"] == fund_key]
+            _alloc = _fd.groupby("asset_type")["pct_of_nav"].sum().reset_index()
+            _alloc.columns = ["asset_type", "weight"]
+            if not _alloc.empty:
+                import plotly.express as px  # type: ignore[import]
+                fig_pie = px.pie(
+                    _alloc,
+                    values="weight",
+                    names="asset_type",
+                    title=_FUND_LABELS[fund_key],
+                    color="asset_type",
+                    color_discrete_map=_ASSET_COLORS,
+                    hole=0.35,
+                )
+                fig_pie.update_layout(
+                    margin=dict(t=40, b=0, l=0, r=0),
+                    legend=dict(orientation="h", y=-0.1),
+                    height=320,
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+    # ══ 2. Holdings table ══════════════════════════════════════════════════
+    st.subheader("Holdings Detail")
+    _disp_df = _hold_df[["fund_label", "security_name", "asset_type", "pct_of_nav", "isin"]].rename(columns={
+        "fund_label":    "Fund",
+        "security_name": "Security",
+        "asset_type":    "Type",
+        "pct_of_nav":    "Weight (%)",
+        "isin":          "ISIN",
+    })
+    st.dataframe(
+        _disp_df.style.format({"Weight (%)": "{:.2f}"}),
+        use_container_width=True,
+        height=420,
+    )
+
+    # ══ 3. Month-over-month drift ══════════════════════════════════════════
+    if len(_available_months) >= 2:
+        st.subheader("Month-over-Month Drift")
+        _prev_month = _available_months[1] if _available_months[0] == selected_month else None
+        if _prev_month:
+            _drift_df = _query_df(
+                f"""
+                WITH cur AS (
+                    SELECT fund_name, isin, security_name, asset_type, pct_of_nav
+                    FROM market_data.mf_holdings FINAL
+                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{selected_month}'
+                ),
+                prev AS (
+                    SELECT fund_name, isin, security_name, pct_of_nav
+                    FROM market_data.mf_holdings FINAL
+                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{_prev_month}'
+                )
+                SELECT
+                    coalesce(cur.fund_name, prev.fund_name)           AS fund_name,
+                    coalesce(cur.isin, prev.isin)                     AS isin,
+                    coalesce(cur.security_name, prev.security_name)   AS security_name,
+                    coalesce(cur.asset_type, '')                      AS asset_type,
+                    coalesce(cur.pct_of_nav, 0.0)                     AS pct_cur,
+                    coalesce(prev.pct_of_nav, 0.0)                    AS pct_prev,
+                    coalesce(cur.pct_of_nav, 0.0) - coalesce(prev.pct_of_nav, 0.0) AS drift,
+                    CASE
+                        WHEN prev.isin IS NULL OR prev.isin = '' THEN 'ENTERED'
+                        WHEN cur.isin  IS NULL OR cur.isin  = '' THEN 'EXITED'
+                        WHEN abs(cur.pct_of_nav - prev.pct_of_nav) >= 2  THEN 'CHANGED'
+                        ELSE 'UNCHANGED'
+                    END AS event
+                FROM cur
+                FULL OUTER JOIN prev
+                    ON cur.fund_name = prev.fund_name AND cur.isin = prev.isin
+                WHERE event != 'UNCHANGED'
+                ORDER BY fund_name, event, abs(drift) DESC
+                """
+            )
+            if _drift_df.empty:
+                st.success("No significant changes vs prior month.")
+            else:
+                _drift_df.columns = ["fund_name", "isin", "security_name", "asset_type",
+                                     "pct_cur", "pct_prev", "drift", "event"]
+                _drift_df["fund_label"] = _drift_df["fund_name"].map(_FUND_LABELS).fillna(_drift_df["fund_name"])
+                _event_color = {"ENTERED": "🟢", "EXITED": "🔴", "CHANGED": "🟡"}
+                _drift_df["🔔"] = _drift_df["event"].map(_event_color).fillna("")
+                st.dataframe(
+                    _drift_df[["🔔", "fund_label", "security_name", "asset_type",
+                               "pct_prev", "pct_cur", "drift", "event"]]
+                    .rename(columns={
+                        "fund_label":    "Fund",
+                        "security_name": "Security",
+                        "asset_type":    "Type",
+                        "pct_prev":      "Prev (%)",
+                        "pct_cur":       "Cur (%)",
+                        "drift":         "Δ (%)",
+                        "event":         "Event",
+                    })
+                    .style.format({"Prev (%)": "{:.2f}", "Cur (%)": "{:.2f}", "Δ (%)": "{:+.2f}"}),
+                    use_container_width=True,
+                    height=380,
+                )
+        else:
+            st.info("Select the latest available month to compare with the prior month.")
+
+    # ══ 4. Asset allocation trend over time ═══════════════════════════════
+    if len(_available_months) >= 2:
+        st.subheader("Allocation Trend Over Time")
+        _trend_df = _query_df(
+            f"""
+            SELECT as_of_month, fund_name, asset_type, sum(pct_of_nav) AS weight
+            FROM market_data.mf_holdings FINAL
+            WHERE fund_name IN ({_fund_filter})
+            GROUP BY as_of_month, fund_name, asset_type
+            ORDER BY as_of_month, fund_name, asset_type
+            """
+        )
+        if not _trend_df.empty:
+            _trend_df.columns = ["month", "fund_name", "asset_type", "weight"]
+            import plotly.express as px  # noqa: F811
+            _trend_df["fund_label"] = _trend_df["fund_name"].map(_FUND_LABELS).fillna(_trend_df["fund_name"])
+            fig_trend = px.line(
+                _trend_df,
+                x="month",
+                y="weight",
+                color="asset_type",
+                facet_col="fund_label",
+                facet_col_wrap=len(selected_funds),
+                color_discrete_map=_ASSET_COLORS,
+                labels={"month": "", "weight": "Weight (%)", "asset_type": "Type"},
+                height=320,
+            )
+            fig_trend.update_layout(margin=dict(t=30, b=0))
+            st.plotly_chart(fig_trend, use_container_width=True)

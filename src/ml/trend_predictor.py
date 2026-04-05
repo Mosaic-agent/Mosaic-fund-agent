@@ -24,13 +24,21 @@ Alpha factors
   f_usdinr_60d         INR Trend           60-day USDINR log % change
   f_dxy_proxy          DXY proxy           −(5-day USDINR log return × 100)
   f_gold_logret5       COMEX momentum      5-day log return of COMEX GOLD
+  f_dxy_logret5        Real DXY            5-day DXY log return  (DX-Y.NYB via yfinance)
+  f_dxy_logret20       Real DXY            20-day DXY log return
+  f_us10y_level        US 10Y yield        absolute yield level  (rate-regime signal)
+  f_us10y_delta5       US 10Y yield shock  5-day change in yield (^TNX via yfinance)
+  f_month_sin/cos      Seasonality         cyclical month encoding (wedding / CNY / Q4)
+  f_dow                Day-of-week         0=Mon → 1=Fri (Friday effect)
 
 Target: ln(close[t + horizon] / close[t])  — stationary log return
   (converted back to % for display)
 
-Training: TimeSeriesSplit expanding-window walk-forward (gap prevents leakage).
+Training: TimeSeriesSplit expanding-window walk-forward (gap = 2× horizon).
   min_train_size ensures early folds always have sufficient history.
-Model:    LGBMRegressor with L1+L2 regularisation — handles NaN natively.
+Model:    LGBMRegressor with L1+L2 regularisation + early stopping.
+  Early stopping uses the last 15% of each training fold as an internal
+  validation set — test fold is never touched so there is no leakage.
 Metrics:  CV R² per fold  +  Hit Ratio (directional accuracy)
 
 Public API
@@ -59,7 +67,7 @@ log = logging.getLogger(__name__)
 # ── Config ─────────────────────────────────────────────────────────────────────
 _HORIZON   = 5     # forward return horizon in trading days
 _N_SPLITS  = 5     # TimeSeriesSplit folds
-_GAP       = 5     # gap between train end and test start (prevents leakage)
+_GAP       = 10    # gap = 2× horizon: prevents target-feature overlap at fold boundaries
 _MIN_ROWS  = 120   # minimum clean rows required to train
 
 # Regime thresholds (on predicted return %)
@@ -86,7 +94,7 @@ _MASTER_SQL = """
         FROM market_data.daily_prices FINAL
         WHERE symbol = 'GOLDBEES' AND category = 'etfs'
     ) p
-    JOIN (
+    LEFT JOIN (
         SELECT nav_date AS trade_date, nav
         FROM market_data.mf_nav FINAL
         WHERE symbol = 'GOLDBEES'
@@ -124,6 +132,51 @@ _MASTER_SQL = """
 """
 
 
+# ── Macro series helper ────────────────────────────────────────────────────────
+
+def _fetch_macro_series(start_date: str, end_date: str) -> pd.DataFrame:
+    """
+    Fetch real DXY (DX-Y.NYB) and US 10-year yield (^TNX) from Yahoo Finance.
+
+    Both are primary global gold price drivers:
+      DXY   — Dollar strength: gold and DXY move inversely ~70% of the time.
+      US10Y — Real rate proxy: rising yields are a consistent headwind for gold.
+
+    Returns a DataFrame indexed by trade_date with columns dxy_close, us10y_close.
+    Degrades gracefully to an empty DataFrame on any fetch failure.
+    """
+    try:
+        import yfinance as yf
+        dxy_raw = yf.download(
+            "DX-Y.NYB", start=start_date, end=end_date,
+            auto_adjust=True, progress=False,
+        )
+        tnx_raw = yf.download(
+            "^TNX", start=start_date, end=end_date,
+            auto_adjust=True, progress=False,
+        )
+        pieces: list[pd.DataFrame] = []
+        if not dxy_raw.empty:
+            dxy = dxy_raw[["Close"]].copy()
+            dxy.columns = ["dxy_close"]
+            pieces.append(dxy)
+        if not tnx_raw.empty:
+            tnx = tnx_raw[["Close"]].copy()
+            tnx.columns = ["us10y_close"]
+            pieces.append(tnx)
+        if not pieces:
+            return pd.DataFrame(columns=["trade_date", "dxy_close", "us10y_close"])
+        df_macro = pieces[0]
+        for extra in pieces[1:]:
+            df_macro = df_macro.join(extra, how="outer")
+        df_macro = df_macro.reset_index().rename(columns={"Date": "trade_date"})
+        df_macro["trade_date"] = pd.to_datetime(df_macro["trade_date"]).dt.tz_localize(None)
+        return df_macro.sort_values("trade_date").reset_index(drop=True)
+    except Exception as exc:
+        log.warning("Macro series (DXY/TNX) fetch failed — features will be NaN: %s", exc)
+        return pd.DataFrame(columns=["trade_date", "dxy_close", "us10y_close"])
+
+
 # ── Step 1: Data assembly ──────────────────────────────────────────────────────
 
 def build_master_table(ch_client) -> pd.DataFrame:
@@ -132,11 +185,26 @@ def build_master_table(ch_client) -> pd.DataFrame:
 
     GLD AUM is sparse (daily snapshots; most rows are NaN) — forward-filled
     from the closest available value so LightGBM receives a usable signal.
+    Also merges real DXY + US 10Y yield from Yahoo Finance (degrades gracefully
+    to NaN features if the fetch fails or the network is unavailable).
     """
     df = ch_client.query_df(_MASTER_SQL)
     df["trade_date"] = pd.to_datetime(df["trade_date"])
     df = df.sort_values("trade_date").reset_index(drop=True)
-    df["gld_aum_usd"] = df["gld_aum_usd"].replace(0, np.nan).ffill()
+    df["gld_aum_usd"]   = df["gld_aum_usd"].replace(0, np.nan).ffill()
+    # Forward-fill NAV: AMFI publishes end-of-day; latest trading day may have
+    # no NAV yet. ffill carries the last known NAV forward (same-day approximation).
+    df["goldbees_nav"]  = df["goldbees_nav"].replace(0, np.nan).ffill()
+
+    # Merge real DXY + US 10Y yield — primary global gold price drivers
+    start    = str(df["trade_date"].min().date())
+    end      = str((df["trade_date"].max() + pd.Timedelta(days=3)).date())
+    df_macro = _fetch_macro_series(start, end)
+    if not df_macro.empty:
+        df = df.merge(df_macro, on="trade_date", how="left")
+        df["dxy_close"]   = df["dxy_close"].ffill()
+        df["us10y_close"] = df["us10y_close"].ffill()
+
     log.info(
         "Master table: %d rows, %s → %s",
         len(df),
@@ -218,6 +286,25 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     if "gold_close" in df.columns:
         gc = df["gold_close"].replace(0, np.nan)
         df["f_gold_logret5"] = np.log(gc / gc.shift(5)) * 100
+
+    # ── 10. Real DXY — Dollar Index (replaces the USDINR proxy when available) ─
+    if "dxy_close" in df.columns:
+        dxy = df["dxy_close"].replace(0, np.nan)
+        df["f_dxy_logret5"]  = np.log(dxy / dxy.shift(5))  * 100
+        df["f_dxy_logret20"] = np.log(dxy / dxy.shift(20)) * 100
+
+    # ── 11. US 10Y yield — real rate proxy (core gold headwind / tailwind) ────
+    if "us10y_close" in df.columns:
+        y10 = df["us10y_close"].replace(0, np.nan)
+        df["f_us10y_level"]  = y10           # absolute level signals rate regime
+        df["f_us10y_delta5"] = y10.diff(5)   # 5-day yield shock
+
+    # ── 12. Calendar seasonality (cyclical encoding) ──────────────────────────
+    # Known gold seasonals: Indian wedding season (Oct–Nov), Chinese New Year
+    # (Jan–Feb), Q4 institutional rebalancing, Friday option-expiry effect.
+    df["f_month_sin"] = np.sin(2 * np.pi * df["trade_date"].dt.month / 12)
+    df["f_month_cos"] = np.cos(2 * np.pi * df["trade_date"].dt.month / 12)
+    df["f_dow"]       = df["trade_date"].dt.dayofweek / 4.0   # 0=Mon → 1=Fri
 
     return df
 
@@ -325,8 +412,21 @@ def fit_walk_forward(
     for train_idx, test_idx in tscv.split(X):
         if len(train_idx) < min_train_size:
             continue  # skip folds where training set is too thin
+
+        # Reserve the last 15% of the training window as an internal validation
+        # set for early stopping.  The held-out test fold is never used here —
+        # no hyperparameter leakage.  Fall back to full fit when fold is tiny.
+        n_train  = len(train_idx)
+        val_size = max(int(n_train * 0.15), 20)
+        use_es   = val_size < n_train
+        if use_es:
+            train_part = train_idx[: n_train - val_size]
+            val_part   = train_idx[n_train - val_size :]
+        else:
+            train_part = train_idx
+
         m = lgb.LGBMRegressor(
-            n_estimators      = 400,
+            n_estimators      = 800,   # high ceiling; early stopping decides actual rounds
             learning_rate     = 0.03,
             max_depth         = 4,
             num_leaves        = 15,
@@ -338,7 +438,18 @@ def fit_walk_forward(
             random_state      = 42,
             verbose           = -1,
         )
-        m.fit(X.iloc[train_idx], y[train_idx])
+        if use_es:
+            m.fit(
+                X.iloc[train_part], y[train_part],
+                eval_set=[(X.iloc[val_part], y[val_part])],
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=50, verbose=False),
+                    lgb.log_evaluation(period=0),
+                ],
+            )
+        else:
+            m.fit(X.iloc[train_idx], y[train_idx])
+
         y_pred = m.predict(X.iloc[test_idx])
         y_true = y[test_idx]
         scores.append(float(m.score(X.iloc[test_idx], y_true)))

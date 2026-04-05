@@ -44,3 +44,9 @@ lightgbm>=4.3.0                  # Gradient boosting for trend prediction (trend
 # ── Output & CLI ──────────────────────────────────────────────────────────────
 rich>=13.7.0                     # Beautiful terminal output / progress bars
 typer>=0.12.0                    # CLI framework for on-demand commands
+
+# ── MF Holdings (Morningstar) ─────────────────────────────────────────────────
+mstarpy>=0.0.18                  # Morningstar internal API wrapper — fund holdings
+
+# ── Visualisation ─────────────────────────────────────────────────────────────
+plotly>=5.18.0                   # Interactive charts (pie, line) used in Holdings tab

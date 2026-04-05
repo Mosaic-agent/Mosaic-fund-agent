@@ -307,11 +307,12 @@ Soft-threshold complement to the `who_is_selling_agent.py` expert system.
 
 | Step | Function | Purpose |
 |------|----------|---------|
-| 1 | `build_master_table(ch_client)` | Joins daily_prices + mf_nav + fx_rates + etf_aum + cot_gold into one flat table |
-| 2 | `engineer_features(df)` | Computes 9 `f_*` alpha factors from raw columns |
-| 3 | `label_forward_return(df, horizon)` | `target = (close[t+horizon] / close[t] − 1) × 100` |
-| 4 | `fit_walk_forward(df, n_splits, gap)` | `TimeSeriesSplit` walk-forward; returns final model + CV R² scores |
-| 5 | Persistence | Upserts to `market_data.ml_predictions` + appends to `predictions_log.jsonl` |
+| 1 | `_fetch_macro_series(ch_client)` | Fetches DXY (DX-Y.NYB) + US 10Y yield (^TNX) from Yahoo Finance; degrades gracefully |
+| 2 | `build_master_table(ch_client)` | LEFT JOINs daily_prices + mf_nav (+ ffill) + fx_rates + etf_aum + cot_gold + macro series |
+| 3 | `engineer_features(df)` | Computes 16 `f_*` alpha factors from raw columns |
+| 4 | `label_forward_return(df, horizon)` | `target = (close[t+horizon] / close[t] − 1) × 100` |
+| 5 | `fit_walk_forward(df, n_splits, gap)` | `TimeSeriesSplit` walk-forward; `_GAP=10`; early stopping 800 est / 50-round patience / 15% val split |
+| 6 | Persistence | Upserts to `market_data.ml_predictions` + appends to `predictions_log.jsonl` |
 
 **Alpha features** (`f_` prefix — auto-selected by `fit_walk_forward`):
 
@@ -322,13 +323,22 @@ Soft-threshold complement to the `who_is_selling_agent.py` expert system.
 | `f_aum_mom_30d` | 30-day pct_change of GLD AUM | Institutional flow |
 | `f_usdinr_vol14` | 14-day log-return std of USDINR × 100 | Currency stress |
 | `f_usdinr_60d` | 60-day USDINR pct_change | Macro regime |
-| `f_goldbees_ret5` | 5-day price return | Near-term momentum |
-| `f_goldbees_ret20` | 20-day price return | Medium-term momentum |
+| `f_goldbees_logret5` | 5-day log return | Near-term momentum |
+| `f_goldbees_logret20` | 20-day log return | Medium-term momentum |
 | `f_ma_ratio` | `close / 20-day MA` | Mean reversion |
 | `f_spread_delta5` | 5-day diff of `f_spread_pct` | Accelerating panic |
+| `f_hvol10` | 10-day log-return std × √252 | Realized volatility |
+| `f_gold_logret5` | 5-day log return of GOLD commodity | Commodity momentum |
+| `f_dxy_proxy` | USDINR 5-day log-return as DXY proxy | Dollar strength |
+| `f_dxy_logret5` | 5-day DXY log return (real DX-Y.NYB) | Dollar momentum |
+| `f_dxy_logret20` | 20-day DXY log return | Dollar medium-term |
+| `f_us10y_level` | US 10Y yield level (^TNX) | Rate regime |
+| `f_us10y_delta5` | 5-day change in US 10Y yield | Rate velocity |
+| `f_month_sin` | `sin(2π × month / 12)` | Seasonal cycle |
+| `f_month_cos` | `cos(2π × month / 12)` | Seasonal cycle |
+| `f_dow` | Day-of-week (0=Mon) | Day-of-week pattern |
 
-**Coverage filter**: keeps rows where ≥ `len(feature_cols) // 2` features are non-NaN  
-(prevents sparse `f_aum_mom_30d` from eliminating all training rows).
+**Coverage filter**: keeps rows where ≥ `len(feature_cols) // 2` features are non-NaN
 
 **Regime thresholds** (on predicted return %):
 
@@ -344,15 +354,14 @@ Soft-threshold complement to the `who_is_selling_agent.py` expert system.
 - `ORDER BY (as_of, horizon_days)` — `ReplacingMergeTree(created_at)` — idempotent upsert
 - Columns: `as_of`, `horizon_days`, `expected_return_pct`, `confidence_low`, `confidence_high`,
   `regime_signal`, `cv_r2_mean`, `n_training_rows`, `goldbees_close`, `created_at`
-- Accuracy scoring: join with `daily_prices` on `p.trade_date > m.as_of AND p.trade_date <= m.as_of + horizon_days + 3`
-  (built-in SQL preset in app.py)
 
 **Key implementation notes**:
-- Uses `X.iloc[train_idx]` (positional) not `X[train_idx]` (label) for TSS indexing
-- Passes DataFrame (not `.values`) to `model.predict()` to preserve feature names for LightGBM
-- USDINR log-return uses `replace(0, np.nan)` before log to avoid RuntimeWarning
-- Latest-row prediction uses coverage-aware selection (not `dropna().iloc[-1]`)
-- Connection params (`ch_host` etc.) passed through from app.py `CH_*` env vars
+- `_GAP = 10` — prevents target-feature overlap at fold boundaries (2× the 5-day horizon)
+- `mf_nav` uses LEFT JOIN + `goldbees_nav.ffill()` — no rows dropped on AMFI holidays
+- `dxy_close` and `us10y_close` forward-filled after merge
+- macOS: auto-injects `DYLD_LIBRARY_PATH=/opt/homebrew/opt/libomp/lib` if libomp missing
+- Passes DataFrame (not `.values`) to `model.predict()` to preserve LightGBM feature names
+- Validated: 2468 training rows (10 years), hit ratio ~0.567, `f_hvol10` #1 feature by importance
 - CLI smoke-test: `python src/ml/trend_predictor.py`
 
 ---
@@ -385,6 +394,93 @@ Independent of the UI — importable from CLI, agents, or tests.
 **RF features:** `lag_1..lag_N`, `ma7`, `ma30`, `vol_lag1` (lag count configurable, default 5)
 
 **Returns:** `(df_result, df_flagged, r2_train)` — full DataFrame with all signals, flagged subset, RF R².
+
+---
+
+## Importer (`src/importer/`)
+
+Historical data pipeline that populates ClickHouse from multiple sources.
+
+### CLI Entry: `run_import(categories, lookback_days=3650, full_reimport=False)`
+
+**Import categories:**
+
+| Category | Source | Symbols | Table |
+|----------|--------|---------|-------|
+| `etfs` | yfinance | 12 ETFs (GOLDBEES, NIFTYBEES, …) | `daily_prices` |
+| `stocks` | yfinance | NSE stocks | `daily_prices` |
+| `commodities` | yfinance | 7 (GOLD, SILVER, CRUDE, …) | `daily_prices` |
+| `indices` | yfinance | 7 (NIFTY50, SENSEX, …) | `daily_prices` |
+| `fx_rates` | yfinance | 5 USD pairs (USDINR, USDCNY, …) | `daily_prices` + `fx_rates` |
+| `mf` | mfapi.in | 11 MF schemes | `mf_nav` |
+| `nse_eod` | NSE Quote API | ETFs + stocks | `daily_prices` |
+| `inav` | NSE API | 12 ETFs | `inav_snapshots` |
+| `cot` | CFTC | Gold COT | `cot_gold` |
+| `cb_reserves` | IMF | Central bank gold | `cb_gold_reserves` |
+| `etf_aum` | Various | GLD AUM | `etf_aum` |
+
+**Delta-sync**: Uses `import_watermarks` table — each (source, symbol) gets a `last_date` watermark;
+subsequent imports fetch from `last_date − 3d` (overlap) to today. Use `--full` to ignore watermarks.
+
+**10-year history**: Default `lookback_days=3650` (~10 years). All `_client.insert()` calls pass
+`settings={"max_partitions_per_insert_block": 300}` to avoid ClickHouse's default 100-partition limit
+(10 years × 12 months = 120 partitions exceeds 100 without this setting).
+
+**NSE Quote Fetcher** (`nse_quote_fetcher.py`): Fetches today's OHLCV from NSE Quote API.
+Available immediately after 3:30 PM IST — no Yahoo Finance ~1h delay. Requires NSE cookie warmup
+via `_NSE_WARMUP` request before per-symbol calls. Category `nse_eod` in CLI.
+
+### ClickHouse Schema (`market_data` database)
+
+All tables use `ReplacingMergeTree` for idempotent re-imports.
+
+| Table | Engine | Partition | Order Key | Notes |
+|-------|--------|-----------|-----------|-------|
+| `daily_prices` | ReplacingMergeTree(imported_at) | toYYYYMM(trade_date) | (symbol, trade_date) | ETFs, stocks, commodities, indices, FX |
+| `mf_nav` | ReplacingMergeTree(imported_at) | toYYYYMM(nav_date) | (symbol, nav_date) | AMFI NAV from MFAPI.in |
+| `fx_rates` | ReplacingMergeTree(imported_at) | toYYYYMM(trade_date) | (trade_date, symbol) | USD pair OHLC |
+| `inav_snapshots` | ReplacingMergeTree(snapshot_at) | toYYYYMM(snapshot_at) | (symbol, snapshot_at) | Live iNAV |
+| `cot_gold` | ReplacingMergeTree | toYYYYMM(report_date) | report_date | CFTC COT positioning |
+| `cb_gold_reserves` | ReplacingMergeTree | toYYYYMM(ref_period) | (ref_period, country_code) | IMF reserves |
+| `etf_aum` | ReplacingMergeTree | toYYYYMM(trade_date) | (trade_date, symbol) | ETF AUM snapshots |
+| `import_watermarks` | ReplacingMergeTree(updated_at) | — | (source, symbol) | Delta-sync state |
+| `ml_predictions` | ReplacingMergeTree(created_at) | — | (as_of, horizon_days) | ML forecast log |
+
+**Query pattern for deduplication** (replaces `FINAL` for better performance):
+```sql
+SELECT trade_date, argMax(close, imported_at) AS close
+FROM market_data.daily_prices
+WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+  AND trade_date >= toDate('2023-01-01')
+GROUP BY trade_date
+ORDER BY trade_date ASC
+```
+Use `argMax(col, imported_at) GROUP BY` instead of `FINAL` — `FINAL` triggers full cross-partition
+deduplication which is slow on 120+ partitions (10-year data). `argMax` is a parallel aggregation
+and supports partition pruning via `WHERE trade_date >= ...`.
+
+---
+
+## UI (`src/ui/app.py`)
+
+Streamlit 5-tab data hub.
+
+**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling?
+
+**Explorer tab charts:**
+
+| Chart | Query Pattern | Notes |
+|-------|---------------|-------|
+| COMEX Gold Daily Close | `argMax + GROUP BY` with date filter | USD/oz from `daily_prices` where `symbol='GOLD'` |
+| GOLDBEES Market Close vs AMFI NAV | `argMax` on both tables; range selector 1Y/3Y/5Y/10Y/All | `nullIf(nav, 0)` hides Muhurat/holiday zeros |
+| GOLDBEES Discount Alert Banner | Latest row query with `WHERE n.nav > 0` | 🚨 red ≤ −1%, ⚠️ yellow < 0%, ✅ green |
+| Premium/Discount Impact Scatter | Altair scatter + correlation | `argMax + GROUP BY` + `next_day_return` derived |
+
+**Alert banner logic** (between chart header and chart):
+- Queries most recent row: `ORDER BY p.trade_date DESC LIMIT 1` with `WHERE n.nav > 0`
+- `st.error` (≤ −1.0%), `st.warning` (< 0%), `st.success` (premium)
+
+**ClickHouse connection env vars**: `CH_HOST`, `CH_PORT` (8123), `CH_USER`, `CH_PASS`, `CH_DB` (market_data)
 
 ---
 
@@ -421,13 +517,16 @@ Pydantic `BaseSettings` loading from `.env` file:
 | Service | Endpoint | Auth | Module(s) | Notes |
 |---------|----------|------|-----------|-------|
 | **Zerodha Kite MCP** | `mcp.kite.trade` | OAuth 2.0 (browser) | mcp_client, zerodha_mcp_tools | Account-level rate limits |
-| **Yahoo Finance** | yfinance library | None (free) | yahoo_finance, historic_inav | Soft limits |
+| **Yahoo Finance** | yfinance library | None (free) | yahoo_finance, historic_inav, yfinance_fetcher, fx_rates_fetcher | 20+ years history; `lookback_days=3650` default |
 | **NewsAPI.org** | newsapi.org/v2 | API Key | newsapi_search | 100 req/day (free tier) |
 | **Google News** | RSS via GNews | None (free) | news_search | Soft limits |
 | **Screener.in** | screener.in/company | Web scraping | earnings_scraper | Polite delays applied |
-| **NSE API** | nseindia.com/api | Custom headers | inav_fetcher | Rate limited |
-| **MFAPI.in** | mfapi.in/mf | None (free) | historic_inav | No key required |
+| **NSE API** | nseindia.com/api | Custom headers + cookie warmup | inav_fetcher, nse_quote_fetcher, nse_inav_fetcher | Rate limited; requires `_NSE_WARMUP` request |
+| **MFAPI.in** | mfapi.in/mf | None (free) | historic_inav, mfapi_fetcher | Full scheme history; polite delays |
 | **gold-api.com** | gold-api.com/api | `x-access-token` | comex_fetcher | Free tier |
+| **ClickHouse** | localhost:8123 | username/password | clickhouse.py, app.py, trend_predictor | `market_data` database; 9 tables |
+| **CFTC** | Various | None | cot_fetcher | COT gold positioning |
+| **IMF** | IMF Data API | None | imf_reserves_fetcher | Central bank gold reserves |
 | **OpenAI** | api.openai.com | API Key | summarization, all agents | Pay-per-token |
 | **Anthropic** | api.anthropic.com | API Key | summarization, all agents | Pay-per-token |
 | **Local LLM** | `LLM_BASE_URL` | None | summarization, all agents | Unlimited / free |
@@ -527,6 +626,7 @@ User runs: python -m src.main analyze
 | `test_cache.py` | Unit + Integration | Cache round-trip, TTL expiry, cache clear, NewsAPI cache hit speedup (>50×) |
 | `test_inav_cli.py` | Visual + Mocked | 9 ETF scenarios with mocked iNAV/market prices, Rich panel rendering |
 | `test_news_sentiment.py` | Smoke (live APIs) | `collate_news_sentiment` + `NewsSentimentAgent._run_direct` |
+| `_validate_ml.py` | ML Validation | Master table row count, macro series presence, all 7 new features, hit ratio ≥ 0.50 |
 | `_compare_inav_sources.py` | Script | NSE vs Yahoo Finance iNAV comparison for 8 ETFs |
 | `_fetch_live_prices.py` | Script | Live Yahoo Finance data for 9 ETFs |
 | `_test_comex.py` | Script | COMEX signals smoke test (XAU, XAG, HG) |
@@ -552,9 +652,10 @@ User runs: python -m src.main analyze
 | **News** | `gnews`, `newsapi-python` |
 | **Config** | `pydantic`, `pydantic-settings`, `python-dotenv` |
 | **Output / CLI** | `rich`, `typer` |
-| **ML / Anomaly** | `scikit-learn>=1.4.0` (IsolationForest, RandomForestRegressor), `altair>=5.0.0` (Vega-Lite charts in UI) |
-| **ML / Forecast** | `lightgbm>=4.3.0` (LGBMRegressor for 5-day forward return predictor) |
-| **ML / Forecast** | `lightgbm>=4.3.0` (LGBMRegressor for 5-day forward return predictor) |
+| **UI** | `streamlit`, `altair>=5.0.0` |
+| **ClickHouse** | `clickhouse-connect` |
+| **ML / Anomaly** | `scikit-learn>=1.4.0` (IsolationForest, RandomForestRegressor) |
+| **ML / Forecast** | `lightgbm>=4.3.0` — macOS: `brew install libomp` required for `libomp.dylib`; Docker: `libgomp1` |
 
 ---
 
@@ -589,7 +690,19 @@ User runs: python -m src.main analyze
 | `docs/architecture.mmd` | Mermaid architecture diagram |
 | `src/ml/__init__.py` | Package marker |
 | `src/ml/anomaly.py` | Composite anomaly detection — Robust Z + RF Residuals + Isolation Forest |
-| `src/ml/trend_predictor.py` | LightGBM 5-day forward return predictor — 9 alpha features, walk-forward CV, ClickHouse + JSONL persistence |
+| `src/ml/trend_predictor.py` | LightGBM 5-day forward return predictor — 16 alpha features, walk-forward CV, ClickHouse + JSONL persistence |
 | `src/ui/__init__.py` | Package marker |
 | `src/ui/app.py` | Streamlit 5-tab UI — Import / SQL Query / Explorer / Anomaly Detection / Who Is Selling? |
+| `src/importer/__init__.py` | Package marker |
+| `src/importer/cli.py` | Orchestrates all import categories; `run_import(lookback_days=3650)` |
+| `src/importer/clickhouse.py` | ClickHouse DDL + `ClickHouseImporter` — insert methods with `max_partitions_per_insert_block=300` |
+| `src/importer/registry.py` | Symbol registries — `ETFS`, `STOCKS`, `COMMODITIES`, `INDICES`, `FX_PAIRS`, `MF_SCHEME_CODES`, `INAV_SYMBOLS` |
+| `src/importer/fetchers/yfinance_fetcher.py` | Batch OHLCV download via yfinance; `BATCH_SIZE=40` |
+| `src/importer/fetchers/mfapi_fetcher.py` | MFAPI.in NAV fetcher with polite delays |
+| `src/importer/fetchers/nse_quote_fetcher.py` | NSE Quote API — today's OHLCV, available right after 3:30 PM IST |
+| `src/importer/fetchers/fx_rates_fetcher.py` | USD FX pair OHLC via Yahoo Finance |
+| `src/importer/fetchers/cot_fetcher.py` | CFTC COT gold positioning data |
+| `src/importer/fetchers/etf_aum_fetcher.py` | ETF AUM (GLD etc.) snapshots |
+| `src/importer/fetchers/imf_reserves_fetcher.py` | IMF central bank gold reserve data |
+| `src/importer/fetchers/nse_inav_fetcher.py` | Live NSE iNAV snapshots (updated every ~15s) |
 | `predictions_log.jsonl` | Git-trackable JSONL log — one entry per (as_of, horizon_days); used for accuracy backtesting |

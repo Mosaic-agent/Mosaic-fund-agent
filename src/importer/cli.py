@@ -38,7 +38,7 @@ _OVERLAP_DAYS = 3
 def run_import(
     categories: list[str],
     *,
-    lookback_days: int = 730,
+    lookback_days: int = 3650,
     full_reimport: bool = False,
     dry_run: bool = False,
     console: Optional[Console] = None,
@@ -47,6 +47,7 @@ def run_import(
     clickhouse_database: str = "market_data",
     clickhouse_user: str = "default",
     clickhouse_password: str = "",
+    mf_holdings_month: Optional[date] = None,
 ) -> None:
     """
     Run the historical data import for the specified categories.
@@ -57,13 +58,16 @@ def run_import(
                       indices, mf — or 'all' which maps to all categories)
     lookback_days   : how many calendar days of history to fetch on first run
     full_reimport   : ignore watermarks and re-fetch full lookback window
-    dry_run         : fetch data but do NOT write to ClickHouse
-    console         : Rich Console instance (created if None)
-    clickhouse_*    : ClickHouse connection parameters
+    dry_run            : fetch data but do NOT write to ClickHouse
+    console            : Rich Console instance (created if None)
+    clickhouse_*       : ClickHouse connection parameters
+    mf_holdings_month  : first day of the month to import for mf_holdings;
+                         defaults to the current calendar month
     """
     from src.importer.registry import (
         get_symbols_for_categories,
         MF_SCHEME_CODES,
+        MF_HOLDINGS_WATCHLIST,
         ALL_CATEGORIES,
     )
     from src.importer.clickhouse import ClickHouseImporter
@@ -158,6 +162,47 @@ def run_import(
             from_date.isoformat(),
             today.isoformat(),
         ))
+    # ── NSE EOD OHLCV (available immediately after 3:30 PM IST) ─────────────
+    if "nse_eod" in categories:
+        from src.importer.registry import ETFS, STOCKS
+        from src.importer.fetchers.nse_quote_fetcher import fetch_nse_eod
+
+        nse_eod_symbols = ETFS + STOCKS
+        console.print(
+            f"\n[bold cyan]▶ NSE EOD OHLCV[/bold cyan] "
+            f"({len(nse_eod_symbols)} symbols — ETFs + stocks)"
+        )
+        console.print(
+            "  [dim]Direct NSE Quote API — available right after 3:30 PM IST, "
+            "no Yahoo Finance delay[/dim]"
+        )
+
+        eod_rows: list[dict] = []
+        for cat_name, sym_list in [("etfs", ETFS), ("stocks", STOCKS)]:
+            fetched = fetch_nse_eod(sym_list, cat_name)
+            eod_rows.extend(fetched)
+
+        if not eod_rows:
+            console.print(
+                "  [yellow]⚠ NSE returned no EOD data — "
+                "market may be open or API blocked.[/yellow]"
+            )
+        else:
+            inserted = ch.insert_prices(eod_rows, dry_run=dry_run)
+            console.print(
+                f"  [green]✓[/green] {inserted} rows "
+                f"{'(dry-run)' if dry_run else 'inserted'}"
+            )
+            if not dry_run:
+                symbols_seen = {r["symbol"] for r in eod_rows}
+                for sym in symbols_seen:
+                    sym_dates = [r["trade_date"] for r in eod_rows if r["symbol"] == sym]
+                    if sym_dates:
+                        ch.set_watermark("nse_quote", sym, max(sym_dates))
+            summary_rows.append((
+                "nse_eod", "nse_quote", inserted, str(today), str(today),
+            ))
+
     # ── NSE live iNAV snapshots ────────────────────────────────────────────────
     if "inav" in categories:
         from src.importer.registry import INAV_SYMBOLS
@@ -320,6 +365,25 @@ def run_import(
                 console.print(f"  {sym:8s}  {r['trade_date']}  close={r['close']:.4f}")
             summary_rows.append(("fx_rates", "yfinance", inserted,
                                   str(fx_from), str(today)))
+
+    if "mf_holdings" in categories:
+        from src.importer.fetchers.mf_holdings_fetcher import fetch_holdings
+        as_of_month = mf_holdings_month or date(today.year, today.month, 1)
+        console.print(f"\n[bold cyan]▶ MF Holdings[/bold cyan] ({len(MF_HOLDINGS_WATCHLIST)} funds, month={as_of_month})")
+        wm = ch.get_watermark("mf_holdings", "ALL") if not dry_run else None
+        if wm is not None and wm >= as_of_month:
+            console.print(f"  [dim]Already imported for {as_of_month} — skipping.[/dim]")
+        else:
+            holdings_rows = fetch_holdings(MF_HOLDINGS_WATCHLIST, as_of_month)
+            if not holdings_rows:
+                console.print("  [yellow]⚠ No holdings returned — mstarpy may be unavailable.[/yellow]")
+            else:
+                inserted = ch.insert_mf_holdings(holdings_rows, dry_run=dry_run)
+                console.print(f"  [green]✓[/green] {inserted} holding rows {'(dry-run)' if dry_run else 'stored'}")
+                if not dry_run:
+                    ch.set_watermark("mf_holdings", "ALL", as_of_month)
+                summary_rows.append(("mf_holdings", "morningstar", inserted,
+                                     str(as_of_month), str(as_of_month)))
 
     ch.close()
 

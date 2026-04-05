@@ -160,6 +160,23 @@ ENGINE = ReplacingMergeTree(created_at)
 ORDER BY (as_of, horizon_days)
 """
 
+_DDL_MF_HOLDINGS = """
+CREATE TABLE IF NOT EXISTS market_data.mf_holdings (
+    scheme_code    String,
+    fund_name      String,
+    as_of_month    Date,
+    isin           String,
+    security_name  String,
+    asset_type     String,       -- equity | gold | bond | cash | other
+    market_value_cr Float64,
+    pct_of_nav     Float64,
+    imported_at    DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+PARTITION BY toYYYYMM(as_of_month)
+ORDER BY (scheme_code, as_of_month, isin)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -194,7 +211,7 @@ class ClickHouseImporter:
         for ddl in (
             _DDL_DATABASE, _DDL_DAILY_PRICES, _DDL_MF_NAV, _DDL_WATERMARKS,
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
-            _DDL_FX_RATES, _DDL_ML_PREDICTIONS,
+            _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS,
         ):
             self._client.command(ddl)
         logger.debug("ClickHouse schema verified.")
@@ -264,6 +281,7 @@ class ClickHouseImporter:
             "market_data.daily_prices",
             data,
             column_names=["symbol", "category", "trade_date", "open", "high", "low", "close", "volume"],
+            settings={"max_partitions_per_insert_block": 300},
         )
         return len(rows)
 
@@ -297,6 +315,53 @@ class ClickHouseImporter:
             "market_data.mf_nav",
             data,
             column_names=["symbol", "scheme_code", "nav_date", "nav"],
+            settings={"max_partitions_per_insert_block": 300},
+        )
+        return len(rows)
+
+    # ── Bulk insert: mf_holdings ──────────────────────────────────────────────
+
+    def insert_mf_holdings(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """
+        Bulk-insert MF portfolio holdings into mf_holdings.
+
+        Each row dict must have keys:
+            scheme_code, fund_name, as_of_month (date), isin, security_name,
+            asset_type, market_value_cr, pct_of_nav
+
+        Returns the number of rows inserted (or that would have been inserted).
+        """
+        if not rows:
+            return 0
+        if dry_run:
+            logger.info("[dry-run] Would insert %d holdings rows.", len(rows))
+            return len(rows)
+
+        data = [
+            [
+                r["scheme_code"],
+                r["fund_name"],
+                r["as_of_month"],
+                r["isin"],
+                r["security_name"],
+                r["asset_type"],
+                r["market_value_cr"],
+                r["pct_of_nav"],
+            ]
+            for r in rows
+        ]
+        self._client.insert(
+            "market_data.mf_holdings",
+            data,
+            column_names=[
+                "scheme_code", "fund_name", "as_of_month", "isin",
+                "security_name", "asset_type", "market_value_cr", "pct_of_nav",
+            ],
         )
         return len(rows)
 
@@ -364,6 +429,7 @@ class ClickHouseImporter:
             column_names=["report_date", "mm_long", "mm_short", "mm_spread",
                           "mm_net", "comm_long", "comm_short", "comm_net",
                           "open_interest", "source"],
+            settings={"max_partitions_per_insert_block": 300},
         )
         return len(rows)
 
@@ -387,6 +453,7 @@ class ClickHouseImporter:
              for r in rows],
             column_names=["ref_period", "country_code", "country_name",
                           "reserves_tonnes", "source"],
+            settings={"max_partitions_per_insert_block": 300},
         )
         return len(rows)
 
@@ -410,6 +477,7 @@ class ClickHouseImporter:
              for r in rows],
             column_names=["trade_date", "symbol", "aum_usd",
                           "price", "implied_tonnes", "source"],
+            settings={"max_partitions_per_insert_block": 300},
         )
         return len(rows)
 
@@ -432,6 +500,7 @@ class ClickHouseImporter:
               r["low"], r["close"], r["source"]]
              for r in rows],
             column_names=["trade_date", "symbol", "open", "high", "low", "close", "source"],
+            settings={"max_partitions_per_insert_block": 300},
         )
         return len(rows)
 
