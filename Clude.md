@@ -103,6 +103,9 @@ src/main.py (CLI entry point)
 | `config` | Display current settings (sensitive fields masked) | — |
 | `news` | Multi-source news sentiment analysis | `symbol`, `--company` |
 | `comex` | COMEX pre-market commodity signals | — |
+| `premium-alerts` | Scarcity premium Z-score alerts for international ETFs | `--lookback`, `--z-threshold`, `--symbols`, `--min-snapshots` |
+| `import` | Import historical market data into ClickHouse | `--category`, `--lookback`, `--full`, `--dry-run` |
+| `ui` | Launch Streamlit data hub | `--port`, `--host` |
 
 ---
 
@@ -384,12 +387,26 @@ Independent of the UI — importable from CLI, agents, or tests.
 
 **Regime matrix:**
 
-| Z_robust | Z_resid | Regime |
-|---|---|---|
-| High | Low  | 📈 Strong Trend (HODL) |
-| Low  | High | ⚡ Flash Crash / Black Swan (EXIT) |
-| High | High | 🔥 Volatile Breakout |
-| Low  | Low  | ✅ Normal |
+| Z_robust | Z_volume | Z_resid | Regime |
+|---|---|---|---|
+| High | Low (pos. return) | — | 🧨 Blow-off Top (Weak) — checked first |
+| High | — | Low  | 📈 Strong Trend (HODL) |
+| Low  | — | High | ⚡ Flash Crash / Black Swan (EXIT) |
+| High | — | High | 🔥 Volatile Breakout |
+| Low  | — | Low  | ✅ Normal |
+
+**Volume Z-score** (`z_volume`): `robust_zscore(df["volume"].ffill(), window=z_window)` — independent of `z_robust`. Added to Isolation Forest feature set: `[daily_return, range_pct, z_robust, z_volume]`.
+
+**Blow-off Top threshold**: currently uses `abs(z_volume) < median(z_volume)` (50th pct). Backtest on GOLDBEES (652 days) showed 43.5% hit rate at this threshold — consider tightening to `z_volume < -0.5` for higher precision.
+
+**Backtest results** (`tests/_backtest_anomaly.py`, GOLDBEES Jul 2023–Apr 2026):
+
+| Regime | Count | Ret 5d | Hit Rate 5d |
+|---|---|---|---|
+| 🧨 Blow-off Top | 69 | +0.34% | 43% (weak) |
+| ⚡ Flash Crash | 111 | +1.30% | 69% (strong) |
+| 📈 Strong Trend | 96 | +0.76% | 62% (good) |
+| 🔥 Volatile Breakout | 159 | +0.78% | — |
 
 **RF features:** `lag_1..lag_N`, `ma7`, `ma30`, `vol_lag1` (lag count configurable, default 5)
 
@@ -410,7 +427,7 @@ Historical data pipeline that populates ClickHouse from multiple sources.
 | `etfs` | yfinance | 12 ETFs (GOLDBEES, NIFTYBEES, …) | `daily_prices` |
 | `stocks` | yfinance | NSE stocks | `daily_prices` |
 | `commodities` | yfinance | 7 (GOLD, SILVER, CRUDE, …) | `daily_prices` |
-| `indices` | yfinance | 7 (NIFTY50, SENSEX, …) | `daily_prices` |
+| `indices` | yfinance | 9 (NIFTY50, SENSEX, … + US10Y ^TNX, US13W ^IRX) | `daily_prices` |
 | `fx_rates` | yfinance | 5 USD pairs (USDINR, USDCNY, …) | `daily_prices` + `fx_rates` |
 | `mf` | mfapi.in | 11 MF schemes | `mf_nav` |
 | `nse_eod` | NSE Quote API | ETFs + stocks | `daily_prices` |
@@ -467,7 +484,13 @@ and supports partition pruning via `WHERE trade_date >= ...`.
 
 Streamlit 5-tab data hub.
 
-**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling?
+**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings
+
+**Who Is Selling? tab sections:**
+1. Live signal check (expert system: COT + iNAV + AUM + USD/INR)
+2. LightGBM 5-day forecast with walk-forward CV results
+3. **🔬 Quant Scorecard** — composite 0–100 score (Macro 30% / Flows 30% / Valuation 20% / Momentum 20%); Plotly gauge + pillar breakdown table + 30d rolling GOLDBEES↔DXY correlation
+4. **🌍 Scarcity Premium Alerts** — Z-score bar chart + premium level scatter (today vs 30d mean) + signal cards + full table; scans MAFANG, HNGSNGBEES, MON100, NIFTYQLITY, PSUBNKBEES
 
 **Explorer tab charts:**
 
@@ -483,6 +506,49 @@ Streamlit 5-tab data hub.
 - `st.error` (≤ −1.0%), `st.warning` (< 0%), `st.success` (premium)
 
 **ClickHouse connection env vars**: `CH_HOST`, `CH_PORT` (8123), `CH_USER`, `CH_PASS`, `CH_DB` (market_data)
+
+---
+
+## Utils (`src/utils/`)
+
+---
+
+## Quant Tools (`src/tools/`)
+
+### `quant_scorecard.py`
+
+Composite Gold Score engine for GOLDBEES (0–100).
+
+**Public API**: `compute_gold_scorecard(ch_host, ch_port, ch_user, ch_pass, ch_database) → dict`
+
+**Pillars and scoring constants:**
+
+| Pillar | Weight | Inputs | Constants |
+|--------|--------|--------|----------|
+| Macro | 30% | DXY level + US10Y real yield 5d delta | `_DXY_LOW=100`, `_DXY_HIGH=110`; `_YIELD_D5_LOW=-0.10`, `_YIELD_D5_HIGH=+0.10` |
+| Flows | 30% | COT mm_net / open_interest % | `_COT_LOW=20%`, `_COT_HIGH=35%` (raised from 25% after backtest: 20% hit rate) |
+| Valuation | 20% | GOLDBEES iNAV premium/discount % | `_DISC_HIGH=+0.50%`, `_PREM_HIGH=+0.50%` |
+| Momentum | 20% | LightGBM `expected_return_pct` | `_MOM_HIGH=+1.0%`, `_MOM_LOW=-1.0%` |
+
+**Graceful degradation**: missing pillars are re-weighted so composite stays on 0–100 scale.  
+**COT query**: uses `FINAL` keyword to avoid `AggregateFunction(argMax, Int64, Date)` deserialization error on `cot_gold` ReplacingMergeTree.  
+**Return schema**: `composite_score, macro_score, flows_score, valuation_score, momentum_score, signals{}, goldbees_prices (DataFrame), dxy_prices (DataFrame), as_of, error`
+
+### `premium_alerts.py`
+
+Scarcity Premium Alert engine for international ETFs under RBI $7B overseas cap.
+
+**Public API**: `check_premium_alerts(ch_client, symbols, lookback_days=30, z_threshold=-1.5, good_entry_threshold=-1.0, min_snapshots=5) → list[dict]`
+
+**Logic**:
+1. Query `inav_snapshots` — group by `toStartOfHour(snapshot_at)`, `argMax(premium_discount_pct, snapshot_at)` over `lookback_days`
+2. Compute `mean_prem`, `std_prem` via `statistics.stdev`
+3. Fetch latest premium via separate `argMax` query (no date filter)
+4. Z-score: `(latest − mean) / std`; Signal: `z ≤ -1.5` → 🟢 SCREAMING BUY; `z ≤ -1.0` → 🟡 GOOD ENTRY; else → 🔴 NO ACTION
+5. Returns sorted by z ascending (best opportunities first)
+
+**Default symbols**: `MAFANG, HNGSNGBEES, MON100, NIFTYQLITY, PSUBNKBEES`  
+**Note**: MON100, NIFTYQLITY not yet in `INAV_SYMBOLS` — add to registry to start accumulating data.
 
 ---
 
@@ -629,8 +695,8 @@ User runs: python -m src.main analyze
 | `test_cache.py` | Unit + Integration | Cache round-trip, TTL expiry, cache clear, NewsAPI cache hit speedup (>50×) |
 | `test_inav_cli.py` | Visual + Mocked | 9 ETF scenarios with mocked iNAV/market prices, Rich panel rendering |
 | `test_news_sentiment.py` | Smoke (live APIs) | `collate_news_sentiment` + `NewsSentimentAgent._run_direct` |
-| `_validate_ml.py` | ML Validation | Master table row count, macro series presence, all 7 new features, hit ratio ≥ 0.50 |
-| `_compare_inav_sources.py` | Script | NSE vs Yahoo Finance iNAV comparison for 8 ETFs |
+| `_validate_ml.py` | ML Validation | Master table row count, macro series presence, all 7 new features, hit ratio ≥ 0.50 || `tests/test_quant_signals.py` | Backtest Script | COT Crowded Long → GOLDBEES price drop backtest; `--threshold`, `--drop`, `--days` CLI args |
+| `tests/_backtest_anomaly.py` | Backtest Script | Anomaly regime forward-return backtest; all 5 regimes × 3/5/10d horizons; Blow-off Top deep-dive section || `_compare_inav_sources.py` | Script | NSE vs Yahoo Finance iNAV comparison for 8 ETFs |
 | `_fetch_live_prices.py` | Script | Live Yahoo Finance data for 9 ETFs |
 | `_test_comex.py` | Script | COMEX signals smoke test (XAU, XAG, HG) |
 | `_test_nse_parse.py` | Script | NSE API ETF list parsing validation |
@@ -693,10 +759,12 @@ User runs: python -m src.main analyze
 | `src/utils/symbol_mapper.py` | 160+ NSE ↔ Yahoo ↔ company name mappings |
 | `docs/architecture.mmd` | Mermaid architecture diagram |
 | `src/ml/__init__.py` | Package marker |
-| `src/ml/anomaly.py` | Composite anomaly detection — Robust Z + RF Residuals + Isolation Forest |
-| `src/ml/trend_predictor.py` | LightGBM 5-day forward return predictor — 16 alpha features, walk-forward CV, ClickHouse + JSONL persistence |
+| `src/ml/anomaly.py` | Composite anomaly detection — Robust Z + RF Residuals + Isolation Forest + Volume Z; 5 regimes incl. Blow-off Top |
+| `src/ml/trend_predictor.py` | LightGBM 5-day forward return predictor — 19 alpha features (incl. real DXY, US10Y, seasonality), walk-forward CV, ClickHouse + JSONL persistence |
+| `src/tools/quant_scorecard.py` | Composite Gold Score engine — 4-pillar weighted 0–100 score for GOLDBEES |
+| `src/tools/premium_alerts.py` | Scarcity Premium Alert engine — Z-score on iNAV premium for international ETFs |
 | `src/ui/__init__.py` | Package marker |
-| `src/ui/app.py` | Streamlit 5-tab UI — Import / SQL Query / Explorer / Anomaly Detection / Who Is Selling? |
+| `src/ui/app.py` | Streamlit 6-tab UI — Import / SQL Query / Explorer / Anomaly Detection / Who Is Selling? / MF Holdings |
 | `src/importer/__init__.py` | Package marker |
 | `src/importer/cli.py` | Orchestrates all import categories; `run_import(lookback_days=3650)` |
 | `src/importer/clickhouse.py` | ClickHouse DDL + `ClickHouseImporter` — insert methods with `max_partitions_per_insert_block=300` |
