@@ -522,24 +522,6 @@ class ClickHouseImporter:
             ],
         )
 
-    def insert_ml_prediction(self, row: dict) -> None:
-        """Upsert one ML prediction row (idempotent via ReplacingMergeTree)."""
-        self._client.insert(
-            "market_data.ml_predictions",
-            [[
-                row["as_of"], row["horizon_days"],
-                row["expected_return_pct"], row["confidence_low"],
-                row["confidence_high"], row["regime_signal"],
-                row["cv_r2_mean"], row["n_training_rows"],
-                row["goldbees_close"],
-            ]],
-            column_names=[
-                "as_of", "horizon_days", "expected_return_pct",
-                "confidence_low", "confidence_high", "regime_signal",
-                "cv_r2_mean", "n_training_rows", "goldbees_close",
-            ],
-        )
-
     def close(self) -> None:
         self._client.close()
 

@@ -113,6 +113,8 @@ INDICES: list[tuple[str, str]] = [
     ("SP500",      "^GSPC"),
     ("NASDAQ",     "^IXIC"),
     ("DOWJONES",   "^DJI"),
+    ("US10Y",      "^TNX"),      # US 10-year Treasury yield — real rate / gold headwind signal
+    ("US13W",      "^IRX"),      # US 13-week T-bill yield  — yield-curve spread (10Y − 13W)
 ]
 
 # MFAPI.in scheme codes for MF NAV import

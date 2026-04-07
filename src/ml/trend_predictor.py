@@ -28,6 +28,10 @@ Alpha factors
   f_dxy_logret20       Real DXY            20-day DXY log return
   f_us10y_level        US 10Y yield        absolute yield level  (rate-regime signal)
   f_us10y_delta5       US 10Y yield shock  5-day change in yield (^TNX via yfinance)
+  f_real_yield         Real Yield proxy    f_us10y_level − 2.5% inflation constant
+  f_real_yield_delta5  Real Yield trend    5-day change in real yield
+  f_gsr                Gold-Silver Ratio   gold_close / silver_close  (risk-on/off regime)
+  f_gsr_zscore         GSR z-score         rolling 60-day z-score of f_gsr
   f_month_sin/cos      Seasonality         cyclical month encoding (wedding / CNY / Q4)
   f_dow                Day-of-week         0=Mon → 1=Fri (Friday effect)
 
@@ -128,6 +132,11 @@ _MASTER_SQL = """
         FROM market_data.daily_prices FINAL
         WHERE symbol = 'GOLD' AND category = 'commodities'
     ) gold ON p.trade_date = gold.trade_date
+    LEFT JOIN (
+        SELECT trade_date, close AS silver_close
+        FROM market_data.daily_prices FINAL
+        WHERE symbol = 'SILVER' AND category = 'commodities'
+    ) silver ON p.trade_date = silver.trade_date
     ORDER BY p.trade_date ASC
 """
 
@@ -299,7 +308,27 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         df["f_us10y_level"]  = y10           # absolute level signals rate regime
         df["f_us10y_delta5"] = y10.diff(5)   # 5-day yield shock
 
-    # ── 12. Calendar seasonality (cyclical encoding) ──────────────────────────
+    # ── 12. Real Yield proxy — US 10Y minus fixed inflation constant ────────────
+    # Rising real yields are a persistent headwind for non-yielding gold.
+    # Fixed 2.5% inflation constant is the Fed's asymmetric target mid-point.
+    if "us10y_close" in df.columns:
+        df["f_real_yield"]        = df["f_us10y_level"] - 2.5
+        df["f_real_yield_delta5"] = df["f_real_yield"].diff(5)
+
+    # ── 13. Gold-Silver Ratio — risk-on / risk-off regime indicator ────────────
+    # GSR above 80+: silver under-performs → risk-off / recession fears → gold bid.
+    # GSR below 60:  silver outperforms  → industrial demand / risk-on rally.
+    # z-score normalises the ratio to a stationary signal.
+    if "silver_close" in df.columns and "gold_close" in df.columns:
+        sc = df["silver_close"].replace(0, np.nan)
+        gc = df["gold_close"].replace(0, np.nan)
+        df["f_gsr"]        = gc / sc
+        df["f_gsr_zscore"] = (
+            (df["f_gsr"] - df["f_gsr"].rolling(60).mean())
+            / df["f_gsr"].rolling(60).std().replace(0, np.nan)
+        )
+
+    # ── 14. Calendar seasonality (cyclical encoding) ──────────────────────────
     # Known gold seasonals: Indian wedding season (Oct–Nov), Chinese New Year
     # (Jan–Feb), Q4 institutional rebalancing, Friday option-expiry effect.
     df["f_month_sin"] = np.sin(2 * np.pi * df["trade_date"].dt.month / 12)

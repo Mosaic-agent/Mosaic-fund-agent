@@ -613,6 +613,163 @@ def comex() -> None:
     console.rule("[dim]End of COMEX Report[/dim]")
 
 
+@app.command(name="premium-alerts")
+def premium_alerts(
+    lookback: int = typer.Option(
+        30,
+        "--lookback",
+        "-l",
+        help="Days of iNAV history used to compute mean/std (default 30).",
+    ),
+    z_threshold: float = typer.Option(
+        -1.5,
+        "--z-threshold",
+        "-z",
+        help="Z-score at or below which SCREAMING BUY fires (default -1.5).",
+    ),
+    symbols: str = typer.Option(
+        "",
+        "--symbols",
+        "-s",
+        help="Comma-separated NSE symbols to scan. Default: all international ETFs.",
+    ),
+    min_snapshots: int = typer.Option(
+        5,
+        "--min-snapshots",
+        help="Minimum hourly snapshots required to compute a meaningful Z-score (default 5).",
+    ),
+) -> None:
+    """
+    Scarcity Premium Alerts for international ETFs (MAFANG, HNGSNGBEES, …).
+
+    The RBI $7B overseas investment cap creates a structural premium on
+    international ETFs that rarely reverts to zero.  This command trades the
+    *volatility* of that premium: when it dips well below its 30-day mean,
+    it signals a likely snap-back and a favourable entry point.
+
+    Signal thresholds:
+      Z ≤ -1.5   →  🟢 SCREAMING BUY
+      Z ≤ -1.0   →  🟡 GOOD ENTRY
+      otherwise  →  🔴 NO ACTION
+
+    \\b
+    Examples:
+      python src/main.py premium-alerts
+      python src/main.py premium-alerts --lookback 14 --z-threshold -1.0
+      python src/main.py premium-alerts --symbols MAFANG,HNGSNGBEES
+    """
+    _setup_logging()
+
+    from src.tools.premium_alerts import check_premium_alerts, INTL_ETF_SYMBOLS
+
+    sym_list = (
+        [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if symbols
+        else INTL_ETF_SYMBOLS
+    )
+
+    console.print(
+        Panel(
+            "[bold]🌍 International ETF — Scarcity Premium Alerts[/bold]\n"
+            "[dim]RBI $7B overseas cap creates structural premiums. "
+            "Trade the volatility of the premium — not the level itself.[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    try:
+        import clickhouse_connect
+        ch = clickhouse_connect.get_client(
+            host=settings.clickhouse_host,
+            port=settings.clickhouse_port,
+            username=settings.clickhouse_user,
+            password=settings.clickhouse_password,
+            connect_timeout=10,
+        )
+    except Exception as exc:
+        console.print(f"[bold red]✗ ClickHouse connection failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    with console.status(f"[cyan]Computing premium Z-scores for {', '.join(sym_list)}…[/cyan]"):
+        try:
+            results = check_premium_alerts(
+                ch_client=ch,
+                symbols=sym_list,
+                lookback_days=lookback,
+                z_threshold=z_threshold,
+                good_entry_threshold=z_threshold + 0.5,
+                min_snapshots=min_snapshots,
+            )
+        except Exception as exc:
+            console.print(f"[bold red]✗ Alert computation failed:[/bold red] {exc}")
+            raise typer.Exit(code=1)
+        finally:
+            ch.close()
+
+    if not results:
+        console.print("[yellow]⚠ No results returned — check that iNAV snapshots exist in ClickHouse.[/yellow]")
+        console.print("  Run: [bold]python src/main.py import --category inav[/bold]")
+        raise typer.Exit(code=0)
+
+    # ── Results table ─────────────────────────────────────────────────────────
+    tbl = Table(
+        title=f"Premium Z-Score Report  (lookback {lookback}d · Z threshold {z_threshold:+.1f})",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold magenta",
+    )
+    tbl.add_column("Symbol",             min_width=14, style="bold")
+    tbl.add_column("Latest Prem (%)",    min_width=16, justify="right")
+    tbl.add_column(f"{lookback}d Avg (%)",  min_width=14, justify="right")
+    tbl.add_column("Std Dev",            min_width=9,  justify="right")
+    tbl.add_column("Z-Score",            min_width=9,  justify="right")
+    tbl.add_column("Snapshots",          min_width=11, justify="right")
+    tbl.add_column("Action",             min_width=20)
+
+    n_buy = n_entry = n_noaction = n_bad = 0
+
+    for r in results:
+        latest = f"{r['latest_premium']:+.3f}%" if r["latest_premium"] is not None else "[dim]—[/dim]"
+        avg    = f"{r['mean_premium']:+.3f}%"   if r["mean_premium"]   is not None else "[dim]—[/dim]"
+        std    = f"{r['std_premium']:.4f}"       if r["std_premium"]    is not None else "[dim]—[/dim]"
+        zscore = f"{r['z_score']:+.3f}"          if r["z_score"]        is not None else "[dim]—[/dim]"
+        snaps  = str(r["n_snapshots"])
+        style  = r["action_style"]
+        action = f"[{style}]{r['action']}[/{style}]"
+
+        if r["error"]:
+            action = f"[dim]{r['action']}[/dim]\n[dim italic]{r['error']}[/dim italic]"
+
+        tbl.add_row(r["symbol"], latest, avg, std, zscore, snaps, action)
+
+        if "SCREAMING" in r["action"]:  n_buy     += 1
+        elif "ENTRY"   in r["action"]:  n_entry   += 1
+        elif "NO ACTION" in r["action"]: n_noaction += 1
+        else:                           n_bad     += 1
+
+    console.print(tbl)
+
+    # ── Summary footer ────────────────────────────────────────────────────────
+    console.print()
+    summary_parts = []
+    if n_buy:
+        summary_parts.append(f"[bold green]{n_buy} SCREAMING BUY[/bold green]")
+    if n_entry:
+        summary_parts.append(f"[bold yellow]{n_entry} GOOD ENTRY[/bold yellow]")
+    if n_noaction:
+        summary_parts.append(f"[red]{n_noaction} NO ACTION[/red]")
+    if n_bad:
+        summary_parts.append(f"[dim]{n_bad} insufficient/error[/dim]")
+
+    console.print("  Signals: " + "  ·  ".join(summary_parts) if summary_parts else "")
+    console.print(
+        "[dim]  Strategy: RBI cap → structural premium. "
+        "Buy when premium dips below its mean (low Z), "
+        "not when it is high.[/dim]"
+    )
+    console.rule("[dim]End of Premium Alerts[/dim]")
+
+
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
 @app.command()
