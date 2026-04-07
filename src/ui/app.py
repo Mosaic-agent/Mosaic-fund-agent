@@ -208,7 +208,7 @@ with tab_import:
             "▶  Start Import",
             type="primary",
             disabled=not ok or len(selected_cats) == 0,
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_log:
@@ -518,7 +518,7 @@ with tab_query:
             with st.spinner("Querying ClickHouse…"):
                 df = _query_df(sql.strip())
             st.caption(f"**{len(df):,} rows** returned")
-            st.dataframe(df, use_container_width=True, height=400)
+            st.dataframe(df, width="stretch", height=400)
 
             st.download_button(
                 "⬇ Download CSV",
@@ -799,7 +799,7 @@ with tab_explorer:
                         _price_line,
                     ).resolve_scale(y="independent").properties(height=300).interactive()
 
-                    st.altair_chart(overlay, use_container_width=True)
+                    st.altair_chart(overlay, width="stretch")
 
                 # ── Tab 2: Scatter spread → next-day return ─────────────────
                 with tab_scatter:
@@ -837,7 +837,7 @@ with tab_explorer:
 
                     st.altair_chart(
                         (scatter + trend).properties(height=320).interactive(),
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.info(
                         f"Next-day return correlation with spread: **{corr_nextday:+.3f}**  \n"
@@ -881,7 +881,7 @@ with tab_explorer:
                     )
                     st.altair_chart(
                         (_zero_r + _corr_line).properties(height=260).interactive(),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
         except ImportError as exc:
@@ -919,7 +919,7 @@ with tab_explorer:
 
                 st.dataframe(
                     sym_df[["inav", "market_price", "prem_disc_pct", "source"]],
-                    use_container_width=True,
+                    width="stretch",
                     height=220,
                 )
                 if len(sym_df) > 1:
@@ -1021,7 +1021,7 @@ with tab_explorer:
                     .tail(n_weeks)
                     .sort_index(ascending=False)
                     .reset_index(),
-                    use_container_width=True,
+                    width="stretch",
                     height=300,
                 )
         except Exception as exc:
@@ -1067,7 +1067,7 @@ with tab_explorer:
                 if aum_tab:
                     st.dataframe(
                         aum_df.sort_values(["trade_date", "symbol"], ascending=[False, True]),
-                        use_container_width=True,
+                        width="stretch",
                         height=300,
                     )
         except Exception as exc:
@@ -1104,7 +1104,7 @@ with tab_explorer:
                     st.caption(f"As of {latest_cb['ref_period'].max().strftime('%b %Y')}")
                     st.dataframe(
                         latest_cb[["country_name", "reserves_tonnes"]],
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                         height=300,
                     )
@@ -1245,7 +1245,7 @@ with tab_explorer:
                         if summary:
                             st.dataframe(
                                 pd.DataFrame(summary),
-                                use_container_width=True, hide_index=True,
+                                width="stretch", hide_index=True,
                             )
         except Exception as exc:
             st.error(f"FX chart: {exc}")
@@ -1401,7 +1401,7 @@ with tab_explorer:
                         height=340,
                     ).interactive()
 
-                    st.altair_chart(chart, use_container_width=True)
+                    st.altair_chart(chart, width="stretch")
                     st.caption(
                         "🟠 **Global Anomaly Index** (left axis) — cross-asset mean |MAD Z-score| "
                         "of daily returns across GOLD, GOLDBEES, NIFTY 50, S&P 500 and USDINR  ·  "
@@ -1420,7 +1420,7 @@ with tab_explorer:
                         top_stress["anomaly_index"] = top_stress["anomaly_index"].round(4)
                         top_stress["goldbees"]      = top_stress["goldbees"].round(2)
                         top_stress.columns = ["Date", "Anomaly Index", "GOLDBEES ₹"]
-                        st.dataframe(top_stress, use_container_width=True, hide_index=True)
+                        st.dataframe(top_stress, width="stretch", hide_index=True)
 
         except ImportError as exc:
             st.error(
@@ -1502,7 +1502,7 @@ with tab_anomaly:
             )
 
             run_btn = st.button(
-                "▶ Run Analysis", type="primary", use_container_width=True
+                "▶ Run Analysis", type="primary", width="stretch"
             )
 
         with col_res:
@@ -1605,7 +1605,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     )
                     st.altair_chart(
                         (price_line + regime_dots).interactive().properties(height=300),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Chart 2: Z-score decomposition ────────────────────────
@@ -1630,7 +1630,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     ).encode(y="y:Q")
                     st.altair_chart(
                         (z_lines + thresh_rules).interactive().properties(height=240),
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.caption(
                         "🔵 z_robust (MAD)  ·  🟠 z_resid (RF residual)  ·  "
@@ -1650,7 +1650,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     )
                     st.altair_chart(
                         if_area.interactive().properties(height=150),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Chart 4: RF actual vs predicted ───────────────────────
@@ -1670,7 +1670,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     )
                     st.altair_chart(
                         rf_chart.interactive().properties(height=200),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Top flagged days table ────────────────────────────────
@@ -1689,7 +1689,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     for col in ["final_z_abs", "z_robust", "z_resid_abs", "if_confidence"]:
                         top_tbl[col] = top_tbl[col].round(4)
                     top_tbl["close"] = top_tbl["close"].round(2)
-                    st.dataframe(top_tbl, use_container_width=True)
+                    st.dataframe(top_tbl, width="stretch")
 
                     st.download_button(
                         "⬇ Download flagged days CSV",
@@ -1764,7 +1764,7 @@ with tab_wis:
 
     col_run, col_info = st.columns([1, 3])
     with col_run:
-        run_wis = st.button("🔍 Analyse Now", type="primary", use_container_width=True)
+        run_wis = st.button("🔍 Analyse Now", type="primary", width="stretch")
         st.caption("Calls yfinance + ClickHouse live — takes ~5 seconds.")
 
     with col_info:
@@ -1946,7 +1946,7 @@ with tab_wis:
         st.write("")  # vertical spacer
         st.write("")
         run_ml = st.button("📊 Run ML Forecast", type="secondary",
-                           use_container_width=True, key="ml_btn")
+                           width="stretch", key="ml_btn")
         st.caption("~5–10 seconds: assemble → engineer → train → predict")
 
     if run_ml:
@@ -2171,7 +2171,7 @@ with tab_holdings:
                     legend=dict(orientation="h", y=-0.1),
                     height=320,
                 )
-                st.plotly_chart(fig_pie, use_container_width=True)
+                st.plotly_chart(fig_pie, width="stretch")
 
     # ══ 2. Holdings table ══════════════════════════════════════════════════
     st.subheader("Holdings Detail")
@@ -2184,7 +2184,7 @@ with tab_holdings:
     })
     st.dataframe(
         _disp_df.style.format({"Weight (%)": "{:.2f}"}),
-        use_container_width=True,
+        width="stretch",
         height=420,
     )
 
@@ -2247,7 +2247,7 @@ with tab_holdings:
                         "event":         "Event",
                     })
                     .style.format({"Prev (%)": "{:.2f}", "Cur (%)": "{:.2f}", "Δ (%)": "{:+.2f}"}),
-                    use_container_width=True,
+                    width="stretch",
                     height=380,
                 )
         else:
@@ -2281,4 +2281,4 @@ with tab_holdings:
                 height=320,
             )
             fig_trend.update_layout(margin=dict(t=30, b=0))
-            st.plotly_chart(fig_trend, use_container_width=True)
+            st.plotly_chart(fig_trend, width="stretch")

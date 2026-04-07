@@ -2,3 +2,4 @@
 {"as_of": "2026-03-29", "horizon_days": 5, "expected_return_pct": 2.157, "confidence_low": -0.37, "confidence_high": 4.683, "regime_signal": "BUY", "cv_r2_mean": -0.3509, "n_training_rows": 662, "goldbees_close": 117.53}
 {"as_of": "2026-04-01", "horizon_days": 5, "expected_return_pct": 0.748, "confidence_low": -0.068, "confidence_high": 1.563, "regime_signal": "WATCH_LONG", "cv_r2_mean": -0.1199, "n_training_rows": 480, "goldbees_close": 121.19}
 {"as_of": "2026-04-01", "horizon_days": 13, "expected_return_pct": 5.357, "confidence_low": -0.626, "confidence_high": 11.34, "regime_signal": "BUY", "cv_r2_mean": -0.1037, "n_training_rows": 2450, "goldbees_close": 123.37}
+{"as_of": "2026-04-07", "horizon_days": 5, "expected_return_pct": 0.549, "confidence_low": -0.033, "confidence_high": 1.132, "regime_signal": "WATCH_LONG", "cv_r2_mean": -0.0717, "n_training_rows": 671, "goldbees_close": 121.78}

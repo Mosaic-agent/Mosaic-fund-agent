@@ -1,21 +1,30 @@
 """
 src/importer/fetchers/mf_holdings_fetcher.py
 ─────────────────────────────────────────────
-Fetches monthly portfolio holdings for each fund in MF_HOLDINGS_WATCHLIST
+Fetches portfolio holdings for each fund in MF_HOLDINGS_WATCHLIST
 using the mstarpy library (https://pypi.org/project/mstarpy/).
 
 mstarpy calls Morningstar's internal REST APIs and returns structured JSON,
 giving us security name, weight, sector, ISIN, and asset type per holding.
 
+IMPORTANT — mstarpy limitation
+───────────────────────────────
+mstarpy.Funds.holdings() has NO date/month parameter. It always returns
+the CURRENT live snapshot from Morningstar. The `as_of_month` argument is
+only used as a label when storing to ClickHouse. To build a genuine
+time-series, run this importer once per month going forward.
+
 Public entry point
 ──────────────────
     from src.importer.fetchers.mf_holdings_fetcher import fetch_holdings
-    rows = fetch_holdings(MF_HOLDINGS_WATCHLIST, as_of_month=date(2026, 3, 1))
+    rows = fetch_holdings(MF_HOLDINGS_WATCHLIST, as_of_month=date.today().replace(day=1))
 """
 
 from __future__ import annotations
 
 import logging
+import signal as _signal
+import threading
 import time
 from datetime import date
 
@@ -75,7 +84,19 @@ def _fetch_one_fund(
     marketValue, isin, sector, holdingType, country, etc.
     """
     try:
-        import mstarpy  # type: ignore[import]
+        # mstarpy/utils.py calls signal.signal(SIGTERM, ...) at import time,
+        # which raises ValueError when imported from a non-main thread
+        # (e.g. Streamlit worker). Stub signal.signal for the duration of the
+        # import, then restore the real handler immediately after.
+        if threading.current_thread() is not threading.main_thread():
+            _orig_signal_fn = _signal.signal
+            _signal.signal = lambda *a, **kw: None  # type: ignore[assignment]
+            try:
+                import mstarpy  # type: ignore[import]
+            finally:
+                _signal.signal = _orig_signal_fn  # type: ignore[assignment]
+        else:
+            import mstarpy  # type: ignore[import]
     except ImportError as exc:
         raise RuntimeError(
             "mstarpy is not installed. Run: pip install mstarpy"

@@ -48,21 +48,22 @@ def run_import(
     clickhouse_user: str = "default",
     clickhouse_password: str = "",
     mf_holdings_month: Optional[date] = None,
+    mf_holdings_months: int = 1,
 ) -> None:
     """
     Run the historical data import for the specified categories.
 
     Parameters
     ----------
-    categories      : list of category names to import (stocks, etfs, commodities,
-                      indices, mf — or 'all' which maps to all categories)
-    lookback_days   : how many calendar days of history to fetch on first run
-    full_reimport   : ignore watermarks and re-fetch full lookback window
+    categories         : list of category names to import (stocks, etfs, commodities,
+                         indices, mf — or 'all' which maps to all categories)
+    lookback_days      : how many calendar days of history to fetch on first run
+    full_reimport      : ignore watermarks and re-fetch full lookback window
     dry_run            : fetch data but do NOT write to ClickHouse
     console            : Rich Console instance (created if None)
     clickhouse_*       : ClickHouse connection parameters
-    mf_holdings_month  : first day of the month to import for mf_holdings;
-                         defaults to the current calendar month
+    mf_holdings_month  : import a specific month (overrides mf_holdings_months)
+    mf_holdings_months : number of past months to import (default 1 = current month)
     """
     from src.importer.registry import (
         get_symbols_for_categories,
@@ -368,18 +369,40 @@ def run_import(
 
     if "mf_holdings" in categories:
         from src.importer.fetchers.mf_holdings_fetcher import fetch_holdings
+
+        # NOTE: mstarpy.Funds.holdings() has NO date parameter — it always returns
+        # the current Morningstar snapshot. We tag rows with the current month so
+        # running this monthly builds a genuine time-series going forward.
         as_of_month = mf_holdings_month or date(today.year, today.month, 1)
-        console.print(f"\n[bold cyan]▶ MF Holdings[/bold cyan] ({len(MF_HOLDINGS_WATCHLIST)} funds, month={as_of_month})")
-        wm = ch.get_watermark("mf_holdings", "ALL") if not dry_run else None
-        if wm is not None and wm >= as_of_month:
-            console.print(f"  [dim]Already imported for {as_of_month} — skipping.[/dim]")
+
+        console.print(
+            f"\n[bold cyan]▶ MF Holdings[/bold cyan] "
+            f"({len(MF_HOLDINGS_WATCHLIST)} funds · snapshot as of {as_of_month})"
+        )
+
+        # Skip if this month's snapshot already exists (unless forced)
+        existing_months: set = set()
+        if not full_reimport and not dry_run:
+            try:
+                rows_ex = ch._client.query(
+                    "SELECT DISTINCT as_of_month FROM market_data.mf_holdings"
+                ).result_rows
+                existing_months = {r[0] for r in rows_ex}
+            except Exception:
+                pass
+
+        if as_of_month in existing_months:
+            console.print(f"  [dim]{as_of_month} snapshot already imported — skipping. Use --full to overwrite.[/dim]")
         else:
             holdings_rows = fetch_holdings(MF_HOLDINGS_WATCHLIST, as_of_month)
             if not holdings_rows:
                 console.print("  [yellow]⚠ No holdings returned — mstarpy may be unavailable.[/yellow]")
             else:
                 inserted = ch.insert_mf_holdings(holdings_rows, dry_run=dry_run)
-                console.print(f"  [green]✓[/green] {inserted} holding rows {'(dry-run)' if dry_run else 'stored'}")
+                console.print(
+                    f"  [green]✓[/green] {inserted} rows "
+                    f"{'(dry-run)' if dry_run else 'stored'} for {as_of_month}"
+                )
                 if not dry_run:
                     ch.set_watermark("mf_holdings", "ALL", as_of_month)
                 summary_rows.append(("mf_holdings", "morningstar", inserted,

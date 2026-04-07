@@ -418,6 +418,7 @@ Historical data pipeline that populates ClickHouse from multiple sources.
 | `cot` | CFTC | Gold COT | `cot_gold` |
 | `cb_reserves` | IMF | Central bank gold | `cb_gold_reserves` |
 | `etf_aum` | Various | GLD AUM | `etf_aum` |
+| `mf_holdings` | Morningstar (mstarpy) | 3 multi-asset funds (DSP, Quant, ICICI) | `mf_holdings` |
 
 **Delta-sync**: Uses `import_watermarks` table — each (source, symbol) gets a `last_date` watermark;
 subsequent imports fetch from `last_date − 3d` (overlap) to today. Use `--full` to ignore watermarks.
@@ -445,6 +446,7 @@ All tables use `ReplacingMergeTree` for idempotent re-imports.
 | `etf_aum` | ReplacingMergeTree | toYYYYMM(trade_date) | (trade_date, symbol) | ETF AUM snapshots |
 | `import_watermarks` | ReplacingMergeTree(updated_at) | — | (source, symbol) | Delta-sync state |
 | `ml_predictions` | ReplacingMergeTree(created_at) | — | (as_of, horizon_days) | ML forecast log |
+| `mf_holdings` | ReplacingMergeTree(imported_at) | toYYYYMM(as_of_month) | (scheme_code, as_of_month, isin) | Monthly portfolio snapshot; mstarpy = current snapshot only, run monthly to build time-series |
 
 **Query pattern for deduplication** (replaces `FINAL` for better performance):
 ```sql
@@ -524,8 +526,9 @@ Pydantic `BaseSettings` loading from `.env` file:
 | **NSE API** | nseindia.com/api | Custom headers + cookie warmup | inav_fetcher, nse_quote_fetcher, nse_inav_fetcher | Rate limited; requires `_NSE_WARMUP` request |
 | **MFAPI.in** | mfapi.in/mf | None (free) | historic_inav, mfapi_fetcher | Full scheme history; polite delays |
 | **gold-api.com** | gold-api.com/api | `x-access-token` | comex_fetcher | Free tier |
-| **ClickHouse** | localhost:8123 | username/password | clickhouse.py, app.py, trend_predictor | `market_data` database; 9 tables |
+| **ClickHouse** | localhost:8123 | username/password | clickhouse.py, app.py, trend_predictor | `market_data` database; 10 tables |
 | **CFTC** | Various | None | cot_fetcher | COT gold positioning |
+| **Morningstar** | Internal REST API (via mstarpy) | None (free, rate-limited) | mf_holdings_fetcher | Current snapshot only — no historical date API; `signal.signal` stubbed for thread safety |
 | **IMF** | IMF Data API | None | imf_reserves_fetcher | Central bank gold reserves |
 | **OpenAI** | api.openai.com | API Key | summarization, all agents | Pay-per-token |
 | **Anthropic** | api.anthropic.com | API Key | summarization, all agents | Pay-per-token |
@@ -656,6 +659,7 @@ User runs: python -m src.main analyze
 | **ClickHouse** | `clickhouse-connect` |
 | **ML / Anomaly** | `scikit-learn>=1.4.0` (IsolationForest, RandomForestRegressor) |
 | **ML / Forecast** | `lightgbm>=4.3.0` — macOS: `brew install libomp` required for `libomp.dylib`; Docker: `libgomp1` |
+| **MF Holdings / Charts** | `mstarpy>=0.0.18` — Morningstar API; `plotly>=5.0` — Streamlit charts |
 
 ---
 
@@ -705,4 +709,5 @@ User runs: python -m src.main analyze
 | `src/importer/fetchers/etf_aum_fetcher.py` | ETF AUM (GLD etc.) snapshots |
 | `src/importer/fetchers/imf_reserves_fetcher.py` | IMF central bank gold reserve data |
 | `src/importer/fetchers/nse_inav_fetcher.py` | Live NSE iNAV snapshots (updated every ~15s) |
+| `src/importer/fetchers/mf_holdings_fetcher.py` | Morningstar portfolio snapshot via mstarpy; thread-safe signal stub; current-snapshot only — no date param |
 | `predictions_log.jsonl` | Git-trackable JSONL log — one entry per (as_of, horizon_days); used for accuracy backtesting |
