@@ -1,6 +1,18 @@
 {
     "chat.tools.terminal.autoApprove": {
         ".venv/bin/python": true,
-        "touch": true
+        "touch": true,
+        "/^source \\.venv/bin/activate && python -m py_compile src/importer/fetchers/fii_dii_fetcher\\.py && echo \"OK\" && python src/importer/fetchers/fii_dii_fetcher\\.py$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd /Users/dhiraj\\.thakur/project/Mosaic-fund-agent && source \\.venv/bin/activate && python << 'PYEOF'\nimport httpx, re\n\nheaders = \\{\n    'User-Agent': 'Mozilla/5\\.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537\\.36 Chrome/120\\.0\\.0\\.0 Safari/537\\.36',\n    'Accept-Encoding': 'identity',\n\\}\nwith httpx\\.Client\\(headers=headers, follow_redirects=True\\) as c:\n    r = c\\.get\\('https://web\\.sensibull\\.com/assets/js/main-lNI_OeyY\\.js', timeout=30\\)\n    js = r\\.text\n\n# Search for fii endpoint paths\nhits = re\\.findall\\(r'\\.\\{0,40\\}\\(\\?:fii\\|participant\\|institutional\\)\\.\\{0,80\\}', js, re\\.IGNORECASE\\)\nfor h in hits\\[:30\\]:\n    print\\(repr\\(h\\)\\)\nPYEOF$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^source \\.venv/bin/activate$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }
