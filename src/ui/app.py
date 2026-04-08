@@ -225,7 +225,7 @@ with tab_import:
             "▶  Start Import",
             type="primary",
             disabled=not ok or len(selected_cats) == 0,
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_log:
@@ -561,7 +561,7 @@ with tab_query:
             with st.spinner("Querying ClickHouse…"):
                 df = _query_df(sql.strip())
             st.caption(f"**{len(df):,} rows** returned")
-            st.dataframe(df, use_container_width=True, height=400)
+            st.dataframe(df, width="stretch", height=400)
 
             st.download_button(
                 "⬇ Download CSV",
@@ -842,7 +842,7 @@ with tab_explorer:
                         _price_line,
                     ).resolve_scale(y="independent").properties(height=300).interactive()
 
-                    st.altair_chart(overlay, use_container_width=True)
+                    st.altair_chart(overlay, width="stretch")
 
                 # ── Tab 2: Scatter spread → next-day return ─────────────────
                 with tab_scatter:
@@ -880,7 +880,7 @@ with tab_explorer:
 
                     st.altair_chart(
                         (scatter + trend).properties(height=320).interactive(),
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.info(
                         f"Next-day return correlation with spread: **{corr_nextday:+.3f}**  \n"
@@ -924,7 +924,7 @@ with tab_explorer:
                     )
                     st.altair_chart(
                         (_zero_r + _corr_line).properties(height=260).interactive(),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
         except ImportError as exc:
@@ -962,7 +962,7 @@ with tab_explorer:
 
                 st.dataframe(
                     sym_df[["inav", "market_price", "prem_disc_pct", "source"]],
-                    use_container_width=True,
+                    width="stretch",
                     height=220,
                 )
                 if len(sym_df) > 1:
@@ -1064,7 +1064,7 @@ with tab_explorer:
                     .tail(n_weeks)
                     .sort_index(ascending=False)
                     .reset_index(),
-                    use_container_width=True,
+                    width="stretch",
                     height=300,
                 )
         except Exception as exc:
@@ -1110,7 +1110,7 @@ with tab_explorer:
                 if aum_tab:
                     st.dataframe(
                         aum_df.sort_values(["trade_date", "symbol"], ascending=[False, True]),
-                        use_container_width=True,
+                        width="stretch",
                         height=300,
                     )
         except Exception as exc:
@@ -1147,7 +1147,7 @@ with tab_explorer:
                     st.caption(f"As of {latest_cb['ref_period'].max().strftime('%b %Y')}")
                     st.dataframe(
                         latest_cb[["country_name", "reserves_tonnes"]],
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                         height=300,
                     )
@@ -1288,7 +1288,7 @@ with tab_explorer:
                         if summary:
                             st.dataframe(
                                 pd.DataFrame(summary),
-                                use_container_width=True, hide_index=True,
+                                width="stretch", hide_index=True,
                             )
         except Exception as exc:
             st.error(f"FX chart: {exc}")
@@ -1444,7 +1444,7 @@ with tab_explorer:
                         height=340,
                     ).interactive()
 
-                    st.altair_chart(chart, use_container_width=True)
+                    st.altair_chart(chart, width="stretch")
                     st.caption(
                         "🟠 **Global Anomaly Index** (left axis) — cross-asset mean |MAD Z-score| "
                         "of daily returns across GOLD, GOLDBEES, NIFTY 50, S&P 500 and USDINR  ·  "
@@ -1463,7 +1463,7 @@ with tab_explorer:
                         top_stress["anomaly_index"] = top_stress["anomaly_index"].round(4)
                         top_stress["goldbees"]      = top_stress["goldbees"].round(2)
                         top_stress.columns = ["Date", "Anomaly Index", "GOLDBEES ₹"]
-                        st.dataframe(top_stress, use_container_width=True, hide_index=True)
+                        st.dataframe(top_stress, width="stretch", hide_index=True)
 
         except ImportError as exc:
             st.error(
@@ -1591,6 +1591,212 @@ with tab_explorer:
             else:
                 st.error(f"FII/DII chart error: {exc}")
 
+    st.divider()
+
+    # ── 7. Quant Scorecard ────────────────────────────────────────────────────
+    with st.container():
+        st.subheader("🎯 Quant Scorecard — GOLDBEES")
+        st.caption(
+            "Composite 0–100 signal across 4 quantitative pillars: "
+            "**Macro** (DXY + Real Yield) · **Flows** (COT positioning) · "
+            "**Valuation** (iNAV premium/discount) · **Momentum** (LightGBM 5-day pred).  \n"
+            "Score < 33 = bearish, 33–66 = neutral, > 66 = bullish."
+        )
+
+        run_sc = st.button("▶ Compute Scorecard", key="run_scorecard", type="primary")
+        if run_sc:
+            st.session_state.pop("scorecard_result", None)  # force refresh
+
+        # ── Compute / load from cache ──────────────────────────────────────
+        if run_sc or "scorecard_result" in st.session_state:
+            if run_sc or "scorecard_result" not in st.session_state:
+                with st.spinner("Fetching DXY, COT, iNAV, ML prediction…"):
+                    try:
+                        from src.tools.quant_scorecard import compute_gold_scorecard
+                        sc = compute_gold_scorecard(
+                            ch_host=CH_HOST, ch_port=CH_PORT,
+                            ch_user=CH_USER, ch_pass=CH_PASS,
+                            ch_database=CH_DB,
+                        )
+                        st.session_state["scorecard_result"] = sc
+                    except Exception as exc:
+                        st.error(f"Scorecard computation failed: {exc}")
+                        sc = None
+            else:
+                sc = st.session_state["scorecard_result"]
+
+            if sc is not None:
+                if sc.get("error"):
+                    st.warning(f"⚠️ Partial data: {sc['error']}")
+
+                composite = sc["composite_score"]
+                as_of_str = str(sc["as_of"]) if sc["as_of"] else "unknown"
+
+                # ── Plotly gauge ─────────────────────────────────────────────
+                try:
+                    import plotly.graph_objects as go
+
+                    gauge_value = composite if composite is not None else 0
+                    fig = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=gauge_value,
+                        number={"suffix": " / 100", "font": {"size": 36}},
+                        title={"text": f"Composite Gold Score<br><sub>as of {as_of_str}</sub>",
+                               "font": {"size": 18}},
+                        gauge={
+                            "axis": {"range": [0, 100], "tickwidth": 1,
+                                     "tickcolor": "#888"},
+                            "bar": {"color": "#FFD700", "thickness": 0.25},
+                            "bgcolor": "rgba(0,0,0,0)",
+                            "borderwidth": 0,
+                            "steps": [
+                                {"range": [0,  33], "color": "#4a1010"},
+                                {"range": [33, 66], "color": "#4a3a00"},
+                                {"range": [66, 100], "color": "#0a3a0a"},
+                            ],
+                            "threshold": {
+                                "line": {"color": "#FFD700", "width": 4},
+                                "thickness": 0.75,
+                                "value": gauge_value,
+                            },
+                        },
+                    ))
+                    fig.update_layout(
+                        height=300,
+                        margin={"t": 60, "b": 10, "l": 20, "r": 20},
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font={"color": "#FAFAFA"},
+                    )
+                    st.plotly_chart(fig, width="stretch")
+                except ImportError:
+                    if composite is not None:
+                        st.metric("Composite Gold Score", f"{composite:.0f} / 100")
+                    else:
+                        st.metric("Composite Gold Score", "N/A")
+
+                # ── Pillar breakdown ─────────────────────────────────────────
+                c1, c2, c3, c4 = st.columns(4)
+                def _fmt_score(v):
+                    return f"{v:.0f}" if v is not None else "N/A"
+
+                sigs = sc.get("signals", {})
+
+                def _sig(val, fmt=".2f"):
+                    return f"{val:{fmt}}" if val is not None else "N/A"
+
+                c1.metric(
+                    "🌍 Macro (30%)", _fmt_score(sc["macro_score"]),
+                    help=(
+                        f"DXY: {_sig(sigs.get('dxy_level'), '.2f')}  |  "
+                        f"Real Yield: {_sig(sigs.get('real_yield_level'), '.3f')}  |  "
+                        f"Δ5d: {_sig(sigs.get('real_yield_delta5'), '+.4f')}"
+                    ),
+                )
+                c2.metric(
+                    "📋 Flows (30%)", _fmt_score(sc["flows_score"]),
+                    help=(
+                        f"COT MM Net/OI: {_sig(sigs.get('cot_pct_oi'), '.1f')}%  |  "
+                        "< 15% = oversold, > 25% = crowded"
+                    ),
+                )
+                c3.metric(
+                    "💰 Valuation (20%)", _fmt_score(sc["valuation_score"]),
+                    help=(
+                        f"iNAV spread: {_sig(sigs.get('inav_disc_pct'), '+.3f')}%  |  "
+                        "Negative = discount (cheap)"
+                    ),
+                )
+                c4.metric(
+                    "⚡ Momentum (20%)", _fmt_score(sc["momentum_score"]),
+                    help=(
+                        f"LightGBM 5-day pred: {_sig(sigs.get('lgbm_return_pct'), '+.2f')}%"
+                    ),
+                )
+
+                # ── Rolling GOLDBEES–DXY correlation chart ───────────────────
+                gb_df  = sc.get("goldbees_prices",  pd.DataFrame())
+                dxy_df = sc.get("dxy_prices",       pd.DataFrame())
+
+                if not gb_df.empty and not dxy_df.empty:
+                    try:
+                        import altair as alt
+
+                        merged = (
+                            gb_df.rename(columns={"close": "goldbees"})
+                            .merge(
+                                dxy_df.rename(columns={"close": "dxy"}),
+                                on="trade_date", how="inner",
+                            )
+                        )
+                        merged = merged.sort_values("trade_date").reset_index(drop=True)
+
+                        sc_roll_win = st.slider(
+                            "Rolling correlation window (days)", 10, 60, 30, 5,
+                            key="sc_roll_win",
+                        )
+                        merged["gb_ret"]  = merged["goldbees"].pct_change()
+                        merged["dxy_ret"] = merged["dxy"].pct_change()
+                        merged["rolling_corr"] = (
+                            merged["gb_ret"]
+                            .rolling(sc_roll_win)
+                            .corr(merged["dxy_ret"])
+                        )
+                        corr_clean = merged[["trade_date", "rolling_corr"]].dropna()
+
+                        latest_corr = (
+                            float(corr_clean["rolling_corr"].iloc[-1])
+                            if not corr_clean.empty else None
+                        )
+                        corr_note = ""
+                        if latest_corr is not None:
+                            if latest_corr < -0.3:
+                                corr_note = "↩ **Negative correlation** — gold is hedging dollar strength (typical regime)."
+                            elif latest_corr > 0.3:
+                                corr_note = "⚠️ **Positive correlation** — gold and DXY moving together (regime decoupling — geopolitical bid?)."
+                            else:
+                                corr_note = "↔ **Near-zero correlation** — gold decoupled from dollar (macro uncertainty?)."
+
+                        zero_rule = alt.Chart(
+                            pd.DataFrame({"y": [0]})
+                        ).mark_rule(color="#666", strokeDash=[3, 3], strokeWidth=1).encode(
+                            y="y:Q"
+                        )
+                        corr_line = alt.Chart(corr_clean).mark_line(strokeWidth=2).encode(
+                            x=alt.X("trade_date:T", title="Date",
+                                    axis=alt.Axis(format="%d %b", labelAngle=-35)),
+                            y=alt.Y("rolling_corr:Q",
+                                    title="Rolling Correlation (GB returns vs DXY returns)",
+                                    scale=alt.Scale(domain=[-1, 1])),
+                            color=alt.condition(
+                                alt.datum.rolling_corr < 0,
+                                alt.value("#00B4D8"),
+                                alt.value("#FF4B4B"),
+                            ),
+                            tooltip=[
+                                alt.Tooltip("trade_date:T",    title="Date"),
+                                alt.Tooltip("rolling_corr:Q",  title="Correlation", format="+.3f"),
+                            ],
+                        )
+                        st.caption(
+                            f"**{sc_roll_win}-day Rolling Correlation: GOLDBEES returns vs DXY returns**  |  "
+                            f"Latest: **{latest_corr:+.3f}**  |  {corr_note}"
+                            if latest_corr is not None
+                            else f"**{sc_roll_win}-day Rolling Correlation: GOLDBEES vs DXY**"
+                        )
+                        st.altair_chart(
+                            (zero_rule + corr_line).properties(height=240).interactive(),
+                            width="stretch",
+                        )
+                    except ImportError as exc:
+                        st.info(f"altair not installed: {exc}")
+                    except Exception as exc:
+                        st.error(f"Correlation chart error: {exc}")
+                else:
+                    st.info(
+                        "Rolling correlation chart requires GOLDBEES price history in ClickHouse "
+                        "and DXY data from Yahoo Finance. Run **Import → etfs** first."
+                    )
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — ANOMALY DETECTION (Robust Z + RF Residuals + Isolation Forest)
@@ -1663,7 +1869,7 @@ with tab_anomaly:
             )
 
             run_btn = st.button(
-                "▶ Run Analysis", type="primary", use_container_width=True
+                "▶ Run Analysis", type="primary", width="stretch"
             )
 
         with col_res:
@@ -1766,7 +1972,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     )
                     st.altair_chart(
                         (price_line + regime_dots).interactive().properties(height=300),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Chart 2: Z-score decomposition ────────────────────────
@@ -1791,7 +1997,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     ).encode(y="y:Q")
                     st.altair_chart(
                         (z_lines + thresh_rules).interactive().properties(height=240),
-                        use_container_width=True,
+                        width="stretch",
                     )
                     st.caption(
                         "🔵 z_robust (MAD)  ·  🟠 z_resid (RF residual)  ·  "
@@ -1811,7 +2017,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     )
                     st.altair_chart(
                         if_area.interactive().properties(height=150),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Chart 4: RF actual vs predicted ───────────────────────
@@ -1831,7 +2037,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     )
                     st.altair_chart(
                         rf_chart.interactive().properties(height=200),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Top flagged days table ────────────────────────────────
@@ -1850,7 +2056,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     for col in ["final_z_abs", "z_robust", "z_resid_abs", "if_confidence"]:
                         top_tbl[col] = top_tbl[col].round(4)
                     top_tbl["close"] = top_tbl["close"].round(2)
-                    st.dataframe(top_tbl, use_container_width=True)
+                    st.dataframe(top_tbl, width="stretch")
 
                     st.download_button(
                         "⬇ Download flagged days CSV",
@@ -1925,7 +2131,7 @@ with tab_wis:
 
     col_run, col_info = st.columns([1, 3])
     with col_run:
-        run_wis = st.button("🔍 Analyse Now", type="primary", use_container_width=True)
+        run_wis = st.button("🔍 Analyse Now", type="primary", width="stretch")
         st.caption("Calls yfinance + ClickHouse live — takes ~5 seconds.")
 
     with col_info:
@@ -2107,7 +2313,7 @@ with tab_wis:
         st.write("")  # vertical spacer
         st.write("")
         run_ml = st.button("📊 Run ML Forecast", type="secondary",
-                           use_container_width=True, key="ml_btn")
+                           width="stretch", key="ml_btn")
         st.caption("~5–10 seconds: assemble → engineer → train → predict")
 
     if run_ml:
@@ -2225,6 +2431,182 @@ with tab_wis:
 **Use both together:** Expert system as an immediate sanity check; LightGBM for position-sizing decisions where the interaction between signals matters.
             """)
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SCARCITY PREMIUM ALERTS — International ETFs
+    # ═══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    st.subheader("🌍 International ETF — Scarcity Premium Alerts")
+    st.caption(
+        "The RBI $7B overseas investment cap creates a **structural premium** on "
+        "international ETFs (MAFANG, HNGSNGBEES, …) that rarely reverts to zero. "
+        "Strategy: trade the **volatility** of the premium — buy when it dips well "
+        "below its 30-day mean.  "
+        "Z ≤ −1.5 → 🟢 SCREAMING BUY  ·  Z ≤ −1.0 → 🟡 GOOD ENTRY  ·  "
+        "otherwise → 🔴 NO ACTION"
+    )
+
+    _pa_col1, _pa_col2, _pa_col3 = st.columns([1, 1, 2])
+    with _pa_col1:
+        _pa_lookback = st.slider("Lookback days", 7, 90, 30, 1, key="pa_lookback")
+    with _pa_col2:
+        _pa_z_thresh = st.slider("Z threshold (BUY)", -3.0, -0.5, -1.5, 0.1,
+                                 key="pa_z_thresh")
+    with _pa_col3:
+        _pa_min_snaps = st.number_input(
+            "Min snapshots required", 1, 50, 1, 1, key="pa_min_snaps"
+        )
+
+    if st.button("📡 Scan Premiums", key="pa_scan_btn"):
+        with st.spinner("Fetching iNAV snapshots and computing Z-scores…"):
+            try:
+                import clickhouse_connect as _cc_pa
+                from src.tools.premium_alerts import check_premium_alerts, INTL_ETF_SYMBOLS
+
+                _pa_client = _cc_pa.get_client(
+                    host=CH_HOST, port=CH_PORT,
+                    username=CH_USER, password=CH_PASS,
+                    connect_timeout=10,
+                )
+                _pa_results = check_premium_alerts(
+                    ch_client=_pa_client,
+                    symbols=INTL_ETF_SYMBOLS,
+                    lookback_days=_pa_lookback,
+                    z_threshold=_pa_z_thresh,
+                    good_entry_threshold=_pa_z_thresh + 0.5,
+                    min_snapshots=int(_pa_min_snaps),
+                )
+                _pa_client.close()
+
+                # ── Signal summary cards ───────────────────────────────────────
+                _pa_buy    = [r for r in _pa_results if "SCREAMING" in r["action"]]
+                _pa_entry  = [r for r in _pa_results if "ENTRY"     in r["action"]]
+                _pa_noact  = [r for r in _pa_results if "NO ACTION" in r["action"]]
+
+                _sc1, _sc2, _sc3 = st.columns(3)
+                _sc1.metric("🟢 SCREAMING BUY", len(_pa_buy))
+                _sc2.metric("🟡 GOOD ENTRY",    len(_pa_entry))
+                _sc3.metric("🔴 NO ACTION",      len(_pa_noact))
+
+                # ── Z-score bar chart ─────────────────────────────────────────
+                import plotly.graph_objects as _go_pa
+
+                _valid = [r for r in _pa_results if r["z_score"] is not None]
+                if _valid:
+                    _bar_colors = []
+                    for _r in _valid:
+                        _z = _r["z_score"]
+                        if _z <= _pa_z_thresh:
+                            _bar_colors.append("#4CAF50")        # green — BUY
+                        elif _z <= _pa_z_thresh + 0.5:
+                            _bar_colors.append("#FFC107")        # yellow — ENTRY
+                        else:
+                            _bar_colors.append("#F44336")        # red — NO ACTION
+
+                    _fig_pa = _go_pa.Figure()
+                    _fig_pa.add_trace(_go_pa.Bar(
+                        x=[r["symbol"]   for r in _valid],
+                        y=[r["z_score"]  for r in _valid],
+                        marker_color=_bar_colors,
+                        text=[f"Z={r['z_score']:+.2f}" for r in _valid],
+                        textposition="outside",
+                        hovertemplate=(
+                            "<b>%{x}</b><br>"
+                            "Z-Score: %{y:.3f}<br>"
+                            "Latest premium: %{customdata[0]:+.3f}%<br>"
+                            f"{_pa_lookback}d avg: %{{customdata[1]:+.3f}}%<br>"
+                            "Std dev: %{customdata[2]:.4f}"
+                            "<extra></extra>"
+                        ),
+                        customdata=[
+                            [r["latest_premium"] or 0,
+                             r["mean_premium"]   or 0,
+                             r["std_premium"]    or 0]
+                            for r in _valid
+                        ],
+                    ))
+                    _fig_pa.add_hline(
+                        y=_pa_z_thresh,
+                        line_dash="dash", line_color="#4CAF50", line_width=1.5,
+                        annotation_text="SCREAMING BUY threshold",
+                        annotation_font_color="#4CAF50",
+                    )
+                    _fig_pa.add_hline(
+                        y=_pa_z_thresh + 0.5,
+                        line_dash="dot", line_color="#FFC107", line_width=1.5,
+                        annotation_text="GOOD ENTRY threshold",
+                        annotation_font_color="#FFC107",
+                    )
+                    _fig_pa.add_hline(
+                        y=0, line_dash="solid", line_color="#888888", line_width=0.8,
+                    )
+                    _fig_pa.update_layout(
+                        title=f"Premium Z-Score vs {_pa_lookback}d Mean  (negative = cheap relative to history)",
+                        yaxis_title="Z-Score",
+                        xaxis_title="Symbol",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=380,
+                        margin=dict(t=50, b=40, l=60, r=20),
+                        font=dict(size=13),
+                    )
+                    st.plotly_chart(_fig_pa, use_container_width=True)
+
+                # ── Premium level chart (latest vs mean) ─────────────────────
+                if _valid:
+                    _fig_prem = _go_pa.Figure()
+                    _fig_prem.add_trace(_go_pa.Bar(
+                        name=f"{_pa_lookback}d Avg Premium",
+                        x=[r["symbol"]       for r in _valid],
+                        y=[r["mean_premium"] for r in _valid],
+                        marker_color="#90A4AE",
+                        opacity=0.6,
+                    ))
+                    _fig_prem.add_trace(_go_pa.Scatter(
+                        name="Latest Premium",
+                        x=[r["symbol"]          for r in _valid],
+                        y=[r["latest_premium"]  for r in _valid],
+                        mode="markers",
+                        marker=dict(size=14, color=_bar_colors, symbol="diamond"),
+                    ))
+                    _fig_prem.update_layout(
+                        title="Latest Premium vs 30d Average  (diamond = today, bar = mean)",
+                        yaxis_title="Premium / Discount (%)",
+                        xaxis_title="Symbol",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=340,
+                        margin=dict(t=50, b=40, l=60, r=20),
+                        legend=dict(orientation="h", y=1.12),
+                        font=dict(size=13),
+                    )
+                    _fig_prem.add_hline(
+                        y=0, line_dash="solid", line_color="#888888", line_width=0.8,
+                        annotation_text="iNAV parity",
+                    )
+                    st.plotly_chart(_fig_prem, use_container_width=True)
+
+                # ── Detail table ───────────────────────────────────────────────
+                with st.expander("📋 Full Signal Table"):
+                    import pandas as _pd_pa
+                    _pa_rows = []
+                    for _r in _pa_results:
+                        _pa_rows.append({
+                            "Symbol":          _r["symbol"],
+                            "Latest Prem (%)": f"{_r['latest_premium']:+.3f}" if _r["latest_premium"] is not None else "—",
+                            f"{_pa_lookback}d Avg (%)": f"{_r['mean_premium']:+.3f}" if _r["mean_premium"] is not None else "—",
+                            "Std Dev":         f"{_r['std_premium']:.4f}"   if _r["std_premium"]    is not None else "—",
+                            "Z-Score":         f"{_r['z_score']:+.3f}"      if _r["z_score"]        is not None else "—",
+                            "Snapshots":       _r["n_snapshots"],
+                            "Action":          _r["action"],
+                            "Note":            _r["error"] or "",
+                        })
+                    st.dataframe(_pd_pa.DataFrame(_pa_rows), use_container_width=True, hide_index=True)
+
+            except Exception as _exc_pa:
+                st.error(f"Premium alerts error: {_exc_pa}")
+    else:
+        st.info("Click **📡 Scan Premiums** to compute Z-scores and render charts.")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — MF HOLDINGS
@@ -2332,7 +2714,7 @@ with tab_holdings:
                     legend=dict(orientation="h", y=-0.1),
                     height=320,
                 )
-                st.plotly_chart(fig_pie, use_container_width=True)
+                st.plotly_chart(fig_pie, width="stretch")
 
     # ══ 2. Holdings table ══════════════════════════════════════════════════
     st.subheader("Holdings Detail")
@@ -2345,7 +2727,7 @@ with tab_holdings:
     })
     st.dataframe(
         _disp_df.style.format({"Weight (%)": "{:.2f}"}),
-        use_container_width=True,
+        width="stretch",
         height=420,
     )
 
@@ -2408,7 +2790,7 @@ with tab_holdings:
                         "event":         "Event",
                     })
                     .style.format({"Prev (%)": "{:.2f}", "Cur (%)": "{:.2f}", "Δ (%)": "{:+.2f}"}),
-                    use_container_width=True,
+                    width="stretch",
                     height=380,
                 )
         else:
@@ -2442,4 +2824,4 @@ with tab_holdings:
                 height=320,
             )
             fig_trend.update_layout(margin=dict(t=30, b=0))
-            st.plotly_chart(fig_trend, use_container_width=True)
+            st.plotly_chart(fig_trend, width="stretch")

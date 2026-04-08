@@ -183,7 +183,7 @@ def _signal_institutional_exit() -> dict[str, Any]:
         import pandas as pd
 
         hist = yf.download("GLD", period="35d", interval="1d",
-                           auto_adjust=True, progress=False)
+                           auto_adjust=True, progress=False, timeout=None)
         if hist.empty:
             raise ValueError("yfinance returned empty GLD history")
 
@@ -330,7 +330,7 @@ def _signal_cb_strength() -> dict[str, Any]:
         import yfinance as yf
         data = yf.download(
             ["USDCNY=X", "CL=F"], period="35d", interval="1d",
-            auto_adjust=True, progress=False
+            auto_adjust=True, progress=False, timeout=None
         )
         if data.empty:
             raise ValueError("Empty yfinance response")

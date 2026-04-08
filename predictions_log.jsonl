@@ -4,4 +4,5 @@
 {"as_of": "2026-04-01", "horizon_days": 13, "expected_return_pct": 5.357, "confidence_low": -0.626, "confidence_high": 11.34, "regime_signal": "BUY", "cv_r2_mean": -0.1037, "n_training_rows": 2450, "goldbees_close": 123.37}
 {"as_of": "2026-04-05", "horizon_days": 5, "expected_return_pct": 6.295, "confidence_low": -0.703, "confidence_high": 13.294, "regime_signal": "BUY", "cv_r2_mean": -0.07, "n_training_rows": 2459, "goldbees_close": 120.58}
 {"as_of": "2026-04-06", "horizon_days": 5, "expected_return_pct": 1.636, "confidence_low": -0.186, "confidence_high": 3.458, "regime_signal": "BUY", "cv_r2_mean": -0.0712, "n_training_rows": 2460, "goldbees_close": 121.44}
+{"as_of": "2026-04-07", "horizon_days": 5, "expected_return_pct": 0.549, "confidence_low": -0.033, "confidence_high": 1.132, "regime_signal": "WATCH_LONG", "cv_r2_mean": -0.0717, "n_training_rows": 671, "goldbees_close": 121.78}
 {"as_of": "2026-04-08", "horizon_days": 5, "expected_return_pct": 4.919, "confidence_low": -0.561, "confidence_high": 10.398, "regime_signal": "BUY", "cv_r2_mean": -0.0712, "n_training_rows": 2462, "goldbees_close": 124.39}

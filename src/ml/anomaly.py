@@ -15,10 +15,11 @@ Composite anomaly detection pipeline for daily OHLCV time series.
    Z_resid is the MAD Z-score of those residuals, isolating the *unexpected* component.
 
    Regime matrix:
-     High Z_robust + Low  Z_resid  → 📈 Strong Trend (HODL)
-     Low  Z_robust + High Z_resid  → ⚡ Flash Crash / Black Swan (EXIT)
-     High Z_robust + High Z_resid  → 🔥 Volatile Breakout
-     Low  Z_robust + Low  Z_resid  → ✅ Normal
+     High Z_robust + Low  Volume Z + Pos Ret → 🧨 Blow-off Top (Weak)
+     High Z_robust + Low  Z_resid            → 📈 Strong Trend (HODL)
+     Low  Z_robust + High Z_resid            → ⚡ Flash Crash / Black Swan (EXIT)
+     High Z_robust + High Z_resid            → 🔥 Volatile Breakout
+     Low  Z_robust + Low  Z_resid            → ✅ Normal
 
 3. Isolation Forest Confidence Multiplier
    IF score_samples normalised to [0 → 1] (1 = most anomalous).
@@ -126,13 +127,13 @@ def fit_isolation_forest(
     contamination: float = 0.05,
 ) -> pd.DataFrame:
     """
-    Fit Isolation Forest on [daily_return, range_pct, z_robust].
+    Fit Isolation Forest on [daily_return, range_pct, z_robust, z_volume].
     Normalises score_samples to [0 → 1] (1 = most anomalous = highest IF confidence).
 
     Added columns: if_confidence, if_label (-1 = anomaly, 1 = normal).
     Returns a new DataFrame — does NOT mutate the input.
     """
-    feat_cols = ["daily_return", "range_pct", "z_robust"]
+    feat_cols = ["daily_return", "range_pct", "z_robust", "z_volume"]
     df = df.dropna(subset=feat_cols).copy().reset_index(drop=True)
     X  = StandardScaler().fit_transform(df[feat_cols].values)
 
@@ -165,12 +166,19 @@ def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
     df["final_z"]     = df["z_robust"] * (1.0 + df["if_confidence"])
     df["final_z_abs"] = df["final_z"].abs()
 
-    z_med   = df["z_robust"].abs().median()
-    res_med = df["z_resid_abs"].median()
+    z_med     = df["z_robust"].abs().median()
+    res_med   = df["z_resid_abs"].median()
+    z_vol_med = df["z_volume"].abs().median()
 
     def _label(row) -> str:
         hi_z   = abs(row["z_robust"])   > z_med
-        hi_res = row["z_resid_abs"] > res_med
+        hi_res = row["z_resid_abs"]     > res_med
+        lo_vol = abs(row["z_volume"])   < z_vol_med
+        
+        # New regime: High Price Z + Low Volume Z + Positive Return
+        if hi_z and lo_vol and row["daily_return"] > 0:
+            return "🧨 Blow-off Top (Weak)"
+            
         if hi_z and not hi_res:   return "📈 Strong Trend (HODL)"
         if not hi_z and hi_res:   return "⚡ Flash Crash / Black Swan (EXIT)"
         if hi_z and hi_res:       return "🔥 Volatile Breakout"
@@ -209,10 +217,13 @@ def run_composite_anomaly(
     """
     df = build_features(df, rf_lags=rf_lags)
 
-    # Step 1 — Robust Z on return + range
+    # Step 1 — Robust Z on return, range, and volume
     df["z_return"] = robust_zscore(df["daily_return"].fillna(0), window=z_window)
     df["z_range"]  = robust_zscore(df["range_pct"], window=z_window)
     df["z_robust"] = (df["z_return"].abs() + df["z_range"]) / 2.0
+    
+    # NEW: Independent Volume Z-score
+    df["z_volume"] = robust_zscore(df["volume"].fillna(0), window=z_window)
 
     # Step 2 — RF residual Z
     df, r2 = fit_rf_residuals(df, rf_lags=rf_lags)

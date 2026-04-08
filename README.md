@@ -268,6 +268,7 @@ fetched (3-day overlap for late corrections).
 | `cb_reserves` | IMF IFS REST API (free) | Monthly gold reserves for 9 central banks (CN, IN, RU, US, DE, TR, GB, JP, PL) |
 | `etf_aum` | Yahoo Finance (free) | Daily AUM snapshot for GLD, IAU, SGOL, PHYS + implied gold tonnes |
 | `fx_rates` | Yahoo Finance (free) | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD |
+| `mf_holdings` | Morningstar via mstarpy | Current portfolio snapshot for DSP, Quant, ICICI multi-asset funds; run monthly to build time-series |
 
 ### ClickHouse tables
 
@@ -282,6 +283,7 @@ fetched (3-day overlap for late corrections).
 | `etf_aum` | ReplacingMergeTree | Daily ETF AUM (USD) + implied gold tonnes |
 | `fx_rates` | ReplacingMergeTree | Daily OHLC for 5 USD pairs (INR, CNY, AED, SAR, KWD) |
 | `ml_predictions` | ReplacingMergeTree | LightGBM forecast log — `expected_return_pct`, `regime_signal`, `goldbees_close` per `(as_of, horizon_days)` |
+| `mf_holdings` | ReplacingMergeTree | Monthly portfolio holdings snapshot — scheme_code, isin, asset_type, pct_of_nav per fund |
 
 ---
 
@@ -462,6 +464,7 @@ flowchart TD
 | Gold ETF AUM flows | Yahoo Finance (totalAssets) | Free |
 | Historical storage | ClickHouse (Docker) | Free, self-hosted |
 | LLM scoring | OpenAI / Anthropic / Local | ~₹4–12/run cloud; free local |
+| Fund portfolio holdings | Morningstar (mstarpy) | Current snapshot; run monthly to build holdings time-series. `mstarpy` has no date parameter — each monthly run tags data with `as_of_month`. |
 
 ---
 
@@ -490,6 +493,9 @@ Schedule periodic iNAV imports to build a time-series:
 
 # ML forecast — daily after Indian market close (persists to ClickHouse + JSONL)
 30 15 * * 1-5 cd /path/to/project && .venv/bin/python src/ml/trend_predictor.py
+
+# MF holdings snapshot — 5th of each month after AMFI disclosure
+0 10 5 * *   cd /path/to/project && .venv/bin/python src/main.py import --category mf_holdings
 ```
 
 ---
