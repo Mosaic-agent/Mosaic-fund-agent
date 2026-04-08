@@ -385,6 +385,54 @@ def run_import(
                 summary_rows.append(("mf_holdings", "morningstar", inserted,
                                      str(as_of_month), str(as_of_month)))
 
+    # ── FII / DII Institutional Flows ─────────────────────────────────────────
+    if "fii_dii" in categories:
+        from src.importer.fetchers.fii_dii_fetcher import fetch_fii_dii
+
+        console.print("\n[bold cyan]▶ FII / DII Institutional Flows[/bold cyan]")
+        console.print(
+            "  [dim]NSE provisional cash-market data — "
+            "FII & DII gross buy/sell/net in ₹ Crore[/dim]"
+        )
+
+        fii_wm = ch.get_watermark("nse_fii_dii", "MARKET") if not dry_run else None
+        if full_reimport or fii_wm is None:
+            fii_from = today - timedelta(days=lookback_days)
+        else:
+            fii_from = fii_wm - timedelta(days=_OVERLAP_DAYS)
+
+        console.print(f"  [dim]Fetching {fii_from} → {today}[/dim]")
+        fii_rows = fetch_fii_dii(from_date=fii_from)
+
+        if not fii_rows:
+            console.print(
+                "  [yellow]⚠ No FII/DII data returned — "
+                "NSE API may be unavailable or market is closed.[/yellow]"
+            )
+        else:
+            inserted = ch.insert_fii_dii_flows(fii_rows, dry_run=dry_run)
+            console.print(
+                f"  [green]✓[/green] {inserted} flow rows "
+                f"{'(dry-run)' if dry_run else 'stored'}"
+            )
+            if not dry_run:
+                ch.set_watermark(
+                    "nse_fii_dii", "MARKET",
+                    max(r["trade_date"] for r in fii_rows),
+                )
+            latest_fii = sorted(fii_rows, key=lambda r: r["trade_date"])[-1]
+            console.print(
+                f"  Latest ({latest_fii['trade_date']}): "
+                f"FII Net ₹{latest_fii['fii_net_cr']:+,.0f} Cr  |  "
+                f"DII Net ₹{latest_fii['dii_net_cr']:+,.0f} Cr"
+            )
+            summary_rows.append((
+                "fii_dii", "nse",
+                inserted,
+                str(min(r["trade_date"] for r in fii_rows)),
+                str(latest_fii["trade_date"]),
+            ))
+
     ch.close()
 
     # ── Summary ────────────────────────────────────────────────────────────

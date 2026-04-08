@@ -425,18 +425,22 @@ def build_portfolio_report(
     analyses: list[AssetAnalysis],
     use_llm_scoring: bool = True,
     comex_signals: Optional[dict[str, Any]] = None,
+    institutional_flows: Optional[dict[str, Any]] = None,
 ) -> PortfolioReport:
     """
     Aggregate all asset analyses and portfolio metrics into a final report.
 
     Args:
-        portfolio:       Raw portfolio from Zerodha (for totals).
-        analyses:        List of enriched AssetAnalysis per holding.
-        use_llm_scoring: Use the LLM for portfolio-level summary.
-                         False → rule-based fallback (no API key needed).
-        comex_signals:   Live COMEX commodity signals from ComexAgent.
-                         Injected into per-holding risk signals and the
-                         LLM portfolio prompt for commodity-aware scoring.
+        portfolio:            Raw portfolio from Zerodha (for totals).
+        analyses:             List of enriched AssetAnalysis per holding.
+        use_llm_scoring:      Use the LLM for portfolio-level summary.
+                              False → rule-based fallback (no API key needed).
+        comex_signals:        Live COMEX commodity signals from ComexAgent.
+                              Injected into per-holding risk signals and the
+                              LLM portfolio prompt for commodity-aware scoring.
+        institutional_flows:  FII/DII institutional flow context from
+                              market_context.get_fii_dii_context(). Injected
+                              into the LLM prompt for macro-grounded analysis.
 
     Returns:
         PortfolioReport matching the required JSON output schema.
@@ -494,7 +498,8 @@ def build_portfolio_report(
             "stock_count": len(stock_list),
             "sector_allocation": sector_allocation,
             "holdings_analysis": holdings_summary_for_llm,
-            "comex_signals": comex_signals or {},
+            "comex_signals":       comex_signals or {},
+            "institutional_flows": institutional_flows or {},
         }
     )
 

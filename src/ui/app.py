@@ -62,6 +62,22 @@ def _ch_ok() -> bool:
         return False
 
 
+@st.cache_resource
+def _ensure_schema() -> None:
+    """Create all market_data tables if they don't exist (idempotent DDL)."""
+    try:
+        from src.importer.clickhouse import ClickHouseImporter
+        ch = ClickHouseImporter(
+            host=CH_HOST, port=CH_PORT,
+            database="market_data",
+            username=CH_USER, password=CH_PASS,
+        )
+        ch.ensure_schema()
+        ch.close()
+    except Exception:
+        pass  # ClickHouse may be unavailable; individual queries will surface errors
+
+
 @st.cache_data(ttl=15)
 def _table_stats() -> pd.DataFrame:
     # Use system.tables to only count tables that actually exist
@@ -95,6 +111,7 @@ with st.sidebar:
 
     ok = _ch_ok()
     if ok:
+        _ensure_schema()   # idempotent — creates any missing tables on first load
         st.success("ClickHouse connected", icon="✅")
         st.divider()
         st.subheader("Table stats")
@@ -476,6 +493,32 @@ GROUP BY m.as_of, m.horizon_days, m.expected_return_pct,
          m.regime_signal, m.goldbees_close
 HAVING close_at_expiry > 0
 ORDER BY m.as_of DESC""",
+
+    "FII/DII \u2014 net flows last 60 days": """\
+SELECT
+    trade_date,
+    round(fii_gross_buy_cr, 0)  AS fii_buy_cr,
+    round(fii_gross_sell_cr, 0) AS fii_sell_cr,
+    round(fii_net_cr, 0)        AS fii_net_cr,
+    round(dii_gross_buy_cr, 0)  AS dii_buy_cr,
+    round(dii_gross_sell_cr, 0) AS dii_sell_cr,
+    round(dii_net_cr, 0)        AS dii_net_cr
+FROM market_data.fii_dii_flows FINAL
+ORDER BY trade_date DESC
+LIMIT 60""",
+
+    "FII/DII \u2014 5-day rolling cumulative net": """\
+SELECT
+    trade_date,
+    round(fii_net_cr, 0)  AS fii_net_cr,
+    round(dii_net_cr, 0)  AS dii_net_cr,
+    round(sum(fii_net_cr) OVER (ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW), 0)
+        AS fii_5d_rolling_cr,
+    round(sum(dii_net_cr) OVER (ORDER BY trade_date ROWS BETWEEN 4 PRECEDING AND CURRENT ROW), 0)
+        AS dii_5d_rolling_cr
+FROM market_data.fii_dii_flows FINAL
+ORDER BY trade_date DESC
+LIMIT 90""",
 }
 
 
@@ -1429,6 +1472,124 @@ with tab_explorer:
             )
         except Exception as exc:
             st.error(f"Global Anomaly Index chart error: {exc}")
+
+    # ── FII vs DII Institutional Flows ────────────────────────────────────────
+    st.divider()
+    with st.container():
+        st.subheader("🏦 Institutional Flows — FII vs DII Net (Last 30 Days)")
+        st.caption(
+            "Daily FII and DII provisional cash-market net flows (₹ Crore) from NSE India. "
+            "Positive = net buying, Negative = net selling."
+        )
+        try:
+            import altair as alt
+            fii_df = _query_df("""
+                SELECT
+                    trade_date,
+                    round(fii_net_cr, 0) AS fii_net_cr,
+                    round(dii_net_cr, 0) AS dii_net_cr
+                FROM market_data.fii_dii_flows FINAL
+                ORDER BY trade_date DESC
+                LIMIT 30
+            """)
+
+            if fii_df.empty:
+                st.info(
+                    "No FII/DII data yet. "
+                    "Run: **Import Data → select fii_dii** or "
+                    "`mosaic import -c fii_dii`"
+                )
+            else:
+                fii_df["trade_date"] = pd.to_datetime(fii_df["trade_date"])
+                fii_df = fii_df.sort_values("trade_date")
+
+                # ── KPI metrics ───────────────────────────────────────────────
+                latest_row     = fii_df.iloc[-1]
+                fii_5d         = fii_df["fii_net_cr"].tail(5).sum()
+                dii_5d         = fii_df["dii_net_cr"].tail(5).sum()
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Latest FII Net",    f"₹{latest_row['fii_net_cr']:+,.0f} Cr")
+                k2.metric("Latest DII Net",    f"₹{latest_row['dii_net_cr']:+,.0f} Cr")
+                k3.metric("FII 5-Day Cumul.",  f"₹{fii_5d:+,.0f} Cr")
+                k4.metric("DII 5-Day Cumul.",  f"₹{dii_5d:+,.0f} Cr")
+
+                # ── Reshape to long form for grouped bars ─────────────────────
+                fii_long = fii_df[["trade_date", "fii_net_cr"]].rename(
+                    columns={"fii_net_cr": "net_cr"}
+                ).assign(investor="FII")
+                dii_long = fii_df[["trade_date", "dii_net_cr"]].rename(
+                    columns={"dii_net_cr": "net_cr"}
+                ).assign(investor="DII")
+                long_df = pd.concat([fii_long, dii_long], ignore_index=True)
+
+                # ── Altair grouped bar chart ──────────────────────────────────
+                bars = (
+                    alt.Chart(long_df)
+                    .mark_bar(opacity=0.80)
+                    .encode(
+                        x=alt.X(
+                            "trade_date:T",
+                            title="Date",
+                            axis=alt.Axis(format="%d %b"),
+                        ),
+                        y=alt.Y(
+                            "net_cr:Q",
+                            title="Net Flow (₹ Crore)",
+                            scale=alt.Scale(zero=True),
+                        ),
+                        xOffset=alt.XOffset("investor:N"),
+                        color=alt.Color(
+                            "investor:N",
+                            scale=alt.Scale(
+                                domain=["FII", "DII"],
+                                range=["#E74C3C", "#3498DB"],
+                            ),
+                            legend=alt.Legend(title="Investor"),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date"),
+                            alt.Tooltip("investor:N",   title="Investor"),
+                            alt.Tooltip("net_cr:Q",     title="Net (₹ Cr)", format="+,.0f"),
+                        ],
+                    )
+                    .properties(height=300)
+                    .interactive()
+                )
+
+                zero_line = (
+                    alt.Chart(pd.DataFrame({"y": [0]}))
+                    .mark_rule(color="#888888", strokeDash=[4, 4], strokeWidth=1)
+                    .encode(y="y:Q")
+                )
+
+                st.altair_chart(
+                    (zero_line + bars).properties(height=300),
+                    use_container_width=True,
+                )
+
+                with st.expander("📋 Raw data", expanded=False):
+                    show_df = fii_df.copy()
+                    show_df["trade_date"] = show_df["trade_date"].dt.date
+                    show_df = show_df.sort_values("trade_date", ascending=False)
+                    show_df.columns = ["Date", "FII Net (₹ Cr)", "DII Net (₹ Cr)"]
+                    st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+        except ImportError as exc:
+            st.error(
+                f"Missing dependency: {exc}  \n"
+                "Run: `.venv/bin/pip install altair`  then restart Streamlit."
+            )
+        except Exception as exc:
+            # ClickHouse code 60 = UNKNOWN_TABLE — table not created yet
+            if "60" in str(exc) and "UNKNOWN_TABLE" in str(exc):
+                st.info(
+                    "Table `market_data.fii_dii_flows` does not exist yet.  \n"
+                    "Run the import to create it and load data:  \n"
+                    "**Import Data → select `fii_dii`** or  \n"
+                    "```\nmosaic import -c fii_dii\n```"
+                )
+            else:
+                st.error(f"FII/DII chart error: {exc}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

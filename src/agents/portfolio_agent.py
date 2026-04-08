@@ -248,20 +248,33 @@ class PortfolioAgent:
             comex = {"error": str(_exc)}
             console.print("[yellow]⚠ COMEX unavailable — scoring without commodity signals[/yellow]")
 
-        # ── Step 4: Portfolio-Level Report (with COMEX context) ───────────────
+        # ── Fetch FII/DII institutional flow context ──────────────────────────
+        fii_dii_ctx: dict = {"summary_str": "FII/DII flow data unavailable.", "rows": []}
+        try:
+            from src.tools.market_context import get_fii_dii_context
+            fii_dii_ctx = get_fii_dii_context(days=5)
+            if fii_dii_ctx.get("rows"):
+                console.print(
+                    f"[green]✓ FII/DII:[/green] "
+                    f"{len(fii_dii_ctx['rows'])} days of flow data loaded"
+                )
+        except Exception as _exc:
+            logger.debug("FII/DII context fetch failed: %s", _exc)
+
+        # ── Step 4: Portfolio-Level Report (with COMEX + institutional context) ─
         console.print("\n[bold cyan]Step 4/4:[/bold cyan] Generating portfolio-level intelligence...")
 
         report = build_portfolio_report(
             portfolio, analyses,
             use_llm_scoring=self._use_llm_scoring,
             comex_signals=comex,
+            institutional_flows=fii_dii_ctx,
         )
 
         console.print("[green]✓ Portfolio analysis complete[/green]")
 
         report_dict = report.model_dump()
         report_dict["comex_signals"] = comex
-        return report_dict
         return report_dict
 
     def ask(self, question: str) -> str:

@@ -177,6 +177,79 @@ PARTITION BY toYYYYMM(as_of_month)
 ORDER BY (scheme_code, as_of_month, isin)
 """
 
+_DDL_FII_DII_FLOWS = """
+CREATE TABLE IF NOT EXISTS market_data.fii_dii_flows (
+    trade_date         Date,
+    fii_gross_buy_cr   Float64,   -- FII gross purchases (Rs Crore, cash segment)
+    fii_gross_sell_cr  Float64,   -- FII gross sales (Rs Crore, cash segment)
+    fii_net_cr         Float64,   -- FII net flow = buy -- sell (Rs Crore)
+    dii_gross_buy_cr   Float64,   -- DII gross purchases (Rs Crore, cash segment)
+    dii_gross_sell_cr  Float64,   -- DII gross sales (Rs Crore, cash segment)
+    dii_net_cr         Float64,   -- DII net flow = buy -- sell (Rs Crore)
+    imported_at        DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (trade_date)
+"""
+
+_DDL_FII_DII_MONTHLY = """
+CREATE TABLE IF NOT EXISTS market_data.fii_dii_monthly (
+    month_date         Date,        -- First day of month (YYYY-MM-01)
+    fii_buy_cr         Float64,     -- FII gross purchases that month (Rs Crore)
+    fii_sell_cr        Float64,     -- FII gross sales that month (Rs Crore)
+    fii_net_cr         Float64,     -- FII net = buy - sell (Rs Crore)
+    dii_buy_cr         Float64,     -- DII gross purchases that month (Rs Crore)
+    dii_sell_cr        Float64,     -- DII gross sales that month (Rs Crore)
+    dii_net_cr         Float64,     -- DII net = buy - sell (Rs Crore)
+    nifty_close        Float64,     -- Nifty 50 month-end close
+    nifty_change_pct   Float64,     -- Nifty % change that month
+    imported_at        DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (month_date)
+"""
+
+_DDL_FII_DII_FNO_DAILY = """
+CREATE TABLE IF NOT EXISTS market_data.fii_dii_fno_daily (
+    trade_date                    Date,
+    -- Index futures (quantity-wise net OI change)
+    fii_fut_net_oi                Float64,  -- FII index futures net OI change
+    fii_fut_outstanding_oi        Float64,  -- FII index futures outstanding OI
+    fii_fut_nifty_net_oi          Float64,  -- FII Nifty futures net OI change
+    fii_fut_banknifty_net_oi      Float64,  -- FII BankNifty futures net OI change
+    dii_fut_net_oi                Float64,
+    dii_fut_outstanding_oi        Float64,
+    pro_fut_net_oi                Float64,
+    pro_fut_outstanding_oi        Float64,
+    client_fut_net_oi             Float64,
+    client_fut_outstanding_oi     Float64,
+    -- Stock futures
+    fii_fut_stock_net_oi          Float64,
+    dii_fut_stock_net_oi          Float64,
+    pro_fut_stock_net_oi          Float64,
+    client_fut_stock_net_oi       Float64,
+    -- Options (overall net OI)
+    fii_opt_overall_net_oi        Float64,  -- FII overall options net OI
+    fii_opt_overall_net_oi_change Float64,  -- FII options OI change (day)
+    fii_opt_call_net_oi           Float64,
+    fii_opt_put_net_oi            Float64,
+    dii_opt_overall_net_oi        Float64,
+    dii_opt_overall_net_oi_change Float64,
+    pro_opt_overall_net_oi        Float64,
+    pro_opt_overall_net_oi_change Float64,
+    client_opt_overall_net_oi     Float64,
+    client_opt_overall_net_oi_change Float64,
+    -- Index context
+    nifty_close                   Float64,
+    banknifty_close               Float64,
+    nifty_change_pct              Float64,
+    banknifty_change_pct          Float64,
+    imported_at                   DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (trade_date)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -211,7 +284,8 @@ class ClickHouseImporter:
         for ddl in (
             _DDL_DATABASE, _DDL_DAILY_PRICES, _DDL_MF_NAV, _DDL_WATERMARKS,
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
-            _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS,
+            _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
+            _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY,
         ):
             self._client.command(ddl)
         logger.debug("ClickHouse schema verified.")
@@ -504,23 +578,132 @@ class ClickHouseImporter:
         )
         return len(rows)
 
-    def insert_ml_prediction(self, row: dict) -> None:
-        """Upsert one ML prediction row (idempotent via ReplacingMergeTree)."""
+    # ── Bulk insert: fii_dii_flows ────────────────────────────────────────────
+
+    def insert_fii_dii_flows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """
+        Bulk-insert FII/DII institutional flow rows into fii_dii_flows.
+
+        Each row dict must have keys:
+            trade_date (date), fii_gross_buy_cr, fii_gross_sell_cr, fii_net_cr,
+            dii_gross_buy_cr, dii_gross_sell_cr, dii_net_cr
+
+        Returns the number of rows inserted (or that would have been inserted).
+        """
+        if not rows:
+            return 0
+        if dry_run:
+            logger.info("[dry-run] Would insert %d FII/DII flow rows.", len(rows))
+            return len(rows)
         self._client.insert(
-            "market_data.ml_predictions",
-            [[
-                row["as_of"], row["horizon_days"],
-                row["expected_return_pct"], row["confidence_low"],
-                row["confidence_high"], row["regime_signal"],
-                row["cv_r2_mean"], row["n_training_rows"],
-                row["goldbees_close"],
-            ]],
+            "market_data.fii_dii_flows",
+            [
+                [
+                    r["trade_date"],
+                    r["fii_gross_buy_cr"],
+                    r["fii_gross_sell_cr"],
+                    r["fii_net_cr"],
+                    r["dii_gross_buy_cr"],
+                    r["dii_gross_sell_cr"],
+                    r["dii_net_cr"],
+                ]
+                for r in rows
+            ],
             column_names=[
-                "as_of", "horizon_days", "expected_return_pct",
-                "confidence_low", "confidence_high", "regime_signal",
-                "cv_r2_mean", "n_training_rows", "goldbees_close",
+                "trade_date",
+                "fii_gross_buy_cr",
+                "fii_gross_sell_cr",
+                "fii_net_cr",
+                "dii_gross_buy_cr",
+                "dii_gross_sell_cr",
+                "dii_net_cr",
+            ],
+            settings={"max_partitions_per_insert_block": 300},
+        )
+        return len(rows)
+
+    def insert_fii_dii_monthly(
+        self,
+        rows: list[dict],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """
+        Bulk-insert monthly FII/DII cash-market aggregate rows.
+
+        Each row dict must have keys:
+            month_date (date), fii_buy_cr, fii_sell_cr, fii_net_cr,
+            dii_buy_cr, dii_sell_cr, dii_net_cr, nifty_close, nifty_change_pct
+        """
+        if not rows:
+            return 0
+        if dry_run:
+            logger.info("[dry-run] Would insert %d FII/DII monthly rows.", len(rows))
+            return len(rows)
+        self._client.insert(
+            "market_data.fii_dii_monthly",
+            [
+                [
+                    r["month_date"], r["fii_buy_cr"], r["fii_sell_cr"], r["fii_net_cr"],
+                    r["dii_buy_cr"], r["dii_sell_cr"], r["dii_net_cr"],
+                    r["nifty_close"], r["nifty_change_pct"],
+                ]
+                for r in rows
+            ],
+            column_names=[
+                "month_date", "fii_buy_cr", "fii_sell_cr", "fii_net_cr",
+                "dii_buy_cr", "dii_sell_cr", "dii_net_cr",
+                "nifty_close", "nifty_change_pct",
             ],
         )
+        return len(rows)
+
+    def insert_fii_dii_fno_daily(
+        self,
+        rows: list[dict],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """
+        Bulk-insert daily F&O participant OI rows.
+
+        Each row must have the keys matching fii_dii_fno_daily columns
+        (see _DDL_FII_DII_FNO_DAILY for full list).
+        """
+        if not rows:
+            return 0
+        if dry_run:
+            logger.info("[dry-run] Would insert %d FII/DII F&O daily rows.", len(rows))
+            return len(rows)
+        cols = [
+            "trade_date",
+            "fii_fut_net_oi", "fii_fut_outstanding_oi",
+            "fii_fut_nifty_net_oi", "fii_fut_banknifty_net_oi",
+            "dii_fut_net_oi", "dii_fut_outstanding_oi",
+            "pro_fut_net_oi", "pro_fut_outstanding_oi",
+            "client_fut_net_oi", "client_fut_outstanding_oi",
+            "fii_fut_stock_net_oi", "dii_fut_stock_net_oi",
+            "pro_fut_stock_net_oi", "client_fut_stock_net_oi",
+            "fii_opt_overall_net_oi", "fii_opt_overall_net_oi_change",
+            "fii_opt_call_net_oi", "fii_opt_put_net_oi",
+            "dii_opt_overall_net_oi", "dii_opt_overall_net_oi_change",
+            "pro_opt_overall_net_oi", "pro_opt_overall_net_oi_change",
+            "client_opt_overall_net_oi", "client_opt_overall_net_oi_change",
+            "nifty_close", "banknifty_close",
+            "nifty_change_pct", "banknifty_change_pct",
+        ]
+        self._client.insert(
+            "market_data.fii_dii_fno_daily",
+            [[r.get(c, 0.0) for c in cols] for r in rows],
+            column_names=cols,
+            settings={"max_partitions_per_insert_block": 300},
+        )
+        return len(rows)
 
     def insert_ml_prediction(self, row: dict) -> None:
         """Upsert one ML prediction row (idempotent via ReplacingMergeTree)."""

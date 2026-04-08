@@ -337,6 +337,9 @@ Soft-threshold complement to the `who_is_selling_agent.py` expert system.
 | `f_month_sin` | `sin(2π × month / 12)` | Seasonal cycle |
 | `f_month_cos` | `cos(2π × month / 12)` | Seasonal cycle |
 | `f_dow` | Day-of-week (0=Mon) | Day-of-week pattern |
+| `f_fii_net_5d` | 5-day rolling sum of `fii_net_cr` (LEFT JOIN `fii_dii_flows`) | FII net flow momentum |
+| `f_dii_net_5d` | 5-day rolling sum of `dii_net_cr` (LEFT JOIN `fii_dii_flows`) | DII net flow momentum |
+| `f_inst_net_momentum` | `f_fii_net_5d + f_dii_net_5d` | Combined institutional net flow |
 
 **Coverage filter**: keeps rows where ≥ `len(feature_cols) // 2` features are non-NaN
 
@@ -418,6 +421,7 @@ Historical data pipeline that populates ClickHouse from multiple sources.
 | `cot` | CFTC | Gold COT | `cot_gold` |
 | `cb_reserves` | IMF | Central bank gold | `cb_gold_reserves` |
 | `etf_aum` | Various | GLD AUM | `etf_aum` |
+| `fii_dii` | Sensibull oxide API | MARKET (singleton) | `fii_dii_flows` |
 
 **Delta-sync**: Uses `import_watermarks` table — each (source, symbol) gets a `last_date` watermark;
 subsequent imports fetch from `last_date − 3d` (overlap) to today. Use `--full` to ignore watermarks.
@@ -443,6 +447,7 @@ All tables use `ReplacingMergeTree` for idempotent re-imports.
 | `cot_gold` | ReplacingMergeTree | toYYYYMM(report_date) | report_date | CFTC COT positioning |
 | `cb_gold_reserves` | ReplacingMergeTree | toYYYYMM(ref_period) | (ref_period, country_code) | IMF reserves |
 | `etf_aum` | ReplacingMergeTree | toYYYYMM(trade_date) | (trade_date, symbol) | ETF AUM snapshots |
+| `fii_dii_flows` | ReplacingMergeTree(imported_at) | — | (trade_date) | FII/DII daily cash-market flows |
 | `import_watermarks` | ReplacingMergeTree(updated_at) | — | (source, symbol) | Delta-sync state |
 | `ml_predictions` | ReplacingMergeTree(created_at) | — | (as_of, horizon_days) | ML forecast log |
 
@@ -516,6 +521,7 @@ Pydantic `BaseSettings` loading from `.env` file:
 
 | Service | Endpoint | Auth | Module(s) | Notes |
 |---------|----------|------|-----------|-------|
+| **Sensibull Oxide** | `oxide.sensibull.com/v1/compute/cache/fii_dii_daily` | None (public) | fii_dii_fetcher | Monthly buckets; `?year_month=YYYY-MonthName`; ~6 months rolling history |
 | **Zerodha Kite MCP** | `mcp.kite.trade` | OAuth 2.0 (browser) | mcp_client, zerodha_mcp_tools | Account-level rate limits |
 | **Yahoo Finance** | yfinance library | None (free) | yahoo_finance, historic_inav, yfinance_fetcher, fx_rates_fetcher | 20+ years history; `lookback_days=3650` default |
 | **NewsAPI.org** | newsapi.org/v2 | API Key | newsapi_search | 100 req/day (free tier) |
@@ -705,4 +711,6 @@ User runs: python -m src.main analyze
 | `src/importer/fetchers/etf_aum_fetcher.py` | ETF AUM (GLD etc.) snapshots |
 | `src/importer/fetchers/imf_reserves_fetcher.py` | IMF central bank gold reserve data |
 | `src/importer/fetchers/nse_inav_fetcher.py` | Live NSE iNAV snapshots (updated every ~15s) |
+| `src/importer/fetchers/fii_dii_fetcher.py` | FII/DII cash-market flows from Sensibull oxide API; `--from YYYY-MM-DD --insert`; 127 rows Oct 2025→present |
+| `src/tools/market_context.py` | Queries `fii_dii_flows` from ClickHouse; returns 5-day narrative + streak analysis for LLM prompt |
 | `predictions_log.jsonl` | Git-trackable JSONL log — one entry per (as_of, horizon_days); used for accuracy backtesting |

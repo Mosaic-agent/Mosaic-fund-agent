@@ -156,7 +156,7 @@ INAV_SYMBOLS: list[str] = [
     "HDFCNIFTY", "SETFNIF50", "ICICIB22",
 ]
 
-ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings"]
+ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii"]
 
 
 def get_symbols_for_categories(categories: list[str]) -> dict[str, list[tuple[str, str]]]:

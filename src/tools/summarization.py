@@ -179,6 +179,9 @@ Stock Count: {stock_count}
 ## COMEX Pre-Market Commodity Signals
 {comex_summary}
 
+## Institutional Flow Context (Last 5 Trading Days)
+{fii_dii_summary}
+
 ---
 Generate a JSON response:
 {{
@@ -204,7 +207,9 @@ Diversification score: 100=well diversified, 0=heavily concentrated.
 Focus on Indian market context: NSE/BSE sector cycles, FII/DII patterns, RBI policy impact.
 Use COMEX signals to adjust risk assessment for commodity-linked ETFs (e.g. GOLDBEES tracks XAU Gold).
 A bullish Gold (XAU) COMEX signal is a direct pre-market tailwind for GOLDBEES/gold ETFs.
-A bearish Gold (XAU) COMEX signal is a headwind and increases risk for gold ETF positions.""",
+A bearish Gold (XAU) COMEX signal is a headwind and increases risk for gold ETF positions.
+Use the institutional flow context to assess FII/DII-driven market pressure: sustained FII
+selling (net negative for ≥3 days) is a meaningful risk signal for broad equity positions.""",
         ),
     ]
 )
@@ -240,7 +245,16 @@ def _format_comex_for_prompt(comex_signals: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-# ── Core summarization functions ──────────────────────────────────────────────
+def _format_fii_dii_for_prompt(institutional_flows: dict[str, Any]) -> str:
+    """
+    Render FII/DII institutional flow context as a compact, LLM-readable string.
+
+    Returns a plain string (never raises).
+    """
+    if not institutional_flows:
+        return "FII/DII institutional flow data unavailable."
+    summary = institutional_flows.get("summary_str", "")
+    return summary if summary else "FII/DII institutional flow data unavailable."
 
 def summarize_asset(asset_data: dict[str, Any]) -> dict[str, Any]:
     """
@@ -341,6 +355,9 @@ def summarize_portfolio(portfolio_data: dict[str, Any]) -> dict[str, Any]:
     # Format COMEX signals
     comex_str = _format_comex_for_prompt(portfolio_data.get("comex_signals", {}))
 
+    # Format FII/DII institutional flow context
+    fii_dii_str = _format_fii_dii_for_prompt(portfolio_data.get("institutional_flows", {}))
+
     # Format holdings summary
     holdings = portfolio_data.get("holdings_analysis", [])
     holdings_str = "\n".join(
@@ -364,6 +381,7 @@ def summarize_portfolio(portfolio_data: dict[str, Any]) -> dict[str, Any]:
                 "sector_allocation": sector_str,
                 "holdings_summary": holdings_str,
                 "comex_summary": comex_str,
+                "fii_dii_summary": fii_dii_str,
             }
         )
         return result

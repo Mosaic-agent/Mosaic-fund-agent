@@ -30,6 +30,9 @@ Alpha factors
   f_us10y_delta5       US 10Y yield shock  5-day change in yield (^TNX via yfinance)
   f_month_sin/cos      Seasonality         cyclical month encoding (wedding / CNY / Q4)
   f_dow                Day-of-week         0=Mon → 1=Fri (Friday effect)
+  f_fii_net_5d         FII Flow            5-day rolling sum of FII net cash flows (₹ Cr)
+  f_dii_net_5d         DII Flow            5-day rolling sum of DII net cash flows (₹ Cr)
+  f_inst_net_momentum  Inst. Impulse       5-day combined FII+DII net flow
 
 Target: ln(close[t + horizon] / close[t])  — stationary log return
   (converted back to % for display)
@@ -88,7 +91,9 @@ _MASTER_SQL = """
         aum.aum_usd   AS gld_aum_usd,
         cot.mm_net    AS cot_mm_net,
         cot.oi        AS cot_oi,
-        gold.gold_close AS gold_close
+        gold.gold_close AS gold_close,
+        fii.fii_net_cr  AS fii_net_cr,
+        fii.dii_net_cr  AS dii_net_cr
     FROM (
         SELECT trade_date, close
         FROM market_data.daily_prices FINAL
@@ -128,6 +133,10 @@ _MASTER_SQL = """
         FROM market_data.daily_prices FINAL
         WHERE symbol = 'GOLD' AND category = 'commodities'
     ) gold ON p.trade_date = gold.trade_date
+    LEFT JOIN (
+        SELECT trade_date, fii_net_cr, dii_net_cr
+        FROM market_data.fii_dii_flows FINAL
+    ) fii ON p.trade_date = fii.trade_date
     ORDER BY p.trade_date ASC
 """
 
@@ -305,6 +314,16 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["f_month_sin"] = np.sin(2 * np.pi * df["trade_date"].dt.month / 12)
     df["f_month_cos"] = np.cos(2 * np.pi * df["trade_date"].dt.month / 12)
     df["f_dow"]       = df["trade_date"].dt.dayofweek / 4.0   # 0=Mon → 1=Fri
+
+    # ── 13. Institutional flow features (FII / DII) ───────────────────────────
+    # FII and DII net flows are major NSE market drivers.  Using rolling 5-day
+    # sums makes the signal stationary and reduces single-day noise.
+    if "fii_net_cr" in df.columns and "dii_net_cr" in df.columns:
+        fii_net = df["fii_net_cr"].fillna(0.0)
+        dii_net = df["dii_net_cr"].fillna(0.0)
+        df["f_fii_net_5d"]         = fii_net.rolling(5).sum()
+        df["f_dii_net_5d"]         = dii_net.rolling(5).sum()
+        df["f_inst_net_momentum"]   = (fii_net + dii_net).rolling(5).sum()
 
     return df
 
