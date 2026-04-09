@@ -47,6 +47,7 @@ Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-i
 | `fii_dii_flows` | ReplacingMergeTree(imported_at) | — | (trade_date) | Daily FII/DII cash-market net flows (₹ Crore) |
 | `fii_dii_monthly` | ReplacingMergeTree(imported_at) | — | (month_date) | Monthly FII/DII aggregate + Nifty (Sep 2018→present) |
 | `fii_dii_fno_daily` | ReplacingMergeTree(imported_at) | — | (trade_date) | Daily F&O participant OI (futures + options, 4 categories) |
+| `news_articles` | ReplacingMergeTree(imported_at) | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events (gnews + yfinance, no key) |
 
 ### Querying tips
 
@@ -101,4 +102,10 @@ OPTIMIZE TABLE market_data.daily_prices FINAL;
 
 # MF holdings snapshot — 5th of each month after AMFI disclosure
 0 10 5 * *     cd /path/to/project && .venv/bin/python src/main.py import --category mf_holdings
+
+# Macro & ETF news — twice daily (morning pre-market + evening post-close)
+30 8  * * 1-5  cd /path/to/project && .venv/bin/python src/main.py macro --save
+0  16 * * 1-5  cd /path/to/project && .venv/bin/python src/main.py macro --save
+30 8  * * 1-5  cd /path/to/project && .venv/bin/python src/main.py etf-news --save
+0  16 * * 1-5  cd /path/to/project && .venv/bin/python src/main.py etf-news --save
 ```

@@ -17,7 +17,8 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | What | Source | Notes |
 |---|---|---|
 | Indian financial news | NewsAPI.org | Free: 100 req/day |
-| Indian financial news | Google News RSS (GNews) | Free, no key |
+| Indian financial news | Google News RSS (GNews) | Free, no key — used by `etf-news` and `macro` scanners |
+| Yahoo Finance news | yfinance ticker.news | Free, no key — used by `etf-news` scanner |
 | Quarterly results | Screener.in (scraped) | Free, polite delays |
 | CFTC COT (hedge fund positioning) | publicreporting.cftc.gov | Free, no auth |
 | Central bank gold reserves | IMF IFS REST API | Free, no auth |

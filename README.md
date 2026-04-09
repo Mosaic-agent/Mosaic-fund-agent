@@ -21,8 +21,10 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **LightGBM 5-day forecast** — walk-forward forward-return predictor with 14 alpha features
 - **Composite anomaly detection** — Robust Z (MAD) + Random Forest residuals + Isolation Forest
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
+- **Macro & geopolitical scanner** — 8 themes (war, Fed/RBI, crude, INR, trade war, gold, risk-off) mapped to ETF impact, no API key
+- **ETF-impact news scanner** — 10 ETF categories tagged with sentiment scores, Google News RSS + Yahoo Finance, no API key
 - **HTML dashboard** — self-contained, auto-refreshes every 5 minutes
-- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard
+- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard, market news
 
 ---
 
@@ -90,6 +92,21 @@ python src/main.py ask "which holdings have the worst news sentiment?"
 python src/main.py ask "am I overexposed to IT sector?"
 python src/main.py ask "which ETFs are trading at a premium?"
 ```
+
+### Market news (no API key)
+
+```bash
+# Scan macro & geopolitical events → map to ETF directional impact
+python src/main.py macro                 # print to terminal
+python src/main.py macro --save          # scan + persist to ClickHouse
+
+# Fetch ETF-tagged news with sentiment scores
+python src/main.py etf-news              # all categories
+python src/main.py etf-news --category "Gold ETFs"   # single category
+python src/main.py etf-news --save       # scan + persist to ClickHouse
+```
+
+After saving, open the **📰 Market News** tab in the Streamlit UI to browse news by date, theme, and category — sourced from ClickHouse.
 
 ### Other commands
 
@@ -164,7 +181,9 @@ src/
   tools/
     who_is_selling_agent.py     Sell-off attribution
     market_context.py           FII/DII context for LLM prompt
-  ui/app.py                     Streamlit 5-tab data hub
+    macro_event_scanner.py      8-theme macro/geopolitical → ETF impact scanner
+    etf_news_scanner.py         10-category ETF news tagger (gnews + yfinance)
+  ui/app.py                     Streamlit 8-tab data hub
 tests/
 docker-compose.yml
 ```
