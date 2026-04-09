@@ -884,6 +884,9 @@ def macro_scan(
     max_per_theme: int = typer.Option(
         4, "--max", "-m", help="Max articles per macro theme (default 4).",
     ),
+    save: bool = typer.Option(
+        False, "--save", "-s", help="Save results to ClickHouse DB.",
+    ),
 ) -> None:
     """
     Scan live macro & geopolitical events and map them to ETF impact.
@@ -895,8 +898,9 @@ def macro_scan(
 
     \b
     Examples:
-      mosaic macro           # full macro scan
-      mosaic macro --max 6   # 6 articles per theme
+      mosaic macro              # full macro scan
+      mosaic macro --max 6      # 6 articles per theme
+      mosaic macro --save       # scan + persist to ClickHouse
     """
     _setup_logging()
 
@@ -904,6 +908,14 @@ def macro_scan(
 
     report = scan_macro_events(max_per_theme=max_per_theme)
     print_macro_report(report)
+
+    if save:
+        from src.importer.clickhouse import ClickHouseImporter
+        from src.tools.macro_event_scanner import save_macro_events_to_db
+        ch = ClickHouseImporter()
+        ch.ensure_schema()
+        n = save_macro_events_to_db(report, ch)
+        console.print(f"[green]✓ Saved {n} macro events to DB.[/green]")
 
 
 @app.command(name="etf-news")
@@ -926,6 +938,9 @@ def etf_news(
         "-m",
         help="Max articles per search topic (default 4).",
     ),
+    save: bool = typer.Option(
+        False, "--save", "-s", help="Save results to ClickHouse DB.",
+    ),
 ) -> None:
     """
     Fetch free news that can impact Indian ETFs.
@@ -939,6 +954,7 @@ def etf_news(
       mosaic etf-news --category "Gold ETFs"   # gold ETFs only
       mosaic etf-news --category "Gold ETFs,Bank ETFs"
       mosaic etf-news --max 6                  # 6 articles per topic
+      mosaic etf-news --save                   # scan + persist to ClickHouse
     """
     _setup_logging()
 
@@ -958,6 +974,14 @@ def etf_news(
 
     report = scan_etf_news(categories=categories, max_per_topic=max_per_topic)
     print_etf_news_report(report)
+
+    if save:
+        from src.importer.clickhouse import ClickHouseImporter
+        from src.tools.etf_news_scanner import save_etf_news_to_db
+        ch = ClickHouseImporter()
+        ch.ensure_schema()
+        n = save_etf_news_to_db(report, ch)
+        console.print(f"[green]✓ Saved {n} ETF news articles to DB.[/green]")
 
 
 if __name__ == "__main__":

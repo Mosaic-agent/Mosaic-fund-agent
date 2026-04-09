@@ -132,8 +132,8 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan = st.tabs(
-    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner"]
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news = st.tabs(
+    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News"]
 )
 
 
@@ -3070,3 +3070,193 @@ with tab_etf_scan:
                 st.error(f"Premium alerts error: {_exc_pa}")
     else:
         st.info("Click **📡 Scan Premiums** to compute Z-scores and render charts.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 8 — MARKET NEWS
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_news:
+    st.header("📰 Market News")
+    st.caption(
+        "News stored in ClickHouse — use the CLI to populate: "
+        "`mosaic macro --save`  or  `mosaic etf-news --save`"
+    )
+
+    _SENT_ICON_N = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}
+    _CONV_COLOR_N = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
+    _IMP_C_N = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
+    _ETF_CATS_N = [
+        "All", "Gold ETFs", "Nifty ETFs", "Bank ETFs", "IT ETFs",
+        "PSU ETFs", "Mid/Small Cap ETFs", "Pharma ETFs",
+        "International ETFs", "Debt / Liquid ETFs", "Auto ETFs",
+    ]
+
+    news_col1, news_col2 = st.columns([1, 1])
+
+    # ── LEFT: Macro Events ─────────────────────────────────────────────────────
+    with news_col1:
+        st.subheader("🌍 Macro & Geopolitical Events")
+        _macro_from = st.date_input(
+            "From date", value=pd.Timestamp.now() - pd.Timedelta(days=7),
+            key="macro_from_date",
+        )
+        _macro_max_n = st.slider("Articles per theme (refresh)", 2, 8, 3, key="macro_max_n")
+        _refresh_macro = st.button(
+            "🔄 Refresh from live + save to DB", key="refresh_macro", type="primary",
+        )
+
+        if _refresh_macro:
+            with st.spinner("Scanning macro events and saving to DB…"):
+                try:
+                    from src.tools.macro_event_scanner import (
+                        scan_macro_events, save_macro_events_to_db,
+                    )
+                    from src.importer.clickhouse import ClickHouseImporter
+                    _m_report = scan_macro_events(max_per_theme=_macro_max_n)
+                    _m_ch = ClickHouseImporter(
+                        host=CH_HOST, port=CH_PORT,
+                        database="market_data",
+                        username=CH_USER, password=CH_PASS,
+                    )
+                    _m_ch.ensure_schema()
+                    _m_saved = save_macro_events_to_db(_m_report, _m_ch)
+                    _m_ch.close()
+                    st.success(f"✓ Saved {_m_saved} macro events to DB.")
+                    st.rerun()
+                except Exception as _exc_mref:
+                    st.error(f"Refresh error: {_exc_mref}")
+
+    # ── RIGHT: ETF News ────────────────────────────────────────────────────────
+    with news_col2:
+        st.subheader("🏷️ ETF-Impact News")
+        _etf_cat_n = st.selectbox("ETF Category", _ETF_CATS_N, key="etf_news_cat_n")
+        _etf_from = st.date_input(
+            "From date", value=pd.Timestamp.now() - pd.Timedelta(days=7),
+            key="etf_from_date",
+        )
+        _etf_max_n = st.slider("Articles per topic (refresh)", 2, 8, 3, key="etf_news_max_n")
+        _refresh_etf = st.button(
+            "🔄 Refresh from live + save to DB", key="refresh_etf", type="primary",
+        )
+
+        if _refresh_etf:
+            with st.spinner("Fetching ETF news and saving to DB…"):
+                try:
+                    from src.tools.etf_news_scanner import (
+                        scan_etf_news, save_etf_news_to_db,
+                    )
+                    from src.importer.clickhouse import ClickHouseImporter
+                    _e_cats = None if _etf_cat_n == "All" else [_etf_cat_n]
+                    _e_report = scan_etf_news(categories=_e_cats, max_per_topic=_etf_max_n)
+                    _e_ch = ClickHouseImporter(
+                        host=CH_HOST, port=CH_PORT,
+                        database="market_data",
+                        username=CH_USER, password=CH_PASS,
+                    )
+                    _e_ch.ensure_schema()
+                    _e_saved = save_etf_news_to_db(_e_report, _e_ch)
+                    _e_ch.close()
+                    st.success(f"✓ Saved {_e_saved} ETF news articles to DB.")
+                    st.rerun()
+                except Exception as _exc_eref:
+                    st.error(f"Refresh error: {_exc_eref}")
+
+    st.divider()
+
+    # ── Macro results from DB ──────────────────────────────────────────────────
+    try:
+        _macro_from_str = str(_macro_from)
+        _macro_db_df = _query_df(
+            f"SELECT category, etfs_impacted, sentiment, impact_tier, title, source, "
+            f"published_at, url, fetched_at "
+            f"FROM market_data.news_articles "
+            f"WHERE source_type = 'macro_event' AND fetched_at >= '{_macro_from_str}' "
+            f"ORDER BY fetched_at DESC"
+        )
+    except Exception:
+        _macro_db_df = pd.DataFrame()
+
+    st.subheader(f"🌍 Macro Events in DB ({len(_macro_db_df)} rows)")
+    if _macro_db_df.empty:
+        st.info(
+            "No macro events in the database for the selected date range.  \n"
+            "Run `mosaic macro --save` or click **Refresh** above to populate."
+        )
+    else:
+        from collections import defaultdict as _dd_m
+        _macro_by_theme: dict = _dd_m(list)
+        for _, _row in _macro_db_df.iterrows():
+            _macro_by_theme[_row["category"]].append(_row)
+
+        for _theme, _rows in _macro_by_theme.items():
+            _first_imp = _rows[0].get("impact_tier", "LOW") if hasattr(_rows[0], "get") else "LOW"
+            with st.expander(
+                f"{_CONV_COLOR_N.get(_first_imp, '⚪')} **{_theme}** ({len(_rows)} events)",
+                expanded=(_first_imp == "HIGH"),
+            ):
+                for _r in _rows[:10]:
+                    _si = _SENT_ICON_N.get(str(_r["sentiment"]), "⚪")
+                    _etfs = str(_r.get("etfs_impacted", ""))
+                    st.markdown(
+                        f"{_si} **{_r['title']}**  \n"
+                        f"*{_r['source']} · {str(_r['published_at'])[:16]}*  \n"
+                        f"ETFs: `{_etfs}`"
+                    )
+        st.caption(f"Showing macro events since {_macro_from_str} · from ClickHouse")
+
+    st.divider()
+
+    # ── ETF News results from DB ───────────────────────────────────────────────
+    try:
+        _etf_from_str = str(_etf_from)
+        _cat_filter = (
+            "" if _etf_cat_n == "All"
+            else f"AND category = '{_etf_cat_n}'"
+        )
+        _etf_db_df = _query_df(
+            f"SELECT category, etfs_impacted, sentiment, impact_tier, title, source, "
+            f"published_at, url, fetched_at "
+            f"FROM market_data.news_articles "
+            f"WHERE source_type = 'etf_news' AND fetched_at >= '{_etf_from_str}' "
+            f"{_cat_filter} "
+            f"ORDER BY fetched_at DESC"
+        )
+    except Exception:
+        _etf_db_df = pd.DataFrame()
+
+    st.subheader(f"🏷️ ETF News in DB ({len(_etf_db_df)} rows)")
+    if _etf_db_df.empty:
+        st.info(
+            "No ETF news in the database for the selected date range / category.  \n"
+            "Run `mosaic etf-news --save` or click **Refresh** above to populate."
+        )
+    else:
+        _pos_n = int((_etf_db_df["sentiment"] == "POSITIVE").sum())
+        _neg_n = int((_etf_db_df["sentiment"] == "NEGATIVE").sum())
+        _neu_n = int((_etf_db_df["sentiment"] == "NEUTRAL").sum())
+        _em1, _em2, _em3, _em4 = st.columns(4)
+        _em1.metric("Total Articles", len(_etf_db_df))
+        _em2.metric("🟢 Positive", _pos_n)
+        _em3.metric("🔴 Negative", _neg_n)
+        _em4.metric("⚪ Neutral",  _neu_n)
+
+        from collections import defaultdict as _dd_e
+        _etf_by_cat: dict = _dd_e(list)
+        for _, _row in _etf_db_df.iterrows():
+            _etf_by_cat[_row["category"]].append(_row)
+
+        for _cat, _items in _etf_by_cat.items():
+            _etfs_str = str(_items[0].get("etfs_impacted", "")) if hasattr(_items[0], "get") else ""
+            _imp = str(_items[0].get("impact_tier", "LOW")) if hasattr(_items[0], "get") else "LOW"
+            with st.expander(
+                f"{_IMP_C_N.get(_imp, '⚪')} **{_cat}** — `{_etfs_str}` ({len(_items)} articles)",
+                expanded=(_imp == "HIGH"),
+            ):
+                for _it in _items[:8]:
+                    _si = _SENT_ICON_N.get(str(_it["sentiment"]), "⚪")
+                    st.markdown(
+                        f"{_si} {_it['title']}  \n"
+                        f"*{_it['source']} · {str(_it['published_at'])[:16]}*"
+                    )
+        st.caption(f"Showing ETF news since {_etf_from_str} · from ClickHouse")

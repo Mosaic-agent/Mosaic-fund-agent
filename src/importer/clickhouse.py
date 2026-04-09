@@ -250,6 +250,24 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (trade_date)
 """
 
+_DDL_NEWS_ARTICLES = """
+CREATE TABLE IF NOT EXISTS market_data.news_articles (
+    fetched_at      DateTime,          -- when we scraped it
+    published_at    String,            -- raw publish string from source
+    source_type     String,            -- 'etf_news' | 'macro_event'
+    category        String,            -- e.g. 'Gold ETFs', 'Geopolitical / War'
+    etfs_impacted   String,            -- comma-separated ETF symbols
+    sentiment       String,            -- POSITIVE | NEGATIVE | NEUTRAL
+    impact_tier     String,            -- HIGH | MEDIUM | LOW (etf_news) or conviction (macro)
+    title           String,
+    source          String,            -- publisher name
+    url             String,
+    imported_at     DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (fetched_at, source_type, category, title)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -285,10 +303,50 @@ class ClickHouseImporter:
             _DDL_DATABASE, _DDL_DAILY_PRICES, _DDL_MF_NAV, _DDL_WATERMARKS,
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
             _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
-            _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY,
+            _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
         ):
             self._client.command(ddl)
         logger.debug("ClickHouse schema verified.")
+
+    # ── Bulk insert: news_articles ────────────────────────────────────────────
+
+    def insert_news_articles(self, rows: list[dict]) -> int:
+        """
+        Insert news articles into market_data.news_articles.
+
+        Each dict must have keys:
+            fetched_at, published_at, source_type, category,
+            etfs_impacted, sentiment, impact_tier, title, source, url
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        data = [
+            [
+                r["fetched_at"],
+                r.get("published_at", ""),
+                r["source_type"],
+                r["category"],
+                r.get("etfs_impacted", ""),
+                r.get("sentiment", "NEUTRAL"),
+                r.get("impact_tier", ""),
+                r["title"],
+                r.get("source", ""),
+                r.get("url", ""),
+            ]
+            for r in rows
+        ]
+        self._client.insert(
+            "market_data.news_articles",
+            data,
+            column_names=[
+                "fetched_at", "published_at", "source_type", "category",
+                "etfs_impacted", "sentiment", "impact_tier", "title", "source", "url",
+            ],
+        )
+        logger.info("Inserted %d news articles into market_data.news_articles", len(rows))
+        return len(rows)
 
     # ── Watermarks ────────────────────────────────────────────────────────────
 

@@ -592,6 +592,41 @@ def run_macro_scan(max_per_theme: int = 4) -> None:
     print_macro_report(report)
 
 
+def save_macro_events_to_db(report: MacroReport, ch_client) -> int:
+    """
+    Persist a MacroReport to market_data.news_articles in ClickHouse.
+
+    Parameters
+    ----------
+    report    : MacroReport returned by scan_macro_events()
+    ch_client : clickhouse_connect client (already connected)
+
+    Returns number of rows inserted.
+    """
+    from datetime import datetime
+    fetched_at = datetime.now()
+    rows = [
+        {
+            "fetched_at":    fetched_at,
+            "published_at":  ev.published_at,
+            "source_type":   "macro_event",
+            "category":      ev.theme,
+            "etfs_impacted": ",".join(ev.impact.keys()),
+            "sentiment":     ev.sentiment,
+            "impact_tier":   ev.conviction,
+            "title":         ev.headline,
+            "source":        ev.source,
+            "url":           ev.url,
+        }
+        for ev in report.events
+    ]
+    if not rows:
+        return 0
+    n = ch_client.insert_news_articles(rows)
+    log.info("Saved %d macro events to ClickHouse", n)
+    return n
+
+
 if __name__ == "__main__":
     import sys, os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))

@@ -417,6 +417,41 @@ def print_etf_news_report(report: ETFNewsReport) -> None:
 
 # ── CLI smoke test ────────────────────────────────────────────────────────────
 
+def save_etf_news_to_db(report: ETFNewsReport, ch_client) -> int:
+    """
+    Persist an ETFNewsReport to market_data.news_articles in ClickHouse.
+
+    Parameters
+    ----------
+    report    : ETFNewsReport returned by scan_etf_news()
+    ch_client : clickhouse_connect client (already connected)
+
+    Returns number of rows inserted.
+    """
+    from datetime import datetime
+    fetched_at = datetime.now()
+    rows = [
+        {
+            "fetched_at":    fetched_at,
+            "published_at":  item.published_at,
+            "source_type":   "etf_news",
+            "category":      item.category,
+            "etfs_impacted": ",".join(item.etfs_impacted),
+            "sentiment":     item.sentiment,
+            "impact_tier":   item.impact_tier,
+            "title":         item.title,
+            "source":        item.source,
+            "url":           item.url,
+        }
+        for item in report.items
+    ]
+    if not rows:
+        return 0
+    n = ch_client.insert_news_articles(rows)
+    log.info("Saved %d ETF news articles to ClickHouse", n)
+    return n
+
+
 if __name__ == "__main__":
     import sys, os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
