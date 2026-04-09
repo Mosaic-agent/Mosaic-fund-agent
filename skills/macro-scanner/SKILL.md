@@ -15,13 +15,19 @@ Use this skill when the user asks about:
 ```bash
 cd /Users/dhiraj.thakur/project/Mosaic-fund-agent
 source .venv/bin/activate
+
+# Print to terminal
 python src/main.py macro --max 4
+
+# Scan + persist to ClickHouse (market_data.news_articles)
+python src/main.py macro --save
+
+# Fewer articles for a quick check
+python src/main.py macro --max 2 --save
 ```
 
-For a quicker scan with fewer articles:
-```bash
-python src/main.py macro --max 2
-```
+After saving, view in the Streamlit UI → **📰 Market News** tab (left column).
+Filter by date range; grouped by theme with ETF tags.
 
 ## What It Does
 

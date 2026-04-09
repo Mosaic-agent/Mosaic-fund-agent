@@ -60,6 +60,14 @@ Portfolio disclosures for mutual funds.
 - **Partition**: `toYYYYMM(as_of_month)`
 - **Order Key**: `(scheme_code, as_of_month, isin)`
 
+### `news_articles`
+ETF-tagged news articles and macro events from free sources.
+- **Engine**: `ReplacingMergeTree(imported_at)`
+- **Order Key**: `(fetched_at, source_type, category, title)`
+- **Key Columns**: `source_type` (`etf_news` | `macro_event`), `category` (theme/ETF category), `etfs_impacted` (comma-separated symbols), `sentiment` (POSITIVE/NEGATIVE/NEUTRAL), `impact_tier` (HIGH/MEDIUM/LOW), `title`, `source`, `url`
+- **Populated by**: `mosaic macro --save` and `mosaic etf-news --save`
+- **Queried by**: Streamlit 📰 Market News tab
+
 ## Querying Tips
 Since tables use `ReplacingMergeTree`, use `argMax` or `FINAL` to get the latest version of a row:
 ```sql

@@ -1,36 +1,35 @@
-# Skill: ETF-News
+---
+name: etf-news
+description: Fetch and tag news articles by Indian ETF category with sentiment scores. Covers 10 categories (Gold, Nifty, Bank, IT, PSU, Mid/Small, Pharma, International, Debt, Auto). Uses Google News RSS + Yahoo Finance — no API key required. Use when user asks about news affecting specific ETFs or wants to save ETF news to ClickHouse.
+---
+
+# Skill: ETF-Impact News
 
 Fetches live news that can directly impact Indian ETFs, tagged by category, affected symbols, and sentiment. No API key required.
 
 ## Trigger
 
-Use this skill when the user asks about:
+Use this skill when the user asks:
 - "What news is affecting GOLDBEES / BANKBEES / ITBEES?"
 - "Any ETF-relevant news today?"
 - "Show me news for gold ETFs / bank ETFs / IT ETFs"
-- Current events mapped to specific ETF categories
+- "Save ETF news to DB"
 
-## How to Run
+## Commands
 
 ```bash
-cd /Users/dhiraj.thakur/project/Mosaic-fund-agent
-source .venv/bin/activate
-
-# Print to terminal
+# Print all categories to terminal
 python src/main.py etf-news --max 4
 
-# Scan + persist to ClickHouse (market_data.news_articles)
+# Scan + persist to ClickHouse
 python src/main.py etf-news --save
 
-# Specific categories + save
+# Specific categories
 python src/main.py etf-news --category "Gold ETFs" --max 5 --save
 python src/main.py etf-news --category "Gold ETFs,Bank ETFs,IT ETFs" --save
 ```
 
-After saving, view in the Streamlit UI → **📰 Market News** tab (right column).
-Filter by category and date range; sentiment metrics shown at top.
-
-## Categories Available
+## 10 ETF Categories
 
 | Category | ETFs Covered |
 |---|---|
@@ -50,11 +49,11 @@ Filter by category and date range; sentiment metrics shown at top.
 - **Google News RSS** via `gnews` — no quota, no key, India + US editions
 - **Yahoo Finance** via `yfinance` — no key, ticker-specific news
 
-## Output
+## DB Storage
 
-- Articles grouped by ETF category
-- Each article: sentiment icon (🟢 POSITIVE / 🔴 NEGATIVE / ⚪ NEUTRAL), title, source, date
-- Summary: total articles, positive/negative/neutral counts
+Results saved to `market_data.news_articles` with `source_type = 'etf_news'`.
+View in Streamlit UI → **📰 Market News** tab → right column (ETF-Impact News).
+Filter by category and date range; sentiment counts shown at top.
 
 ## Source File
 

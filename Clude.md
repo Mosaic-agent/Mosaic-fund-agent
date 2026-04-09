@@ -103,6 +103,8 @@ src/main.py (CLI entry point)
 | `config` | Display current settings (sensitive fields masked) | — |
 | `news` | Multi-source news sentiment analysis | `symbol`, `--company` |
 | `comex` | COMEX pre-market commodity signals | — |
+| `macro` | Scan 8 macro/geopolitical themes → ETF directional impact | `--max N`, `--save` |
+| `etf-news` | Fetch ETF-tagged news with sentiment scores | `--category`, `--max N`, `--save` |
 | `premium-alerts` | Scarcity premium Z-score alerts for international ETFs | `--lookback`, `--z-threshold`, `--symbols`, `--min-snapshots` |
 | `import` | Import historical market data into ClickHouse | `--category`, `--lookback`, `--full`, `--dry-run` |
 | `ui` | Launch Streamlit data hub | `--port`, `--host` |
@@ -469,6 +471,7 @@ All tables use `ReplacingMergeTree` for idempotent re-imports.
 | `import_watermarks` | ReplacingMergeTree(updated_at) | — | (source, symbol) | Delta-sync state |
 | `ml_predictions` | ReplacingMergeTree(created_at) | — | (as_of, horizon_days) | ML forecast log |
 | `mf_holdings` | ReplacingMergeTree(imported_at) | toYYYYMM(as_of_month) | (scheme_code, as_of_month, isin) | Monthly portfolio snapshot; mstarpy = current snapshot only, run monthly to build time-series |
+| `news_articles` | ReplacingMergeTree(imported_at) | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events; `source_type`: `etf_news` \| `macro_event`; populated via `mosaic macro --save` / `mosaic etf-news --save` |
 
 **Query pattern for deduplication** (replaces `FINAL` for better performance):
 ```sql
@@ -487,9 +490,9 @@ and supports partition pruning via `WHERE trade_date >= ...`.
 
 ## UI (`src/ui/app.py`)
 
-Streamlit 5-tab data hub.
+Streamlit 8-tab data hub.
 
-**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings
+**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings | ETF Scanner | Market News
 
 **Who Is Selling? tab sections:**
 1. Live signal check (expert system: COT + iNAV + AUM + USD/INR)
@@ -786,4 +789,6 @@ User runs: python -m src.main analyze
 | `src/importer/fetchers/fii_dii_fetcher.py` | FII/DII cash-market flows from Sensibull oxide API; `--from YYYY-MM-DD --insert`; 127 rows Oct 2025→present |
 | `src/tools/market_context.py` | Queries `fii_dii_flows` from ClickHouse; returns 5-day narrative + streak analysis for LLM prompt |
 | `src/importer/fetchers/mf_holdings_fetcher.py` | Morningstar portfolio snapshot via mstarpy; thread-safe signal stub; current-snapshot only — no date param |
+| `src/tools/macro_event_scanner.py` | 8-theme macro/geopolitical scanner; `scan_macro_events()` → `MacroReport` with `etf_net_signal`; `save_macro_events_to_db(report, ch)` persists to `news_articles`; CLI: `mosaic macro --save` |
+| `src/tools/etf_news_scanner.py` | 10-category ETF news tagger; `scan_etf_news()` → `ETFNewsReport`; `save_etf_news_to_db(report, ch)` persists to `news_articles`; CLI: `mosaic etf-news --save` |
 | `predictions_log.jsonl` | Git-trackable JSONL log — one entry per (as_of, horizon_days); used for accuracy backtesting |
