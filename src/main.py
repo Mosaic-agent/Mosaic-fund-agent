@@ -879,5 +879,86 @@ def import_data(
     )
 
 
+@app.command(name="macro")
+def macro_scan(
+    max_per_theme: int = typer.Option(
+        4, "--max", "-m", help="Max articles per macro theme (default 4).",
+    ),
+) -> None:
+    """
+    Scan live macro & geopolitical events and map them to ETF impact.
+
+    Detects 8 themes: War/Geopolitics, Fed/RBI Policy, Crude Oil, Currency,
+    Trade War, India Macro, Gold/Commodity, Global Risk-Off.
+
+    No API key required — uses Google News RSS + Yahoo Finance.
+
+    \b
+    Examples:
+      mosaic macro           # full macro scan
+      mosaic macro --max 6   # 6 articles per theme
+    """
+    _setup_logging()
+
+    from src.tools.macro_event_scanner import scan_macro_events, print_macro_report
+
+    report = scan_macro_events(max_per_theme=max_per_theme)
+    print_macro_report(report)
+
+
+@app.command(name="etf-news")
+def etf_news(
+    category: str = typer.Option(
+        "",
+        "--category",
+        "-c",
+        help=(
+            "Comma-separated ETF categories to scan. "
+            "Options: 'Gold ETFs', 'Nifty ETFs', 'Bank ETFs', 'IT ETFs', "
+            "'PSU ETFs', 'Mid/Small Cap ETFs', 'Pharma ETFs', "
+            "'International ETFs', 'Debt / Liquid ETFs', 'Auto ETFs'. "
+            "Default: all categories."
+        ),
+    ),
+    max_per_topic: int = typer.Option(
+        4,
+        "--max",
+        "-m",
+        help="Max articles per search topic (default 4).",
+    ),
+) -> None:
+    """
+    Fetch free news that can impact Indian ETFs.
+
+    Uses Google News RSS + Yahoo Finance — no API key required.
+    Each article is tagged with the ETFs it affects and a sentiment score.
+
+    \b
+    Examples:
+      mosaic etf-news                          # scan all ETF categories
+      mosaic etf-news --category "Gold ETFs"   # gold ETFs only
+      mosaic etf-news --category "Gold ETFs,Bank ETFs"
+      mosaic etf-news --max 6                  # 6 articles per topic
+    """
+    _setup_logging()
+
+    categories = [c.strip() for c in category.split(",") if c.strip()] or None
+
+    console.print(
+        Panel(
+            "[bold cyan]📰 ETF-Impact News Scanner[/bold cyan]\n"
+            f"[dim]Categories: {', '.join(categories) if categories else 'All'}  •  "
+            f"Max {max_per_topic} articles/topic  •  "
+            "Sources: Google News RSS + Yahoo Finance (no key)[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    from src.tools.etf_news_scanner import scan_etf_news, print_etf_news_report
+
+    report = scan_etf_news(categories=categories, max_per_topic=max_per_topic)
+    print_etf_news_report(report)
+
+
 if __name__ == "__main__":
     app()
