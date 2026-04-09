@@ -70,18 +70,36 @@ STOCKS: list[tuple[str, str]] = [
 ]
 
 ETFS: list[tuple[str, str]] = [
-    ("NIFTYBEES",   "NIFTYBEES.NS"),
-    ("JUNIORBEES",  "JUNIORBEES.NS"),
-    ("GOLDBEES",    "GOLDBEES.NS"),
-    ("LIQUIDBEES",  "LIQUIDBEES.NS"),
-    ("BANKBEES",    "BANKBEES.NS"),
-    ("PSUBNKBEES",  "PSUBNKBEES.NS"),
-    ("SILVERBEES",  "SILVERBEES.NS"),
-    ("HNGSNGBEES",  "HNGSNGBEES.NS"),
-    ("MAFANG",      "MAFANG.NS"),
-    ("HDFCNIFTY",   "HDFCNIFTY.NS"),
-    ("SETFNIF50",   "SETFNIF50.NS"),
-    ("ICICIB22",    "ICICIB22.NS"),
+    # ── Broad market ──────────────────────────────────────────────────────────
+    ("NIFTYBEES",   "NIFTYBEES.NS"),    # Nifty 50 (Nippon)
+    ("JUNIORBEES",  "JUNIORBEES.NS"),   # Nifty Next 50
+    ("BANKBEES",    "BANKBEES.NS"),     # Nifty Bank
+    ("PSUBNKBEES",  "PSUBNKBEES.NS"),  # Nifty PSU Bank
+    ("HDFCNIFTY",   "HDFCNIFTY.NS"),   # Nifty 50 (HDFC)
+    ("SETFNIF50",   "SETFNIF50.NS"),   # Nifty 50 (SBI)
+    ("MID150BEES",  "MID150BEES.NS"),  # Nifty MidSmallcap 150
+    ("SMALL250",    "SMALL250.NS"),    # Nifty Smallcap 250
+    ("MONIFTY500",  "MONIFTY500.NS"),  # Nifty 500 (Motilal)
+    # ── Sectoral ──────────────────────────────────────────────────────────────
+    ("CPSEETF",     "CPSEETF.NS"),     # Nifty CPSE (PSU / Govt)
+    ("ITBEES",      "ITBEES.NS"),      # Nifty IT
+    ("PHARMABEES",  "PHARMABEES.NS"),  # Nifty Pharma
+    ("AUTOBEES",    "AUTOBEES.NS"),    # Nifty Auto
+    ("FMCGIETF",    "FMCGIETF.NS"),   # Nifty FMCG
+    ("ICICIB22",    "ICICIB22.NS"),    # S&P BSE Bharat 22
+    # ── Commodities ───────────────────────────────────────────────────────────
+    ("GOLDBEES",    "GOLDBEES.NS"),    # Physical Gold
+    ("SILVERBEES",  "SILVERBEES.NS"),  # Physical Silver
+    # ── Debt ──────────────────────────────────────────────────────────────────
+    ("LIQUIDBEES",  "LIQUIDBEES.NS"),  # Liquid / Cash
+    ("LIQUIDCASE",  "LIQUIDCASE.NS"),  # 1D Rate Liquid
+    ("GILT5YBEES",  "GILT5YBEES.NS"),  # Govt Securities 5Y
+    # ── International ─────────────────────────────────────────────────────────
+    ("HNGSNGBEES",  "HNGSNGBEES.NS"),  # Hang Seng
+    ("MAFANG",      "MAFANG.NS"),      # NYSE FANG+
+    ("MAHKTECH",    "MAHKTECH.NS"),    # Hang Seng TECH
+    ("MON100",      "MON100.NS"),      # NASDAQ 100
+    ("MASPTOP50",   "MASPTOP50.NS"),   # S&P 500 Top 50
 ]
 
 # Commodities via Yahoo Finance (XAU/USD, XAG/USD, etc.)
@@ -115,6 +133,7 @@ INDICES: list[tuple[str, str]] = [
     ("DOWJONES",   "^DJI"),
     ("US10Y",      "^TNX"),      # US 10-year Treasury yield — real rate / gold headwind signal
     ("US13W",      "^IRX"),      # US 13-week T-bill yield  — yield-curve spread (10Y − 13W)
+    ("DXY",        "DX-Y.NYB"),  # US Dollar Index
 ]
 
 # MFAPI.in scheme codes for MF NAV import
@@ -131,6 +150,20 @@ MF_SCHEME_CODES: dict[str, str] = {
     "MAFANG":     "148927",
     "HDFCNIFTY":  "135853",
     "SETFNIF50":  "135106",
+    "MON100":     "114984",
+    "MAHKTECH":   "149379",
+    "MASPTOP50":  "149169",
+    # New domestic ETFs
+    "LIQUIDCASE":  "153725",   # Nippon India Nifty 1D Rate Liquid ETF
+    "CPSEETF":     "140107",   # CPSE ETF (Govt)
+    "ITBEES":      "148408",   # Nippon India ETF Nifty IT
+    "MID150BEES":  "146271",   # Nippon India ETF Nifty Midcap 150
+    "MONIFTY500":  "152106",   # Motilal Oswal Nifty 500 ETF
+    "GILT5YBEES":  "148800",   # Nippon India ETF Nifty 5yr Benchmark G-Sec
+    "PHARMABEES":  "149008",   # Nippon India Nifty Pharma ETF
+    "AUTOBEES":    "149465",   # Nippon India Nifty Auto ETF
+    "FMCGIETF":    "149072",   # ICICI Prudential Nifty FMCG ETF
+    "SMALL250":    "152455",   # Mirae Asset Nifty Smallcap 250 ETF
 }
 
 # Watchlist for MF portfolio holdings tracker
@@ -153,9 +186,17 @@ CATEGORY_MAP: dict[str, list[tuple[str, str]]] = {
 
 # Symbols for which NSE live iNAV snapshots are captured
 INAV_SYMBOLS: list[str] = [
-    "GOLDBEES", "NIFTYBEES", "BANKBEES", "JUNIORBEES", "LIQUIDBEES",
-    "SILVERBEES", "HNGSNGBEES", "PSUBNKBEES", "MAFANG",
-    "HDFCNIFTY", "SETFNIF50", "ICICIB22",
+    # Broad market
+    "NIFTYBEES", "JUNIORBEES", "BANKBEES", "PSUBNKBEES",
+    "HDFCNIFTY", "SETFNIF50", "MID150BEES", "SMALL250", "MONIFTY500",
+    # Sectoral
+    "CPSEETF", "ITBEES", "PHARMABEES", "AUTOBEES", "FMCGIETF", "ICICIB22",
+    # Commodities
+    "GOLDBEES", "SILVERBEES",
+    # Debt
+    "LIQUIDBEES", "LIQUIDCASE", "GILT5YBEES",
+    # International
+    "HNGSNGBEES", "MAFANG", "MAHKTECH", "MON100", "MASPTOP50",
 ]
 
 ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii"]

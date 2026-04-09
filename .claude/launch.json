@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Streamlit UI",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["src/main.py", "ui"],
+      "port": 8501
+    },
+    {
+      "name": "ClickHouse (Docker)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "clickhouse", "-d"],
+      "port": 8123
+    },
+    {
+      "name": "Full Stack (ClickHouse + Streamlit UI)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "-d"],
+      "port": 8501
+    }
+  ]
+}

@@ -132,8 +132,8 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings = st.tabs(
-    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings"]
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan = st.tabs(
+    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner"]
 )
 
 
@@ -2431,181 +2431,8 @@ with tab_wis:
 **Use both together:** Expert system as an immediate sanity check; LightGBM for position-sizing decisions where the interaction between signals matters.
             """)
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # SCARCITY PREMIUM ALERTS — International ETFs
-    # ═══════════════════════════════════════════════════════════════════════════
-    st.divider()
-    st.subheader("🌍 International ETF — Scarcity Premium Alerts")
-    st.caption(
-        "The RBI $7B overseas investment cap creates a **structural premium** on "
-        "international ETFs (MAFANG, HNGSNGBEES, …) that rarely reverts to zero. "
-        "Strategy: trade the **volatility** of the premium — buy when it dips well "
-        "below its 30-day mean.  "
-        "Z ≤ −1.5 → 🟢 SCREAMING BUY  ·  Z ≤ −1.0 → 🟡 GOOD ENTRY  ·  "
-        "otherwise → 🔴 NO ACTION"
-    )
-
-    _pa_col1, _pa_col2, _pa_col3 = st.columns([1, 1, 2])
-    with _pa_col1:
-        _pa_lookback = st.slider("Lookback days", 7, 90, 30, 1, key="pa_lookback")
-    with _pa_col2:
-        _pa_z_thresh = st.slider("Z threshold (BUY)", -3.0, -0.5, -1.5, 0.1,
-                                 key="pa_z_thresh")
-    with _pa_col3:
-        _pa_min_snaps = st.number_input(
-            "Min snapshots required", 1, 50, 1, 1, key="pa_min_snaps"
-        )
-
-    if st.button("📡 Scan Premiums", key="pa_scan_btn"):
-        with st.spinner("Fetching iNAV snapshots and computing Z-scores…"):
-            try:
-                import clickhouse_connect as _cc_pa
-                from src.tools.premium_alerts import check_premium_alerts, INTL_ETF_SYMBOLS
-
-                _pa_client = _cc_pa.get_client(
-                    host=CH_HOST, port=CH_PORT,
-                    username=CH_USER, password=CH_PASS,
-                    connect_timeout=10,
-                )
-                _pa_results = check_premium_alerts(
-                    ch_client=_pa_client,
-                    symbols=INTL_ETF_SYMBOLS,
-                    lookback_days=_pa_lookback,
-                    z_threshold=_pa_z_thresh,
-                    good_entry_threshold=_pa_z_thresh + 0.5,
-                    min_snapshots=int(_pa_min_snaps),
-                )
-                _pa_client.close()
-
-                # ── Signal summary cards ───────────────────────────────────────
-                _pa_buy    = [r for r in _pa_results if "SCREAMING" in r["action"]]
-                _pa_entry  = [r for r in _pa_results if "ENTRY"     in r["action"]]
-                _pa_noact  = [r for r in _pa_results if "NO ACTION" in r["action"]]
-
-                _sc1, _sc2, _sc3 = st.columns(3)
-                _sc1.metric("🟢 SCREAMING BUY", len(_pa_buy))
-                _sc2.metric("🟡 GOOD ENTRY",    len(_pa_entry))
-                _sc3.metric("🔴 NO ACTION",      len(_pa_noact))
-
-                # ── Z-score bar chart ─────────────────────────────────────────
-                import plotly.graph_objects as _go_pa
-
-                _valid = [r for r in _pa_results if r["z_score"] is not None]
-                if _valid:
-                    _bar_colors = []
-                    for _r in _valid:
-                        _z = _r["z_score"]
-                        if _z <= _pa_z_thresh:
-                            _bar_colors.append("#4CAF50")        # green — BUY
-                        elif _z <= _pa_z_thresh + 0.5:
-                            _bar_colors.append("#FFC107")        # yellow — ENTRY
-                        else:
-                            _bar_colors.append("#F44336")        # red — NO ACTION
-
-                    _fig_pa = _go_pa.Figure()
-                    _fig_pa.add_trace(_go_pa.Bar(
-                        x=[r["symbol"]   for r in _valid],
-                        y=[r["z_score"]  for r in _valid],
-                        marker_color=_bar_colors,
-                        text=[f"Z={r['z_score']:+.2f}" for r in _valid],
-                        textposition="outside",
-                        hovertemplate=(
-                            "<b>%{x}</b><br>"
-                            "Z-Score: %{y:.3f}<br>"
-                            "Latest premium: %{customdata[0]:+.3f}%<br>"
-                            f"{_pa_lookback}d avg: %{{customdata[1]:+.3f}}%<br>"
-                            "Std dev: %{customdata[2]:.4f}"
-                            "<extra></extra>"
-                        ),
-                        customdata=[
-                            [r["latest_premium"] or 0,
-                             r["mean_premium"]   or 0,
-                             r["std_premium"]    or 0]
-                            for r in _valid
-                        ],
-                    ))
-                    _fig_pa.add_hline(
-                        y=_pa_z_thresh,
-                        line_dash="dash", line_color="#4CAF50", line_width=1.5,
-                        annotation_text="SCREAMING BUY threshold",
-                        annotation_font_color="#4CAF50",
-                    )
-                    _fig_pa.add_hline(
-                        y=_pa_z_thresh + 0.5,
-                        line_dash="dot", line_color="#FFC107", line_width=1.5,
-                        annotation_text="GOOD ENTRY threshold",
-                        annotation_font_color="#FFC107",
-                    )
-                    _fig_pa.add_hline(
-                        y=0, line_dash="solid", line_color="#888888", line_width=0.8,
-                    )
-                    _fig_pa.update_layout(
-                        title=f"Premium Z-Score vs {_pa_lookback}d Mean  (negative = cheap relative to history)",
-                        yaxis_title="Z-Score",
-                        xaxis_title="Symbol",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        height=380,
-                        margin=dict(t=50, b=40, l=60, r=20),
-                        font=dict(size=13),
-                    )
-                    st.plotly_chart(_fig_pa, use_container_width=True)
-
-                # ── Premium level chart (latest vs mean) ─────────────────────
-                if _valid:
-                    _fig_prem = _go_pa.Figure()
-                    _fig_prem.add_trace(_go_pa.Bar(
-                        name=f"{_pa_lookback}d Avg Premium",
-                        x=[r["symbol"]       for r in _valid],
-                        y=[r["mean_premium"] for r in _valid],
-                        marker_color="#90A4AE",
-                        opacity=0.6,
-                    ))
-                    _fig_prem.add_trace(_go_pa.Scatter(
-                        name="Latest Premium",
-                        x=[r["symbol"]          for r in _valid],
-                        y=[r["latest_premium"]  for r in _valid],
-                        mode="markers",
-                        marker=dict(size=14, color=_bar_colors, symbol="diamond"),
-                    ))
-                    _fig_prem.update_layout(
-                        title="Latest Premium vs 30d Average  (diamond = today, bar = mean)",
-                        yaxis_title="Premium / Discount (%)",
-                        xaxis_title="Symbol",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        height=340,
-                        margin=dict(t=50, b=40, l=60, r=20),
-                        legend=dict(orientation="h", y=1.12),
-                        font=dict(size=13),
-                    )
-                    _fig_prem.add_hline(
-                        y=0, line_dash="solid", line_color="#888888", line_width=0.8,
-                        annotation_text="iNAV parity",
-                    )
-                    st.plotly_chart(_fig_prem, use_container_width=True)
-
-                # ── Detail table ───────────────────────────────────────────────
-                with st.expander("📋 Full Signal Table"):
-                    import pandas as _pd_pa
-                    _pa_rows = []
-                    for _r in _pa_results:
-                        _pa_rows.append({
-                            "Symbol":          _r["symbol"],
-                            "Latest Prem (%)": f"{_r['latest_premium']:+.3f}" if _r["latest_premium"] is not None else "—",
-                            f"{_pa_lookback}d Avg (%)": f"{_r['mean_premium']:+.3f}" if _r["mean_premium"] is not None else "—",
-                            "Std Dev":         f"{_r['std_premium']:.4f}"   if _r["std_premium"]    is not None else "—",
-                            "Z-Score":         f"{_r['z_score']:+.3f}"      if _r["z_score"]        is not None else "—",
-                            "Snapshots":       _r["n_snapshots"],
-                            "Action":          _r["action"],
-                            "Note":            _r["error"] or "",
-                        })
-                    st.dataframe(_pd_pa.DataFrame(_pa_rows), use_container_width=True, hide_index=True)
-
-            except Exception as _exc_pa:
-                st.error(f"Premium alerts error: {_exc_pa}")
-    else:
-        st.info("Click **📡 Scan Premiums** to compute Z-scores and render charts.")
+    # (scarcity premium alerts moved to 🏦 ETF Scanner tab)
+    st.info("🌍 International ETF — Scarcity Premium Alerts has moved to the **🏦 ETF Scanner** tab.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2825,3 +2652,421 @@ with tab_holdings:
             )
             fig_trend.update_layout(margin=dict(t=30, b=0))
             st.plotly_chart(fig_trend, width="stretch")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — 🏦 ETF SCANNER (Domestic Premium / Discount)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_etf_scan:
+    st.header("🏦 Domestic ETF — Premium / Discount Scanner")
+    st.caption(
+        "Arbitrage desks close domestic ETF mispricing quickly. "
+        "This scanner computes a Z-score of today's premium vs its rolling mean — "
+        "flagging ETFs trading unusually expensive or cheap relative to their iNAV."
+    )
+
+    if not ok:
+        st.warning("ClickHouse not connected.")
+        st.stop()
+
+    from src.tools.domestic_etf_scanner import scan_domestic_etfs, DOMESTIC_ETF_SYMBOLS
+
+    col_ctrl, col_run = st.columns([2, 1])
+    with col_ctrl:
+        lookback_days = st.slider("Lookback window (days)", 7, 90, 30, key="etfscan_lookback")
+        z_threshold   = st.slider("Z-score threshold", 0.5, 3.0, 1.5, step=0.25, key="etfscan_z")
+        custom_syms   = st.text_input(
+            "Custom symbols (comma-separated, leave blank for default)",
+            value="",
+            key="etfscan_syms",
+        )
+        tax_slab = st.radio(
+            "Your income-tax slab (for STCG on Gold/Debt ETFs)",
+            options=["20% slab  →  effective 20.8%", "30% slab  →  effective 31.2%"],
+            index=0,
+            horizontal=True,
+            key="etfscan_tax_slab",
+        )
+        _slab_rate = 0.208 if tax_slab.startswith("20%") else 0.312
+    with col_run:
+        st.write("")
+        st.write("")
+        run_scan = st.button("▶ Run Scanner", use_container_width=True, key="etfscan_run")
+
+    if run_scan:
+        sym_list = (
+            [s.strip().upper() for s in custom_syms.split(",") if s.strip()]
+            if custom_syms.strip()
+            else DOMESTIC_ETF_SYMBOLS
+        )
+
+        with st.spinner(f"Computing Z-scores for {len(sym_list)} symbols…"):
+            try:
+                results = scan_domestic_etfs(
+                    ch_client=_get_client(),
+                    symbols=sym_list,
+                    lookback_days=lookback_days,
+                    z_high=z_threshold,
+                    z_low=-z_threshold,
+                    z_mild_high=z_threshold - 0.5,
+                    z_mild_low=-(z_threshold - 0.5),
+                    min_snapshots=5,
+                )
+            except Exception as exc:
+                st.error(f"Scan failed: {exc}")
+                st.stop()
+
+        if not results:
+            st.warning("No results — ensure iNAV snapshots are imported (Import → inav).")
+            st.stop()
+
+        import plotly.graph_objects as go
+
+        # ── Signal summary cards ───────────────────────────────────────────────
+        actionable = [r for r in results if r["z_score"] is not None]
+        n_high     = sum(1 for r in actionable if "HIGH PREMIUM"   in r["signal"])
+        n_mild_h   = sum(1 for r in actionable if "MILD PREMIUM"   in r["signal"])
+        n_fair     = sum(1 for r in actionable if "FAIR VALUE"     in r["signal"])
+        n_mild_l   = sum(1 for r in actionable if "MILD DISCOUNT"  in r["signal"])
+        n_good     = sum(1 for r in actionable if "GOOD DISCOUNT"  in r["signal"])
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("🔴 High Premium",  n_high)
+        c2.metric("🟡 Mild Premium",  n_mild_h)
+        c3.metric("⚪ Fair Value",     n_fair)
+        c4.metric("🟡 Mild Discount", n_mild_l)
+        c5.metric("🟢 Good Discount", n_good)
+
+        st.divider()
+
+        # ── Z-score bar chart ──────────────────────────────────────────────────
+        syms   = [r["symbol"]  for r in actionable]
+        zscores = [r["z_score"] for r in actionable]
+        colors  = []
+        for r in actionable:
+            sig = r["signal"]
+            if   "HIGH PREMIUM"  in sig: colors.append("#ef4444")
+            elif "MILD PREMIUM"  in sig: colors.append("#f59e0b")
+            elif "GOOD DISCOUNT" in sig: colors.append("#22c55e")
+            elif "MILD DISCOUNT" in sig: colors.append("#eab308")
+            else:                        colors.append("#94a3b8")
+
+        fig_z = go.Figure(go.Bar(
+            x=syms, y=zscores,
+            marker_color=colors,
+            text=[f"{z:+.2f}" for z in zscores],
+            textposition="outside",
+        ))
+        fig_z.add_hline(y=z_threshold,  line_dash="dash", line_color="red",   annotation_text=f"+{z_threshold} (High Premium)")
+        fig_z.add_hline(y=-z_threshold, line_dash="dash", line_color="green", annotation_text=f"-{z_threshold} (Good Discount)")
+        fig_z.update_layout(
+            title=f"Premium Z-Score  (vs {lookback_days}d mean)",
+            yaxis_title="Z-Score",
+            xaxis_title="",
+            height=380,
+            margin=dict(t=50, b=20),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_z, use_container_width=True)
+
+        # ── Scatter: latest premium vs rolling mean ────────────────────────────
+        x_vals = [r["mean_premium"]   for r in actionable if r["mean_premium"] is not None]
+        y_vals = [r["latest_premium"] for r in actionable if r["latest_premium"] is not None]
+        s_syms = [r["symbol"]         for r in actionable if r["mean_premium"] is not None]
+
+        if x_vals:
+            fig_sc = go.Figure(go.Scatter(
+                x=x_vals, y=y_vals, mode="markers+text",
+                text=s_syms, textposition="top center",
+                marker=dict(size=12, color=colors[:len(x_vals)], line=dict(width=1, color="white")),
+            ))
+            mn = min(min(x_vals), min(y_vals)) - 0.5
+            mx = max(max(x_vals), max(y_vals)) + 0.5
+            fig_sc.add_shape(type="line", x0=mn, y0=mn, x1=mx, y1=mx,
+                             line=dict(dash="dot", color="grey", width=1))
+            fig_sc.update_layout(
+                title="Latest Premium vs Rolling Mean  (diagonal = fair value)",
+                xaxis_title=f"{lookback_days}d Avg Premium (%)",
+                yaxis_title="Latest Premium (%)",
+                height=380,
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_sc, use_container_width=True)
+
+        # ── Full results table ────────────────────────────────────────────────
+        st.subheader("Full Results")
+        rows_display = []
+        signal_icons = {
+            "HIGH PREMIUM": "🔴", "MILD PREMIUM": "🟡",
+            "FAIR VALUE": "⚪", "MILD DISCOUNT": "🟡", "GOOD DISCOUNT": "🟢",
+        }
+        for r in results:
+            icon = next((v for k, v in signal_icons.items() if k in r["signal"]), "⚠")
+            rows_display.append({
+                "Symbol":        r["symbol"],
+                "Latest (%)":    f"{r['latest_premium']:+.3f}" if r["latest_premium"] is not None else "—",
+                f"{lookback_days}d Avg (%)": f"{r['mean_premium']:+.3f}" if r["mean_premium"] is not None else "—",
+                "Std Dev":       f"{r['std_premium']:.4f}"    if r["std_premium"]    is not None else "—",
+                "Z-Score":       f"{r['z_score']:+.3f}"       if r["z_score"]        is not None else "—",
+                "Snapshots":     r["n_snapshots"],
+                "Signal":        f"{icon} {r['signal']}",
+                "Note":          r["error"] or "",
+            })
+        st.dataframe(pd.DataFrame(rows_display), use_container_width=True, hide_index=True)
+
+        # ── STCG Post-Tax Viability Analysis ──────────────────────────────────
+        st.divider()
+        st.subheader("📊 Short-Term Trade Viability (Post-Tax)")
+
+        _STCG_RATES = {
+            "equity":    0.208,   # 20% base + 4% cess  (Budget July 2024)
+            "commodity": _slab_rate,
+            "debt":      _slab_rate,
+        }
+        _LTCG_RATES = {
+            "equity":    0.130,   # 12.5% + cess  (> 12 months)
+            "commodity": 0.208,   # 20% + cess (indexed; simplified)
+            "debt":      _slab_rate,
+        }
+        _ROUND_TRIP_COST = 0.10  # % — brokerage + STT + exchange charges + stamp duty
+
+        _tax_rows = []
+        for _r in results:
+            if _r["z_score"] is None:
+                continue
+            _sig   = _r["signal"]
+            _rev   = _r.get("expected_reversion_pct")
+            _tcls  = _r.get("tax_class", "equity")
+            _stcg  = _STCG_RATES[_tcls]
+            _ltcg  = _LTCG_RATES[_tcls]
+
+            # Only compute viability where there is a directional signal
+            if _rev is None:
+                continue
+            # For discount signals: expected gain is positive (price rises to mean)
+            # For premium signals: expected loss-avoidance (sell before reversion)
+            _expected_gross = abs(_rev)  # reversion magnitude
+            _direction = "BUY (discount)" if _rev > 0 else "SELL / AVOID (premium)"
+
+            _stcg_cost  = _expected_gross * _stcg
+            _net_stcg   = _expected_gross * (1 - _stcg) - _ROUND_TRIP_COST
+            _net_ltcg   = _expected_gross * (1 - _ltcg) - _ROUND_TRIP_COST
+            _breakeven  = _ROUND_TRIP_COST / (1 - _stcg)   # min gross gain to be STCG-profitable
+
+            _stcg_viable = "✅ YES" if _net_stcg > 0 else "❌ NO"
+            _ltcg_viable = "✅ YES" if _net_ltcg > 0 else "❌ NO"
+
+            _tax_rows.append({
+                "Symbol":             _r["symbol"],
+                "Signal":             _sig,
+                "Tax Class":          _tcls.capitalize(),
+                "Direction":          _direction,
+                "Expected Reversion %": f"{_rev:+.3f}%",
+                "STCG Rate":          f"{_stcg*100:.1f}%",
+                "Net Gain (STCG) %":  f"{_net_stcg:+.3f}%",
+                "Net Gain (LTCG>12M) %": f"{_net_ltcg:+.3f}%",
+                "Min Gross for STCG %":  f"{_breakeven:.3f}%",
+                "STCG Viable?":       _stcg_viable,
+            })
+
+        if _tax_rows:
+            st.caption(
+                f"Round-trip transaction cost assumed: **{_ROUND_TRIP_COST:.2f}%** "
+                "(brokerage + STT 0.001% sell + exchange + stamp duty). "
+                "STCG rates post Budget July 23, 2024: equity **20.8%**, "
+                f"gold/silver/debt at your **{_slab_rate*100:.1f}% effective slab rate**. "
+                "LTCG (>12 months): equity **13.0%**, commodity ~**20.8%**."
+            )
+            _viable_df = pd.DataFrame(_tax_rows)
+            # Highlight rows based on STCG viability
+            def _highlight_viability(row: pd.Series) -> list[str]:
+                if row["STCG Viable?"] == "✅ YES":
+                    return ["background-color: rgba(34,197,94,0.12)"] * len(row)
+                return ["background-color: rgba(239,68,68,0.08)"] * len(row)
+            st.dataframe(
+                _viable_df.style.apply(_highlight_viability, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.info(
+                "💡 **Key insight:** With STCG at 20.8%, a 1% discount-to-NAV only nets you "
+                f"**~{1.0 * (1 - 0.208) - _ROUND_TRIP_COST:.2f}%** after tax and costs. "
+                "Short-term arbitrage is most worthwhile when: "
+                "(1) you have capital losses to offset gains, "
+                "(2) the discount is ≥ 2% for meaningful net gain, or "
+                "(3) you hold ≥ 12 months and pay LTCG at 13.0% instead."
+            )
+        else:
+            st.info("Run the scanner first to see post-tax viability.")
+    st.divider()
+    st.subheader("🌍 International ETF — Scarcity Premium Alerts")
+    st.caption(
+        "The RBI $7B overseas investment cap creates a structural premium on international ETFs. "
+        "A deeply negative Z-score means the ETF is currently trading cheap relative to its own "
+        "history — a potential entry point before the premium normalises."
+    )
+
+    _pa_col1, _pa_col2, _pa_col3 = st.columns([1, 1, 2])
+    with _pa_col1:
+        _pa_lookback = st.slider("Lookback days", 7, 90, 30, 1, key="pa_lookback")
+    with _pa_col2:
+        _pa_z_thresh = st.slider("Z threshold (BUY)", -3.0, -0.5, -1.5, 0.1, key="pa_z_thresh")
+    with _pa_col3:
+        _pa_min_snaps = st.number_input(
+            "Min snapshots required", 1, 50, 1, 1, key="pa_min_snaps"
+        )
+
+    if st.button("📡 Scan Premiums", key="pa_scan_btn"):
+        with st.spinner("Fetching iNAV snapshots and computing Z-scores…"):
+            try:
+                import clickhouse_connect as _cc_pa
+                from src.tools.premium_alerts import check_premium_alerts, INTL_ETF_SYMBOLS
+
+                _pa_client = _cc_pa.get_client(
+                    host=CH_HOST, port=CH_PORT,
+                    username=CH_USER, password=CH_PASS,
+                    connect_timeout=10,
+                )
+                _pa_results = check_premium_alerts(
+                    ch_client=_pa_client,
+                    symbols=INTL_ETF_SYMBOLS,
+                    lookback_days=_pa_lookback,
+                    z_threshold=_pa_z_thresh,
+                    good_entry_threshold=_pa_z_thresh + 0.5,
+                    min_snapshots=int(_pa_min_snaps),
+                )
+                _pa_client.close()
+
+                # ── Signal summary cards ──────────────────────────────────────
+                _pa_buy   = [r for r in _pa_results if "SCREAMING" in r["action"]]
+                _pa_entry = [r for r in _pa_results if "ENTRY"     in r["action"]]
+                _pa_noact = [r for r in _pa_results if "NO ACTION" in r["action"]]
+
+                _sc1, _sc2, _sc3 = st.columns(3)
+                _sc1.metric("🟢 SCREAMING BUY", len(_pa_buy))
+                _sc2.metric("🟡 GOOD ENTRY",    len(_pa_entry))
+                _sc3.metric("🔴 NO ACTION",      len(_pa_noact))
+
+                # ── Z-score bar chart ─────────────────────────────────────────
+                import plotly.graph_objects as _go_pa
+
+                _valid = [r for r in _pa_results if r["z_score"] is not None]
+                if _valid:
+                    _bar_colors = []
+                    for _r in _valid:
+                        _z = _r["z_score"]
+                        if _z <= _pa_z_thresh:
+                            _bar_colors.append("#4CAF50")
+                        elif _z <= _pa_z_thresh + 0.5:
+                            _bar_colors.append("#FFC107")
+                        else:
+                            _bar_colors.append("#F44336")
+
+                    _fig_pa = _go_pa.Figure()
+                    _fig_pa.add_trace(_go_pa.Bar(
+                        x=[r["symbol"]  for r in _valid],
+                        y=[r["z_score"] for r in _valid],
+                        marker_color=_bar_colors,
+                        text=[f"Z={r['z_score']:+.2f}" for r in _valid],
+                        textposition="outside",
+                        hovertemplate=(
+                            "<b>%{x}</b><br>"
+                            "Z-Score: %{y:.3f}<br>"
+                            "Latest premium: %{customdata[0]:+.3f}%<br>"
+                            f"{_pa_lookback}d avg: %{{customdata[1]:+.3f}}%<br>"
+                            "Std dev: %{customdata[2]:.4f}"
+                            "<extra></extra>"
+                        ),
+                        customdata=[
+                            [r["latest_premium"] or 0,
+                             r["mean_premium"]   or 0,
+                             r["std_premium"]    or 0]
+                            for r in _valid
+                        ],
+                    ))
+                    _fig_pa.add_hline(
+                        y=_pa_z_thresh,
+                        line_dash="dash", line_color="#4CAF50", line_width=1.5,
+                        annotation_text="SCREAMING BUY threshold",
+                        annotation_font_color="#4CAF50",
+                    )
+                    _fig_pa.add_hline(
+                        y=_pa_z_thresh + 0.5,
+                        line_dash="dot", line_color="#FFC107", line_width=1.5,
+                        annotation_text="GOOD ENTRY threshold",
+                        annotation_font_color="#FFC107",
+                    )
+                    _fig_pa.add_hline(
+                        y=0, line_dash="solid", line_color="#888888", line_width=0.8,
+                    )
+                    _fig_pa.update_layout(
+                        title=f"Premium Z-Score vs {_pa_lookback}d Mean  (negative = cheap relative to history)",
+                        yaxis_title="Z-Score",
+                        xaxis_title="Symbol",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=380,
+                        margin=dict(t=50, b=40, l=60, r=20),
+                        font=dict(size=13),
+                    )
+                    st.plotly_chart(_fig_pa, use_container_width=True)
+
+                # ── Premium level chart (latest vs mean) ──────────────────────
+                if _valid:
+                    _fig_prem = _go_pa.Figure()
+                    _fig_prem.add_trace(_go_pa.Bar(
+                        name=f"{_pa_lookback}d Avg Premium",
+                        x=[r["symbol"]       for r in _valid],
+                        y=[r["mean_premium"] for r in _valid],
+                        marker_color="#90A4AE",
+                        opacity=0.6,
+                    ))
+                    _fig_prem.add_trace(_go_pa.Scatter(
+                        name="Latest Premium",
+                        x=[r["symbol"]         for r in _valid],
+                        y=[r["latest_premium"] for r in _valid],
+                        mode="markers",
+                        marker=dict(size=14, color=_bar_colors, symbol="diamond"),
+                    ))
+                    _fig_prem.update_layout(
+                        title="Latest Premium vs 30d Average  (diamond = today, bar = mean)",
+                        yaxis_title="Premium / Discount (%)",
+                        xaxis_title="Symbol",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        height=340,
+                        margin=dict(t=50, b=40, l=60, r=20),
+                        legend=dict(orientation="h", y=1.12),
+                        font=dict(size=13),
+                    )
+                    _fig_prem.add_hline(
+                        y=0, line_dash="solid", line_color="#888888", line_width=0.8,
+                        annotation_text="iNAV parity",
+                    )
+                    st.plotly_chart(_fig_prem, use_container_width=True)
+
+                # ── Detail table ──────────────────────────────────────────────
+                with st.expander("📋 Full Signal Table"):
+                    import pandas as _pd_pa
+                    _pa_rows = []
+                    for _r in _pa_results:
+                        _pa_rows.append({
+                            "Symbol":          _r["symbol"],
+                            "Latest Prem (%)": f"{_r['latest_premium']:+.3f}" if _r["latest_premium"] is not None else "—",
+                            f"{_pa_lookback}d Avg (%)": f"{_r['mean_premium']:+.3f}" if _r["mean_premium"] is not None else "—",
+                            "Std Dev":         f"{_r['std_premium']:.4f}"   if _r["std_premium"]    is not None else "—",
+                            "Z-Score":         f"{_r['z_score']:+.3f}"      if _r["z_score"]        is not None else "—",
+                            "Snapshots":       _r["n_snapshots"],
+                            "Action":          _r["action"],
+                            "Note":            _r["error"] or "",
+                        })
+                    st.dataframe(_pd_pa.DataFrame(_pa_rows), use_container_width=True, hide_index=True)
+
+            except Exception as _exc_pa:
+                st.error(f"Premium alerts error: {_exc_pa}")
+    else:
+        st.info("Click **📡 Scan Premiums** to compute Z-scores and render charts.")

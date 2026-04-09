@@ -221,6 +221,24 @@ def run_import(
             from datetime import datetime
             ts = snapshot_rows[0]["snapshot_at"]
             summary_rows.append(("inav", "nse", inserted, str(ts)[:10], str(ts)[:10]))
+
+    # ── Yahoo Live Snapshot (DXY, etc.) ───────────────────────────────────────
+    if "dxy_live" in categories:
+        from src.importer.fetchers.yahoo_snapshot_fetcher import fetch_yahoo_snapshots
+        dxy_symbols = [("DXY", "DX-Y.NYB")]
+
+        console.print(f"\n[bold cyan]▶ YAHOO LIVE SNAPSHOTS[/bold cyan] (DXY)")
+        console.print("  [dim]Live snapshot from Yahoo Finance (DXY every 5m)[/dim]")
+
+        snapshot_rows = fetch_yahoo_snapshots(dxy_symbols)
+        if not snapshot_rows:
+            console.print("  [yellow]⚠ Yahoo returned no data for DXY.[/yellow]")
+        else:
+            inserted = ch.insert_inav_snapshots(snapshot_rows, dry_run=dry_run)
+            console.print(f"  [green]✓[/green] {inserted} snapshot(s) {'(dry-run)' if dry_run else 'stored'}")
+            from datetime import datetime
+            ts = snapshot_rows[0]["snapshot_at"]
+            summary_rows.append(("dxy_live", "yahoo", inserted, str(ts)[:10], str(ts)[:10]))
     # ── MF NAV ────────────────────────────────────────────────────────────
     if "mf" in categories:
         console.print(f"\n[bold cyan]▶ MF NAV[/bold cyan] ({len(MF_SCHEME_CODES)} schemes)")

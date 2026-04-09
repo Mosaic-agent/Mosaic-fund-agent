@@ -56,11 +56,11 @@ log = logging.getLogger(__name__)
 
 # International ETFs affected by the RBI overseas investment cap
 INTL_ETF_SYMBOLS: list[str] = [
-    "MAFANG",
-    "HNGSNGBEES",
-    "MON100",
-    "NIFTYQLITY",
-    "PSUBNKBEES",
+    "MAFANG",       # Mirae Asset NYSE FANG+ ETF
+    "HNGSNGBEES",   # Nippon Hang Seng BeES
+    "MAHKTECH",     # Mirae Asset Hang Seng TECH ETF
+    "MON100",       # Motilal Oswal NASDAQ 100 ETF
+    "MASPTOP50",    # Mirae Asset S&P 500 Top 50 ETF
 ]
 
 _MIN_SNAPSHOTS_DEFAULT = 5
