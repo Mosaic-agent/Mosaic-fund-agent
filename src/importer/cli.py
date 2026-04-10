@@ -474,6 +474,22 @@ def run_import(
                 str(latest_fii["trade_date"]),
             ))
 
+    # ── Expert Tweets ──────────────────────────────────────────────────────────
+    if "expert_tweets" in categories:
+        from src.importer.fetchers.expert_tweets import fetch_expert_tweets
+
+        console.print("\n[bold cyan]▶ Expert Tweets[/bold cyan]")
+        console.print("  [dim]Scraping macro expert feeds via public RSS proxies[/dim]")
+
+        tweet_rows = fetch_expert_tweets()
+        if not tweet_rows:
+            console.print("  [yellow]⚠ No tweets returned — RSS proxies may be down.[/yellow]")
+        else:
+            inserted = ch.insert_news_articles(tweet_rows)
+            console.print(f"  [green]✓[/green] {inserted} tweets {'(dry-run)' if dry_run else 'stored'}")
+            summary_rows.append(("expert_tweets", "rss_proxy", inserted,
+                                  str(today), str(today)))
+
     ch.close()
 
     # ── Summary ────────────────────────────────────────────────────────────

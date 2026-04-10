@@ -21,16 +21,33 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **LightGBM 5-day forecast** — walk-forward forward-return predictor with 14 alpha features
 - **Composite anomaly detection** — Robust Z (MAD) + Random Forest residuals + Isolation Forest
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
-- **Macro & geopolitical scanner** — 8 themes (war, Fed/RBI, crude, INR, trade war, gold, risk-off) mapped to ETF impact, no API key
+- **Macro & geopolitical scanner** — 9 themes (war, Fed/RBI, crude, INR, trade war, gold, risk-off, electrification) mapped to ETF impact
+- **Macro Strategy Agent** — specialized specialist for 2026 "Baton Pass" analysis, institutional tracking, and valuation re-rating
 - **ETF-impact news scanner** — 10 ETF categories tagged with sentiment scores, Google News RSS + Yahoo Finance, no API key
 - **HTML dashboard** — self-contained, auto-refreshes every 5 minutes
 - **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard, market news
 
 ---
 
-## Quick Start
+## Usage
 
-### Prerequisites
+### Macro Strategy Agent (2026 Specialist)
+
+The `macro-strategy-agent` is a specialized specialist designed to identify structural shifts in the 2026 market, specifically the **"Baton Pass" from paper to real assets**. It tracks 9 macro themes, institutional "Whale" moves, and performs valuation re-rating checks.
+
+**Invoke the agent:**
+```bash
+# General delegation (main agent will route to specialist)
+gemini ask "analyze the latest moves in the electrification theme"
+
+# Explicit delegation (@ syntax)
+@macro-strategy-agent analyze the outlook for Gold vs Nifty for 2026
+@macro-strategy-agent check valuation for L&T and Hindalco
+@macro-strategy-agent identify top PSU holdings in Quant Multi-Asset fund
+```
+
+### Portfolio analysis
+
 
 - Python 3.11+
 - Zerodha account (or use `--demo` mode)

@@ -164,6 +164,7 @@ MF_SCHEME_CODES: dict[str, str] = {
     "AUTOBEES":    "149465",   # Nippon India Nifty Auto ETF
     "FMCGIETF":    "149072",   # ICICI Prudential Nifty FMCG ETF
     "SMALL250":    "152455",   # Mirae Asset Nifty Smallcap 250 ETF
+    "BAJAJ_MULTI_ASSET": "152641",
 }
 
 # Watchlist for MF portfolio holdings tracker
@@ -172,6 +173,7 @@ MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
     ("152056", "DSP_MULTI_ASSET",   "INF740KA1TE9"),
     ("120821", "QUANT_MULTI_ASSET", "INF966L01580"),
     ("120334", "ICICI_MULTI_ASSET", "INF109K015K4"),
+    ("152641", "BAJAJ_MULTI_ASSET", "INF0QA701821"),
 ]
 
 # ── Registry lookup ────────────────────────────────────────────────────────────
@@ -199,7 +201,7 @@ INAV_SYMBOLS: list[str] = [
     "HNGSNGBEES", "MAFANG", "MAHKTECH", "MON100", "MASPTOP50",
 ]
 
-ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii"]
+ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii", "expert_tweets"]
 
 
 def get_symbols_for_categories(categories: list[str]) -> dict[str, list[tuple[str, str]]]:

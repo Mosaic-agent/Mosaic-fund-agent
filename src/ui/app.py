@@ -132,8 +132,8 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news = st.tabs(
-    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News"]
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals = st.tabs(
+    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals"]
 )
 
 
@@ -3260,3 +3260,116 @@ with tab_news:
                         f"*{_it['source']} · {str(_it['published_at'])[:16]}*"
                     )
         st.caption(f"Showing ETF news since {_etf_from_str} · from ClickHouse")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 9 — SIGNAL DASHBOARD
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_signals:
+    st.header("🎛️ Signal Dashboard")
+    st.caption(
+        "Composite 0–100 score per ETF from 6 signal sources: "
+        "macro, news sentiment, valuation (NAV Z-score), FII/DII flows, ML prediction, anomaly regime."
+    )
+
+    _sig_run = st.button(
+        "🔄 Run Signal Aggregation + Save to DB",
+        key="run_signals", type="primary",
+    )
+
+    if _sig_run:
+        with st.spinner("Aggregating signals across 6 sources…"):
+            try:
+                from src.agents.signal_aggregator import run_signal_aggregation
+                _sig_report = run_signal_aggregation(save=True, verbose=False)
+                st.success(
+                    f"✓ Scored {len(_sig_report.signals)} ETFs · "
+                    f"Regime: **{_sig_report.regime}**"
+                )
+                st.rerun()
+            except Exception as _exc_sig_run:
+                st.error(f"Signal aggregation error: {_exc_sig_run}")
+
+    # Read from DB
+    try:
+        _sig_df = _query_df(
+            "SELECT as_of, etf_symbol, macro_score, sentiment_score, "
+            "valuation_score, flow_score, ml_score, anomaly_flag, "
+            "composite_score, action "
+            "FROM market_data.signal_composite "
+            "WHERE as_of = (SELECT max(as_of) FROM market_data.signal_composite) "
+            "ORDER BY composite_score DESC"
+        )
+    except Exception:
+        _sig_df = pd.DataFrame()
+
+    if _sig_df.empty:
+        st.info(
+            "No signal data. Run `mosaic signals --save` or click the button above."
+        )
+    else:
+        _sig_date = str(_sig_df["as_of"].iloc[0])
+        st.subheader(f"Composite Scores — {_sig_date}")
+
+        # Summary metrics
+        _buys = int((_sig_df["action"].isin(["BUY", "ACCUMULATE"])).sum())
+        _holds = int((_sig_df["action"] == "HOLD").sum())
+        _sells = int((_sig_df["action"].isin(["TRIM", "AVOID"])).sum())
+        _sc1, _sc2, _sc3, _sc4 = st.columns(4)
+        _sc1.metric("ETFs Scored", len(_sig_df))
+        _sc2.metric("🟢 Buy/Accumulate", _buys)
+        _sc3.metric("🟡 Hold", _holds)
+        _sc4.metric("🔴 Trim/Avoid", _sells)
+
+        # Bar chart of composite scores
+        _chart_df = _sig_df[["etf_symbol", "composite_score"]].set_index("etf_symbol")
+        st.bar_chart(_chart_df, color="#4CAF50")
+
+        # Styled table
+        _ACTION_COLOR = {
+            "BUY": "background-color: #1b5e20; color: white",
+            "ACCUMULATE": "background-color: #2e7d32; color: white",
+            "HOLD": "background-color: #f9a825; color: black",
+            "TRIM": "background-color: #c62828; color: white",
+            "AVOID": "background-color: #b71c1c; color: white",
+        }
+
+        def _style_action(val):
+            return _ACTION_COLOR.get(val, "")
+
+        _display_cols = [
+            "etf_symbol", "composite_score", "action",
+            "macro_score", "sentiment_score", "valuation_score",
+            "flow_score", "ml_score", "anomaly_flag",
+        ]
+        _styled = _sig_df[_display_cols].style.applymap(
+            _style_action, subset=["action"]
+        ).format(
+            {col: "{:.0f}" for col in _display_cols if col.endswith("_score")},
+        )
+        st.dataframe(_styled, use_container_width=True, height=600)
+
+        # Top picks panel
+        _top = _sig_df[_sig_df["action"].isin(["BUY", "ACCUMULATE"])].head(5)
+        if not _top.empty:
+            st.subheader("🟢 Top Picks")
+            for _, _r in _top.iterrows():
+                st.success(
+                    f"**{_r['etf_symbol']}** — {_r['composite_score']:.0f}/100 → {_r['action']}  \n"
+                    f"Macro: {_r['macro_score']:.0f} · Sent: {_r['sentiment_score']:.0f} · "
+                    f"Val: {_r['valuation_score']:.0f} · Flow: {_r['flow_score']:.0f} · "
+                    f"ML: {_r['ml_score']:.0f}"
+                )
+
+        _bottom = _sig_df[_sig_df["action"].isin(["TRIM", "AVOID"])].tail(5)
+        if not _bottom.empty:
+            st.subheader("🔴 Avoid / Trim")
+            for _, _r in _bottom.iterrows():
+                st.error(
+                    f"**{_r['etf_symbol']}** — {_r['composite_score']:.0f}/100 → {_r['action']}  \n"
+                    f"Macro: {_r['macro_score']:.0f} · Sent: {_r['sentiment_score']:.0f} · "
+                    f"Val: {_r['valuation_score']:.0f} · Flow: {_r['flow_score']:.0f} · "
+                    f"ML: {_r['ml_score']:.0f}"
+                )
+
+        st.caption(f"Signal composite as of {_sig_date} · from ClickHouse")

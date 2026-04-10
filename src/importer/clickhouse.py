@@ -250,6 +250,25 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (trade_date)
 """
 
+_DDL_SIGNAL_COMPOSITE = """
+CREATE TABLE IF NOT EXISTS market_data.signal_composite (
+    as_of               Date,
+    etf_symbol          String,
+    macro_score         Float32,
+    sentiment_score     Float32,
+    valuation_score     Float32,
+    flow_score          Float32,
+    ml_score            Float32,
+    anomaly_flag        String,
+    composite_score     Float32,
+    action              String,
+    rationale           String,
+    imported_at         DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (as_of, etf_symbol)
+"""
+
 _DDL_NEWS_ARTICLES = """
 CREATE TABLE IF NOT EXISTS market_data.news_articles (
     fetched_at      DateTime,          -- when we scraped it
@@ -304,6 +323,7 @@ class ClickHouseImporter:
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
             _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
             _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
+            _DDL_SIGNAL_COMPOSITE,
         ):
             self._client.command(ddl)
         logger.debug("ClickHouse schema verified.")
@@ -346,6 +366,42 @@ class ClickHouseImporter:
             ],
         )
         logger.info("Inserted %d news articles into market_data.news_articles", len(rows))
+        return len(rows)
+
+    # ── Bulk insert: signal_composite ────────────────────────────────────────
+
+    def insert_signal_composite(self, rows: list[dict]) -> int:
+        """
+        Insert signal composite scores into market_data.signal_composite.
+
+        Each dict must have keys:
+            as_of, etf_symbol, macro_score, sentiment_score, valuation_score,
+            flow_score, ml_score, anomaly_flag, composite_score, action, rationale
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        data = [
+            [
+                r["as_of"], r["etf_symbol"],
+                r.get("macro_score", 0.0), r.get("sentiment_score", 0.0),
+                r.get("valuation_score", 0.0), r.get("flow_score", 0.0),
+                r.get("ml_score", 0.0), r.get("anomaly_flag", "Normal"),
+                r["composite_score"], r["action"], r.get("rationale", ""),
+            ]
+            for r in rows
+        ]
+        self._client.insert(
+            "market_data.signal_composite",
+            data,
+            column_names=[
+                "as_of", "etf_symbol", "macro_score", "sentiment_score",
+                "valuation_score", "flow_score", "ml_score", "anomaly_flag",
+                "composite_score", "action", "rationale",
+            ],
+        )
+        logger.info("Inserted %d signal composite rows", len(rows))
         return len(rows)
 
     # ── Watermarks ────────────────────────────────────────────────────────────

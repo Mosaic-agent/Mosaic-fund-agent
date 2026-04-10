@@ -68,6 +68,14 @@ ETF-tagged news articles and macro events from free sources.
 - **Populated by**: `mosaic macro --save` and `mosaic etf-news --save`
 - **Queried by**: Streamlit 📰 Market News tab
 
+### `signal_composite`
+Daily per-ETF composite scores from 6 signal sources.
+- **Engine**: `ReplacingMergeTree(imported_at)`
+- **Order Key**: `(as_of, etf_symbol)`
+- **Key Columns**: `macro_score`, `sentiment_score`, `valuation_score`, `flow_score`, `ml_score` (all Float32 0–100), `anomaly_flag` (regime label), `composite_score` (weighted 0–100), `action` (BUY/ACCUMULATE/HOLD/TRIM/AVOID), `rationale`
+- **Populated by**: `mosaic signals --save`
+- **Queried by**: Streamlit 🎛️ Signals tab
+
 ## Querying Tips
 Since tables use `ReplacingMergeTree`, use `argMax` or `FINAL` to get the latest version of a row:
 ```sql

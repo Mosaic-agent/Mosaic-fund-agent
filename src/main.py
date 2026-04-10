@@ -984,5 +984,37 @@ def etf_news(
         console.print(f"[green]✓ Saved {n} ETF news articles to DB.[/green]")
 
 
+@app.command(name="signals")
+def signals_cmd(
+    save: bool = typer.Option(
+        False, "--save", "-s", help="Save composite scores to ClickHouse DB.",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show per-source debug info.",
+    ),
+) -> None:
+    """
+    Run the Signal Aggregator — combine macro, news, valuation, flow,
+    ML, and anomaly signals into a unified per-ETF composite score.
+
+    Each ETF gets a 0–100 score with an action: BUY / ACCUMULATE / HOLD / TRIM / AVOID.
+
+    \b
+    Examples:
+      mosaic signals                # compute and display
+      mosaic signals --save         # compute + persist to ClickHouse
+      mosaic signals --save -v      # verbose logging
+    """
+    _setup_logging()
+
+    from src.agents.signal_aggregator import run_signal_aggregation, print_signal_report
+
+    report = run_signal_aggregation(save=save, verbose=verbose)
+    print_signal_report(report)
+
+    if save:
+        console.print(f"[green]✓ Signal composite saved to DB for {len(report.signals)} ETFs.[/green]")
+
+
 if __name__ == "__main__":
     app()
