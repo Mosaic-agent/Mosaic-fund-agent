@@ -37,7 +37,8 @@ clickhouse-connect>=0.7.0        # Official ClickHouse Python client (HTTP)
 # ── Web UI ────────────────────────────────────────────────────────────────────
 streamlit>=1.35.0                # Data management UI (streamlit run src/ui/app.py)
 altair>=5.0.0                    # Declarative charts for anomaly detection tab
-scikit-learn>=1.4.0              # Isolation Forest + Random Forest anomaly detection
+scikit-learn>=1.4.0              # Isolation Forest anomaly detection (Random Forest removed — use GARCH)
+arch>=6.3.0                      # GARCH(1,1) Student-t conditional volatility — replaces RF in anomaly pipeline
 lightgbm>=4.3.0                  # Gradient boosting for trend prediction (trend_predictor.py)
                                  # macOS: brew install libomp  (required — LightGBM needs OpenMP)
 
@@ -46,7 +47,8 @@ rich>=13.7.0                     # Beautiful terminal output / progress bars
 typer>=0.12.0                    # CLI framework for on-demand commands
 
 # ── MF Holdings (Morningstar) ─────────────────────────────────────────────────
-mstarpy>=0.0.18                  # Morningstar internal API wrapper — fund holdings
+# mstarpy removed — its Selenium-based screener gets blocked by AWS WAF (403).
+# We now call Morningstar's sal-service API directly via httpx (already a dep).
 
 # ── Visualisation ─────────────────────────────────────────────────────────────
 plotly>=5.18.0                   # Interactive charts (pie, line) used in Holdings tab

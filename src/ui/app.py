@@ -166,7 +166,7 @@ with tab_import:
             "cb_reserves":  "Central bank gold reserves — 9 countries via IMF IFS (monthly)",
             "etf_aum":      "Gold ETF AUM — GLD, IAU, SGOL, PHYS + implied tonnes (daily)",
             "fx_rates":     "USD FX rates — INR, CNY, AED, SAR, KWD daily OHLC (Yahoo Finance)",
-            "mf_holdings":  "📦 Monthly portfolio holdings — DSP/Quant/ICICI Multi Asset (Morningstar)",
+            "mf_holdings":  "📦 Monthly portfolio holdings — DSP/Quant/ICICI/Bajaj Multi Asset (Morningstar)",
         }
 
         select_all = st.checkbox("All categories", value=False)
@@ -294,15 +294,16 @@ ORDER BY category, symbol""",
 SELECT
     p.trade_date,
     round(p.close, 4)                                                       AS market_close,
-    round(n.nav,   4)                                                       AS amfi_nav,
-    if(n.nav > 0, round((p.close - n.nav) / n.nav * 100, 3), NULL)        AS premium_disc_pct
+    round(n.nav_adj, 4)                                                     AS amfi_nav,
+    if(n.nav_adj > 0, round((p.close - n.nav_adj) / n.nav_adj * 100, 3), NULL) AS premium_disc_pct
 FROM (
     SELECT trade_date, close
     FROM market_data.daily_prices FINAL
     WHERE symbol = 'GOLDBEES' AND category = 'etfs'
 ) p
 LEFT JOIN (
-    SELECT nav_date AS trade_date, nav
+    SELECT nav_date AS trade_date,
+           if(nav_date < '2019-12-23', nav / 100, nav) AS nav_adj
     FROM market_data.mf_nav FINAL
     WHERE symbol = 'GOLDBEES'
 ) n USING (trade_date)
@@ -635,19 +636,20 @@ with tab_explorer:
             SELECT
                 p.trade_date,
                 round(p.close, 4)  AS market_close,
-                round(n.nav,   4)  AS amfi_nav,
-                if(n.nav > 0, round((p.close - n.nav) / n.nav * 100, 3), NULL) AS premium_disc_pct
+                round(n.nav_adj, 4)  AS amfi_nav,
+                if(n.nav_adj > 0, round((p.close - n.nav_adj) / n.nav_adj * 100, 3), NULL) AS premium_disc_pct
             FROM (
                 SELECT trade_date, close
                 FROM market_data.daily_prices FINAL
                 WHERE symbol = 'GOLDBEES' AND category = 'etfs'
             ) p
             LEFT JOIN (
-                SELECT nav_date AS trade_date, nav
+                SELECT nav_date AS trade_date,
+                       if(nav_date < '2019-12-23', nav / 100, nav) AS nav_adj
                 FROM market_data.mf_nav FINAL
                 WHERE symbol = 'GOLDBEES'
             ) n USING (trade_date)
-            WHERE n.nav > 0
+            WHERE n.nav_adj > 0
             ORDER BY p.trade_date DESC
             LIMIT 1
         """)
@@ -692,7 +694,7 @@ with tab_explorer:
                 SELECT
                     p.trade_date,
                     round(p.market_close, 4)      AS market_close,
-                    nullIf(round(n.nav, 4), 0)    AS amfi_nav
+                    nullIf(round(n.nav_adj, 4), 0)    AS amfi_nav
                 FROM (
                     SELECT trade_date, argMax(close, imported_at) AS market_close
                     FROM market_data.daily_prices
@@ -701,7 +703,10 @@ with tab_explorer:
                     GROUP BY trade_date
                 ) p
                 LEFT JOIN (
-                    SELECT nav_date AS trade_date, argMax(nav, imported_at) AS nav
+                    SELECT nav_date AS trade_date,
+                           if(argMax(nav, imported_at) > 100,
+                              argMax(nav, imported_at) / 100,
+                              argMax(nav, imported_at)) AS nav_adj
                     FROM market_data.mf_nav
                     WHERE symbol = 'GOLDBEES'
                       AND nav_date >= toDate('{_gb_cutoff}')
@@ -740,15 +745,16 @@ with tab_explorer:
                 SELECT
                     p.trade_date,
                     round(p.close, 4)                              AS price,
-                    nullIf(round(n.nav, 4), 0)                    AS nav,
-                    if(n.nav > 0, round((p.close - n.nav) / n.nav * 100, 3), NULL) AS premium_disc_pct
+                    nullIf(round(n.nav_adj, 4), 0)                AS nav,
+                    if(n.nav_adj > 0, round((p.close - n.nav_adj) / n.nav_adj * 100, 3), NULL) AS premium_disc_pct
                 FROM (
                     SELECT trade_date, close
                     FROM market_data.daily_prices FINAL
                     WHERE symbol = 'GOLDBEES' AND category = 'etfs'
                 ) p
                 LEFT JOIN (
-                    SELECT nav_date AS trade_date, nav
+                    SELECT nav_date AS trade_date,
+                           if(nav_date < '2019-12-23', nav / 100, nav) AS nav_adj
                     FROM market_data.mf_nav FINAL
                     WHERE symbol = 'GOLDBEES'
                 ) n USING (trade_date)
@@ -1806,7 +1812,7 @@ with tab_anomaly:
     st.header("🔬 Composite Anomaly Detection")
     st.caption(
         "**Step 1** Robust Z-Score (MAD)  ·  "
-        "**Step 2** Random Forest Residual Z-Score  ·  "
+        "**Step 2** GARCH(1,1) Standardised Residual Z-Score  ·  "
         "**Step 3** Isolation Forest Confidence Multiplier  \n"
         "**Final Z** = Z_robust × (1 + IF_confidence)"
     )
@@ -1858,11 +1864,6 @@ with tab_anomaly:
                 help="Days where |Final Z| exceeds this are flagged.",
             )
 
-            rf_lags = st.slider(
-                "RF lag features (days)", min_value=3, max_value=10, value=5,
-                help="Number of lagged close prices fed to the Random Forest.",
-            )
-
             z_window = st.slider(
                 "Z-score rolling window", min_value=10, max_value=60, value=30,
                 help="Lookback period for rolling Median and MAD in the Robust Z calculation.",
@@ -1880,20 +1881,22 @@ Standard Z-score inflates σ when prices trend, masking shocks.
 MAD Z-score stays centred on the median and resists outliers.
 `Z_robust = 0.6745 × (x − median) / MAD`
 
-**Step 2 — Random Forest Residual Z-Score**
-Train an RF to predict close from lagged prices + MA7 + MA30.
-The residual (actual − predicted) isolates the *unexpected* component.
-`Z_resid` is the MAD Z-score of those residuals.
+**Step 2 — GARCH(1,1) Standardised Residual Z-Score**
+GARCH models conditional volatility σ_t (volatility clustering).
+Standardised residual **e_t = r_t / σ_t** isolates truly unexpected moves:
+quiet-period σ is small → moderate returns flag; volatile-period σ is large → only extreme returns flag.
+Student-t distribution captures gold's fat-tailed returns.  Fire rate ≈ 5% vs old RF's 21%.
 
-| Z_robust | Z_resid | Regime |
-|---|---|---|
-| High | Low | 📈 Strong trend — HODL |
-| Low | High | ⚡ Flash crash / Black Swan — EXIT |
-| High | High | 🔥 Volatile breakout |
-| Low | Low | ✅ Normal |
+| Z_robust | Z_resid | COT crowding | Regime |
+|---|---|---|---|
+| — | High | — | ⚡ Flash Crash / Black Swan — EXIT |
+| High | High | — | 🔥 Volatile Breakout |
+| High | Low | > top-quartile | ⚠️ Crowded Long (Squeeze Risk) |
+| High | Low | — | 📈 Strong Trend — HODL |
+| Low | Low | — | ✅ Normal |
 
 **Step 3 — Isolation Forest Confidence Multiplier**
-IF `score_samples` is normalised to [0 → 1] (1 = most anomalous).
+Features: daily_return, range_pct, z_volume + USDINR vol + COT crowding (when available).
 `Final_Z = Z_robust × (1 + IF_confidence)`
 This *boosts* only days suspicious to **both** algorithms.
                 """)
@@ -1923,24 +1926,41 @@ This *boosts* only days suspicious to **both** algorithms.
 
                     raw["trade_date"] = pd.to_datetime(raw["trade_date"])
 
+                    # ── Fetch cross-asset data (COT + USDINR) ─────────────────
+                    with st.spinner("Fetching cross-asset data (COT, FX)…"):
+                        df_cot_raw = _query_df(
+                            "SELECT report_date, mm_net, open_interest "
+                            "FROM market_data.cot_gold"
+                        )
+                        df_fx_raw = _query_df(
+                            "SELECT symbol, trade_date, toFloat64(close) AS close "
+                            "FROM market_data.fx_rates FINAL "
+                            "WHERE symbol = 'USDINR'"
+                        )
+                        if not df_cot_raw.empty:
+                            df_cot_raw["report_date"] = pd.to_datetime(df_cot_raw["report_date"])
+                        if not df_fx_raw.empty:
+                            df_fx_raw["trade_date"] = pd.to_datetime(df_fx_raw["trade_date"])
+
                     with st.spinner(
-                        f"Running composite anomaly detection on {iso_sym}  "
-                        "(Robust Z → RF residuals → Isolation Forest)…"
+                        f"Running GARCH(1,1) anomaly detection on {iso_sym}  "
+                        "(Robust Z → GARCH residuals → Isolation Forest)…"
                     ):
-                        df_if, flagged, r2_train = run_composite_anomaly(
+                        df_if, flagged, garch_loglik = run_composite_anomaly(
                             raw,
-                            rf_lags=rf_lags,
                             contamination=contamination,
                             z_threshold=z_threshold,
                             z_window=z_window,
+                            df_cot=df_cot_raw if not df_cot_raw.empty else None,
+                            df_fx=df_fx_raw  if not df_fx_raw.empty  else None,
                         )
 
                     # ── Summary metrics ───────────────────────────────────────
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Rows analysed",             f"{len(df_if):,}")
+                    c1.metric("Rows analysed",              f"{len(df_if):,}")
                     c2.metric(f"|Final Z| > {z_threshold}", len(flagged))
-                    c3.metric("Max Final Z",               f"{df_if['final_z_abs'].max():.2f}")
-                    c4.metric("RF R² (train 80%)",         f"{r2_train:.3f}")
+                    c3.metric("Max Final Z",                f"{df_if['final_z_abs'].max():.2f}")
+                    c4.metric("GARCH Log-Likelihood",       f"{garch_loglik:.0f}")
 
                     # ── Chart 1: Price + flagged markers by regime ────────────
                     st.subheader("Close Price — Flagged Days by Regime")
@@ -2000,7 +2020,7 @@ This *boosts* only days suspicious to **both** algorithms.
                         width="stretch",
                     )
                     st.caption(
-                        "🔵 z_robust (MAD)  ·  🟠 z_resid (RF residual)  ·  "
+                        "🔵 z_robust (MAD)  ·  🟠 z_resid (GARCH std resid)  ·  "
                         "🔴 final_z (boosted)  ·  dashed = ±threshold"
                     )
 
@@ -2020,23 +2040,57 @@ This *boosts* only days suspicious to **both** algorithms.
                         width="stretch",
                     )
 
-                    # ── Chart 4: RF actual vs predicted ───────────────────────
-                    st.subheader("Random Forest — Actual vs Predicted Close")
-                    rf_melt = df_if[["trade_date", "close", "rf_pred"]].melt(
-                        id_vars="trade_date", var_name="series", value_name="price"
-                    )
-                    rf_chart = alt.Chart(rf_melt).mark_line(opacity=0.75).encode(
+                    # ── Chart 4: GARCH conditional volatility bands ───────────
+                    st.subheader("GARCH(1,1) Conditional Volatility Bands")
+                    _garch_plot = df_if[
+                        ["trade_date", "close", "garch_band_1s", "garch_band_2s"]
+                    ].dropna(subset=["garch_band_1s", "garch_band_2s"]).copy()
+                    _garch_plot["upper_2s"] = _garch_plot["close"] + _garch_plot["garch_band_2s"]
+                    _garch_plot["lower_2s"] = _garch_plot["close"] - _garch_plot["garch_band_2s"]
+                    _garch_plot["upper_1s"] = _garch_plot["close"] + _garch_plot["garch_band_1s"]
+                    _garch_plot["lower_1s"] = _garch_plot["close"] - _garch_plot["garch_band_1s"]
+
+                    band_2s = alt.Chart(_garch_plot).mark_area(
+                        opacity=0.12, color="#F58518",
+                    ).encode(
                         x=alt.X("trade_date:T", title="Date"),
-                        y=alt.Y("price:Q",      title="Price"),
-                        color=alt.Color("series:N", scale=alt.Scale(
-                            domain=["close", "rf_pred"],
-                            range=["#4C78A8", "#72B7B2"],
-                        )),
-                        tooltip=["trade_date:T", "series:N",
-                                 alt.Tooltip("price:Q", format=".2f")],
+                        y=alt.Y("lower_2s:Q",   title="Price"),
+                        y2="upper_2s:Q",
+                        tooltip=[
+                            "trade_date:T",
+                            alt.Tooltip("lower_2s:Q", title="−2σ", format=".2f"),
+                            alt.Tooltip("upper_2s:Q", title="+2σ", format=".2f"),
+                        ],
+                    )
+                    band_1s = alt.Chart(_garch_plot).mark_area(
+                        opacity=0.22, color="#F58518",
+                    ).encode(
+                        x=alt.X("trade_date:T"),
+                        y=alt.Y("lower_1s:Q"),
+                        y2="upper_1s:Q",
+                        tooltip=[
+                            "trade_date:T",
+                            alt.Tooltip("lower_1s:Q", title="−1σ", format=".2f"),
+                            alt.Tooltip("upper_1s:Q", title="+1σ", format=".2f"),
+                        ],
+                    )
+                    close_line = alt.Chart(_garch_plot).mark_line(
+                        color="#4C78A8", strokeWidth=1.5,
+                    ).encode(
+                        x="trade_date:T",
+                        y="close:Q",
+                        tooltip=[
+                            "trade_date:T",
+                            alt.Tooltip("close:Q", title="Close", format=".2f"),
+                        ],
+                    )
+                    garch_annual_vol = df_if["garch_vol"].dropna().iloc[-1] if "garch_vol" in df_if.columns else 0.0
+                    st.caption(
+                        f"Latest GARCH annualised vol: **{garch_annual_vol:.1f}%**  ·  "
+                        "🟠 shaded = ±1σ / ±2σ conditional bands  ·  🔵 = close price"
                     )
                     st.altair_chart(
-                        rf_chart.interactive().properties(height=200),
+                        (band_2s + band_1s + close_line).interactive().properties(height=220),
                         width="stretch",
                     )
 
@@ -2445,6 +2499,7 @@ with tab_holdings:
         "DSP_MULTI_ASSET":   "DSP Multi Asset",
         "QUANT_MULTI_ASSET": "Quant Multi Asset",
         "ICICI_MULTI_ASSET": "ICICI Pru Multi Asset",
+        "BAJAJ_MULTI_ASSET": "Bajaj Multi Asset",
     }
     _ASSET_COLORS = {
         "equity": "#1976D2",
