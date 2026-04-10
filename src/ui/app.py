@@ -1903,8 +1903,10 @@ This *boosts* only days suspicious to **both** algorithms.
 
             if run_btn:
                 try:
+                    import importlib, src.ml.anomaly as _anomaly_mod
+                    importlib.reload(_anomaly_mod)
+                    run_composite_anomaly = _anomaly_mod.run_composite_anomaly
                     import altair as alt
-                    from src.ml.anomaly import run_composite_anomaly
 
                     with st.spinner(f"Fetching {iso_sym} data from ClickHouse…"):
                         raw = _query_df(
