@@ -22,7 +22,7 @@ Alpha factors
   f_aum_mom_30d        AUM Momentum        30-day log % Δ of GLD total assets
   f_usdinr_vol14       Currency Stress     14-day USDINR log-return vol × 100
   f_usdinr_60d         INR Trend           60-day USDINR log % change
-  f_dxy_proxy          DXY proxy           −(5-day USDINR log return × 100)
+  f_dxy_proxy          DXY proxy           USDINR log-return proxy (dropped if real DXY available)
   f_gold_logret5       COMEX momentum      5-day log return of COMEX GOLD
   f_dxy_logret5        Real DXY            5-day DXY log return  (DX-Y.NYB via yfinance)
   f_dxy_logret20       Real DXY            20-day DXY log return
@@ -33,7 +33,7 @@ Alpha factors
   f_gsr                Gold-Silver Ratio   gold_close / silver_close  (risk-on/off regime)
   f_gsr_zscore         GSR z-score         rolling 60-day z-score of f_gsr
   f_month_sin/cos      Seasonality         cyclical month encoding (wedding / CNY / Q4)
-  f_dow                Day-of-week         0=Mon → 1=Fri (Friday effect)
+  f_dow_sin/cos        Seasonality         cyclical day-of-week encoding
   f_fii_net_5d         FII Flow            5-day rolling sum of FII net cash flows (₹ Cr)
   f_dii_net_5d         DII Flow            5-day rolling sum of DII net cash flows (₹ Cr)
   f_inst_net_momentum  Inst. Impulse       5-day combined FII+DII net flow
@@ -44,8 +44,8 @@ Target: ln(close[t + horizon] / close[t])  — stationary log return
 Training: TimeSeriesSplit expanding-window walk-forward (gap = 2× horizon).
   min_train_size ensures early folds always have sufficient history.
 Model:    LGBMRegressor with L1+L2 regularisation + early stopping.
-  Early stopping uses the last 15% of each training fold as an internal
-  validation set — test fold is never touched so there is no leakage.
+  Generates true statistical confidence intervals using Quantile Regression
+  (10th and 90th percentiles) on the final training window.
 Metrics:  CV R² per fold  +  Hit Ratio (directional accuracy)
 
 Public API
@@ -129,7 +129,7 @@ _MASTER_SQL = """
             WHERE symbol = 'GOLDBEES' AND category = 'etfs'
         ) d
         CROSS JOIN market_data.cot_gold c
-        WHERE c.report_date <= d.trade_date
+        WHERE addDays(c.report_date, 3) <= d.trade_date
         GROUP BY d.trade_date
     ) cot ON p.trade_date = cot.trade_date
     LEFT JOIN (
@@ -306,10 +306,13 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         df["f_gold_logret5"] = np.log(gc / gc.shift(5)) * 100
 
     # ── 10. Real DXY — Dollar Index (replaces the USDINR proxy when available) ─
-    if "dxy_close" in df.columns:
+    if "dxy_close" in df.columns and df["dxy_close"].notna().any():
         dxy = df["dxy_close"].replace(0, np.nan)
         df["f_dxy_logret5"]  = np.log(dxy / dxy.shift(5))  * 100
         df["f_dxy_logret20"] = np.log(dxy / dxy.shift(20)) * 100
+        # Drop proxy to reduce collinearity noise
+        if "f_dxy_proxy" in df.columns:
+            df.drop(columns=["f_dxy_proxy"], inplace=True)
 
     # ── 11. US 10Y yield — real rate proxy (core gold headwind / tailwind) ────
     if "us10y_close" in df.columns:
@@ -342,9 +345,13 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # (Jan–Feb), Q4 institutional rebalancing, Friday option-expiry effect.
     df["f_month_sin"] = np.sin(2 * np.pi * df["trade_date"].dt.month / 12)
     df["f_month_cos"] = np.cos(2 * np.pi * df["trade_date"].dt.month / 12)
-    df["f_dow"]       = df["trade_date"].dt.dayofweek / 4.0   # 0=Mon → 1=Fri
+    
+    # 5-day trading week cyclical encoding
+    dow = df["trade_date"].dt.dayofweek
+    df["f_dow_sin"] = np.sin(2 * np.pi * dow / 5)
+    df["f_dow_cos"] = np.cos(2 * np.pi * dow / 5)
 
-    # ── 13. Institutional flow features (FII / DII) ───────────────────────────
+    # ── 15. Institutional flow features (FII / DII) ───────────────────────────
     # FII and DII net flows are major NSE market drivers.  Using rolling 5-day
     # sums makes the signal stationary and reduces single-day noise.
     if "fii_net_cr" in df.columns and "dii_net_cr" in df.columns:
@@ -453,15 +460,35 @@ def fit_walk_forward(
     # min_train_size: ensure early folds have enough history to train on
     min_train_size = max(_MIN_ROWS // (n_splits + 1), 60)
     tscv = TimeSeriesSplit(n_splits=n_splits, gap=gap)
-    models: list[Any]   = []
-    scores: list[float] = []
-    hit_ratios: list[float] = []
+
+    # Shared hyperparameters (objective-agnostic).
+    # n_estimators=800 is the ceiling; early stopping decides actual rounds
+    # PER OBJECTIVE — quantile trees converge differently than MSE trees.
+    base_params = dict(
+        n_estimators      = 800,
+        learning_rate     = 0.03,
+        max_depth         = 4,
+        num_leaves        = 15,
+        subsample         = 0.8,
+        colsample_bytree  = 0.7,
+        min_child_samples = 15,
+        reg_alpha         = 0.15,   # L1 — prunes noisy features
+        reg_lambda        = 0.15,   # L2 — shrinks coefficients
+        random_state      = 42,
+        verbose           = -1,
+    )
+
+    models_mean: list[Any] = []
+    models_low:  list[Any] = []
+    models_high: list[Any] = []
+    scores:      list[float] = []
+    hit_ratios:  list[float] = []
 
     for train_idx, test_idx in tscv.split(X):
         if len(train_idx) < min_train_size:
             continue  # skip folds where training set is too thin
 
-        # Reserve the last 15% of the training window as an internal validation
+        # Reserve last 15 % of the training window as an internal validation
         # set for early stopping.  The held-out test fold is never used here —
         # no hyperparameter leakage.  Fall back to full fit when fold is tiny.
         n_train  = len(train_idx)
@@ -470,51 +497,86 @@ def fit_walk_forward(
         if use_es:
             train_part = train_idx[: n_train - val_size]
             val_part   = train_idx[n_train - val_size :]
+            eval_set   = [(X.iloc[val_part], y[val_part])]
+            callbacks  = [
+                lgb.early_stopping(stopping_rounds=50, verbose=False),
+                lgb.log_evaluation(period=0),
+            ]
         else:
             train_part = train_idx
+            eval_set   = None
+            callbacks  = None
 
-        m = lgb.LGBMRegressor(
-            n_estimators      = 800,   # high ceiling; early stopping decides actual rounds
-            learning_rate     = 0.03,
-            max_depth         = 4,
-            num_leaves        = 15,
-            subsample         = 0.8,
-            colsample_bytree  = 0.7,
-            min_child_samples = 15,
-            reg_alpha         = 0.15,   # L1 — prunes noisy features
-            reg_lambda        = 0.15,   # L2 — shrinks coefficients
-            random_state      = 42,
-            verbose           = -1,
-        )
-        if use_es:
-            m.fit(
-                X.iloc[train_part], y[train_part],
-                eval_set=[(X.iloc[val_part], y[val_part])],
-                callbacks=[
-                    lgb.early_stopping(stopping_rounds=50, verbose=False),
-                    lgb.log_evaluation(period=0),
-                ],
-            )
-        else:
-            m.fit(X.iloc[train_idx], y[train_idx])
+        # Train all three models per fold so each objective's n_estimators is
+        # calibrated independently — quantile trees converge at a different depth
+        # than MSE trees, so reusing the mean model's best_iteration_ is wrong.
+        m_fold_mean = lgb.LGBMRegressor(objective="regression", **base_params)
+        m_fold_low  = lgb.LGBMRegressor(objective="quantile",   alpha=0.10, **base_params)
+        m_fold_high = lgb.LGBMRegressor(objective="quantile",   alpha=0.90, **base_params)
 
-        y_pred = m.predict(X.iloc[test_idx])
+        fit_kwargs = dict(
+            eval_set=eval_set, callbacks=callbacks,
+        ) if use_es else {}
+        X_tr, y_tr = X.iloc[train_part], y[train_part]
+
+        m_fold_mean.fit(X_tr, y_tr, **fit_kwargs)
+        m_fold_low.fit( X_tr, y_tr, **fit_kwargs)
+        m_fold_high.fit(X_tr, y_tr, **fit_kwargs)
+
+        # Evaluate on the unseen test fold using the mean model only
+        y_pred = m_fold_mean.predict(X.iloc[test_idx])
         y_true = y[test_idx]
-        scores.append(float(m.score(X.iloc[test_idx], y_true)))
-        # Hit ratio: fraction of days where predicted direction == actual
+        scores.append(float(m_fold_mean.score(X.iloc[test_idx], y_true)))
         hit_ratios.append(float(np.mean(np.sign(y_pred) == np.sign(y_true))))
-        models.append(m)
 
-    if not models:
+        models_mean.append(m_fold_mean)
+        models_low.append(m_fold_low)
+        models_high.append(m_fold_high)
+
+    if not models_mean:
         raise ValueError(
             "All CV folds were skipped (too few rows per fold). "
             "Reduce n_splits or import more data."
         )
 
+    # ── Final models — trained on the FULL clean dataset ─────────────────────
+    # n_estimators is derived from the average best_iteration_ across the last
+    # k folds, separately per objective so quantile models are not over/under-fit.
+    def _avg_best_iter(fold_models: list[Any], fallback: int = 200) -> int:
+        iters = [
+            m.best_iteration_
+            for m in fold_models
+            if hasattr(m, "best_iteration_") and m.best_iteration_
+        ]
+        return int(np.mean(iters)) if iters else fallback
+
+    final_params = {k: v for k, v in base_params.items() if k != "n_estimators"}
+
+    m_mean = lgb.LGBMRegressor(
+        objective="regression",
+        n_estimators=_avg_best_iter(models_mean),
+        **final_params,
+    )
+    m_mean.fit(X, y)
+
+    m_low = lgb.LGBMRegressor(
+        objective="quantile", alpha=0.10,
+        n_estimators=_avg_best_iter(models_low),
+        **final_params,
+    )
+    m_low.fit(X, y)
+
+    m_high = lgb.LGBMRegressor(
+        objective="quantile", alpha=0.90,
+        n_estimators=_avg_best_iter(models_high),
+        **final_params,
+    )
+    m_high.fit(X, y)
+
     # Average importances over the last k folds for stability
-    k = min(3, len(models))
+    k = min(3, len(models_mean))
     avg_imp = np.mean(
-        [m.feature_importances_ for m in models[-k:]], axis=0
+        [m.feature_importances_ for m in models_mean[-k:]], axis=0
     ).tolist()
     fi_df = (
         pd.DataFrame({"feature": feature_cols, "importance": avg_imp})
@@ -523,10 +585,12 @@ def fit_walk_forward(
     )
 
     log.info(
-        "Walk-forward: %d folds, R²mean=%.4f, hit_mean=%.3f",
-        len(models), np.mean(scores), np.mean(hit_ratios),
+        "Walk-forward: %d folds, R²mean=%.4f, hit_mean=%.3f  "
+        "[n_est: mean=%d low=%d high=%d]",
+        len(models_mean), np.mean(scores), np.mean(hit_ratios),
+        m_mean.n_estimators_, m_low.n_estimators_, m_high.n_estimators_,
     )
-    return models[-1], fi_df, scores, hit_ratios, df_clean, feature_cols
+    return (m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols
 
 
 # ── Step 5: Public API ────────────────────────────────────────────────────────
@@ -576,7 +640,7 @@ def run_trend_prediction(
     df_feat    = engineer_features(df_raw)
     df_labeled = label_forward_return(df_feat, horizon=horizon)
 
-    model, fi_df, scores, hit_ratios, df_clean, feature_cols = fit_walk_forward(
+    (m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols = fit_walk_forward(
         df_labeled, n_splits=n_splits, gap=_GAP
     )
 
@@ -590,12 +654,22 @@ def run_trend_prediction(
             "Run: mosaic import --category etfs mf cot"
         )
     latest_row  = df_pred_eligible.iloc[[-1]]
-    pred_logret = float(model.predict(latest_row)[0])   # log return (stationary)
-    pred        = (np.exp(pred_logret) - 1) * 100        # convert to % for display
+    
+    # ── 1. Mean prediction (log return → %) ──
+    pred_logret = float(m_mean.predict(latest_row)[0])
+    pred        = (np.exp(pred_logret) - 1) * 100
 
-    # Confidence band widens when CV scores are inconsistent
-    cv_std    = float(np.std(scores))
-    band_half = max(abs(pred) * (1.0 + cv_std), 0.3)
+    # ── 2. Quantile Confidence Bands (true statistical bounds) ──
+    # Predicted 10th and 90th percentiles for the forward log-return.
+    low_logret  = float(m_low.predict(latest_row)[0])
+    high_logret = float(m_high.predict(latest_row)[0])
+    
+    conf_low  = (np.exp(low_logret) - 1) * 100
+    conf_high = (np.exp(high_logret) - 1) * 100
+
+    # Ensure logical order (m_low might occasionally cross m_mean due to noise)
+    conf_low  = min(conf_low, pred - 0.2)
+    conf_high = max(conf_high, pred + 0.2)
 
     # Regime classification
     if pred >= _BUY_THRESH:
@@ -631,8 +705,8 @@ def run_trend_prediction(
 
     result: dict[str, Any] = {
         "expected_return_pct": round(pred, 3),
-        "confidence_low":      round(pred - band_half, 3),
-        "confidence_high":     round(pred + band_half, 3),
+        "confidence_low":      round(conf_low, 3),
+        "confidence_high":     round(conf_high, 3),
         "regime_signal":       regime,
         "regime_rationale":    rationale,
         "feature_importances": fi_df,
