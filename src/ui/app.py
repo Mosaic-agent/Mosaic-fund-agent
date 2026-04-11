@@ -2042,21 +2042,33 @@ This *boosts* only days suspicious to **both** algorithms.
                         width="stretch",
                     )
 
-                    # ── Chart 4: GARCH conditional volatility bands ───────────
-                    st.subheader("GARCH(1,1) Conditional Volatility Bands")
-                    _garch_plot = df_if[
-                        ["trade_date", "close", "garch_band_1s", "garch_band_2s"]
-                    ].dropna(subset=["garch_band_1s", "garch_band_2s"]).copy()
-                    _garch_plot["upper_2s"] = _garch_plot["close"] + _garch_plot["garch_band_2s"]
-                    _garch_plot["lower_2s"] = _garch_plot["close"] - _garch_plot["garch_band_2s"]
-                    _garch_plot["upper_1s"] = _garch_plot["close"] + _garch_plot["garch_band_1s"]
-                    _garch_plot["lower_1s"] = _garch_plot["close"] - _garch_plot["garch_band_1s"]
+                    # ── Chart 4: GARCH dual-panel ─────────────────────────────
+                    # Panel A — last 90 days zoomed so ±1σ/±2σ bands are visible.
+                    # Panel B — full-history annualised vol % (the real signal).
+                    st.subheader("GARCH(1,1) Conditional Volatility")
+                    garch_annual_vol = float(df_if["garch_vol"].dropna().iloc[-1]) \
+                        if "garch_vol" in df_if.columns else 0.0
 
-                    band_2s = alt.Chart(_garch_plot).mark_area(
-                        opacity=0.12, color="#F58518",
+                    _garch_all = df_if[
+                        ["trade_date", "close", "garch_band_1s", "garch_band_2s", "garch_vol"]
+                    ].dropna(subset=["garch_band_1s", "garch_band_2s"]).copy()
+                    _garch_all["upper_2s"] = _garch_all["close"] + _garch_all["garch_band_2s"]
+                    _garch_all["lower_2s"] = _garch_all["close"] - _garch_all["garch_band_2s"]
+                    _garch_all["upper_1s"] = _garch_all["close"] + _garch_all["garch_band_1s"]
+                    _garch_all["lower_1s"] = _garch_all["close"] - _garch_all["garch_band_1s"]
+
+                    # Panel A: last 90 days — bands are ~2-3% of price, visible at this zoom
+                    _garch_90 = _garch_all.tail(90).reset_index(drop=True)
+                    _ya_min = float(_garch_90["lower_2s"].min())
+                    _ya_max = float(_garch_90["upper_2s"].max())
+                    _ya_pad = (_ya_max - _ya_min) * 0.08
+                    _ya_scale = alt.Scale(domain=[_ya_min - _ya_pad, _ya_max + _ya_pad], zero=False)
+
+                    _band2 = alt.Chart(_garch_90).mark_area(
+                        opacity=0.20, color="#F58518",
                     ).encode(
-                        x=alt.X("trade_date:T", title="Date"),
-                        y=alt.Y("lower_2s:Q",   title="Price"),
+                        x=alt.X("trade_date:T", title=None, axis=alt.Axis(labels=False)),
+                        y=alt.Y("lower_2s:Q", title="Price", scale=_ya_scale),
                         y2="upper_2s:Q",
                         tooltip=[
                             "trade_date:T",
@@ -2064,11 +2076,11 @@ This *boosts* only days suspicious to **both** algorithms.
                             alt.Tooltip("upper_2s:Q", title="+2σ", format=".2f"),
                         ],
                     )
-                    band_1s = alt.Chart(_garch_plot).mark_area(
-                        opacity=0.22, color="#F58518",
+                    _band1 = alt.Chart(_garch_90).mark_area(
+                        opacity=0.35, color="#F58518",
                     ).encode(
-                        x=alt.X("trade_date:T"),
-                        y=alt.Y("lower_1s:Q"),
+                        x=alt.X("trade_date:T", axis=alt.Axis(labels=False)),
+                        y=alt.Y("lower_1s:Q", scale=_ya_scale),
                         y2="upper_1s:Q",
                         tooltip=[
                             "trade_date:T",
@@ -2076,23 +2088,51 @@ This *boosts* only days suspicious to **both** algorithms.
                             alt.Tooltip("upper_1s:Q", title="+1σ", format=".2f"),
                         ],
                     )
-                    close_line = alt.Chart(_garch_plot).mark_line(
+                    _close90 = alt.Chart(_garch_90).mark_line(
                         color="#4C78A8", strokeWidth=1.5,
                     ).encode(
-                        x="trade_date:T",
-                        y="close:Q",
+                        x=alt.X("trade_date:T", axis=alt.Axis(labels=False)),
+                        y=alt.Y("close:Q", scale=_ya_scale),
                         tooltip=[
                             "trade_date:T",
                             alt.Tooltip("close:Q", title="Close", format=".2f"),
                         ],
                     )
-                    garch_annual_vol = df_if["garch_vol"].dropna().iloc[-1] if "garch_vol" in df_if.columns else 0.0
+                    panel_a = (_band2 + _band1 + _close90).properties(
+                        height=180,
+                        title=alt.TitleParams(
+                            "Last 90 days — price with ±1σ / ±2σ bands",
+                            fontSize=12, color="gray",
+                        ),
+                    )
+
+                    # Panel B: full history annualised vol %
+                    _vol_df = _garch_all[["trade_date", "garch_vol"]].dropna()
+                    _vol_line = alt.Chart(_vol_df).mark_area(
+                        color="#E45756", opacity=0.35, line={"color": "#E45756", "strokeWidth": 1},
+                    ).encode(
+                        x=alt.X("trade_date:T", title="Date"),
+                        y=alt.Y("garch_vol:Q", title="Ann. Vol %", scale=alt.Scale(zero=True)),
+                        tooltip=[
+                            "trade_date:T",
+                            alt.Tooltip("garch_vol:Q", title="Ann. Vol %", format=".1f"),
+                        ],
+                    )
+                    panel_b = _vol_line.properties(
+                        height=120,
+                        title=alt.TitleParams(
+                            "Full history — GARCH annualised volatility %",
+                            fontSize=12, color="gray",
+                        ),
+                    )
+
                     st.caption(
                         f"Latest GARCH annualised vol: **{garch_annual_vol:.1f}%**  ·  "
-                        "🟠 shaded = ±1σ / ±2σ conditional bands  ·  🔵 = close price"
+                        "🟠 bands = ±1σ (darker) / ±2σ (lighter)  ·  🔵 = close  ·  "
+                        "🔴 panel = conditional vol regime"
                     )
                     st.altair_chart(
-                        (band_2s + band_1s + close_line).interactive().properties(height=220),
+                        alt.vconcat(panel_a, panel_b).resolve_scale(x="shared").interactive(),
                         width="stretch",
                     )
 
