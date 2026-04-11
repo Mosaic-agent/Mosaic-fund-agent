@@ -18,36 +18,20 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **ETF premium/discount** — live iNAV vs market price for every ETF holding
 - **COMEX pre-market signals** — Gold, Silver, Copper, Platinum, Palladium vs previous close
 - **Who Is Selling?** — institutional sell-off attribution (retail panic / institutional exit / speculator crowding)
-- **LightGBM 5-day forecast** — walk-forward forward-return predictor with 14 alpha features
-- **Composite anomaly detection** — Robust Z (MAD) + Random Forest residuals + Isolation Forest
+- **LightGBM 5-day forecast** — walk-forward predictor with 25 alpha features + quantile regression 80% CI
+- **GARCH(1,1) anomaly detection** — conditional volatility residuals + cross-asset Isolation Forest (COT + USDINR)
+- **Risk Governor** — continuous inverse-vol position sizing (`w = vol_target / σ_t`) with regime + score overrides
+- **Quant Scorecard** — Gold + Silver 4-pillar scores (Macro/Flows/Valuation/Momentum) with stale-data guards
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
-- **Macro & geopolitical scanner** — 9 themes (war, Fed/RBI, crude, INR, trade war, gold, risk-off, electrification) mapped to ETF impact
-- **Macro Strategy Agent** — specialized specialist for 2026 "Baton Pass" analysis, institutional tracking, and valuation re-rating
-- **ETF-impact news scanner** — 10 ETF categories tagged with sentiment scores, Google News RSS + Yahoo Finance, no API key
 - **HTML dashboard** — self-contained, auto-refreshes every 5 minutes
-- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard, market news
+- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard
+- **Gemini CLI agents** — macro strategy agent + 4 skills discoverable from `.gemini/`
 
 ---
 
-## Usage
+## Quick Start
 
-### Macro Strategy Agent (2026 Specialist)
-
-The `macro-strategy-agent` is a specialized specialist designed to identify structural shifts in the 2026 market, specifically the **"Baton Pass" from paper to real assets**. It tracks 9 macro themes, institutional "Whale" moves, and performs valuation re-rating checks.
-
-**Invoke the agent:**
-```bash
-# General delegation (main agent will route to specialist)
-gemini ask "analyze the latest moves in the electrification theme"
-
-# Explicit delegation (@ syntax)
-@macro-strategy-agent analyze the outlook for Gold vs Nifty for 2026
-@macro-strategy-agent check valuation for L&T and Hindalco
-@macro-strategy-agent identify top PSU holdings in Quant Multi-Asset fund
-```
-
-### Portfolio analysis
-
+### Prerequisites
 
 - Python 3.11+
 - Zerodha account (or use `--demo` mode)
@@ -110,21 +94,6 @@ python src/main.py ask "am I overexposed to IT sector?"
 python src/main.py ask "which ETFs are trading at a premium?"
 ```
 
-### Market news (no API key)
-
-```bash
-# Scan macro & geopolitical events → map to ETF directional impact
-python src/main.py macro                 # print to terminal
-python src/main.py macro --save          # scan + persist to ClickHouse
-
-# Fetch ETF-tagged news with sentiment scores
-python src/main.py etf-news              # all categories
-python src/main.py etf-news --category "Gold ETFs"   # single category
-python src/main.py etf-news --save       # scan + persist to ClickHouse
-```
-
-After saving, open the **📰 Market News** tab in the Streamlit UI to browse news by date, theme, and category — sourced from ClickHouse.
-
 ### Other commands
 
 ```bash
@@ -170,40 +139,60 @@ See [docs/import-schema.md](docs/import-schema.md) for all categories, the full 
 
 | Doc | What's in it |
 |---|---|
+| [docs/architecture.md](docs/architecture.md) | Full system architecture — data flow, agents, tools, ML, ClickHouse schema, design patterns |
 | [docs/import-schema.md](docs/import-schema.md) | All import categories, ClickHouse tables, cron schedule |
 | [docs/data-sources.md](docs/data-sources.md) | APIs and data sources used |
-| [docs/anomaly-detection.md](docs/anomaly-detection.md) | How the 3-step anomaly pipeline works |
-| [docs/ml-forecast.md](docs/ml-forecast.md) | LightGBM feature set, regime signals, accuracy tracking |
+| [docs/anomaly-detection.md](docs/anomaly-detection.md) | GARCH(1,1) anomaly pipeline — regimes, cross-asset IF, Risk Governor integration |
+| [docs/ml-forecast.md](docs/ml-forecast.md) | LightGBM 25-feature set, quantile CI, COT lag fix, regime signals |
 | [docs/configuration.md](docs/configuration.md) | All `.env` settings |
+| [docs/gemini-prompts.md](docs/gemini-prompts.md) | 20 ready-to-use Gemini CLI prompts |
 
 ---
 
 ## Project Structure
 
 ```
-config/settings.py              Pydantic settings
+config/settings.py              Pydantic settings (LLM, ClickHouse, API keys, market constants)
 src/
-  main.py                       CLI (typer)
-  agents/                       portfolio, comex, news, visualization
+  main.py                       CLI — 13 commands (analyze, import, signals, macro, comex, …)
+  agents/
+    portfolio_agent.py          Zerodha portfolio → enrich → LLM score → HTML dashboard
+    comex_agent.py              Pre-market commodity signals (XAU, XAG, XPT, XPD, HG)
+    news_sentiment_agent.py     Multi-source news sentiment (NewsAPI + GNews)
+    signal_aggregator.py        6-pillar composite ETF scores 0–100 → BUY/HOLD/SELL
+    visualization_agent.py      React HTML dashboard from JSON report
   analyzers/                    asset_analyzer, portfolio_analyzer
   clients/mcp_client.py         Zerodha Kite MCP (JSON-RPC 2.0)
-  importer/                     Delta-sync importer
-    cli.py                      run_import() logic
-    clickhouse.py               Schema DDL + bulk inserts + watermarks
-    registry.py                 Symbol registry
-    fetchers/                   One file per data source
+  importer/
+    cli.py                      run_import() — delta-sync entry point
+    clickhouse.py               Schema DDL, bulk inserts, watermark management
+    registry.py                 Symbol catalogs (50 stocks, 30+ ETFs, 7 commodities, …)
+    fetchers/                   One file per external data source
   ml/
-    anomaly.py                  Composite anomaly detection
-    trend_predictor.py          LightGBM 5-day predictor
+    trend_predictor.py          LightGBM 5-day return predictor (25 alpha features, quantile CI)
+    anomaly.py                  Robust Z + GARCH(1,1) Student-t + cross-asset Isolation Forest
   tools/
-    who_is_selling_agent.py     Sell-off attribution
-    market_context.py           FII/DII context for LLM prompt
-    macro_event_scanner.py      8-theme macro/geopolitical → ETF impact scanner
-    etf_news_scanner.py         10-category ETF news tagger (gnews + yfinance)
-  ui/app.py                     Streamlit 8-tab data hub
+    quant_scorecard.py          Gold + Silver 4-pillar quant scores (0–100) with stale-data guards
+    risk_governor.py            Inverse-vol position sizing w=vol_target/σ_t + regime overrides
+    macro_event_scanner.py      8 macro themes → ETF impact maps from live news
+    inav_fetcher.py             Live ETF iNAV + premium/discount %
+    comex_fetcher.py            COMEX pre-market signals
+    who_is_selling_agent.py     FII/DII/Retail sell-off attribution
+    premium_alerts.py           iNAV premium/discount threshold alerts
+    domestic_etf_scanner.py     ETF valuation + flow + momentum scanner
+    market_context.py           Live Nifty/BankNifty levels for LLM prompts
+    (+ news_search, earnings_scraper, summarization, valuation_alerts, …)
+  ui/app.py                     Streamlit data hub (Import / Query / Explorer tabs)
+scripts/
+  metals_quant_scorecard.py     Gold + Silver quant scorecards
+  opportunity_scan.py           Cross-asset DB opportunity scanner
+  fii_pattern_check.py          FII historical pattern analysis
+  gold_quant_scorecard.py       Gold-only scorecard
 tests/
 docker-compose.yml
 ```
+
+See [docs/architecture.md](docs/architecture.md) for the full architecture including data flow, all ClickHouse tables, agent internals, ML pipeline details, and design patterns.
 
 ---
 
@@ -216,6 +205,25 @@ python tests/_test_importer.py      # integration (requires ClickHouse)
 
 ---
 
+## Gemini CLI
+
+Gemini CLI is already configured — agents and skills are in `.gemini/`.
+
+```bash
+cd ~/project/Mosaic-fund-agent
+gemini
+```
+
+| Agent / Skill | Trigger |
+|---|---|
+| `@macro-strategy-agent` | Baton Pass thesis, whale tracking, 2026 themes |
+| `daily-signal-composite` | "What should I buy today?" |
+| `risk-governor` | "How much GOLDBEES should I hold?" |
+| `macro-scanner` | "Run the macro scanner" |
+| `etf-news` | "Latest GOLDBEES news" |
+
+---
+
 ## Known Limitations
 
 - **NewsAPI free tier:** 100 req/day — top holdings by weight are prioritised
@@ -223,3 +231,4 @@ python tests/_test_importer.py      # integration (requires ClickHouse)
 - **LightGBM:** Requires ≥ 120 clean training rows; CV R² improves as history accumulates
 - **Local LLMs:** Models < 30B struggle with multi-turn orchestration
 - **Anomaly detection:** Requires ≥ 60 rows per symbol — run an import first
+- **GARCH:** Requires ≥ 30 rows for rolling MAD initialisation; first ~30 rows have NaN bands
