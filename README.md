@@ -159,6 +159,7 @@ See [docs/import-schema.md](docs/import-schema.md) for all categories, the full 
 | [docs/anomaly-detection.md](docs/anomaly-detection.md) | GARCH(1,1) anomaly pipeline — regimes, cross-asset IF, Risk Governor integration |
 | [docs/ml-forecast.md](docs/ml-forecast.md) | LightGBM 25-feature set, quantile CI, COT lag fix, regime signals |
 | [docs/configuration.md](docs/configuration.md) | All `.env` settings |
+| [docs/db-management.md](docs/db-management.md) | ClickHouse backup/restore strategy, retention policies, monitoring queries, maintenance schedule |
 | [docs/gemini-prompts.md](docs/gemini-prompts.md) | 20 ready-to-use Gemini CLI prompts |
 
 ---

@@ -6,6 +6,8 @@ services:
       - "9000:9000"   # Native TCP interface
     volumes:
       - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-backups:/backups
+      - ./config/clickhouse:/etc/clickhouse-server/config.d
     environment:
       CLICKHOUSE_DB: market_data
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
@@ -96,3 +98,4 @@ services:
 
 volumes:
   clickhouse-data:
+  clickhouse-backups:
