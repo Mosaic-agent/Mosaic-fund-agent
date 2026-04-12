@@ -120,29 +120,30 @@ MACRO_THEMES: list[dict] = [
         "theme": "Crude Oil Shock",
         "icon": "🛢️",
         "queries": [
-            "crude oil natural gas upside surprise 2026",
-            "energy price spike drop OPEC",
+            "crude oil price spike drop OPEC",
             "Brent WTI oil supply cut",
+            "India crude oil import inflation",
             "OPEC production cut output",
-            "natural gas price forecast 2026",
+            "oil price geopolitical supply",
         ],
-        "yf_symbols": ["CL=F", "BZ=F", "NG=F"],
+        "yf_symbols": ["CL=F", "BZ=F"],    # WTI + Brent
         "keywords": {
-            "crude", "oil", "natural gas", "upside surprise", "bond complication",
-            "opec", "brent", "wti", "petroleum", "energy", "barrel", "supply cut",
+            "crude", "oil", "opec", "brent", "wti", "petroleum", "energy",
+            "barrel", "supply cut", "refinery", "gasoline", "fuel",
         },
         "impact_map": {
             "NIFTYBEES":  -1,   # Input cost inflation → margin pressure
             "BANKBEES":   -1,   # Inflation → RBI holds/hikes
             "GOLDBEES":   +1,   # Oil inflation → stagflation hedge
-            "GILT5YBEES": -1,   # Energy upside complicates global bonds
             "LIQUIDBEES": 0,    # Short-term safe parking
             "AUTOBEES":   -1,   # Fuel cost → demand destruction
+            "PSUBNKBEES": 0,    # Mixed: oil PSUs ↑ but broader pain
+            "ITBEES":     0,    # Mainly USD/INR dependent
         },
         "transmission": (
-            "2026 Outlook: Oil and Natural Gas may surprise to the upside, creating "
-            "persistent inflationary pressure that complicates the outlook for "
-            "global bonds and keeps pressure on energy-importing economies like India."
+            "Oil spike → India imports ~85% of crude → trade deficit widens → INR "
+            "weakens → imported inflation → RBI delays rate cuts → equities under "
+            "pressure. Stagflation scenario: Gold as hedge."
         ),
         "conviction": "HIGH",
     },
@@ -215,62 +216,60 @@ MACRO_THEMES: list[dict] = [
         "theme": "India Macro (GDP / Budget / Policy)",
         "icon": "🇮🇳",
         "queries": [
-            "India nominal GDP 10 percent 2026",
-            "India double digit GDP growth",
-            "RBI supportive monetary policy India",
-            "India electrification nuclear energy policy",
+            "India GDP growth forecast 2026",
             "India budget fiscal deficit capex",
+            "India inflation CPI WPI data",
+            "India industrial production IIP PMI",
+            "SEBI regulation India market reform",
         ],
         "yf_symbols": ["^NSEI", "^NSEBANK"],
         "keywords": {
-            "india gdp", "nominal gdp", "double digit", "rbi", "supportive",
-            "nuclear", "electrification", "energy policy", "capex", "reform",
-            "small cap outperformance", "midcap", "infrastructure",
+            "india gdp", "india budget", "fiscal deficit", "capex", "india cpi",
+            "india wpi", "iip", "india pmi", "sebi", "india reform", "india growth",
+            "divestment", "india infrastructure", "india consumption",
         },
         "impact_map": {
-            "NIFTYBEES":  +1,
-            "BANKBEES":   +1,
-            "CPSEETF":    +1,   # Power/Nuclear/Energy often in CPSE
-            "JUNIORBEES": +1,   # Outperformance expected in double-digit nominal GDP
-            "SMALL250":   +1,   # Outperformance expected
+            "NIFTYBEES":  +1,   # Strong GDP → earnings growth
+            "BANKBEES":   +1,   # Credit growth follows GDP
+            "CPSEETF":    +1,   # Capex → PSU order books
+            "JUNIORBEES": +1,   # Mid/small cap benefit from domestic growth
+            "SMALL250":   +1,   # Same
             "GILT5YBEES": -1,   # Higher govt borrowing → yields rise → bond price ↓
-            "AUTOBEES":   +1,
-            "ITBEES":     +1,   # Beneficiary of weak currency
+            "AUTOBEES":   +1,   # Domestic consumption
+            "FMCGIETF":   +1,   # Rural demand, consumption
         },
         "transmission": (
-            "2026 Outlook: India returns to double-digit nominal GDP helped by a "
-            "supportive RBI and falling currency. Nuclear energy and electrification "
-            "surge on govt policy. Structural shift favors small/midcap over large caps."
+            "Strong India macro → corporate earnings ↑ → broad equity ETFs ↑. "
+            "High fiscal deficit → more g-sec supply → gilt yields rise → GILT5YBEES ↓. "
+            "Infrastructure capex → CPSE, PSU ETFs ↑."
         ),
-        "conviction": "HIGH",
+        "conviction": "MEDIUM",
     },
     {
         "theme": "Gold / Commodity Specific",
         "icon": "🥇",
         "queries": [
-            "gold price $5000 forecast 2026",
-            "silver price $100 $120 forecast",
-            "commodities outperforming G7 equities",
+            "gold price record high 2026",
             "central bank gold buying reserves",
-            "commodity supercycle 2026",
-            "baton pass equities to commodities",
+            "gold ETF AUM inflow outflow",
+            "India gold import duty smuggling",
+            "gold silver ratio trend",
+            "World Gold Council demand report",
         ],
         "yf_symbols": ["GC=F", "SI=F", "GLD", "IAU"],
         "keywords": {
-            "gold", "silver", "bullion", "$5000", "$100", "$120",
-            "commodity supercycle", "baton pass", "outperform equities",
-            "central bank", "gold reserve", "xau", "xag",
+            "gold", "silver", "bullion", "precious metal", "xau", "xag",
+            "goldbees", "central bank", "gold reserve", "gold etf", "wgc",
+            "gold demand", "gold import", "gold mine",
         },
         "impact_map": {
             "GOLDBEES":   +1,
             "SILVERBEES": +1,
-            "MON100":     -1,   # Commodities outperforming G7
-            "MAFANG":     -1,   # Commodities outperforming G7
         },
         "transmission": (
-            "2026 Strategic Shift: The baton passes from equities to commodities. "
-            "Gold targets $5000, Silver $100-$120. Commodities and associated "
-            "currencies are expected to outperform G-7 equities and currencies."
+            "Direct gold price drivers: DXY direction, real US yields, central bank "
+            "buying, geopolitical risk, India import duty changes, and ETF flow "
+            "momentum (AUM inflows = buying pressure on the underlying)."
         ),
         "conviction": "HIGH",
     },
@@ -308,40 +307,6 @@ MACRO_THEMES: list[dict] = [
             "Global risk-off → FII sells India equities (India is EM) → Nifty/Bank "
             "ETFs fall. Gold and liquid ETFs are the beneficiaries. Small/mid cap "
             "falls harder than large cap in risk-off."
-        ),
-        "conviction": "HIGH",
-    },
-    {
-        "theme": "Electrification & Nuclear",
-        "icon": "⚡",
-        "queries": [
-            "AI data center electricity demand 2026",
-            "copper price uranium supply shortage",
-            "nuclear energy policy US China India",
-            "SMR small modular reactor deployment",
-            "global power grid infrastructure upgrade",
-            "re-industrialization electrification theme",
-        ],
-        "yf_symbols": ["HG=F", "URA", "COPX", "GRID"],   # Copper + Uranium/Grid ETFs
-        "keywords": {
-            "electrification", "nuclear", "uranium", "copper", "grid", "ai energy",
-            "data center", "power demand", "smr", "reactors", "energy density",
-            "industrialization", "infrastructure", "electricity",
-        },
-        "impact_map": {
-            "CPSEETF":    +1,   # India PSU power/utilities
-            "NIFTYBEES":  +1,   # Broad industrial growth
-            "JUNIORBEES": +1,   # Midcap industrials/ancillaries
-            "SMALL250":   +1,   # Smallcap ancillaries
-            "GOLDBEES":   +1,   # Real assets tailwind
-            "MON100":     -1,   # Energy as tech constraint
-            "MAFANG":     -1,   # Energy as tech constraint
-        },
-        "transmission": (
-            "2026 Core Theme: AI and re-industrialization are driving a massive "
-            "structural surge in energy and power grid density. Copper and Uranium "
-            "are the 'picks and shovels.' Nuclear is the only solution for AI's "
-            "energy density. Structural rotation from 'Paper' (Tech) to 'Real' (Grid)."
         ),
         "conviction": "HIGH",
     },

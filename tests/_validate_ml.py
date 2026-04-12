@@ -52,7 +52,8 @@ feat_names = result["feature_importances"]["feature"].tolist()
 new_feats = [
     "f_dxy_logret5", "f_dxy_logret20",
     "f_us10y_level", "f_us10y_delta5",
-    "f_month_sin", "f_month_cos", "f_dow",
+    "f_month_sin", "f_month_cos",
+    "f_dow_sin", "f_dow_cos",
 ]
 print("\nNew feature presence check:")
 all_ok = True

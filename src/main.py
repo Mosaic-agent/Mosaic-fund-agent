@@ -918,6 +918,24 @@ def macro_scan(
         console.print(f"[green]✓ Saved {n} macro events to DB.[/green]")
 
 
+@app.command(name="macro-themes")
+def cmd_macro_themes(
+    max: int = typer.Option(4, "--max", "-m", help="Headlines per theme"),
+    json_out: bool = typer.Option(False, "--json", help="JSON output"),
+):
+    """Long/Short macro theme agent — news + quant overlay."""
+    from scripts.macro_theme_agent import run_macro_theme_agent, print_macro_theme_report
+
+    report = run_macro_theme_agent(max_per_theme=max)
+    if json_out:
+        import json
+        from dataclasses import asdict
+
+        typer.echo(json.dumps(asdict(report), indent=2))
+    else:
+        print_macro_theme_report(report)
+
+
 @app.command(name="etf-news")
 def etf_news(
     category: str = typer.Option(

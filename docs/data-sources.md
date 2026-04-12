@@ -17,13 +17,12 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | What | Source | Notes |
 |---|---|---|
 | Indian financial news | NewsAPI.org | Free: 100 req/day |
-| Indian financial news | Google News RSS (GNews) | Free, no key — used by `etf-news` and `macro` scanners |
-| Yahoo Finance news | yfinance ticker.news | Free, no key — used by `etf-news` scanner |
+| Indian financial news | Google News RSS (GNews) | Free, no key |
 | Quarterly results | Screener.in (scraped) | Free, polite delays |
 | CFTC COT (hedge fund positioning) | publicreporting.cftc.gov | Free, no auth |
 | Central bank gold reserves | IMF IFS REST API | Free, no auth |
 | Gold ETF AUM flows | Yahoo Finance (totalAssets) | Free |
-| Fund portfolio holdings | Morningstar (mstarpy) | Current snapshot; run monthly to build time-series |
+| Fund portfolio holdings | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series |
 | FII / DII institutional flows | Sensibull oxide API | Free, no auth; ~6 months rolling daily + 7+ years monthly |
 
 ## Portfolio & Brokerage

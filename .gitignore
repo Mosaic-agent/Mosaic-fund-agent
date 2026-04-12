@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 output/*.json
 output/*.html
+output/.cache/
 .pytest_cache/
 .mypy_cache/
 dist/
@@ -12,3 +13,10 @@ build/
 .venv/
 venv/
 mcp-shell.log
+temp_backfill/
+temp_dsp/
+temp_dsp_codes.txt
+.claude/
+dsp_feb_2025.xlsx
+dsp_march_2026.pdf
+fii_usd_trend.png

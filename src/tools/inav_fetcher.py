@@ -49,8 +49,6 @@ KNOWN_ETF_SYMBOLS: set[str] = {
     # International / thematic ETFs
     "MAFANG",     # Mirae Asset NYSE FANG+ ETF
     "MAHKTECH",   # Mirae Asset Hang Seng TECH ETF
-    "MON100",     # Motilal Oswal NASDAQ 100 ETF
-    "MASPTOP50",  # Mirae Asset S&P 500 Top 50 ETF
 }
 
 # NSE iNAV endpoint — [NON-SENSITIVE]

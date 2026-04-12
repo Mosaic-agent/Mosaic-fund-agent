@@ -16,6 +16,73 @@ report with an auto-refreshing HTML dashboard.
 
 ---
 
+## Quick Reference (read this before exploring files)
+
+> Full architecture: `docs/architecture.md` — single source of truth for data flow, tables, agents, tools, ML.
+
+### Key entry points by task
+
+| Task | File | Function / Command |
+|---|---|---|
+| Gold quant score | `src/tools/quant_scorecard.py` | `compute_gold_scorecard()` |
+| Silver quant score | `src/tools/quant_scorecard.py` | `compute_silver_scorecard()` (adds GSR + CFTC live COT) |
+| Run both metals | `scripts/metals_quant_scorecard.py` | `python scripts/metals_quant_scorecard.py` |
+| Cross-asset opportunity scan | `scripts/opportunity_scan.py` | `python scripts/opportunity_scan.py` |
+| Macro event scanner (8 themes) | `src/tools/macro_event_scanner.py` | `scan_macro_events()` / `python -m src.tools.macro_event_scanner` |
+| Signal aggregator (18 ETFs) | `src/agents/signal_aggregator.py` | `run_signal_aggregation()` / `python src/main.py signals` |
+| FII/DII flow analysis | `src/tools/who_is_selling_agent.py` | `python src/main.py who-is-selling` |
+| iNAV live fetch | `src/tools/inav_fetcher.py` | `get_etf_inav(symbol)` |
+| iNAV premium alerts | `src/tools/premium_alerts.py` | `python src/main.py premium-alerts` |
+| Full portfolio analysis | `src/agents/portfolio_agent.py` | `python src/main.py analyze` |
+| Import market data | `src/importer/cli.py` | `python src/main.py import --category all` |
+| ML trend forecast | `src/ml/trend_predictor.py` | Run directly or via Streamlit UI |
+| Anomaly detection | `src/ml/anomaly.py` | `run_composite_anomaly(df)` |
+| Streamlit data hub | `src/ui/app.py` | `streamlit run src/ui/app.py` |
+
+### ClickHouse tables (database: `market_data`)
+
+| Table | What's in it |
+|---|---|
+| `daily_prices` | OHLCV — 90+ symbols across stocks/ETFs/commodities/indices/FX |
+| `inav_snapshots` | ETF iNAV vs market price, premium_discount_pct (intraday) |
+| `cot_gold` | CFTC weekly COT — mm_net, open_interest for Gold (code 088) |
+| `fii_dii_flows` | Daily FII/DII cash-market net flows (₹ Crore) |
+| `fii_dii_fno_daily` | Daily F&O participant OI (futures + options) |
+| `ml_predictions` | LightGBM 5-day return forecast for GOLDBEES |
+| `signal_composite` | 6-pillar composite ETF scores 0–100 + BUY/HOLD/SELL action |
+| `news_articles` | ETF-tagged news + macro events with sentiment |
+| `mf_holdings` | Monthly mutual fund portfolio compositions (Morningstar) |
+| `etf_aum` | Daily ETF AUM in USD |
+| `cb_gold_reserves` | Central bank gold holdings (quarterly, IMF) |
+| `fx_rates` | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD |
+| `import_watermarks` | Delta-sync state — last_date per (source, symbol) |
+
+### Signal pillars & weights
+
+**Gold/Silver Quant Scorecard** (0–100 per pillar):
+- Macro 30% — DXY + real yield (5D delta). Silver adds Gold-Silver Ratio.
+- Flows 30% — COT mm_net/OI. Gold: `cot_gold` table. Silver: CFTC live `f_disagg.txt`.
+- Valuation 20% — iNAV premium/discount from `inav_snapshots`.
+- Momentum 20% — LightGBM (`ml_predictions`) for gold; SI=F 5D return for silver.
+
+**Signal Aggregator** (18 ETFs):
+- Macro 25% · Sentiment 15% · Valuation 15% · Flow 25% · ML 15% · Anomaly 5%
+
+### Symbol registry quick lookup (`src/importer/registry.py`)
+- **50 stocks**: Nifty large-caps (RELIANCE, TCS, HDFCBANK, INFY, …)
+- **30+ ETFs**: GOLDBEES, SILVERBEES, NIFTYBEES, BANKBEES, ITBEES, CPSEETF, MON100, …
+- **7 commodities**: GOLD (GC=F), SILVER (SI=F), COPPER (HG=F), CRUDEOIL, NGAS, PLATINUM, PALLADIUM
+- **10 indices**: NIFTY50, SENSEX, BANKNIFTY, SP500, NASDAQ, US10Y, DXY, …
+- **iNAV symbols**: GOLDBEES, SILVERBEES, NIFTYBEES, BANKBEES, ITBEES, ICICIB22, + 6 more
+
+### Design patterns to know
+- All tables: `ReplacingMergeTree` — use `argMax(close, imported_at)` not `FINAL` for speed
+- Watermark delta sync: `import_watermarks.(source, symbol).last_date` — use `--full` to bypass
+- Every signal pillar degrades to `None` (not 0) when data missing; composite re-weights
+- Path to add sys.path: `sys.path.insert(0, ROOT)` + `sys.path.insert(0, ROOT/src)` (ROOT = dirname of dirname of __file__)
+
+---
+
 ## Architecture Diagram
 
 ```mermaid
@@ -103,8 +170,6 @@ src/main.py (CLI entry point)
 | `config` | Display current settings (sensitive fields masked) | — |
 | `news` | Multi-source news sentiment analysis | `symbol`, `--company` |
 | `comex` | COMEX pre-market commodity signals | — |
-| `macro` | Scan 8 macro/geopolitical themes → ETF directional impact | `--max N`, `--save` |
-| `etf-news` | Fetch ETF-tagged news with sentiment scores | `--category`, `--max N`, `--save` |
 | `premium-alerts` | Scarcity premium Z-score alerts for international ETFs | `--lookback`, `--z-threshold`, `--symbols`, `--min-snapshots` |
 | `import` | Import historical market data into ClickHouse | `--category`, `--lookback`, `--full`, `--dry-run` |
 | `ui` | Launch Streamlit data hub | `--port`, `--host` |
@@ -334,14 +399,14 @@ Soft-threshold complement to the `who_is_selling_agent.py` expert system.
 | `f_spread_delta5` | 5-day diff of `f_spread_pct` | Accelerating panic |
 | `f_hvol10` | 10-day log-return std × √252 | Realized volatility |
 | `f_gold_logret5` | 5-day log return of GOLD commodity | Commodity momentum |
-| `f_dxy_proxy` | USDINR 5-day log-return as DXY proxy | Dollar strength |
+| `f_dxy_proxy` | USDINR 5-day log-return as DXY proxy | Dollar strength (dropped if real DXY available) |
 | `f_dxy_logret5` | 5-day DXY log return (real DX-Y.NYB) | Dollar momentum |
 | `f_dxy_logret20` | 20-day DXY log return | Dollar medium-term |
 | `f_us10y_level` | US 10Y yield level (^TNX) | Rate regime |
 | `f_us10y_delta5` | 5-day change in US 10Y yield | Rate velocity |
 | `f_month_sin` | `sin(2π × month / 12)` | Seasonal cycle |
 | `f_month_cos` | `cos(2π × month / 12)` | Seasonal cycle |
-| `f_dow` | Day-of-week (0=Mon) | Day-of-week pattern |
+| `f_dow_sin/cos` | Cyclical day-of-week (0=Mon) | Day-of-week pattern |
 | `f_fii_net_5d` | 5-day rolling sum of `fii_net_cr` (LEFT JOIN `fii_dii_flows`) | FII net flow momentum |
 | `f_dii_net_5d` | 5-day rolling sum of `dii_net_cr` (LEFT JOIN `fii_dii_flows`) | DII net flow momentum |
 | `f_inst_net_momentum` | `f_fii_net_5d + f_dii_net_5d` | Combined institutional net flow |
@@ -440,7 +505,7 @@ Historical data pipeline that populates ClickHouse from multiple sources.
 | `cot` | CFTC | Gold COT | `cot_gold` |
 | `cb_reserves` | IMF | Central bank gold | `cb_gold_reserves` |
 | `etf_aum` | Various | GLD AUM | `etf_aum` |
-| `mf_holdings` | Morningstar (mstarpy) | 3 multi-asset funds (DSP, Quant, ICICI) | `mf_holdings` |
+| `mf_holdings` | Morningstar sal-service API (direct) | 4 multi-asset funds (DSP, Quant, ICICI, Bajaj) | `mf_holdings` |
 | `fii_dii` | Sensibull oxide API | MARKET (singleton) | `fii_dii_flows` |
 
 **Delta-sync**: Uses `import_watermarks` table — each (source, symbol) gets a `last_date` watermark;
@@ -470,8 +535,7 @@ All tables use `ReplacingMergeTree` for idempotent re-imports.
 | `fii_dii_flows` | ReplacingMergeTree(imported_at) | — | (trade_date) | FII/DII daily cash-market flows |
 | `import_watermarks` | ReplacingMergeTree(updated_at) | — | (source, symbol) | Delta-sync state |
 | `ml_predictions` | ReplacingMergeTree(created_at) | — | (as_of, horizon_days) | ML forecast log |
-| `mf_holdings` | ReplacingMergeTree(imported_at) | toYYYYMM(as_of_month) | (scheme_code, as_of_month, isin) | Monthly portfolio snapshot; mstarpy = current snapshot only, run monthly to build time-series |
-| `news_articles` | ReplacingMergeTree(imported_at) | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events; `source_type`: `etf_news` \| `macro_event`; populated via `mosaic macro --save` / `mosaic etf-news --save` |
+| `mf_holdings` | ReplacingMergeTree(imported_at) | toYYYYMM(as_of_month) | (scheme_code, as_of_month, isin) | Monthly portfolio snapshot; Morningstar sal-service API = current snapshot only, run monthly to build time-series |
 
 **Query pattern for deduplication** (replaces `FINAL` for better performance):
 ```sql
@@ -490,9 +554,9 @@ and supports partition pruning via `WHERE trade_date >= ...`.
 
 ## UI (`src/ui/app.py`)
 
-Streamlit 8-tab data hub.
+Streamlit 5-tab data hub.
 
-**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings | ETF Scanner | Market News
+**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings
 
 **Who Is Selling? tab sections:**
 1. Live signal check (expert system: COT + iNAV + AUM + USD/INR)
@@ -603,7 +667,7 @@ Pydantic `BaseSettings` loading from `.env` file:
 | **gold-api.com** | gold-api.com/api | `x-access-token` | comex_fetcher | Free tier |
 | **ClickHouse** | localhost:8123 | username/password | clickhouse.py, app.py, trend_predictor | `market_data` database; 10 tables |
 | **CFTC** | Various | None | cot_fetcher | COT gold positioning |
-| **Morningstar** | Internal REST API (via mstarpy) | None (free, rate-limited) | mf_holdings_fetcher | Current snapshot only — no historical date API; `signal.signal` stubbed for thread safety |
+| **Morningstar** | sal-service API (direct httpx, no mstarpy) | Public API key (client-side) | mf_holdings_fetcher | Current snapshot only — no historical date API; ISIN → securityID via morningstar.in autocomplete |
 | **IMF** | IMF Data API | None | imf_reserves_fetcher | Central bank gold reserves |
 | **OpenAI** | api.openai.com | API Key | summarization, all agents | Pay-per-token |
 | **Anthropic** | api.anthropic.com | API Key | summarization, all agents | Pay-per-token |
@@ -734,7 +798,7 @@ User runs: python -m src.main analyze
 | **ClickHouse** | `clickhouse-connect` |
 | **ML / Anomaly** | `scikit-learn>=1.4.0` (IsolationForest, RandomForestRegressor) |
 | **ML / Forecast** | `lightgbm>=4.3.0` — macOS: `brew install libomp` required for `libomp.dylib`; Docker: `libgomp1` |
-| **MF Holdings / Charts** | `mstarpy>=0.0.18` — Morningstar API; `plotly>=5.0` — Streamlit charts |
+| **MF Holdings / Charts** | `httpx` — Morningstar sal-service API (direct, no mstarpy); `plotly>=5.0` — Streamlit charts |
 
 ---
 
@@ -788,7 +852,5 @@ User runs: python -m src.main analyze
 | `src/importer/fetchers/nse_inav_fetcher.py` | Live NSE iNAV snapshots (updated every ~15s) |
 | `src/importer/fetchers/fii_dii_fetcher.py` | FII/DII cash-market flows from Sensibull oxide API; `--from YYYY-MM-DD --insert`; 127 rows Oct 2025→present |
 | `src/tools/market_context.py` | Queries `fii_dii_flows` from ClickHouse; returns 5-day narrative + streak analysis for LLM prompt |
-| `src/importer/fetchers/mf_holdings_fetcher.py` | Morningstar portfolio snapshot via mstarpy; thread-safe signal stub; current-snapshot only — no date param |
-| `src/tools/macro_event_scanner.py` | 8-theme macro/geopolitical scanner; `scan_macro_events()` → `MacroReport` with `etf_net_signal`; `save_macro_events_to_db(report, ch)` persists to `news_articles`; CLI: `mosaic macro --save` |
-| `src/tools/etf_news_scanner.py` | 10-category ETF news tagger; `scan_etf_news()` → `ETFNewsReport`; `save_etf_news_to_db(report, ch)` persists to `news_articles`; CLI: `mosaic etf-news --save` |
+| `src/importer/fetchers/mf_holdings_fetcher.py` | Morningstar portfolio snapshot via direct sal-service API (no mstarpy/Selenium); ISIN→secID lookup via morningstar.in autocomplete; current-snapshot only — no date param |
 | `predictions_log.jsonl` | Git-trackable JSONL log — one entry per (as_of, horizon_days); used for accuracy backtesting |
