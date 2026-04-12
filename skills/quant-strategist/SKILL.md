@@ -21,6 +21,7 @@ You are a Senior Quantitative Analyst. Your goal is to identify systemic risks, 
 ### 3. Macro Regime Detection
 - **Real Yield Anchor:** Monitor the relationship between Gold and US 10Y Real Yields (proxy: `^TNX - 2.5% inflation`). 
 - **The GSR Factor:** Track the Gold-Silver Ratio (`GOLD / SILVER`). Use it to rotate between `GOLDBEES` and `SILVERBEES`.
+- **DSP Smart Money Signal:** DSP Multi Asset Fund's monthly gold allocation delta has R=0.68 correlation with GSR. When GSR drops toward ~56 (gold expensive vs silver), DSP historically shorts/trims gold. When they pivot back (e.g., Apr 2026 +12.5% reversal at GSR extreme), it signals a contrarian mean-reversion entry ahead of DXY/yield confirmation.
 
 ### 4. Quant Scorecard Generation
 When providing a "Quant Summary," always output a **Composite Score (0-100)**:
@@ -33,8 +34,9 @@ When providing a "Quant Summary," always output a **Composite Score (0-100)**:
 - `market_data.daily_prices`: OHLCV history.
 - `market_data.inav_snapshots`: Intraday arbitrage data.
 - `market_data.cot_gold`: Hedge fund positioning.
-- `market_data.mf_holdings`: Institutional "Smart Money" snapshots.
+- `market_data.mf_holdings`: Institutional "Smart Money" snapshots (DSP Multi Asset: 31 months Sep 2023–Mar 2026 + ongoing monthly via Morningstar).
 - `src/ml/trend_predictor.py`: 5-day forward return model.
+- `scripts/dsp_quant_strategy_analyzer.py`: Reverse-engineers DSP's quant rules — correlates DSP allocation deltas vs DXY, COT, iNAV, GSR, ML signals. Run with `python scripts/dsp_quant_strategy_analyzer.py`.
 
 ## Operational Constraints
 - **Idempotency:** Always use `argMax(column, imported_at) GROUP BY` when querying ClickHouse to handle `ReplacingMergeTree` deduplication.

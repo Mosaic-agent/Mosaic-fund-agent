@@ -22,6 +22,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **GARCH(1,1) anomaly detection** — conditional volatility residuals + cross-asset Isolation Forest (COT + USDINR)
 - **Risk Governor** — continuous inverse-vol position sizing (`w = vol_target / σ_t`) with regime + score overrides
 - **Quant Scorecard** — Gold + Silver 4-pillar scores (Macro/Flows/Valuation/Momentum) with stale-data guards
+- **DSP Smart Money tracker** — 31-month allocation history for DSP Multi Asset Fund; reverse-engineered GSR-based tactical pivot signal (R=0.68)
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
 - **HTML dashboard** — self-contained, auto-refreshes every 5 minutes
 - **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard
@@ -131,6 +132,19 @@ python src/main.py import --category etfs --dry-run
 
 Subsequent runs are **delta-synced** — only new data is fetched.
 
+### DSP Multi Asset historical backfill
+
+```bash
+# Validate parsing (no DB writes)
+python scripts/import_dsp_history.py --dry-run
+
+# Import all 31 months (Sep 2023–Mar 2026) into mf_holdings
+python scripts/import_dsp_history.py
+
+# Reverse-engineer DSP's quant strategy (requires ClickHouse)
+python scripts/dsp_quant_strategy_analyzer.py
+```
+
 See [docs/import-schema.md](docs/import-schema.md) for all categories, the full ClickHouse schema, and recommended cron schedules.
 
 ---
@@ -184,10 +198,12 @@ src/
     (+ news_search, earnings_scraper, summarization, valuation_alerts, …)
   ui/app.py                     Streamlit data hub (Import / Query / Explorer tabs)
 scripts/
-  metals_quant_scorecard.py     Gold + Silver quant scorecards
-  opportunity_scan.py           Cross-asset DB opportunity scanner
-  fii_pattern_check.py          FII historical pattern analysis
-  gold_quant_scorecard.py       Gold-only scorecard
+  metals_quant_scorecard.py          Gold + Silver quant scorecards
+  opportunity_scan.py                Cross-asset DB opportunity scanner
+  fii_pattern_check.py               FII historical pattern analysis
+  gold_quant_scorecard.py            Gold-only scorecard
+  import_dsp_history.py             DSP Multi Asset 31-month ETL backfill
+  dsp_quant_strategy_analyzer.py    Reverse-engineer DSP's GSR-based tactical rules
 tests/
 docker-compose.yml
 ```

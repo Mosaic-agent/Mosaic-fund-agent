@@ -82,6 +82,7 @@ All importers are **watermark-based delta-sync**: each fetcher reads `import_wat
 | `imf_reserves_fetcher` | IMF IFS REST API | `cb_gold_reserves` | Monthly |
 | `etf_aum_fetcher` | Yahoo Finance | `etf_aum` | Daily |
 | `mf_holdings_fetcher` | Morningstar (mstarpy) | `mf_holdings` | Monthly |
+| `import_dsp_history.py` (script) | DSP website ZIP archives | `mf_holdings` | One-time backfill (Sep 2023–Mar 2026); writes per-fund watermark |
 | News tools | NewsAPI + Google News RSS | `news_articles` | Twice daily |
 | `signal_aggregator` | Reads ClickHouse | `signal_composite` | Daily / on-demand |
 | `trend_predictor` | Reads ClickHouse | `ml_predictions` | Daily after close |
@@ -248,6 +249,8 @@ Composite ETF signal — 6 pillars → 0–100 score → BUY / ACCUMULATE / HOLD
 
 Covers 18 core ETFs. Output optionally written to `signal_composite` table via `--save`.
 
+> **Planned 7th pillar — DSP Smart Money (pending):** MoM delta of DSP Multi Asset gold/equity allocation (`mf_holdings` table) as a contrarian tactical signal. Source: `scripts/dsp_quant_strategy_analyzer.py`. GSR correlation R=0.68 identified as primary driver of DSP allocation shifts.
+
 ### VisualizationAgent (`visualization_agent.py`)
 Generates a self-contained React HTML dashboard from a JSON portfolio report. No build step required.
 
@@ -263,7 +266,9 @@ Standalone scripts that run analyses against the live database and print Rich co
 | `opportunity_scan.py` | Cross-asset DB scan — momentum, drawdown, RSI, iNAV, flows → ranked opportunity table |
 | `gold_quant_scorecard.py` | Gold-only 4-pillar scorecard (GOLDBEES) |
 | `fii_pattern_check.py` | FII historical buying/selling pattern analysis |
-| `whale_tracker.py` (if present) | Large FII/DII flow detection and alerts |
+| `import_dsp_history.py` | One-time ETL backfill: 31-month DSP Multi Asset holdings (Sep 2023–Mar 2026) from DSP website ZIPs into `mf_holdings`; writes watermark on completion |
+| `dsp_quant_strategy_analyzer.py` | Reverse-engineer DSP's trading rules by correlating monthly allocation deltas against Mosaic quant signals (DXY, COT, iNAV, GSR, ML). Identifies GSR as primary tactical lever (R=0.68). |
+| `whale_tracker.py` | Large FII/DII flow detection and alerts |
 
 ---
 

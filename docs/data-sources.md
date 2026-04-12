@@ -23,6 +23,7 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | Central bank gold reserves | IMF IFS REST API | Free, no auth |
 | Gold ETF AUM flows | Yahoo Finance (totalAssets) | Free |
 | Fund portfolio holdings | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series |
+| DSP Multi Asset historical holdings | dspim.com portfolio ZIP archives | 31-month backfill (Sep 2023–Mar 2026) via `scripts/import_dsp_history.py`; one-time run |
 | FII / DII institutional flows | Sensibull oxide API | Free, no auth; ~6 months rolling daily + 7+ years monthly |
 
 ## Portfolio & Brokerage

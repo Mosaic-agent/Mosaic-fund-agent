@@ -35,6 +35,8 @@ report with an auto-refreshing HTML dashboard.
 | iNAV premium alerts | `src/tools/premium_alerts.py` | `python src/main.py premium-alerts` |
 | Full portfolio analysis | `src/agents/portfolio_agent.py` | `python src/main.py analyze` |
 | Import market data | `src/importer/cli.py` | `python src/main.py import --category all` |
+| DSP 31-month backfill | `scripts/import_dsp_history.py` | `python scripts/import_dsp_history.py` |
+| DSP quant strategy (GSR) | `scripts/dsp_quant_strategy_analyzer.py` | `python scripts/dsp_quant_strategy_analyzer.py` |
 | ML trend forecast | `src/ml/trend_predictor.py` | Run directly or via Streamlit UI |
 | Anomaly detection | `src/ml/anomaly.py` | `run_composite_anomaly(df)` |
 | Streamlit data hub | `src/ui/app.py` | `streamlit run src/ui/app.py` |
@@ -51,7 +53,7 @@ report with an auto-refreshing HTML dashboard.
 | `ml_predictions` | LightGBM 5-day return forecast for GOLDBEES |
 | `signal_composite` | 6-pillar composite ETF scores 0–100 + BUY/HOLD/SELL action |
 | `news_articles` | ETF-tagged news + macro events with sentiment |
-| `mf_holdings` | Monthly mutual fund portfolio compositions (Morningstar) |
+| `mf_holdings` | Monthly mutual fund portfolio compositions — Morningstar (current) + DSP 31-month backfill (Sep 2023–Mar 2026) from DSP website |
 | `etf_aum` | Daily ETF AUM in USD |
 | `cb_gold_reserves` | Central bank gold holdings (quarterly, IMF) |
 | `fx_rates` | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD |
