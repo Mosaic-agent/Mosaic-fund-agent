@@ -130,11 +130,12 @@ DSP_SCHEME_MAP = {
 def classify_asset(name, sector):
     name = str(name).lower()
     sector = str(sector).lower()
-    if any(k in name for k in ['gold', 'silver']): return 'gold'
-    if any(k in sector for k in ['gold', 'silver']): return 'gold'
-    if any(k in sector for k in ['debt', 'g-sec', 'sdl', 'treasury']): return 'bond'
-    if any(k in name for k in ['cash', 'liquid', 'treps', 'repo']): return 'cash'
-    if any(k in name for k in ['equity', 'limited', 'ltd', 'inc', 'corp']): return 'equity'
+    combined = f"{name} {sector}"
+    if any(k in combined for k in ['gold', 'silver', 'precious metal']): return 'gold'
+    if any(k in combined for k in ['debt', 'gilt', 'short term', 'treasury', 'g-sec', 'sdl', 'ncd', 'debenture', 'bond', 'fixed income', 'goi']): return 'bond'
+    if any(k in combined for k in ['cash', 'liquid', 'treps', 'repo', 'overnight']): return 'cash'
+    if any(k in combined for k in ['equity', 'nifty', 'sensex', 'cap', 'growth', 'healthcare', 'it', 'fmcg', 'bank', 'psu', 'midcap', 'smallcap', 'top 10', 'flexicap', 'limited', 'ltd', 'inc', 'corp', ' sa', 'ord', 'adr', 'units']): return 'equity'
+    if any(k in combined for k in ['etf', 'fund']): return 'equity'
     return 'other'
 
 
@@ -196,6 +197,12 @@ def process_month(as_of_str, url):
             raw_rows = []
             for i in range(data_start_row, len(df)):
                 row = df.iloc[i]
+                name = str(row.iloc[1]).strip()
+
+                # Skip summary/total rows
+                if not name or name.lower() in ('nan', 'none', 'total', 'sub total', 'grand total', 'subtotal') or name.startswith('Total '):
+                    continue
+
                 try:
                     if pd.isna(row.iloc[5]) or pd.isna(row.iloc[6]):
                         continue
@@ -204,10 +211,8 @@ def process_month(as_of_str, url):
                 except (ValueError, TypeError):
                     continue
                 isin = str(row.iloc[2]).strip()
-                name = str(row.iloc[1]).strip()
                 sector = str(row.iloc[3]).strip()
                 raw_rows.append((isin, name, sector, mv_lakhs, pct_raw))
-
             if not raw_rows:
                 console.print(f"[yellow]  No numeric rows found for {fund_name} in {as_of_str}[/yellow]")
                 continue
@@ -224,15 +229,23 @@ def process_month(as_of_str, url):
                 is_valid_isin = len(isin) == 12
                 name_lower = name.lower()
                 is_commodity = name_lower in COMMODITY_ISIN
-
-                if not (is_valid_isin or is_commodity):
+                
+                # Determine final ISIN for the record
+                if is_valid_isin:
+                    final_isin = isin
+                elif is_commodity:
+                    final_isin = COMMODITY_ISIN[name_lower]
+                elif name:
+                    # Generic placeholder for cash/arbitrage/others without ISIN
+                    final_isin = f"PH_{name.upper().replace(' ', '_')[:20]}"
+                else:
                     continue
 
                 sheet_holdings.append({
                     "scheme_code": scheme_code,
                     "fund_name": fund_name,
                     "as_of_month": as_of_str,
-                    "isin": isin if is_valid_isin else COMMODITY_ISIN[name_lower],
+                    "isin": final_isin,
                     "security_name": name,
                     "asset_type": classify_asset(name, sector),
                     "market_value_cr": round(mv_lakhs / 100, 4),   # Lakhs → Crores

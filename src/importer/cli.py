@@ -473,3 +473,22 @@ def run_import(
         console.print("\n[yellow]ℹ dry-run — no data was written to ClickHouse.[/yellow]")
     else:
         console.print("\n[bold green]✓ Import complete.[/bold green]")
+
+    # ── Sanity Check ──────────────────────────────────────────────────────────
+    if not dry_run:
+        from src.utils.sanity_checker import detect_yoy_anomalies, detect_daily_anomalies
+        
+        console.print("\n[bold cyan]▶ Running Data Sanity Validator…[/bold cyan]")
+        
+        yoy_anomalies = detect_yoy_anomalies(ch._client)
+        daily_anomalies = detect_daily_anomalies(ch._client)
+
+        if yoy_anomalies or daily_anomalies:
+            console.print("[bold yellow]⚠ Data Anomalies Detected![/bold yellow] Run [bold]python scripts/run_data_sanity_check.py[/bold] for full report.")
+            
+            if yoy_anomalies:
+                console.print(f"  [red]• {len(yoy_anomalies)} YoY price anomalies found (e.g., >40% return in safe assets)[/red]")
+            if daily_anomalies:
+                console.print(f"  [red]• {len(daily_anomalies)} daily outliers found (e.g., >7% move)[/red]")
+        else:
+            console.print("  [green]✓ No immediate economic anomalies detected in safe assets.[/green]")

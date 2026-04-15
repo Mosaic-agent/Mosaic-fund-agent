@@ -246,6 +246,7 @@ def ask(
 ) -> None:
     """
     Ask the portfolio agent a free-form question using ReAct reasoning.
+    (Note: This uses the most recently generated portfolio report context)
 
     Examples:
       python src/main.py ask "Which stock has the highest risk in my portfolio?"
