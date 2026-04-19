@@ -49,6 +49,8 @@ KNOWN_ETF_SYMBOLS: set[str] = {
     # International / thematic ETFs
     "MAFANG",     # Mirae Asset NYSE FANG+ ETF
     "MAHKTECH",   # Mirae Asset Hang Seng TECH ETF
+    # Zerodha Case series
+    "LIQUIDCASE", "GOLDCASE", "SILVERCASE",
 }
 
 # NSE iNAV endpoint — [NON-SENSITIVE]

@@ -77,7 +77,7 @@ src/
   ml/             LightGBM forecaster, GARCH anomaly detection
   tools/          Standalone tool functions (iNAV, COMEX, risk governor, etc.)
   ui/             Streamlit data hub
-scripts/          One-off analysis and backfill scripts
+scripts/          One-off analysis, backfill, and Zerodha account backup scripts
 tests/            Unit and integration tests
 docs/             Architecture, schema, and configuration docs
 config/           Pydantic settings

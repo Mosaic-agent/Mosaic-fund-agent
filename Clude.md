@@ -556,9 +556,9 @@ and supports partition pruning via `WHERE trade_date >= ...`.
 
 ## UI (`src/ui/app.py`)
 
-Streamlit 5-tab data hub.
+Streamlit 10-tab data hub.
 
-**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings
+**Tabs**: Import | SQL Query | Explorer | Anomaly Detection | Who Is Selling? | MF Holdings | ETF Scanner | Market News | Signals | **Kite Dashboard**
 
 **Who Is Selling? tab sections:**
 1. Live signal check (expert system: COT + iNAV + AUM + USD/INR)
@@ -578,6 +578,22 @@ Streamlit 5-tab data hub.
 **Alert banner logic** (between chart header and chart):
 - Queries most recent row: `ORDER BY p.trade_date DESC LIMIT 1` with `WHERE n.nav > 0`
 - `st.error` (≤ −1.0%), `st.warning` (< 0%), `st.success` (premium)
+
+**Kite Dashboard tab** (`tab_kite`, lines 3477–3800) — Zerodha personal portfolio view, structured into 4 sub-tabs:
+
+| Sub-tab | Content |
+|---------|---------|
+| 📊 Overview | 4 KPI metrics (Invested / Current Value / P&L ₹ / Return %) · Plotly wealth trend area chart (current value + invested cost) · Plotly allocation donut (Equity/ETF/MF) · Account Details expander (profile) |
+| 📦 Holdings | Plotly horizontal P&L bar (green/red per symbol) · Plotly portfolio weight bar · Equity & ETF table with color-coded pnl/day_change · MF holdings table |
+| 📈 Positions & Orders | Open positions dataframe · Recent orders dataframe (2-column) |
+| 💰 Margins | Account margins dataframe |
+
+**Kite instrument classification helper** (inline `_classify_type(row)`):
+- `exchange == 'MF'` → MF
+- tradingsymbol contains `BEES / ETF / GOLD / LIQUID / NIFTY / BANKEX / JR` → ETF
+- else → Equity
+
+**Wealth history table** (`market_data.wealth_history`): populated daily by `scripts/track_wealth_history.py`; columns: `record_date, total_invested, total_value, total_pnl, pnl_pct`.
 
 **ClickHouse connection env vars**: `CH_HOST`, `CH_PORT` (8123), `CH_USER`, `CH_PASS`, `CH_DB` (market_data)
 
@@ -839,7 +855,7 @@ User runs: python -m src.main analyze
 | `src/tools/quant_scorecard.py` | Composite Gold Score engine — 4-pillar weighted 0–100 score for GOLDBEES |
 | `src/tools/premium_alerts.py` | Scarcity Premium Alert engine — Z-score on iNAV premium for international ETFs |
 | `src/ui/__init__.py` | Package marker |
-| `src/ui/app.py` | Streamlit 6-tab UI — Import / SQL Query / Explorer / Anomaly Detection / Who Is Selling? / MF Holdings |
+| `src/ui/app.py` | Streamlit 10-tab UI — Import / SQL Query / Explorer / Anomaly Detection / Who Is Selling? / MF Holdings / ETF Scanner / Market News / Signals / Kite Dashboard (4 sub-tabs: Overview · Holdings · Positions & Orders · Margins) |
 | `src/importer/__init__.py` | Package marker |
 | `src/importer/cli.py` | Orchestrates all import categories; `run_import(lookback_days=3650)` |
 | `src/importer/clickhouse.py` | ClickHouse DDL + `ClickHouseImporter` — insert methods with `max_partitions_per_insert_block=300` |

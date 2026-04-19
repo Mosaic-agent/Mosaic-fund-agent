@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 
 from config.settings import settings
+from src.commands.base import CommandRunner
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class KiteMCPClient:
         self._timeout: int = settings.kite_mcp_timeout
         self._client: httpx.AsyncClient | None = None
         self._session_id: str | None = None
+        self._runner = CommandRunner(max_retries=3)
 
     # ── Context Manager ───────────────────────────────────────────────────────
 
@@ -133,7 +135,9 @@ class KiteMCPClient:
         Returns:
             Authorization URL that the user must open in a browser to authenticate.
         """
-        result = await self._call_tool("login")
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "login", {})
+        result = await self._runner.run_async(cmd)
         if isinstance(result, dict):
             return result.get("url", str(result))
         return str(result)
@@ -142,7 +146,9 @@ class KiteMCPClient:
 
     async def get_profile(self) -> dict[str, Any]:
         """Fetch the authenticated user's Kite profile."""
-        return await self._call_tool("get_profile")
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "get_profile", {})
+        return await self._runner.run_async(cmd)
 
     async def get_holdings(self) -> list[dict[str, Any]]:
         """
@@ -151,7 +157,9 @@ class KiteMCPClient:
         Returns:
             List of holding dicts as returned by Kite API.
         """
-        result = await self._call_tool("get_holdings")
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "get_holdings", {})
+        result = await self._runner.run_async(cmd, retryable=True)
         if isinstance(result, list):
             return result
         # Some MCP server versions wrap the list
@@ -166,11 +174,15 @@ class KiteMCPClient:
         Returns:
             Dict with 'net' and 'day' position lists.
         """
-        return await self._call_tool("get_positions")
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "get_positions", {})
+        return await self._runner.run_async(cmd)
 
     async def get_margins(self) -> dict[str, Any]:
         """Fetch account margin details (equity + commodity)."""
-        return await self._call_tool("get_margins")
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "get_margins", {})
+        return await self._runner.run_async(cmd)
 
     async def get_quotes(self, instruments: list[str]) -> dict[str, Any]:
         """
@@ -179,8 +191,12 @@ class KiteMCPClient:
         Args:
             instruments: List of 'EXCHANGE:SYMBOL' strings e.g. ['NSE:RELIANCE', 'NSE:TCS']
         """
-        return await self._call_tool("get_quotes", {"instruments": instruments})
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "get_quotes", {"instruments": instruments})
+        return await self._runner.run_async(cmd)
 
     async def get_ltp(self, instruments: list[str]) -> dict[str, Any]:
         """Fetch last traded price only (lighter than full quotes)."""
-        return await self._call_tool("get_ltp", {"instruments": instruments})
+        from src.commands.kite_cmd import KiteToolCommand
+        cmd = KiteToolCommand(self, "get_ltp", {"instruments": instruments})
+        return await self._runner.run_async(cmd)

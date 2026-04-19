@@ -864,20 +864,22 @@ def import_data(
         )
     )
 
-    from src.importer.cli import run_import
+    from src.commands.base import CommandRunner
+    from src.commands.import_cmd import ImportDataCommand
 
-    run_import(
+    cmd = ImportDataCommand(
         categories=categories,
         lookback_days=lookback_days,
         full_reimport=full_reimport,
         dry_run=dry_run,
-        console=console,
-        clickhouse_host=settings.clickhouse_host,
-        clickhouse_port=settings.clickhouse_port,
-        clickhouse_database=settings.clickhouse_database,
-        clickhouse_user=settings.clickhouse_user,
-        clickhouse_password=settings.clickhouse_password,
     )
+    runner = CommandRunner()
+    
+    try:
+        runner.run(cmd)
+    except Exception as exc:
+        console.print(f"[bold red]✗ Import failed:[/bold red] {exc}")
+        raise SystemExit(1)
 
 
 @app.command(name="macro")

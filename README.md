@@ -25,7 +25,8 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **DSP Smart Money tracker** — 31-month allocation history for DSP Multi Asset Fund; reverse-engineered GSR-based tactical pivot signal (R=0.68)
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
 - **HTML dashboard** — self-contained, auto-refreshes every 5 minutes
-- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, quant scorecard
+- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, and **🪁 Kite Dashboard**
+- **Zerodha Account Backup** — persist personal holdings, margins, profile, and orders to ClickHouse for historical tracking
 - **Gemini CLI agents** — macro strategy agent + 4 skills discoverable from `.gemini/`
 
 ---
@@ -102,6 +103,13 @@ python src/main.py comex                 # COMEX pre-market signals
 python src/main.py news GOLDBEES         # news for a single symbol
 python src/main.py dashboard            # open HTML dashboard
 python src/main.py config               # show current settings (masked)
+```
+
+### Zerodha Account Backup (to ClickHouse)
+
+```bash
+python scripts/save_portfolio_holdings.py  # backup CNC holdings
+python scripts/backup_zerodha_account.py  # backup profile, margins, and orders
 ```
 
 ---
@@ -197,8 +205,10 @@ src/
     domestic_etf_scanner.py     ETF valuation + flow + momentum scanner
     market_context.py           Live Nifty/BankNifty levels for LLM prompts
     (+ news_search, earnings_scraper, summarization, valuation_alerts, …)
-  ui/app.py                     Streamlit data hub (Import / Query / Explorer tabs)
+  ui/app.py                     Streamlit data hub (Import / Query / Explorer / Kite Dashboard)
 scripts/
+  save_portfolio_holdings.py         Backup CNC holdings to ClickHouse
+  backup_zerodha_account.py          Backup profile, margins, and orders
   metals_quant_scorecard.py          Gold + Silver quant scorecards
   opportunity_scan.py                Cross-asset DB opportunity scanner
   fii_pattern_check.py               FII historical pattern analysis

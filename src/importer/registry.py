@@ -137,7 +137,7 @@ MF_SCHEME_CODES: dict[str, str] = {
 # Each entry: (amfi_scheme_code, short_name, isin_growth)
 MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
     ("152056", "DSP_MULTI_ASSET",   "INF740KA1TE9"),
-    ("154167", "DSP_OMNI_FOF",      "INF740KA1YE9"),
+    ("154167", "DSP_MULTI_ASSET_OMNI_FOF", "INF740KA1YE9"),
     ("120821", "QUANT_MULTI_ASSET", "INF966L01580"),
     ("120334", "ICICI_MULTI_ASSET", "INF109K015K4"),
     ("152639", "BAJAJ_MULTI_ASSET", "INF0QA701821"),

@@ -49,6 +49,12 @@ gh milestone create --title "Phase 4: Advanced Research"
 - **Key Features:** Iterative fetching until confidence > 0.75, pillar-specific research.
 - **Issue:** #4
 
+### Phase 5: Personal Data Insights 🪁
+*Goal: Track and visualise personal account growth and history.*
+- **Task:** Historical personal data tracking in ClickHouse.
+- **Key Features:** `user_holdings` versioning, daily margin snapshots, Streamlit Kite Dashboard enhancements.
+- **Scripts:** `save_portfolio_holdings.py`, `backup_zerodha_account.py`.
+
 ---
 
 ## 🔗 Dependency Map

@@ -5,6 +5,7 @@ import zipfile
 import shutil
 import argparse
 import pandas as pd
+import numpy as np
 import requests
 import clickhouse_connect
 from datetime import datetime
@@ -19,8 +20,10 @@ from config.settings import settings
 console = Console()
 
 # Configuration
-SCHEME_CODE = "152056"
-FUND_NAME = "DSP_MULTI_ASSET"
+FUNDS_TO_IMPORT = [
+    ("152056", "DSP_MULTI_ASSET", "Multi Asset"),
+    ("154167", "DSP_MULTI_ASSET_OMNI_FOF", "Multi Asset Omni Fund of Funds"),
+]
 BASE_URL = "https://www.dspim.com/media/pages/mandatory-disclosures/portfolio-disclosures/"
 
 # Stable identifiers for commodities that have no real ISIN
@@ -28,6 +31,8 @@ COMMODITY_ISIN = {
     'gold etcd#': 'GOLD_ETCD_DSP',
     'silver etcd#': 'SILVER_ETCD_DSP',
     'copper etcd#': 'COPPER_ETCD_DSP',
+    'gold': 'GOLD_ETCD_DSP',
+    'silver': 'SILVER_ETCD_DSP',
 }
 
 # (as_of_date, url_suffix) — Sep 2023 through Mar 2026 (31 months)
@@ -69,20 +74,29 @@ ZIP_FILES = [
 def classify_asset(name, sector):
     name = str(name).lower()
     sector = str(sector).lower()
-    if any(k in name for k in ['gold', 'silver']): return 'gold'
-    if any(k in sector for k in ['gold', 'silver']): return 'gold'
-    if any(k in sector for k in ['debt', 'g-sec', 'sdl', 'treasury']): return 'bond'
-    if any(k in name for k in ['cash', 'liquid', 'treps', 'repo']): return 'cash'
-    if any(k in name for k in ['equity', 'limited', 'ltd', 'inc', 'corp']): return 'equity'
+    if 'gold' in name or 'gold' in sector: return 'gold'
+    if 'silver' in name or 'silver' in sector: return 'silver'
+    
+    # Bond/Debt identification
+    if any(k in sector for k in ['debt', 'g-sec', 'sdl', 'treasury', 'sovereign', 'bonds']): return 'bond'
+    if any(k in name for k in ['gilt', 'short term', 'debt']): return 'bond'
+    
+    # Cash identification
+    if any(k in name for k in ['cash', 'liquid', 'treps', 'repo', 'receivables', 'payables']): return 'cash'
+    
+    # Equity identification (including common fund types)
+    if any(k in name for k in ['equity', 'limited', 'ltd', 'inc', 'corp', 'cap', 'nifty', 'index', 'etf', 'fmcg', 'healthcare', 'bank', 'flexicap']): return 'equity'
+    if any(k in sector for k in ['equity', 'mixed']): return 'equity'
+    
+    # Fallback for funds in FoF
+    if 'fund' in name:
+        if any(k in name for k in ['term', 'gilt', 'bond', 'income']): return 'bond'
+        return 'equity'
+        
     return 'other'
 
 
 def download_and_extract(url, temp_dir):
-    """Download zip, extract to temp_dir, return the xlsx that contains a 'Multi Asset' sheet.
-
-    DSP changed the zip's Excel file name between 2023 and later years, so we scan
-    all extracted xlsx files instead of relying on a fixed filename pattern.
-    """
     try:
         r = requests.get(url, timeout=30)
         r.raise_for_status()
@@ -106,7 +120,6 @@ def download_and_extract(url, temp_dir):
 
 def process_month(as_of_str, url):
     temp_dir = Path("temp_backfill")
-    # Clean slate — rmtree handles nested dirs safely
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
     temp_dir.mkdir()
@@ -116,77 +129,90 @@ def process_month(as_of_str, url):
     if not xl_path:
         return []
 
+    all_month_holdings = []
     try:
         xl = pd.ExcelFile(xl_path)
-        sheet_name = next((s for s in xl.sheet_names if 'Multi Asset' in s), None)
-        if not sheet_name:
-            console.print(f"[yellow]  Sheet 'Multi Asset' not found in {xl_path.name}[/yellow]")
-            return []
-
-        df = pd.read_excel(xl_path, sheet_name=sheet_name, header=None)
-
-        # Locate header row: look for "Name of Instrument" in column B (index 1)
-        data_start_row = 6  # safe fallback for older formats
-        for idx, row in df.iterrows():
-            if str(row.iloc[1]).strip() == "Name of Instrument":
-                data_start_row = idx + 1
-                break
-
-        # --- Pass 1: collect raw numeric rows ---
-        raw_rows = []
-        for i in range(data_start_row, len(df)):
-            row = df.iloc[i]
-            try:
-                mv_lakhs = float(row.iloc[5])
-                pct_raw = float(row.iloc[6])
-            except (ValueError, TypeError):
-                continue
-            isin = str(row.iloc[2]).strip()
-            name = str(row.iloc[1]).strip()
-            sector = str(row.iloc[3]).strip()
-            raw_rows.append((isin, name, sector, mv_lakhs, pct_raw))
-
-        if not raw_rows:
-            console.print(f"[yellow]  No numeric rows found for {as_of_str}[/yellow]")
-            return []
-
-        # --- Detect pct scale once per sheet ---
-        # If any value > 1 the column is already in percentage form; else it's decimal.
-        # Guard: if all values are 0 (empty/corrupt sheet), default to percentage form.
-        max_pct = max(r[4] for r in raw_rows)
-        pct_scale = 1.0 if max_pct > 1.0 else (100.0 if max_pct > 0.0 else 1.0)
-
-        # --- Pass 2: build holdings ---
-        holdings = []
-        imported_at = datetime.now()
-        for isin, name, sector, mv_lakhs, pct_raw in raw_rows:
-            is_valid_isin = len(isin) == 12
-            name_lower = name.lower()
-            is_commodity = name_lower in COMMODITY_ISIN
-
-            if not (is_valid_isin or is_commodity):
+        
+        for scheme_code, fund_name, sheet_search in FUNDS_TO_IMPORT:
+            # Match sheet name
+            sheet_name = next((s for s in xl.sheet_names if sheet_search == s or (sheet_search in s and len(s) < len(sheet_search) + 5)), None)
+            if not sheet_name:
                 continue
 
-            holdings.append({
-                "scheme_code": SCHEME_CODE,
-                "fund_name": FUND_NAME,
-                "as_of_month": as_of_str,
-                "isin": isin if is_valid_isin else COMMODITY_ISIN[name_lower],
-                "security_name": name,
-                "asset_type": classify_asset(name, sector),
-                "market_value_cr": round(mv_lakhs / 100, 4),   # Lakhs → Crores
-                "pct_of_nav": round(pct_raw * pct_scale, 4),
-                "imported_at": imported_at,
-            })
+            df = pd.read_excel(xl_path, sheet_name=sheet_name, header=None)
 
-        pct_sum = sum(h["pct_of_nav"] for h in holdings)
-        pct_color = "yellow" if pct_sum > 100 else "green"
-        pct_note = " ⚠ >100% (derivative margin rows included)" if pct_sum > 100 else ""
-        console.print(
-            f"  [{pct_color}]→ {len(holdings)} holdings, pct_sum={pct_sum:.1f}%"
-            f"{pct_note} (scale={pct_scale}, month={as_of_str})[/{pct_color}]"
-        )
-        return holdings
+            # Find start of data
+            data_start_row = 0
+            for idx, row in df.iterrows():
+                if "Name of Instrument" in str(row.iloc[1]):
+                    data_start_row = idx + 1
+                    break
+            
+            if data_start_row == 0: continue
+
+            raw_rows = []
+            for i in range(data_start_row, len(df)):
+                row = df.iloc[i]
+                try:
+                    name = str(row.iloc[1]).strip()
+                    if not name or name == "nan" or "Total" in name: continue
+                    
+                    mv_lakhs = float(row.iloc[5])
+                    pct_raw = float(row.iloc[6])
+                    isin = str(row.iloc[2]).strip()
+                    sector = str(row.iloc[3]).strip()
+                    raw_rows.append((isin, name, sector, mv_lakhs, pct_raw))
+                except:
+                    continue
+
+            if not raw_rows:
+                continue
+
+            # Robust scale detection: if median is < 0.05, it's almost certainly decimal (0.01 = 1%)
+            # because even a small fund rarely has a median holding of 0.05% (0.0005)
+            vals = [r[4] for r in raw_rows if not np.isnan(r[4])]
+            if not vals: continue
+            
+            max_val = np.nanmax(vals)
+            # If max value is <= 1.0, it's decimal. If > 1.0, it's percentage.
+            pct_scale = 100.0 if max_val <= 1.01 else 1.0
+
+            imported_at = datetime.now()
+            for isin, name, sector, mv_lakhs, pct_raw in raw_rows:
+                if np.isnan(pct_raw): continue
+                
+                name_lower = name.lower()
+                is_valid_isin = len(isin) == 12
+                is_commodity = any(k in name_lower for k in ['gold', 'silver', 'copper'])
+                is_special = any(k in name_lower for k in ['treps', 'receivables', 'payables'])
+
+                if not (is_valid_isin or is_commodity or is_special):
+                    continue
+
+                # Map commodity ISINs
+                final_isin = isin
+                if not is_valid_isin:
+                    if 'gold' in name_lower: final_isin = 'GOLD_ETCD_DSP'
+                    elif 'silver' in name_lower: final_isin = 'SILVER_ETCD_DSP'
+                    elif 'copper' in name_lower: final_isin = 'COPPER_ETCD_DSP'
+                    else: final_isin = name[:20]
+
+                all_month_holdings.append({
+                    "scheme_code": scheme_code,
+                    "fund_name": fund_name,
+                    "as_of_month": as_of_str,
+                    "isin": final_isin,
+                    "security_name": name,
+                    "asset_type": classify_asset(name, sector),
+                    "market_value_cr": round(mv_lakhs / 100, 4),
+                    "pct_of_nav": round(pct_raw * pct_scale, 4),
+                    "imported_at": imported_at,
+                })
+
+            pct_sum = sum(h["pct_of_nav"] for h in all_month_holdings if h["fund_name"] == fund_name)
+            console.print(f"  [green]→ {fund_name}: {len([h for h in all_month_holdings if h['fund_name'] == fund_name])} holdings, pct_sum={pct_sum:.1f}%[/green]")
+            
+        return all_month_holdings
 
     except Exception as e:
         console.print(f"[red]Error parsing {xl_path}: {e}[/red]")
@@ -194,10 +220,6 @@ def process_month(as_of_str, url):
 
 
 def run_import(months=None, dry_run=False):
-    """
-    months: list of (as_of_str, url) tuples to import; defaults to all ZIP_FILES.
-    dry_run: parse and print but do not insert into ClickHouse.
-    """
     targets = months or ZIP_FILES
     client = None
     if not dry_run:
@@ -223,9 +245,6 @@ def run_import(months=None, dry_run=False):
                 failed_months.append(as_of)
             progress.advance(task)
 
-    if failed_months:
-        console.print(f"[yellow]Warning: {len(failed_months)} months returned no data: {failed_months}[/yellow]")
-
     if dry_run:
         console.print(f"[bold blue]DRY RUN: {len(all_holdings)} holdings parsed across {len(targets)} months — nothing inserted.[/bold blue]")
         return
@@ -245,26 +264,22 @@ def run_import(months=None, dry_run=False):
             column_names=['scheme_code', 'fund_name', 'as_of_month', 'isin', 'security_name',
                           'asset_type', 'market_value_cr', 'pct_of_nav', 'imported_at'],
         )
-        console.print(
-            f"[bold green]✓ Imported {len(rows)} holdings across "
-            f"{len(targets) - len(failed_months)}/{len(targets)} months.[/bold green]"
-        )
-        # Write per-fund watermark so the CLI Morningstar path can identify
-        # which months have already been backfilled from the DSP source.
-        last_date = max(
-            datetime.strptime(h['as_of_month'], '%Y-%m-%d').date()
-            for h in all_holdings
-        )
-        client.insert(
-            'market_data.import_watermarks',
-            [['mf_holdings', FUND_NAME, last_date]],
-            column_names=['source', 'symbol', 'last_date'],
-        )
-        console.print(f"[dim]Watermark set: mf_holdings/{FUND_NAME} → {last_date}[/dim]")
+        console.print(f"[bold green]✓ Imported {len(rows)} holdings across {len(targets) - len(failed_months)}/{len(targets)} months.[/bold green]")
+        
+        watermark_rows = []
+        for _, fund_name, _ in FUNDS_TO_IMPORT:
+            fund_holdings = [h for h in all_holdings if h['fund_name'] == fund_name]
+            if fund_holdings:
+                last_date = max(datetime.strptime(h['as_of_month'], '%Y-%m-%d').date() for h in fund_holdings)
+                watermark_rows.append(['mf_holdings', fund_name, last_date])
+        
+        if watermark_rows:
+            client.insert('market_data.import_watermarks', watermark_rows, column_names=['source', 'symbol', 'last_date'])
+            for _, fn, ld in watermark_rows:
+                console.print(f"[dim]Watermark set: mf_holdings/{fn} → {ld}[/dim]")
     else:
         console.print("[red]✗ No holdings found to import.[/red]")
-
-    client.close()
+    if client: client.close()
 
 
 if __name__ == "__main__":

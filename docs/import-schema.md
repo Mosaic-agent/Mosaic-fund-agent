@@ -18,6 +18,7 @@ Run imports via CLI: `python src/main.py import --category <name>`
 | `fx_rates` | Yahoo Finance (free) | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD | `fx_rates` |
 | `mf_holdings` | Morningstar via mstarpy | Current portfolio snapshot for DSP, Quant, ICICI multi-asset funds | `mf_holdings` |
 | `fii_dii` | Sensibull oxide API | Daily + monthly FII/DII institutional cash flows + F&O OI | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily` |
+| `user_data` | Zerodha Kite MCP | Personal portfolio, margins, profile, positions, and orders | `user_*` tables |
 
 ### Delta-sync
 
@@ -48,6 +49,11 @@ Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-i
 | `fii_dii_monthly` | ReplacingMergeTree(imported_at) | — | (month_date) | Monthly FII/DII aggregate + Nifty (Sep 2018→present) |
 | `fii_dii_fno_daily` | ReplacingMergeTree(imported_at) | — | (trade_date) | Daily F&O participant OI (futures + options, 4 categories) |
 | `news_articles` | ReplacingMergeTree(imported_at) | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events (gnews + yfinance, no key) |
+| `user_holdings` | ReplacingMergeTree(imported_at) | — | (tradingsymbol, imported_at) | Personal CNC holdings snapshot |
+| `user_profile` | ReplacingMergeTree(imported_at) | — | (user_id, imported_at) | Kite account profile details |
+| `user_margins` | ReplacingMergeTree(imported_at) | — | (segment, imported_at) | Available cash & utilised margins |
+| `user_positions` | ReplacingMergeTree(imported_at) | — | (tradingsymbol, imported_at) | Intraday (MIS/NRML) open positions |
+| `user_orders` | ReplacingMergeTree(imported_at) | — | (order_id, imported_at) | Historical order book log |
 
 ### Querying tips
 

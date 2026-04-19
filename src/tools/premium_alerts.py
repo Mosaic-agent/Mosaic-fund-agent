@@ -59,8 +59,8 @@ INTL_ETF_SYMBOLS: list[str] = [
     "MAFANG",
     "HNGSNGBEES",
     "MON100",
-    "NIFTYQLITY",
-    "PSUBNKBEES",
+    "MASPTOP50",
+    "MAHKTECH",
 ]
 
 _MIN_SNAPSHOTS_DEFAULT = 5

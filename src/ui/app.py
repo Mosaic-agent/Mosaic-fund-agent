@@ -132,9 +132,7 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals = st.tabs(
-    ["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals"]
-)
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2539,6 +2537,7 @@ with tab_holdings:
 
     _FUND_LABELS = {
         "DSP_MULTI_ASSET":   "DSP Multi Asset",
+        "DSP_MULTI_ASSET_OMNI_FOF": "DSP Multi Asset Omni FoF",
         "QUANT_MULTI_ASSET": "Quant Multi Asset",
         "ICICI_MULTI_ASSET": "ICICI Pru Multi Asset",
         "BAJAJ_MULTI_ASSET": "Bajaj Multi Asset",
@@ -2546,8 +2545,9 @@ with tab_holdings:
     _ASSET_COLORS = {
         "equity": "#1976D2",
         "gold":   "#FFA726",
+        "silver": "#90A4AE",
         "bond":   "#43A047",
-        "cash":   "#90A4AE",
+        "cash":   "#78909C",
         "other":  "#AB47BC",
     }
 
@@ -2658,7 +2658,16 @@ with tab_holdings:
     # ══ 3. Month-over-month drift ══════════════════════════════════════════
     if len(_available_months) >= 2:
         st.subheader("Month-over-Month Drift")
-        _prev_month = _available_months[1] if _available_months[0] == selected_month else None
+        
+        # Find the month immediately preceding the selected month in the sorted list
+        _prev_month = None
+        try:
+            _curr_idx = _available_months.index(selected_month)
+            if _curr_idx + 1 < len(_available_months):
+                _prev_month = _available_months[_curr_idx + 1]
+        except ValueError:
+            pass
+
         if _prev_month:
             _drift_df = _query_df(
                 f"""
@@ -2718,7 +2727,7 @@ with tab_holdings:
                     height=380,
                 )
         else:
-            st.info("Select the latest available month to compare with the prior month.")
+            st.info(f"No previous month found to compare against {selected_month.strftime('%b %Y') if hasattr(selected_month, 'strftime') else selected_month}.")
 
     # ══ 4. Asset allocation trend over time ═══════════════════════════════
     if len(_available_months) >= 2:
@@ -2736,7 +2745,9 @@ with tab_holdings:
             _trend_df.columns = ["month", "fund_name", "asset_type", "weight"]
             import plotly.express as px  # noqa: F811
             _trend_df["fund_label"] = _trend_df["fund_name"].map(_FUND_LABELS).fillna(_trend_df["fund_name"])
-            fig_trend = px.line(
+            
+            # Stacked Area Chart
+            fig_trend = px.area(
                 _trend_df,
                 x="month",
                 y="weight",
@@ -2745,10 +2756,68 @@ with tab_holdings:
                 facet_col_wrap=len(selected_funds),
                 color_discrete_map=_ASSET_COLORS,
                 labels={"month": "", "weight": "Weight (%)", "asset_type": "Type"},
-                height=320,
+                height=380,
+                markers=True,
             )
-            fig_trend.update_layout(margin=dict(t=30, b=0))
+            fig_trend.update_layout(
+                margin=dict(t=30, b=0),
+                legend=dict(orientation="h", y=-0.2)
+            )
             st.plotly_chart(fig_trend, width="stretch")
+
+    # ══ 5. Common Holdings & Stock Overlap ════════════════════════════════
+    if len(selected_funds) >= 1:
+        st.subheader("Top Common Holdings (Aggregated)")
+        _common_df = _query_df(
+            f"""
+            SELECT 
+                security_name,
+                count(DISTINCT fund_name) as n_funds,
+                sum(pct_of_nav) as total_weight,
+                groupArray(concat(fund_name, ' (', toString(round(pct_of_nav, 1)), '%)')) as breakdown
+            FROM market_data.mf_holdings FINAL
+            WHERE fund_name IN ({_fund_filter})
+              AND as_of_month = '{selected_month}'
+              AND asset_type = 'equity'
+              AND security_name NOT LIKE '%Gold%'
+              AND security_name NOT LIKE '%Silver%'
+            GROUP BY security_name
+            HAVING total_weight > 0.5
+            ORDER BY total_weight DESC
+            LIMIT 15
+            """
+        )
+        
+        if not _common_df.empty:
+            _common_df.columns = ["Security", "Funds", "Total Weight (%)", "Breakdown"]
+            
+            col_chart, col_table = st.columns([1, 1])
+            with col_chart:
+                import plotly.express as px # noqa: F811
+                fig_common = px.bar(
+                    _common_df,
+                    x="Total Weight (%)",
+                    y="Security",
+                    orientation="h",
+                    color="Funds",
+                    color_continuous_scale="Viridis",
+                    title=f"Aggregate Stock Exposure ({selected_month.strftime('%b %Y') if hasattr(selected_month, 'strftime') else selected_month})",
+                )
+                fig_common.update_layout(yaxis={'categoryorder':'total ascending'}, height=450, margin=dict(l=0, r=0, t=40, b=0))
+                st.plotly_chart(fig_common, width="stretch")
+            
+            with col_table:
+                st.dataframe(
+                    _common_df,
+                    column_config={
+                        "Breakdown": st.column_config.ListColumn("Fund Breakdown")
+                    },
+                    hide_index=True,
+                    width="stretch",
+                    height=450
+                )
+        else:
+            st.info("No significant common stock holdings found.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3439,7 +3508,7 @@ with tab_signals:
             "macro_score", "sentiment_score", "valuation_score",
             "flow_score", "ml_score", "anomaly_flag",
         ]
-        _styled = _sig_df[_display_cols].style.applymap(
+        _styled = _sig_df[_display_cols].style.map(
             _style_action, subset=["action"]
         ).format(
             {col: "{:.0f}" for col in _display_cols if col.endswith("_score")},
@@ -3470,3 +3539,334 @@ with tab_signals:
                 )
 
         st.caption(f"Signal composite as of {_sig_date} · from ClickHouse")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 10 — KITE DASHBOARD
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_kite:
+    st.header("🪁 Kite Dashboard (Personal Portfolio)")
+
+    # ── Sync timestamp ────────────────────────────────────────────────────────
+    try:
+        sync_df = _query_df("SELECT MAX(imported_at) as last_sync FROM market_data.user_holdings")
+        if not sync_df.empty and sync_df.iloc[0]["last_sync"]:
+            st.caption(f"Last synchronized with Kite: **{sync_df.iloc[0]['last_sync']}**")
+        else:
+            st.caption("No sync timestamp found.")
+    except Exception:
+        st.caption("Sync timestamp unavailable.")
+
+    # ── Sub-tabs ──────────────────────────────────────────────────────────────
+    ktab_overview, ktab_holdings, ktab_positions, ktab_margins = st.tabs([
+        "📊 Overview", "📦 Holdings", "📈 Positions & Orders", "💰 Margins"
+    ])
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-TAB 1 — OVERVIEW
+    # ══════════════════════════════════════════════════════════════════════════
+    with ktab_overview:
+
+        # ── KPI Cards ─────────────────────────────────────────────────────────
+        try:
+            summary_df = _query_df("""
+                SELECT
+                    SUM(quantity * average_price)                        AS total_invested,
+                    SUM(quantity * last_price)                           AS total_current_value,
+                    SUM(pnl)                                             AS total_pnl,
+                    (SUM(pnl) / SUM(quantity * average_price)) * 100     AS total_pnl_pct
+                FROM market_data.user_holdings FINAL
+            """)
+            if not summary_df.empty:
+                s = summary_df.iloc[0]
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("💰 Total Invested",  f"₹{s['total_invested']:,.0f}")
+                c2.metric("📈 Current Value",   f"₹{s['total_current_value']:,.0f}",
+                          delta=f"₹{s['total_pnl']:+,.0f}")
+                c3.metric("💹 Total P&L",       f"₹{s['total_pnl']:,.0f}")
+                c4.metric("📊 Return %",        f"{s['total_pnl_pct']:.2f}%",
+                          delta=f"{s['total_pnl_pct']:.2f}%")
+            else:
+                st.info("No holdings data to summarize.")
+        except Exception as e:
+            st.error(f"Error calculating summary: {e}")
+
+        st.divider()
+
+        # ── Charts Row: Wealth Trend + Allocation Donut ───────────────────────
+        col_chart, col_donut = st.columns([3, 2])
+
+        with col_chart:
+            st.subheader("📈 Wealth Trend")
+            try:
+                import plotly.graph_objects as go  # noqa: F811
+                wealth_df = _query_df("""
+                    SELECT record_date, total_value, total_invested
+                    FROM market_data.wealth_history
+                    ORDER BY record_date
+                """)
+                if len(wealth_df) >= 2:
+                    fig_wealth = go.Figure()
+                    fig_wealth.add_trace(go.Scatter(
+                        x=wealth_df["record_date"], y=wealth_df["total_value"],
+                        name="Current Value", fill="tozeroy",
+                        line=dict(color="#3b82f6", width=2),
+                        fillcolor="rgba(59,130,246,0.15)",
+                        hovertemplate="₹%{y:,.0f}<extra>Current Value</extra>",
+                    ))
+                    fig_wealth.add_trace(go.Scatter(
+                        x=wealth_df["record_date"], y=wealth_df["total_invested"],
+                        name="Invested", line=dict(color="#9ca3af", width=1.5, dash="dash"),
+                        hovertemplate="₹%{y:,.0f}<extra>Invested</extra>",
+                    ))
+                    fig_wealth.update_layout(
+                        template="plotly_dark",
+                        yaxis=dict(tickprefix="₹", tickformat=",.0f"),
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                    xanchor="right", x=1),
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        height=300,
+                        hovermode="x unified",
+                    )
+                    st.plotly_chart(fig_wealth, use_container_width=True)
+                elif len(wealth_df) == 1:
+                    st.info("Wealth tracking started today. Chart will appear after the next sync.")
+                else:
+                    st.info("No wealth history yet. Run `scripts/track_wealth_history.py` daily.")
+            except Exception as e:
+                st.warning(f"Wealth chart unavailable: {e}")
+
+        with col_donut:
+            st.subheader("🥧 Allocation")
+            try:
+                import plotly.express as px  # noqa: F811
+                alloc_df = _query_df("""
+                    SELECT tradingsymbol, exchange,
+                           quantity * last_price AS market_value
+                    FROM market_data.user_holdings FINAL
+                    WHERE quantity > 0
+                """)
+                if not alloc_df.empty:
+                    def _classify_type(row):
+                        if row["exchange"] == "MF":
+                            return "MF"
+                        etf_kw = {"BEES", "ETF", "GOLD", "LIQUID", "NIFTY", "BANKEX", "JR"}
+                        if any(k in str(row["tradingsymbol"]).upper() for k in etf_kw):
+                            return "ETF"
+                        return "Equity"
+
+                    alloc_df["type"] = alloc_df.apply(_classify_type, axis=1)
+                    type_summary = alloc_df.groupby("type")["market_value"].sum().reset_index()
+                    type_summary.columns = ["Type", "Value"]
+                    color_map = {"Equity": "#3b82f6", "ETF": "#f59e0b", "MF": "#10b981"}
+                    fig_donut = px.pie(
+                        type_summary, values="Value", names="Type",
+                        hole=0.5, color="Type", color_discrete_map=color_map,
+                    )
+                    fig_donut.update_traces(
+                        textinfo="percent+label",
+                        hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<br>%{percent}<extra></extra>",
+                    )
+                    fig_donut.update_layout(
+                        template="plotly_dark",
+                        showlegend=True,
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.2),
+                        margin=dict(l=10, r=10, t=10, b=10),
+                        height=300,
+                    )
+                    st.plotly_chart(fig_donut, use_container_width=True)
+                else:
+                    st.info("No holdings data for allocation chart.")
+            except Exception as e:
+                st.warning(f"Allocation chart unavailable: {e}")
+
+        st.divider()
+
+        # ── Account Details (collapsible) ──────────────────────────────────────
+        with st.expander("👤 Account Details"):
+            try:
+                profile_df = _query_df(
+                    "SELECT * FROM market_data.user_profile ORDER BY imported_at DESC LIMIT 1"
+                )
+                if not profile_df.empty:
+                    p = profile_df.iloc[0]
+                    p1, p2, p3, p4 = st.columns(4)
+                    p1.metric("Name",   p["user_name"])
+                    p2.metric("ID",     p["user_id"])
+                    p3.metric("Broker", p["broker"])
+                    p4.metric("Type",   p["user_type"])
+                else:
+                    st.info("No profile data found.")
+            except Exception as e:
+                st.error(f"Error loading profile: {e}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-TAB 2 — HOLDINGS
+    # ══════════════════════════════════════════════════════════════════════════
+    with ktab_holdings:
+
+        # ── Fetch all holdings for charts ──────────────────────────────────────
+        try:
+            all_hld_df = _query_df("""
+                SELECT tradingsymbol, exchange, quantity, average_price, last_price, pnl,
+                       day_change, day_change_percentage,
+                       quantity * last_price                                  AS market_value,
+                       (pnl / (quantity * average_price)) * 100              AS pnl_pct
+                FROM market_data.user_holdings FINAL
+                WHERE quantity > 0
+                ORDER BY pnl DESC
+            """)
+        except Exception:
+            all_hld_df = pd.DataFrame()
+
+        if not all_hld_df.empty:
+            import plotly.graph_objects as go  # noqa: F811
+            total_val = all_hld_df["market_value"].sum()
+            all_hld_df["weight_pct"] = (all_hld_df["market_value"] / total_val * 100).round(2)
+
+            chart_col1, chart_col2 = st.columns(2)
+
+            # ── Chart: P&L per holding ─────────────────────────────────────────
+            with chart_col1:
+                st.subheader("💹 P&L by Holding")
+                sorted_pnl = all_hld_df.sort_values("pnl")
+                colors_pnl = ["#10b981" if v >= 0 else "#ef4444" for v in sorted_pnl["pnl"]]
+                fig_pnl = go.Figure(go.Bar(
+                    x=sorted_pnl["pnl"],
+                    y=sorted_pnl["tradingsymbol"],
+                    orientation="h",
+                    marker_color=colors_pnl,
+                    text=[f"₹{v:+,.0f}" for v in sorted_pnl["pnl"]],
+                    textposition="outside",
+                    hovertemplate="<b>%{y}</b><br>P&L: ₹%{x:+,.0f}<extra></extra>",
+                ))
+                fig_pnl.update_layout(
+                    template="plotly_dark",
+                    xaxis=dict(tickprefix="₹", tickformat=",.0f"),
+                    margin=dict(l=10, r=70, t=20, b=10),
+                    height=max(250, len(sorted_pnl) * 34),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_pnl, use_container_width=True)
+
+            # ── Chart: Portfolio weights ───────────────────────────────────────
+            with chart_col2:
+                st.subheader("⚖️ Portfolio Weights")
+                sorted_w = all_hld_df.sort_values("weight_pct", ascending=True)
+                fig_wt = go.Figure(go.Bar(
+                    x=sorted_w["weight_pct"],
+                    y=sorted_w["tradingsymbol"],
+                    orientation="h",
+                    marker_color="#4f87c4",
+                    text=[f"{v:.1f}%" for v in sorted_w["weight_pct"]],
+                    textposition="outside",
+                    hovertemplate="<b>%{y}</b><br>Weight: %{x:.1f}%<extra></extra>",
+                ))
+                fig_wt.update_layout(
+                    template="plotly_dark",
+                    xaxis=dict(ticksuffix="%"),
+                    margin=dict(l=10, r=50, t=20, b=10),
+                    height=max(250, len(sorted_w) * 34),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_wt, use_container_width=True)
+        else:
+            st.info("No holdings data for charts. Sync your Kite account first.")
+
+        st.divider()
+
+        # ── Equity & ETF Holdings table ────────────────────────────────────────
+        st.subheader("📦 Equity & ETF Holdings")
+        try:
+            equity_df = _query_df(
+                "SELECT * FROM market_data.user_holdings FINAL WHERE exchange != 'MF' ORDER BY pnl DESC"
+            )
+            if not equity_df.empty:
+                st.dataframe(
+                    equity_df.style.format({
+                        "average_price":        "₹{:.2f}",
+                        "last_price":           "₹{:.2f}",
+                        "pnl":                  "₹{:.2f}",
+                        "day_change":           "₹{:.2f}",
+                        "day_change_percentage": "{:.2f}%",
+                    }).map(
+                        lambda v: "color: #10b981" if isinstance(v, (int, float)) and v > 0
+                                  else ("color: #ef4444" if isinstance(v, (int, float)) and v < 0 else ""),
+                        subset=["pnl", "day_change_percentage"],
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.info("No equity holdings found.")
+        except Exception as e:
+            st.error(f"Error loading equity holdings: {e}")
+
+        # ── Mutual Fund Holdings table ─────────────────────────────────────────
+        st.subheader("🏦 Mutual Fund Holdings")
+        try:
+            mf_df = _query_df(
+                "SELECT * FROM market_data.user_holdings FINAL WHERE exchange = 'MF' ORDER BY pnl DESC"
+            )
+            if not mf_df.empty:
+                st.dataframe(
+                    mf_df.style.format({
+                        "quantity":             "{:.3f}",
+                        "average_price":        "₹{:.4f}",
+                        "last_price":           "₹{:.4f}",
+                        "pnl":                  "₹{:.2f}",
+                        "day_change":           "₹{:.2f}",
+                        "day_change_percentage": "{:.2f}%",
+                    }).map(
+                        lambda v: "color: #10b981" if isinstance(v, (int, float)) and v > 0
+                                  else ("color: #ef4444" if isinstance(v, (int, float)) and v < 0 else ""),
+                        subset=["pnl", "day_change_percentage"],
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.info("No mutual fund holdings found.")
+        except Exception as e:
+            st.error(f"Error loading mutual fund holdings: {e}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-TAB 3 — POSITIONS & ORDERS
+    # ══════════════════════════════════════════════════════════════════════════
+    with ktab_positions:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("📈 Open Positions")
+            try:
+                pos_df = _query_df("SELECT * FROM market_data.user_positions FINAL")
+                if not pos_df.empty:
+                    st.dataframe(pos_df, use_container_width=True)
+                else:
+                    st.info("No open positions.")
+            except Exception as e:
+                st.error(f"Error loading positions: {e}")
+        with col2:
+            st.subheader("📝 Recent Orders")
+            try:
+                ord_df = _query_df(
+                    "SELECT * FROM market_data.user_orders FINAL ORDER BY order_timestamp DESC"
+                )
+                if not ord_df.empty:
+                    st.dataframe(ord_df, use_container_width=True)
+                else:
+                    st.info("No recent orders.")
+            except Exception as e:
+                st.error(f"Error loading orders: {e}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-TAB 4 — MARGINS
+    # ══════════════════════════════════════════════════════════════════════════
+    with ktab_margins:
+        st.subheader("💰 Account Margins")
+        try:
+            margins_df = _query_df("SELECT * FROM market_data.user_margins FINAL ORDER BY segment")
+            if not margins_df.empty:
+                st.dataframe(margins_df, use_container_width=True)
+            else:
+                st.info("No margins data found.")
+        except Exception as e:
+            st.error(f"Error loading margins: {e}")

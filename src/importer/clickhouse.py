@@ -287,6 +287,88 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (fetched_at, source_type, category, title)
 """
 
+_DDL_USER_HOLDINGS = """
+CREATE TABLE IF NOT EXISTS market_data.user_holdings (
+    tradingsymbol         String,
+    exchange              String,
+    isin                  String,
+    quantity              Float64,
+    average_price         Float64,
+    last_price            Float64,
+    pnl                   Float64,
+    day_change            Float64,
+    day_change_percentage Float64,
+    imported_at           DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (tradingsymbol, imported_at)
+"""
+
+_DDL_USER_PROFILE = """
+CREATE TABLE IF NOT EXISTS market_data.user_profile (
+    user_id          String,
+    user_name        String,
+    email            String,
+    broker           String,
+    user_type        String,
+    exchanges        Array(String),
+    imported_at      DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (user_id, imported_at)
+"""
+
+_DDL_USER_MARGINS = """
+CREATE TABLE IF NOT EXISTS market_data.user_margins (
+    segment          String,       -- equity | commodity
+    cash             Float64,
+    available_balance Float64,
+    utilised_debits  Float64,
+    utilised_m2m     Float64,
+    utilised_holding_sales Float64,
+    imported_at      DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (segment, imported_at)
+"""
+
+_DDL_USER_POSITIONS = """
+CREATE TABLE IF NOT EXISTS market_data.user_positions (
+    tradingsymbol    String,
+    exchange         String,
+    instrument_token UInt32,
+    product          String,
+    quantity         Int64,
+    average_price    Float64,
+    last_price       Float64,
+    pnl              Float64,
+    imported_at      DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (tradingsymbol, imported_at)
+"""
+
+_DDL_USER_ORDERS = """
+CREATE TABLE IF NOT EXISTS market_data.user_orders (
+    order_id         String,
+    parent_order_id  String,
+    status           String,
+    tradingsymbol    String,
+    exchange         String,
+    transaction_type String,
+    order_type       String,
+    quantity         Int64,
+    filled_quantity  Int64,
+    pending_quantity Int64,
+    price            Float64,
+    average_price    Float64,
+    order_timestamp  DateTime,
+    imported_at      DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (order_id, imported_at)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -305,6 +387,11 @@ class ClickHouseImporter:
         username: str = "default",
         password: str = "",
     ) -> None:
+        self._host = host
+        self._port = port
+        self._username = username
+        self._password = password
+        self._database = database
         self._client = clickhouse_connect.get_client(
             host=host,
             port=port,
@@ -312,7 +399,6 @@ class ClickHouseImporter:
             password=password,
             connect_timeout=15,
         )
-        self._database = database
 
     # ── Schema ────────────────────────────────────────────────────────────────
 
@@ -323,10 +409,120 @@ class ClickHouseImporter:
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
             _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
             _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
-            _DDL_SIGNAL_COMPOSITE,
+            _DDL_SIGNAL_COMPOSITE, _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
+            _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
         ):
             self._client.command(ddl)
         logger.debug("ClickHouse schema verified.")
+
+    # ── Bulk insert: user_holdings ────────────────────────────────────────────
+
+    def insert_user_holdings(self, rows: list[dict[str, Any]]) -> int:
+        """
+        Insert user portfolio holdings into market_data.user_holdings.
+
+        Each row dict must have keys:
+            tradingsymbol, exchange, isin, quantity, average_price,
+            last_price, pnl, day_change, day_change_percentage
+        """
+        if not rows:
+            return 0
+        data = [
+            [
+                r["tradingsymbol"],
+                r["exchange"],
+                r["isin"],
+                r["quantity"],
+                r["average_price"],
+                r["last_price"],
+                r["pnl"],
+                r["day_change"],
+                r["day_change_percentage"],
+            ]
+            for r in rows
+        ]
+        self._client.insert(
+            "market_data.user_holdings",
+            data,
+            column_names=[
+                "tradingsymbol", "exchange", "isin", "quantity", "average_price",
+                "last_price", "pnl", "day_change", "day_change_percentage",
+            ],
+        )
+        logger.info("Inserted %d user holdings into market_data.user_holdings", len(rows))
+        return len(rows)
+
+    def insert_user_profile(self, r: dict[str, Any]) -> int:
+        """Insert user profile into market_data.user_profile."""
+        data = [[
+            r["user_id"], r["user_name"], r["email"],
+            r["broker"], r["user_type"], r.get("exchanges", []),
+        ]]
+        self._client.insert(
+            "market_data.user_profile",
+            data,
+            column_names=["user_id", "user_name", "email", "broker", "user_type", "exchanges"],
+        )
+        return 1
+
+    def insert_user_margins(self, rows: list[dict[str, Any]]) -> int:
+        """Insert user margins into market_data.user_margins."""
+        if not rows: return 0
+        data = [[
+            r["segment"], r["cash"], r["available_balance"],
+            r["utilised_debits"], r["utilised_m2m"], r["utilised_holding_sales"]
+        ] for r in rows]
+        self._client.insert(
+            "market_data.user_margins",
+            data,
+            column_names=[
+                "segment", "cash", "available_balance",
+                "utilised_debits", "utilised_m2m", "utilised_holding_sales"
+            ],
+        )
+        return len(rows)
+
+    def insert_user_positions(self, rows: list[dict[str, Any]]) -> int:
+        """Insert user positions into market_data.user_positions."""
+        if not rows: return 0
+        data = [[
+            r["tradingsymbol"], r["exchange"], r["instrument_token"],
+            r["product"], r["quantity"], r["average_price"],
+            r["last_price"], r["pnl"]
+        ] for r in rows]
+        self._client.insert(
+            "market_data.user_positions",
+            data,
+            column_names=[
+                "tradingsymbol", "exchange", "instrument_token",
+                "product", "quantity", "average_price",
+                "last_price", "pnl"
+            ],
+        )
+        return len(rows)
+
+    def insert_user_orders(self, rows: list[dict[str, Any]]) -> int:
+        """Insert user orders into market_data.user_orders."""
+        if not rows: return 0
+        data = [[
+            r["order_id"], r.get("parent_order_id", ""), r["status"],
+            r["tradingsymbol"], r["exchange"], r["transaction_type"],
+            r["order_type"], r["quantity"], r["filled_quantity"],
+            r["pending_quantity"], r["price"], r["average_price"],
+            r["order_timestamp"]
+        ] for r in rows]
+        self._client.insert(
+            "market_data.user_orders",
+            data,
+            column_names=[
+                "order_id", "parent_order_id", "status",
+                "tradingsymbol", "exchange", "transaction_type",
+                "order_type", "quantity", "filled_quantity",
+                "pending_quantity", "price", "average_price",
+                "order_timestamp"
+            ],
+        )
+        return len(rows)
 
     # ── Bulk insert: news_articles ────────────────────────────────────────────
 
@@ -821,6 +1017,55 @@ class ClickHouseImporter:
 
     def close(self) -> None:
         self._client.close()
+
+    def snapshot(self, lookback_days: int) -> list[dict[str, Any]]:
+        """
+        Snapshot current state for the given lookback window.
+        Actually, let's just snapshot the watermarks as that's easier to undo.
+        In a real scenario, we might want to snapshot data too, but replacing 
+        rows is safe with ReplacingMergeTree.
+        """
+        # For simplicity, we just snapshot watermarks
+        result = self._client.query("SELECT * FROM market_data.import_watermarks FINAL")
+        return [dict(zip(result.column_names, row)) for row in result.result_rows]
+
+    def restore(self, snapshot: list[dict[str, Any]]) -> None:
+        """Restore watermarks from a snapshot."""
+        if not snapshot:
+            return
+        # We could TRUNCATE first, but ReplacingMergeTree will just take the latest
+        self._client.insert(
+            "market_data.import_watermarks",
+            [[r["source"], r["symbol"], r["last_date"]] for r in snapshot],
+            column_names=["source", "symbol", "last_date"],
+        )
+
+    def run(
+        self, 
+        categories: list[str], 
+        lookback_days: int = 3650, 
+        full_reimport: bool = False, 
+        dry_run: bool = False
+    ) -> dict[str, Any]:
+        """
+        Execute the import logic (refactored from cli.py).
+        Returns a summary dict.
+        """
+        from src.importer.cli import run_import
+        # We'll use the existing run_import for now, but in a real refactor
+        # we'd move the logic here.
+        run_import(
+            categories=categories,
+            lookback_days=lookback_days,
+            full_reimport=full_reimport,
+            dry_run=dry_run,
+            clickhouse_host=self._host,
+            clickhouse_port=self._port,
+            clickhouse_database=self._database,
+            clickhouse_user=self._username,
+            clickhouse_password=self._password,
+        )
+        return {"status": "success", "categories": categories}
 
     def __enter__(self) -> "ClickHouseImporter":
         return self
