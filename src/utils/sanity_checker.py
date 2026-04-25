@@ -11,8 +11,8 @@ from pathlib import Path
 import sys
 
 # Constants for anomaly detection
-MAX_YOY_RETURN_SAFE_ASSET = 0.40  # 40% (e.g., Gold, Nifty 50)
-MAX_DAILY_RETURN = 0.07          # 7% (NSE circuit limit)
+MAX_YOY_RETURN_SAFE_ASSET = 0.80  # 80% (e.g., Gold, Nifty 50 in bull markets)
+MAX_DAILY_RETURN = 0.20          # 20% (standard NSE circuit limit)
 
 # Assets considered "safe/stable" for lower thresholds
 SAFE_ASSETS = ["GOLDBEES", "NIFTYBEES", "BANKBEES", "LIQUIDBEES", "MON100"]
