@@ -134,7 +134,12 @@ def _collect_valuation_scores(verbose: bool = False) -> dict[str, float]:
     """
     try:
         from src.tools.domestic_etf_scanner import scan_domestic_etfs
-        etf_data = scan_domestic_etfs(symbols=SIGNAL_ETFS, lookback_days=30)
+        from src.db.pool import get_pool as _get_ch_pool
+        _cl = _get_ch_pool().get_client()
+        try:
+            etf_data = scan_domestic_etfs(_cl, symbols=SIGNAL_ETFS, lookback_days=30)
+        finally:
+            _cl.close()
         scores = {}
         for item in etf_data:
             sym = item.get("symbol", "")
