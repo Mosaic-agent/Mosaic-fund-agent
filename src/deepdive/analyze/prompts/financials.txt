@@ -1,0 +1,22 @@
+Write section "## 2. Financial Performance" of the research report.
+
+Focus on these dataset fields:
+- financials[]: fiscal_year, revenue_usd_m, gross_profit_usd_m, operating_income_usd_m,
+  net_income_usd_m, free_cash_flow_usd_m, rd_expense_usd_m, capex_usd_m,
+  gross_margin_pct, operating_margin_pct
+- rd_spend_usd_m, rd_pct_of_revenue, capex_usd_m (top-level, most recent year)
+
+Tasks:
+1. Present a 3-year summary table in Markdown:
+   FY | Revenue ($M) | Revenue YoY % | Gross Margin % | Op. Margin % | FCF ($M)
+   Compute Revenue YoY % yourself from consecutive financials[].revenue_usd_m; cite raw inputs.
+2. Highlight the revenue compound growth rate over the full period (first to last year).
+3. Comment on gross margin stability or trend across the three years.
+4. Operating leverage: has operating margin expanded or contracted? By how many percentage
+   points from the earliest to the latest year?
+5. FCF quality: compare FCF to net income for the most recent year. A ratio above 1.0x
+   signals strong cash conversion; cite both figures.
+6. R&D intensity: state rd_pct_of_revenue and note whether it rose or fell vs the prior year.
+7. If guidance_revenue_usd_m is not null, compare it to financials[-1].revenue_usd_m and
+   state the implied growth. If null, write "Management has not provided public revenue guidance
+   in the dataset."

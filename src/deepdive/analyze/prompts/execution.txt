@@ -1,0 +1,23 @@
+Write section "## 5. Execution Quality" of the research report.
+
+Focus on these dataset fields:
+- financials[]: revenue_usd_m, operating_income_usd_m, operating_margin_pct,
+  net_income_usd_m, free_cash_flow_usd_m for each year
+- guidance_revenue_usd_m, guidance_eps (may be null)
+- segments[]: revenue_usd_m (to assess segment-level execution)
+
+Tasks:
+1. Revenue consistency: compute year-over-year revenue growth for each consecutive
+   pair in financials[]. Note whether growth accelerated, decelerated, or held steady.
+   Cite each revenue figure.
+2. Margin execution: track operating_margin_pct across all years. Did the company
+   demonstrate operating leverage (margins expanding as revenue grew)?
+3. FCF conversion: for each year, compute FCF as a % of revenue
+   (free_cash_flow_usd_m / revenue_usd_m × 100). Note the trend.
+4. Segment execution: identify which segment(s) have the largest absolute revenue
+   from segments[]. If yoy_growth_pct is available for any segment, cite it.
+5. Guidance vs. actuals: if guidance_revenue_usd_m is non-null, compare to
+   financials[-1].revenue_usd_m and state the beat/miss in $ and %. If null,
+   write "Revenue guidance was not captured in the dataset."
+6. Summarise execution quality in one sentence: is the company showing consistent
+   delivery, improving unit economics, or deteriorating margins?

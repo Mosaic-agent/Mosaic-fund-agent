@@ -15,7 +15,8 @@ Public API
     scan_etf_news(categories=None, max_per_topic=5) -> ETFNewsReport
     print_etf_news_report(report)                  -> None  (Rich console)
 
-No new dependencies — uses gnews + yfinance which are already in requirements.txt.
+Uses gnews + yfinance (no key) and NewsAPI.org (requires NEWSAPI_KEY in .env).
+One NewsAPI call per ETF category; responses are cached for 1 h to protect the free 100 req/day quota.
 """
 from __future__ import annotations
 
@@ -205,7 +206,7 @@ class ETFNewsItem:
     etfs_impacted: list[str]
     category: str
     impact_tier: str        # HIGH / MEDIUM / LOW
-    fetch_source: str       # "gnews" | "yfinance"
+    fetch_source: str       # "gnews" | "yfinance" | "newsapi"
 
 
 @dataclass
@@ -228,6 +229,27 @@ def _fetch_gnews(query: str, max_results: int = 5) -> list[dict]:
         return client.get_news(query) or []
     except Exception as exc:
         log.debug("gnews failed for '%s': %s", query, exc)
+        return []
+
+
+def _fetch_newsapi(etf_symbol: str, category: str, max_results: int = 5) -> list[dict]:
+    """Fetch articles from NewsAPI for an ETF category (one call per category)."""
+    try:
+        from src.tools.newsapi_search import fetch_newsapi_articles
+        items = fetch_newsapi_articles(etf_symbol, category)
+        return [
+            {
+                "title":          i.title,
+                "source":         i.source,
+                "published date": i.published_at,
+                "url":            i.url,
+                "description":    i.description,
+                "sentiment":      i.sentiment.value,
+            }
+            for i in items[:max_results]
+        ]
+    except Exception as exc:
+        log.debug("NewsAPI ETF fetch failed for '%s': %s", etf_symbol, exc)
         return []
 
 
@@ -292,7 +314,17 @@ def scan_etf_news(
     Returns
     -------
     ETFNewsReport with deduplicated, tagged, sentiment-scored articles.
+
+    Performance
+    -----------
+    All GNews, YF, and NewsAPI calls run concurrently in a ThreadPoolExecutor.
+    YF tickers that appear in multiple categories are fetched once and fanned
+    out to each relevant category. NewsAPI results are already cached for 1h,
+    so the cache hit is instant; misses fire concurrently with the rest.
+    Expected wall-clock: ~5-8s vs ~54s sequential.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     report = ETFNewsReport(as_of=datetime.now().strftime("%Y-%m-%d %H:%M IST"))
     raw_items: list[ETFNewsItem] = []
 
@@ -302,53 +334,97 @@ def scan_etf_news(
         topics = [t for t in topics if t["category"].lower() in cat_lower]
 
     for topic in topics:
-        cat      = topic["category"]
-        etfs     = topic["etfs"]
-        impact   = topic["impact"]
-        report.categories_scanned.append(cat)
+        report.categories_scanned.append(topic["category"])
 
-        # ── Google News ───────────────────────────────────────────────────────
-        for query in topic["queries"]:
-            articles = _fetch_gnews(query, max_results=max_per_topic)
-            for art in articles:
-                title = art.get("title", "")
-                if not title:
-                    continue
-                desc      = art.get("description", "") or ""
-                publisher = art.get("publisher", {})
-                source    = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
-                pub_date  = str(art.get("published date", ""))
-                url       = art.get("url", "")
-                raw_items.append(ETFNewsItem(
-                    title=title,
-                    source=source,
-                    published_at=pub_date,
-                    url=url,
-                    sentiment=_sentiment(f"{title} {desc}"),
-                    etfs_impacted=etfs,
-                    category=cat,
-                    impact_tier=impact,
-                    fetch_source="gnews",
-                ))
+    # ── Build all fetch tasks up-front ────────────────────────────────────────
+    # GNews: one task per (category, query) — always category-specific
+    # YF:    deduplicated across categories; results fan-out to all relevant ones
+    # NewsAPI: one task per category
 
-        # ── Yahoo Finance news ────────────────────────────────────────────────
-        for yf_sym in topic.get("yf_symbols", []):
-            articles = _fetch_yfinance_news(yf_sym, max_results=max_per_topic)
-            for art in articles:
-                title = art.get("title", "")
-                if not title:
-                    continue
-                raw_items.append(ETFNewsItem(
-                    title=title,
-                    source=art.get("source", yf_sym),
-                    published_at=art.get("published date", ""),
-                    url=art.get("url", ""),
-                    sentiment=_sentiment(title),
-                    etfs_impacted=etfs,
-                    category=cat,
-                    impact_tier=impact,
-                    fetch_source="yfinance",
-                ))
+    gnews_tasks: list[tuple[str, str]] = []           # (category, query)
+    yf_sym_to_cats: dict[str, list[str]] = {}         # sym → [category, ...]
+    newsapi_tasks: list[tuple[str, str, list[str]]] = []  # (etf_symbol, category, etfs)
+
+    cat_meta: dict[str, dict] = {t["category"]: t for t in topics}
+
+    for topic in topics:
+        cat  = topic["category"]
+        etfs = topic["etfs"]
+        for q in topic["queries"]:
+            gnews_tasks.append((cat, q))
+        for sym in topic.get("yf_symbols", []):
+            yf_sym_to_cats.setdefault(sym, []).append(cat)
+        newsapi_tasks.append((etfs[0], cat, etfs))
+
+    # Result bucket: category → list of raw article dicts with fetch_source tag
+    cat_raw: dict[str, list[tuple[dict, str]]] = {t["category"]: [] for t in topics}
+
+    def _gnews_task(category: str, query: str):
+        return "gnews", category, _fetch_gnews(query, max_results=max_per_topic)
+
+    def _yf_task(sym: str):
+        return "yf", sym, _fetch_yfinance_news(sym, max_results=max_per_topic)
+
+    def _newsapi_task(etf_sym: str, category: str, etfs: list[str]):
+        return "newsapi", category, _fetch_newsapi(etf_sym, category, max_results=max_per_topic)
+
+    max_workers = min(32, len(gnews_tasks) + len(yf_sym_to_cats) + len(newsapi_tasks))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        for cat, q in gnews_tasks:
+            futures.append(executor.submit(_gnews_task, cat, q))
+        for sym in yf_sym_to_cats:
+            futures.append(executor.submit(_yf_task, sym))
+        for etf_sym, cat, etfs in newsapi_tasks:
+            futures.append(executor.submit(_newsapi_task, etf_sym, cat, etfs))
+
+        for fut in as_completed(futures):
+            try:
+                result = fut.result()
+                if result[0] == "gnews":
+                    _, category, articles = result
+                    cat_raw[category].extend((a, "gnews") for a in articles)
+                elif result[0] == "yf":
+                    _, sym, articles = result
+                    for cat in yf_sym_to_cats[sym]:
+                        cat_raw[cat].extend((a, "yfinance") for a in articles)
+                else:  # newsapi
+                    _, category, articles = result
+                    cat_raw[category].extend((a, "newsapi") for a in articles)
+            except Exception as exc:
+                log.debug("ETF news fetch task failed: %s", exc)
+
+    # ── Assemble items per category ───────────────────────────────────────────
+    for topic in topics:
+        cat    = topic["category"]
+        etfs   = topic["etfs"]
+        impact = topic["impact"]
+
+        for art, fetch_source in cat_raw[cat]:
+            title = art.get("title", "")
+            if not title:
+                continue
+            desc      = art.get("description", "") or ""
+            publisher = art.get("publisher", {})
+            if fetch_source == "gnews":
+                source = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
+            else:
+                source = art.get("source", fetch_source)
+            pub_date = str(art.get("published date", ""))
+            url      = art.get("url", "")
+            sent     = art.get("sentiment") or _sentiment(f"{title} {desc}")
+
+            raw_items.append(ETFNewsItem(
+                title=title,
+                source=source,
+                published_at=pub_date,
+                url=url,
+                sentiment=sent,
+                etfs_impacted=etfs,
+                category=cat,
+                impact_tier=impact,
+                fetch_source=fetch_source,
+            ))
 
     # Deduplicate and count sentiment
     report.items = _deduplicate(raw_items)
@@ -383,7 +459,7 @@ def print_etf_news_report(report: ETFNewsReport) -> None:
         f"[green]↑{report.positive_count}[/green] "
         f"[red]↓{report.negative_count}[/red] "
         f"[dim]→{report.neutral_count}[/dim]\n"
-        f"Sources: Google News RSS + Yahoo Finance  (no API key)[/dim]",
+        f"Sources: Google News RSS + Yahoo Finance + NewsAPI (Indian fin. press)[/dim]",
         border_style="cyan",
     ))
 
@@ -410,7 +486,8 @@ def print_etf_news_report(report: ETFNewsReport) -> None:
 
         for item in items[:8]:   # max 8 per category
             sent_icon = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}[item.sentiment]
-            tbl.add_row(sent_icon, item.title, item.source, item.published_at[:16])
+            src_label = f"[bold]{item.source}[/bold]" if item.fetch_source == "newsapi" else item.source
+            tbl.add_row(sent_icon, item.title, src_label, item.published_at[:16])
 
         console.print(tbl)
 
@@ -435,6 +512,7 @@ def save_etf_news_to_db(report: ETFNewsReport, ch_client) -> int:
             "fetched_at":    fetched_at,
             "published_at":  item.published_at,
             "source_type":   "etf_news",
+            "fetch_source":  item.fetch_source,
             "category":      item.category,
             "etfs_impacted": ",".join(item.etfs_impacted),
             "sentiment":     item.sentiment,

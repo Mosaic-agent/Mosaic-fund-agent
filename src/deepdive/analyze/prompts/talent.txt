@@ -1,0 +1,25 @@
+Write section "## 7. Talent & Workforce" of the research report.
+
+Focus on these dataset fields:
+- headcount[]: period, total_headcount, yoy_change_pct, notes
+- jobs{}: keys are function buckets (Engineering, Sales, Finance, Product,
+  Marketing, HR, Legal, Operations, Other); values are {location: count} dicts
+- filing_excerpts.headcount_notes_text
+
+Tasks:
+1. State the most recent total headcount [src: headcount[0].total_headcount] and
+   the period it covers [src: headcount[0].period].
+   If yoy_change_pct is non-null, state headcount growth/decline. If null, write
+   "Year-over-year change not disclosed."
+2. Hiring mix from jobs{}: compute the total open roles per function bucket
+   (sum all location counts for each function key). Present as a Markdown table:
+   Function | Open Roles | % of Total Open Roles.
+   Cite [src: jobs.<FunctionName>] for each function total.
+3. Geographic distribution: identify the top 3–5 locations with the highest
+   Engineering headcount from jobs.Engineering (sum multi-location entries where
+   possible). Note any offshore/nearshore concentration.
+4. Hiring signal: what does the ratio of Engineering to Sales open roles suggest
+   about the company's current stage (product-building vs growth/go-to-market)?
+5. Close with one sentence on workforce efficiency: revenue per employee
+   (financials[-1].revenue_usd_m × 1,000,000 / headcount[0].total_headcount).
+   Cite both inputs.

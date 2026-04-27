@@ -274,6 +274,7 @@ CREATE TABLE IF NOT EXISTS market_data.news_articles (
     fetched_at      DateTime,          -- when we scraped it
     published_at    String,            -- raw publish string from source
     source_type     String,            -- 'etf_news' | 'macro_event'
+    fetch_source    String DEFAULT '', -- 'gnews' | 'yfinance' | 'newsapi'
     category        String,            -- e.g. 'Gold ETFs', 'Geopolitical / War'
     etfs_impacted   String,            -- comma-separated ETF symbols
     sentiment       String,            -- POSITIVE | NEGATIVE | NEUTRAL
@@ -285,6 +286,32 @@ CREATE TABLE IF NOT EXISTS market_data.news_articles (
 )
 ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (fetched_at, source_type, category, title)
+"""
+
+_DDL_NEWS_ARTICLES_MIGRATE = """
+ALTER TABLE market_data.news_articles
+    ADD COLUMN IF NOT EXISTS fetch_source String DEFAULT ''
+"""
+
+_DDL_WEIGHT_CHECKPOINTS = """
+CREATE TABLE IF NOT EXISTS market_data.weight_checkpoints (
+    as_of                Date,
+    symbol               String,
+    method               String,             -- 'rg' | 'kelly' | 'blended_50' | 'blended_30'
+    recommended_weight   Float32,
+    expected_return_pct  Nullable(Float32),  -- NULL for pure RG method
+    expected_vol_pct     Nullable(Float32),  -- annualised implied vol, NULL for pure RG
+    garch_vol_pct        Nullable(Float32),
+    regime               String,
+    composite_score      Nullable(Float32),
+    price_below_ema50    UInt8,              -- 1 = below EMA50 (trend filter active)
+    cv_r2                Nullable(Float32),  -- LightGBM walk-forward CV R²
+    horizon_days         UInt8 DEFAULT 5,
+    rationale            String,
+    created_at           DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(created_at)
+ORDER BY (as_of, symbol, method)
 """
 
 _DDL_USER_HOLDINGS = """
@@ -409,10 +436,12 @@ class ClickHouseImporter:
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
             _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
             _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
-            _DDL_SIGNAL_COMPOSITE, _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
+            _DDL_SIGNAL_COMPOSITE, _DDL_WEIGHT_CHECKPOINTS, _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
         ):
             self._client.command(ddl)
+        # Column migrations (idempotent — ADD COLUMN IF NOT EXISTS)
+        self._client.command(_DDL_NEWS_ARTICLES_MIGRATE)
         logger.debug("ClickHouse schema verified.")
 
     # ── Bulk insert: user_holdings ────────────────────────────────────────────
@@ -531,7 +560,7 @@ class ClickHouseImporter:
         Insert news articles into market_data.news_articles.
 
         Each dict must have keys:
-            fetched_at, published_at, source_type, category,
+            fetched_at, published_at, source_type, fetch_source, category,
             etfs_impacted, sentiment, impact_tier, title, source, url
 
         Returns the number of rows inserted.
@@ -543,6 +572,7 @@ class ClickHouseImporter:
                 r["fetched_at"],
                 r.get("published_at", ""),
                 r["source_type"],
+                r.get("fetch_source", ""),
                 r["category"],
                 r.get("etfs_impacted", ""),
                 r.get("sentiment", "NEUTRAL"),
@@ -557,7 +587,7 @@ class ClickHouseImporter:
             "market_data.news_articles",
             data,
             column_names=[
-                "fetched_at", "published_at", "source_type", "category",
+                "fetched_at", "published_at", "source_type", "fetch_source", "category",
                 "etfs_impacted", "sentiment", "impact_tier", "title", "source", "url",
             ],
         )
@@ -598,6 +628,53 @@ class ClickHouseImporter:
             ],
         )
         logger.info("Inserted %d signal composite rows", len(rows))
+        return len(rows)
+
+    # ── Bulk insert: weight_checkpoints ──────────────────────────────────────
+
+    def insert_weight_checkpoints(self, rows: list[dict]) -> int:
+        """
+        Insert position-sizing decisions into market_data.weight_checkpoints.
+
+        Each dict must have keys:
+            as_of, symbol, method, recommended_weight, regime, rationale
+        Optional keys (NULL when absent):
+            expected_return_pct, expected_vol_pct, garch_vol_pct,
+            composite_score, cv_r2, price_below_ema50, horizon_days
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        data = [
+            [
+                r["as_of"],
+                r["symbol"],
+                r["method"],
+                float(r["recommended_weight"]),
+                r.get("expected_return_pct"),
+                r.get("expected_vol_pct"),
+                r.get("garch_vol_pct"),
+                r.get("regime", ""),
+                r.get("composite_score"),
+                int(r.get("price_below_ema50", 0)),
+                r.get("cv_r2"),
+                int(r.get("horizon_days", 5)),
+                r.get("rationale", ""),
+            ]
+            for r in rows
+        ]
+        self._client.insert(
+            "market_data.weight_checkpoints",
+            data,
+            column_names=[
+                "as_of", "symbol", "method", "recommended_weight",
+                "expected_return_pct", "expected_vol_pct", "garch_vol_pct",
+                "regime", "composite_score", "price_below_ema50",
+                "cv_r2", "horizon_days", "rationale",
+            ],
+        )
+        logger.info("Inserted %d weight checkpoint rows", len(rows))
         return len(rows)
 
     # ── Watermarks ────────────────────────────────────────────────────────────

@@ -46,8 +46,23 @@ python src/main.py etf-news --category "Gold ETFs,Bank ETFs,IT ETFs" --save
 
 ## Data Sources
 
-- **Google News RSS** via `gnews` — no quota, no key, India + US editions
+- **Google News RSS** via `gnews` — no quota, no key, India edition
 - **Yahoo Finance** via `yfinance` — no key, ticker-specific news
+- **NewsAPI** (optional) — Indian financial press; requires `NEWSAPI_KEY` in `.env`; cached 1h
+
+## What the Scanner Does NOT Produce — Do NOT Fabricate
+
+The output is: headlines + sentiment tag (POSITIVE/NEGATIVE/NEUTRAL) + category.
+
+❌ Do NOT add price levels (e.g. "gold at ₹7,200/g") — only report headlines shown
+❌ Do NOT add FII flow amounts unless visible in output
+❌ Do NOT assign buy/sell recommendations — the scanner only classifies sentiment
+
+When summarising, report:
+- Category names and how many articles were found
+- The positive/negative/neutral headline counts from the header
+- Specific headlines may be quoted directly (≤15 words)
+- Sentiment counts shown in the header panel are ground truth
 
 ## DB Storage
 

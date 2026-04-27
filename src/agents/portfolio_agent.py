@@ -37,7 +37,6 @@ from src.tools.news_search import NEWS_TOOLS
 from src.tools.summarization import SUMMARIZATION_TOOLS
 from src.tools.yahoo_finance import YAHOO_TOOLS
 from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
-from src.utils.demo_data import get_demo_holdings
 
 logger = logging.getLogger(__name__)
 
@@ -64,25 +63,14 @@ class PortfolioAgent:
     for the main workflow, using the ReAct agent for ad-hoc queries.
     """
 
-    def __init__(self, demo_mode: bool = False) -> None:
-        self._demo_mode = demo_mode
-        # Always attempt to build the LLM — even in demo mode.
-        # demo_mode only controls the data source (sample holdings vs Kite).
-        # LLM scoring is used whenever an LLM is successfully initialised.
+    def __init__(self) -> None:
         try:
             self._llm = self._build_llm()
             self._agent = self._build_agent()
         except Exception as exc:
-            logger.warning(
-                "LLM not available (%s) — falling back to rule-based scoring.", exc
-            )
+            logger.warning("LLM not available (%s).", exc)
             self._llm = None
             self._agent = None
-
-    @property
-    def _use_llm_scoring(self) -> bool:
-        """True when an LLM is configured and ready; False → rule-based fallback."""
-        return self._llm is not None
 
     def _build_llm(self) -> Any:
         """
@@ -152,9 +140,9 @@ class PortfolioAgent:
         Execute the full portfolio intelligence workflow on-demand.
 
         Steps:
-          1. Fetch holdings from Zerodha Kite MCP (or demo data if demo_mode)
+          1. Fetch holdings from Zerodha Kite MCP
           2. Enrich each holding with Yahoo Finance, News, Earnings data
-          3. Generate per-asset insights (LLM or rule-based in demo_mode)
+          3. Generate per-asset LLM insights
           4. Aggregate into portfolio-level report
 
         Args:
@@ -170,26 +158,11 @@ class PortfolioAgent:
             console = Console()
 
         # ── Step 1: Fetch Holdings ────────────────────────────────────────────
-        if self._demo_mode:
-            console.print(
-                "\n[bold cyan]Step 1/4:[/bold cyan] "
-                "[yellow]DEMO MODE[/yellow] — Using sample NSE portfolio "
-                "(GOLDBEES, RELIANCE, HDFCBANK, INFY, NIFTYBEES)"
-            )
-            if self._use_llm_scoring:
-                console.print(
-                    "[dim]  LLM scoring active — "
-                    f"{settings.llm_model} @ {settings.llm_base_url or 'cloud'}[/dim]"
-                )
-            else:
-                console.print("[dim]  No LLM configured — using rule-based scoring.[/dim]")
-            holdings = get_demo_holdings()
-        else:
-            console.print(
-                "\n[bold cyan]Step 1/4:[/bold cyan] "
-                "Fetching portfolio from Zerodha Kite MCP..."
-            )
-            holdings = self._fetch_holdings_sync()
+        console.print(
+            "\n[bold cyan]Step 1/4:[/bold cyan] "
+            "Fetching portfolio from Zerodha Kite MCP..."
+        )
+        holdings = self._fetch_holdings_sync()
 
         if not holdings:
             console.print("[bold red]✗ No holdings found. Ensure you are authenticated with Kite.[/bold red]")
@@ -219,7 +192,7 @@ class PortfolioAgent:
             for holding in holdings:
                 progress.update(task, description=f"Analyzing [bold]{holding.tradingsymbol}[/bold]...")
                 try:
-                    analysis = analyze_holding(holding, use_llm_scoring=self._use_llm_scoring)
+                    analysis = analyze_holding(holding)
                     analyses.append(analysis)
                     console.print(
                         f"  [green]✓[/green] {holding.tradingsymbol} "
@@ -266,7 +239,6 @@ class PortfolioAgent:
 
         report = build_portfolio_report(
             portfolio, analyses,
-            use_llm_scoring=self._use_llm_scoring,
             comex_signals=comex,
             institutional_flows=fii_dii_ctx,
         )
@@ -288,10 +260,7 @@ class PortfolioAgent:
             Agent's text response.
         """
         if self._agent is None:
-            return (
-                "Agent not available in demo mode. "
-                "Run 'analyze --demo' for a full demo analysis."
-            )
+            return "Agent not available — LLM is not configured. Set LLM_PROVIDER and API key in .env."
 
         from langchain_core.messages import HumanMessage, SystemMessage
         from src.utils.report_loader import load_latest_report, _compact_context

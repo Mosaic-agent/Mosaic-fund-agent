@@ -1,0 +1,25 @@
+Write section "## 6. Valuation" of the research report.
+
+Focus on these dataset fields:
+- valuation.as_of_date
+- valuation.market_cap_usd_b
+- valuation.pe_trailing, valuation.pe_forward
+- valuation.ev_revenue, valuation.ev_ebitda
+- valuation.fcf_yield_pct
+- valuation.peer_pe_median, valuation.peer_ev_ebitda_median, valuation.peer_ev_revenue_median
+- financials[-1].revenue_usd_m, financials[-1].free_cash_flow_usd_m (for cross-check)
+
+Tasks:
+1. Open with the market cap and as-of date [src: valuation.market_cap_usd_b],
+   [src: valuation.as_of_date].
+2. Present a concise Markdown comparison table:
+   Metric | Company | Peer Median | Premium/(Discount) %
+   Include: Trailing P/E, EV/Revenue, EV/EBITDA.
+   Compute Premium/(Discount) as (Company / Peer Median - 1) × 100. Cite each input.
+3. Interpret the forward P/E [src: valuation.pe_forward] vs trailing P/E
+   [src: valuation.pe_trailing]: what growth rate are growth expectations embedding?
+4. FCF yield [src: valuation.fcf_yield_pct]: contextualise (a 5%+ FCF yield on a
+   software business is considered reasonable; adjust commentary to the actual figure).
+5. Summarise whether the stock appears to be priced for growth (high multiples vs peers)
+   or offers a margin of safety, based solely on the data provided.
+   Make no buy/sell recommendation.

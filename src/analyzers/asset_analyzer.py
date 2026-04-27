@@ -28,14 +28,14 @@ from src.tools.earnings_scraper import fetch_from_screener, fetch_from_yahoo_fin
 from src.tools.inav_fetcher import get_etf_inav, is_etf
 from src.tools.historic_inav import get_historic_inav
 from src.tools.news_search import fetch_news_for_symbol
-from src.tools.summarization import summarize_asset, summarize_asset_demo
+from src.tools.summarization import summarize_asset
 from src.tools.yahoo_finance import fetch_price_history, fetch_yahoo_data
 from src.utils.symbol_mapper import get_company_name
 
 logger = logging.getLogger(__name__)
 
 
-def analyze_holding(holding: Holding, use_llm_scoring: bool = True) -> AssetAnalysis:
+def analyze_holding(holding: Holding) -> AssetAnalysis:
     """
     Perform full enrichment and analysis for a single Zerodha holding.
 
@@ -45,7 +45,6 @@ def analyze_holding(holding: Holding, use_llm_scoring: bool = True) -> AssetAnal
       3. NewsAPI – recent Indian financial news
       4. Screener.in / Yahoo – quarterly results
       5. LLM – investment insights, risk score, sentiment score
-         (falls back to rule-based scoring when use_llm_scoring=False)
 
     Args:
         holding:         A Holding model from Zerodha Kite MCP.
@@ -136,7 +135,7 @@ def analyze_holding(holding: Holding, use_llm_scoring: bool = True) -> AssetAnal
         "quarterly_result": quarterly.model_dump() if quarterly else {},
     }
 
-    llm_result = summarize_asset(asset_payload) if use_llm_scoring else summarize_asset_demo(asset_payload)
+    llm_result = summarize_asset(asset_payload)
 
     # ── Build AssetAnalysis model ─────────────────────────────────────────────
     return AssetAnalysis(

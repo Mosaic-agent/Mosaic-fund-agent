@@ -61,6 +61,33 @@ _VOL_TARGET_PCT    = 15.0   # long-run gold vol target (2016-2026 GARCH p50 ≈ 
 _W_MAX             = 1.0    # no leverage
 _SCORE_BEAR_GATE   = 35.0   # composite score below this triggers additional 0.5× cut
 _SCORE_GATE_MULT   = 0.50
+_TREND_FILTER_MULT = 0.75   # applied when price < EMA(50) — catches slow bleeds GARCH misses
+_EMA_WINDOW        = 50     # days for exponential moving average
+
+# Per-asset-class vol targets (backtest-validated Jan–Apr 2026)
+# Equity ETFs have structurally higher vol; 15% target over-de-risks them
+VOL_TARGETS: dict[str, float] = {
+    "gold":   15.0,   # GOLDBEES, SILVERBEES
+    "equity": 20.0,   # NIFTYBEES, BANKBEES, ITBEES, MID150BEES, etc.
+    "intl":   18.0,   # MON100, MAFANG, MAHKTECH, HNGSNGBEES
+}
+_EQUITY_ETFS = frozenset({
+    "NIFTYBEES", "BANKBEES", "ITBEES", "PSUBNKBEES", "MID150BEES",
+    "SMALL250", "JUNIORBEES", "MONIFTY500", "AUTOBEES", "PHARMABEES",
+    "CPSEETF", "ICICIB22",
+})
+_INTL_ETFS = frozenset({
+    "MON100", "MAFANG", "HNGSNGBEES", "MAHKTECH", "MASPTOP50",
+})
+
+
+def vol_target_for(symbol: str) -> float:
+    """Return the calibrated vol target for a given ETF symbol."""
+    if symbol in _EQUITY_ETFS:
+        return VOL_TARGETS["equity"]
+    if symbol in _INTL_ETFS:
+        return VOL_TARGETS["intl"]
+    return VOL_TARGETS["gold"]
 
 # Regime multipliers — applied on top of vol-scaled weight
 _REGIME_MULT: dict[str, float] = {
@@ -95,8 +122,9 @@ class RiskDecision:
     w_max:             float
     vol_scaled_weight: float         # min(w_max, vol_target / σ_t)
     regime_mult:       float
+    trend_mult:        float         # 0.75 when price < EMA(50), else 1.0
     score_gate_mult:   float         # 1.0 unless score < _SCORE_BEAR_GATE
-    final_weight:      float         # vol_scaled × regime_mult × score_gate_mult
+    final_weight:      float         # vol_scaled × regime_mult × trend_mult × score_gate_mult
 
     # Summary
     tier:        str    # FULL | REDUCED | HALF | QUARTER | MINIMAL
@@ -110,6 +138,7 @@ def compute_position_weight(
     composite_score: float | None = None,
     vol_target_pct: float = _VOL_TARGET_PCT,
     w_max: float = _W_MAX,
+    price_below_ema50: bool = False,
 ) -> RiskDecision:
     """
     Compute the recommended position weight using continuous inverse-vol scaling
@@ -122,6 +151,7 @@ def compute_position_weight(
     composite_score      : quant scorecard 0-100 (None = not available)
     vol_target_pct       : desired annualised vol exposure (default 15%)
     w_max                : maximum weight, no leverage (default 1.0)
+    price_below_ema50    : True when latest close < EMA(50) — activates trend filter
 
     Returns
     -------
@@ -146,7 +176,16 @@ def compute_position_weight(
             f"Regime '{regime}' applies {regime_mult:.0%} multiplier"
         )
 
-    # ── Step 3: Composite score gate ──────────────────────────────────────────
+    # ── Step 3: Trend filter ──────────────────────────────────────────────────
+    trend_mult = 1.0
+    if price_below_ema50:
+        trend_mult = _TREND_FILTER_MULT
+        alerts.append(
+            f"Price below EMA({_EMA_WINDOW}) — trend filter applies "
+            f"{_TREND_FILTER_MULT:.0%} multiplier (slow-bleed protection)"
+        )
+
+    # ── Step 4: Composite score gate ──────────────────────────────────────────
     score_gate = 1.0
     if composite_score is not None and composite_score < _SCORE_BEAR_GATE:
         score_gate = _SCORE_GATE_MULT
@@ -155,8 +194,8 @@ def compute_position_weight(
             f"— bearish gate applies additional {_SCORE_GATE_MULT:.0%} cut"
         )
 
-    # ── Step 4: Final weight ──────────────────────────────────────────────────
-    final = round(vol_scaled * regime_mult * score_gate, 4)
+    # ── Step 5: Final weight ──────────────────────────────────────────────────
+    final = round(vol_scaled * regime_mult * trend_mult * score_gate, 4)
     final = max(0.0, min(w_max, final))
 
     # Tier classification
@@ -176,6 +215,7 @@ def compute_position_weight(
         w_max                = w_max,
         vol_scaled_weight    = round(vol_scaled, 4),
         regime_mult          = regime_mult,
+        trend_mult           = trend_mult,
         score_gate_mult      = score_gate,
         final_weight         = final,
         tier                 = tier,
@@ -208,9 +248,11 @@ def explain_decision(decision: RiskDecision) -> str:
         f"{decision.vol_target_pct:.0f}% / {decision.garch_annual_vol_pct:.1f}%)  "
         f"= **{decision.vol_scaled_weight:.0%}**",
         f"2. Regime multiplier = **{decision.regime_mult:.0%}**",
-        f"3. Score gate multiplier = **{decision.score_gate_mult:.0%}**",
-        f"4. Final = {decision.vol_scaled_weight:.0%} × "
+        f"3. Trend filter multiplier = **{decision.trend_mult:.0%}**",
+        f"4. Score gate multiplier = **{decision.score_gate_mult:.0%}**",
+        f"5. Final = {decision.vol_scaled_weight:.0%} × "
         f"{decision.regime_mult:.0%} × "
+        f"{decision.trend_mult:.0%} × "
         f"{decision.score_gate_mult:.0%} = **{decision.final_weight:.0%}**",
     ]
 

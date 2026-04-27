@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ofin-pipeline": {
+      "command": "/Users/dhiraj.thakur/project/ofin-agent/.venv_new/bin/python3",
+      "args": ["src/mcp_server.py"],
+      "cwd": "/Users/dhiraj.thakur/project/ofin-agent",
+      "description": "GOLDBEES investment pipeline: ML prediction → Kelly sizing → RG blend"
+    }
+  }
+}

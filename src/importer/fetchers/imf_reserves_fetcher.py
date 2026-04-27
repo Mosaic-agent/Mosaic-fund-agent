@@ -1,15 +1,15 @@
 """
 src/importer/fetchers/imf_reserves_fetcher.py
 ──────────────────────────────────────────────
-Fetches central bank gold reserves via the World Gold Council (WGC) Goldhub API.
+Fetches central bank gold reserves from two sources (merged):
 
-Primary:  https://fsapi.gold.org/api/cbd/v11/charts/getPage
-  — Returns year-end holdings in metric tonnes (direct, no conversion needed)
-  — Updated monthly with ~6-week lag; typically has data through prior month's year-end
-  — Latest available as of early 2026: Dec 2025 for most countries
+Primary:   WGC Goldhub API  — exact tonnes, year-end, ~6-week lag
+           Latest available: Dec 2025 (Jan-Mar 2026 publishes ~May 2026)
 
-Fallback: World Bank WDI (annual, ~2-year lag)
-  — Used only if WGC API is unreachable
+Fallback:  World Bank WDI REST API  — derived from total-reserves minus ex-gold USD,
+           annual, ~12-month lag, no external library needed
+
+Both sources are fetched and merged; WGC rows take precedence for any overlapping year.
 
 9 countries tracked: CN, IN, RU, US, DE, TR, GB, JP, PL
 """
@@ -98,58 +98,85 @@ def _fetch_wgc(from_year: int, to_year: int) -> list[dict]:
     return rows
 
 
-def _fetch_worldbank_fallback(from_year: int, to_year: int) -> list[dict]:
-    """World Bank fallback — annual, ~2-year lag, requires wbgapi."""
-    try:
-        import wbgapi as wb  # type: ignore
-    except ImportError:
-        log.warning("wbgapi not installed — World Bank fallback unavailable")
-        return []
+_WB_BASE = "https://api.worldbank.org/v2"
+_GOLD_PRICE_BY_YEAR: dict[int, float] = {
+    2010: 1224.52, 2011: 1571.52, 2012: 1668.86, 2013: 1411.23,
+    2014: 1266.40, 2015: 1160.06, 2016: 1250.74, 2017: 1257.15,
+    2018: 1268.49, 2019: 1392.60, 2020: 1769.64, 2021: 1798.61,
+    2022: 1800.99, 2023: 1940.54, 2024: 2386.77, 2025: 2940.0,
+}
+_TROY_OZ_PER_TONNE = 32_150.7
 
-    _IND_TOTL = "FI.RES.TOTL.CD"
-    _IND_XGLD = "FI.RES.XGLD.CD"
-    _GOLD_PRICE: dict[int, float] = {
-        2010: 1224.52, 2011: 1571.52, 2012: 1668.86, 2013: 1411.23,
-        2014: 1266.40, 2015: 1160.06, 2016: 1250.74, 2017: 1257.15,
-        2018: 1268.49, 2019: 1392.60, 2020: 1769.64, 2021: 1798.61,
-        2022: 1800.99, 2023: 1940.54, 2024: 2386.77, 2025: 2940.0,
-    }
-    TROY_OZ = 32_150.7
-    iso3_codes = list(_ISO3_TO_ISO2.keys())
-    years = list(range(from_year, to_year + 1))
 
-    def _fetch(ind: str) -> dict:
-        out: dict = {}
-        try:
-            for item in wb.data.fetch(ind, iso3_codes, time=years):
+def _fetch_worldbank(from_year: int, to_year: int) -> list[dict]:
+    """
+    World Bank WDI REST API — no external library, direct HTTP.
+    Derives gold tonnes from (total_reserves_usd - ex_gold_reserves_usd) / annual_gold_price.
+    Annual cadence, ~12-month lag (2024 data available in 2025).
+    """
+    iso2_list = ";".join(_ISO3_TO_ISO2.values())
+    date_range = f"{from_year}:{to_year}"
+
+    def _wb_fetch(indicator: str) -> dict[tuple[str, int], float]:
+        out: dict[tuple[str, int], float] = {}
+        page, per_page = 1, 500
+        while True:
+            try:
+                r = requests.get(
+                    f"{_WB_BASE}/country/{iso2_list}/indicator/{indicator}",
+                    params={"format": "json", "date": date_range, "per_page": per_page, "page": page},
+                    timeout=_TIMEOUT,
+                )
+                r.raise_for_status()
+            except requests.RequestException as exc:
+                log.warning("World Bank %s page %d failed: %s", indicator, page, exc)
+                break
+            payload = r.json()
+            if len(payload) < 2 or not payload[1]:
+                break
+            for item in payload[1]:
                 if item["value"] is None:
                     continue
-                iso3 = item["economy"]
-                year = int("".join(c for c in item["time"] if c.isdigit()))
-                out[(iso3, year)] = float(item["value"])
-        except Exception as exc:
-            log.warning("World Bank %s failed: %s", ind, exc)
+                iso3 = item.get("countryiso3code", "")
+                iso2 = _ISO3_TO_ISO2.get(iso3, "")
+                if not iso2:
+                    continue
+                try:
+                    year = int(item["date"])
+                except (ValueError, TypeError):
+                    continue
+                out[(iso2, year)] = float(item["value"])
+            total_pages = payload[0].get("pages", 1)
+            if page >= total_pages:
+                break
+            page += 1
         return out
 
-    totl, xgld = _fetch(_IND_TOTL), _fetch(_IND_XGLD)
-    rows = []
-    for (iso3, year), totl_usd in totl.items():
-        xgld_usd = xgld.get((iso3, year))
+    totl = _wb_fetch("FI.RES.TOTL.CD")
+    xgld = _wb_fetch("FI.RES.XGLD.CD")
+
+    rows: list[dict] = []
+    for (iso2, year), totl_usd in totl.items():
+        xgld_usd = xgld.get((iso2, year))
         if not xgld_usd:
             continue
         gold_usd = totl_usd - xgld_usd
         if gold_usd <= 0:
             continue
-        price = _GOLD_PRICE.get(year, _GOLD_PRICE[max(k for k in _GOLD_PRICE if k <= year)])
+        price_key = year if year in _GOLD_PRICE_BY_YEAR else max(k for k in _GOLD_PRICE_BY_YEAR if k <= year)
+        price = _GOLD_PRICE_BY_YEAR[price_key]
+        country_code = iso2
+        country_name = next((n for c, n in _ISO3_TO_NAME.items() if _ISO3_TO_ISO2.get(c) == iso2), iso2)
         rows.append({
             "ref_period":      date(year, 12, 1),
-            "country_code":    _ISO3_TO_ISO2.get(iso3, iso3[:2]),
-            "country_name":    _ISO3_TO_NAME.get(iso3, iso3),
-            "reserves_tonnes": round(gold_usd / (price * TROY_OZ), 1),
+            "country_code":    country_code,
+            "country_name":    country_name,
+            "reserves_tonnes": round(gold_usd / (price * _TROY_OZ_PER_TONNE), 1),
             "source":          "world_bank_wdi",
         })
+
     rows.sort(key=lambda r: (r["ref_period"], r["country_name"]))
-    log.info("World Bank CB reserves fallback: %d rows", len(rows))
+    log.info("World Bank CB reserves: %d rows (%d–%d)", len(rows), from_year, to_year)
     return rows
 
 
@@ -160,8 +187,9 @@ def fetch_cb_reserves(
     """
     Fetch central bank gold holdings in metric tonnes.
 
-    Tries WGC Goldhub first (year-end, up to ~1 month lag, exact tonnes).
-    Falls back to World Bank WDI (year-end, ~2-year lag, derived from USD/price).
+    Merges two sources (WGC takes precedence for any overlapping year):
+    - WGC Goldhub: exact tonnes, year-end, ~6-week lag (Dec 2025 = latest in Apr 2026)
+    - World Bank WDI: derived from USD reserves, annual, ~12-month lag (fills historic gaps)
 
     Parameters
     ----------
@@ -175,13 +203,20 @@ def fetch_cb_reserves(
     if to_year is None:
         to_year = date.today().year
 
-    rows = _fetch_wgc(from_year, to_year)
-    if not rows:
-        log.info("WGC unavailable — falling back to World Bank")
-        rows = _fetch_worldbank_fallback(from_year, to_year)
+    wgc_rows = _fetch_wgc(from_year, to_year)
+    wb_rows = _fetch_worldbank(from_year, to_year)
 
-    if not rows:
+    if not wgc_rows and not wb_rows:
         log.warning("No CB reserve data returned from any source.")
-    return rows
+        return []
+
+    # WGC rows keyed by (country_code, ref_period) — takes precedence
+    wgc_keys: set[tuple] = {(r["country_code"], r["ref_period"]) for r in wgc_rows}
+    wb_fill = [r for r in wb_rows if (r["country_code"], r["ref_period"]) not in wgc_keys]
+
+    merged = wgc_rows + wb_fill
+    merged.sort(key=lambda r: (r["ref_period"], r["country_name"]))
+    log.info("CB reserves merged: %d WGC + %d WB fill = %d total rows", len(wgc_rows), len(wb_fill), len(merged))
+    return merged
 
 

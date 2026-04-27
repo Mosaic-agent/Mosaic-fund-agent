@@ -20,9 +20,11 @@ To add a new data source (e.g., Sentiment from a specific API):
 ### 2. Managing Historical Backfills
 To perform a full historical backfill:
 ```bash
-python -m src.main import <category> --lookback 3650 --full
+# Correct syntax — category is a --flag, not a positional arg
+python src/main.py import --category etfs --full --lookback 3650
+python src/main.py import --category etfs,mf,cot --full
+python src/main.py import --dry-run   # preview without writing
 ```
-Use `--dry-run` to preview the range before committing to ClickHouse.
 
 ### 3. Data Validation & Repair
 - **Validate Watermarks**: Run `python data-engineering-importer/scripts/validate_watermarks.py`.
@@ -36,14 +38,15 @@ Use `--dry-run` to preview the range before committing to ClickHouse.
   ```
 
 ## Reference Material
-- See [references/clickhouse_schema.md](references/clickhouse_schema.md) for table definitions.
-- See [references/importer_guide.md](references/importer_guide.md) for delta-sync logic and category list.
+- Schema DDL lives in `src/importer/clickhouse.py` (search for `_DDL_` constants)
+- Category list and symbols: `src/importer/registry.py`
+- Delta-sync logic: `src/importer/cli.py` → `run_import()`
 
 ## Usage Scenarios
 
 | User Request | Action |
 |--------------|--------|
 | "Add a new data source for US Bond yields" | Scaffold fetcher, define DDL, register in registry. |
-| "Backfill GOLDBEES data for the last 5 years" | `python -m src.main import etfs --lookback 1825 --full` |
+| "Backfill GOLDBEES data for the last 5 years" | `python src/main.py import --category etfs --lookback 1825 --full` |
 | "The daily prices seem wrong for Jan 2024" | DROP PARTITION '202401' and re-import. |
 | "I added a new ETF to the tracking list" | Add to `ETFS` in `src/importer/registry.py` and run `import`. |

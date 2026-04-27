@@ -87,19 +87,6 @@ def analyze(
         "-q",
         help="Skip terminal report display; only save JSON.",
     ),
-    demo: bool = typer.Option(
-        False,
-        "--demo",
-        help=(
-            "Run in demo mode: use sample NSE holdings and rule-based scoring. "
-            "No Zerodha login or LLM API keys required."
-        ),
-    ),
-    no_dashboard: bool = typer.Option(
-        False,
-        "--no-dashboard",
-        help="Skip auto-generating the HTML dashboard after analysis.",
-    ),
 ) -> None:
     """
     Run full portfolio intelligence analysis on your Zerodha holdings.
@@ -107,28 +94,18 @@ def analyze(
     Fetches holdings from Kite MCP, enriches with Yahoo Finance data,
     recent news (NewsAPI), and quarterly results (Screener.in),
     then generates an AI-powered report with risk scores and insights.
-
-    Use --demo to test the full pipeline without any API keys.
     """
     _setup_logging()
 
     console.print(
         Panel(
             "[bold]Zerodha Portfolio Intelligence Agent[/bold]\n"
-            "[dim]Indian Equity Market Analysis | NSE & BSE[/dim]"
-            + ("\n[yellow bold]── DEMO MODE ──[/yellow bold]" if demo else ""),
-            border_style="blue" if not demo else "yellow",
+            "[dim]Indian Equity Market Analysis | NSE & BSE[/dim]",
+            border_style="blue",
         )
     )
 
-    if demo:
-        console.print(
-            "[yellow]ℹ  Demo mode:[/yellow] Using sample holdings "
-            "(RELIANCE, TCS, HDFCBANK, INFY, NIFTYBEES, GOLDBEES).\n"
-            "   Real Yahoo Finance + Screener.in data will be fetched.\n"
-            "   LLM scoring replaced by rule-based algorithm.\n"
-        )
-    elif not _check_config():
+    if not _check_config():
         raise typer.Exit(code=1)
 
     # Override max holdings if specified via CLI
@@ -142,7 +119,7 @@ def analyze(
     from src.agents.portfolio_agent import PortfolioAgent
     from src.formatters.output import print_report_to_console, save_json_report
 
-    agent = PortfolioAgent(demo_mode=demo)
+    agent = PortfolioAgent()
 
     try:
         report = agent.run_full_analysis(console=console)
@@ -154,7 +131,7 @@ def analyze(
     if not report:
         console.print(
             "\n[bold red]✗ No report generated.[/bold red] "
-            + ("Check your Kite authentication." if not demo else "Unexpected error in demo mode.")
+            "Check your Kite authentication."
         )
         raise typer.Exit(code=1)
 
@@ -167,77 +144,6 @@ def analyze(
     # Print to terminal
     if not quiet:
         print_report_to_console(report, console=console)
-
-    # Auto-generate HTML dashboard
-    if not no_dashboard:
-        try:
-            from src.agents.visualization_agent import VisualizationAgent
-            with console.status("[cyan]Generating HTML dashboard…[/cyan]"):
-                viz = VisualizationAgent(output_dir=settings.output_dir)
-                dash_path = viz.generate(report)
-            console.print(f"[green]✓ Dashboard ready:[/green] {dash_path}")
-            console.print(
-                "[dim]  Open in browser: [/dim]"
-                f"[link=file://{dash_path}]{dash_path}[/link]"
-            )
-        except Exception as exc:
-            console.print(f"[yellow]⚠ Dashboard generation failed (non-fatal):[/yellow] {exc}")
-            logging.exception("Dashboard generation failed")
-
-
-@app.command()
-def dashboard(
-    no_open: bool = typer.Option(
-        False,
-        "--no-open",
-        help="Generate the dashboard but do not open it in the browser.",
-    ),
-) -> None:
-    """
-    Generate an interactive HTML dashboard from the latest portfolio report.
-
-    Reads the most recent JSON report from the output directory and renders
-    a self-contained React dashboard (no build step required).  The file is
-    saved to ./output/dashboard.html and opened in your default browser
-    unless --no-open is passed.
-
-    Example:
-      python src/main.py dashboard
-      python src/main.py dashboard --no-open
-    """
-    _setup_logging()
-
-    from src.utils.report_loader import load_latest_report
-    from src.agents.visualization_agent import VisualizationAgent
-
-    report = load_latest_report(output_dir=settings.output_dir)
-    if not report:
-        console.print(
-            "[bold red]✗ No portfolio report found.[/bold red]\n"
-            "  Run [bold]python src/main.py analyze[/bold] first to generate one."
-        )
-        raise typer.Exit(code=1)
-
-    with console.status("[cyan]Rendering dashboard…[/cyan]"):
-        try:
-            viz = VisualizationAgent(output_dir=settings.output_dir)
-            dash_path = viz.generate(report)
-        except Exception as exc:
-            console.print(f"[bold red]✗ Dashboard generation failed:[/bold red] {exc}")
-            logging.exception("Dashboard generation failed")
-            raise typer.Exit(code=1)
-
-    console.print(
-        Panel(
-            f"[green]✓ Dashboard generated:[/green] {dash_path}",
-            title="[bold]Portfolio Dashboard[/bold]",
-            border_style="green",
-        )
-    )
-
-    if not no_open:
-        VisualizationAgent.open_in_browser(dash_path)
-        console.print("[dim]Opening in browser…[/dim]")
 
 
 @app.command()
@@ -313,12 +219,15 @@ def config() -> None:
         ("NSE Yahoo Suffix", settings.nse_suffix, "No"),
         ("BSE Yahoo Suffix", settings.bse_suffix, "No"),
         ("Market Timezone", settings.market_timezone, "No"),
+        # Deep-Dive [NON-SENSITIVE]
+        ("Gemini CLI Path", settings.gemini_cli_path, "No"),
         # [SENSITIVE] settings are masked
         ("OpenAI API Key", masked(settings.openai_api_key), "⚠ YES"),
         ("Anthropic API Key", masked(settings.anthropic_api_key), "⚠ YES"),
         ("NewsAPI Key", masked(settings.newsapi_key), "⚠ YES"),
         ("Kite API Key", masked(settings.kite_api_key), "⚠ YES"),
         ("Kite API Secret", masked(settings.kite_api_secret), "⚠ YES"),
+        ("sec-api.io Key", masked(settings.sec_api_key), "⚠ YES"),
     ]
 
     for name, value, sensitive in rows:
@@ -771,6 +680,39 @@ def premium_alerts(
     console.rule("[dim]End of Premium Alerts[/dim]")
 
 
+@app.command()
+def deepdive(
+    ticker: str = typer.Argument(..., help="US ticker symbol, e.g. ADSK"),
+    date: str = typer.Option(None, "--date", "-d", help="Report date YYYY-MM-DD (default: today)"),
+    skip_fetch: bool = typer.Option(False, "--skip-fetch", help="Use cached files only; skip all network calls"),
+    section: str = typer.Option(
+        None,
+        "--section",
+        "-s",
+        help="Regenerate one section: core_business|financials|competitors|investments|execution|valuation|talent",
+    ),
+) -> None:
+    """
+    Run a company deep-dive for a US-listed stock.
+
+    Fetches SEC filings (via sec-api.io), XBRL financials, Workday job postings,
+    and peer market data, then generates a 7-section markdown research report
+    with source citations. Narrative is produced by the claude CLI binary
+    (no Anthropic SDK or API key needed in .env).
+
+    \b
+    Examples:
+      python src/main.py deepdive ADSK
+      python src/main.py deepdive ADSK --skip-fetch
+      python src/main.py deepdive ADSK --section valuation
+    """
+    _setup_logging()
+    if not _check_config():
+        raise typer.Exit(code=1)
+    from src.deepdive.runner import run_deepdive
+    run_deepdive(ticker=ticker.upper(), date=date, skip_fetch=skip_fetch, section=section)
+
+
 # ── Entry Point ───────────────────────────────────────────────────────────────
 
 @app.command()
@@ -910,7 +852,7 @@ def macro_scan(
     from src.tools.macro_event_scanner import scan_macro_events, print_macro_report
 
     report = scan_macro_events(max_per_theme=max_per_theme)
-    print_macro_report(report)
+    print_macro_report(report, max_per_theme=max_per_theme)
 
     if save:
         from src.importer.clickhouse import ClickHouseImporter
@@ -986,7 +928,7 @@ def etf_news(
             "[bold cyan]📰 ETF-Impact News Scanner[/bold cyan]\n"
             f"[dim]Categories: {', '.join(categories) if categories else 'All'}  •  "
             f"Max {max_per_topic} articles/topic  •  "
-            "Sources: Google News RSS + Yahoo Finance (no key)[/dim]",
+            "Sources: Google News RSS + Yahoo Finance + NewsAPI (Indian fin. press)[/dim]",
             border_style="cyan",
         )
     )
@@ -1003,6 +945,251 @@ def etf_news(
         ch.ensure_schema()
         n = save_etf_news_to_db(report, ch)
         console.print(f"[green]✓ Saved {n} ETF news articles to DB.[/green]")
+
+
+@app.command(name="risk")
+def risk_cmd(
+    symbol: str = typer.Option(
+        "GOLDBEES", "--symbol", "-s",
+        help="ETF symbol to size (currently GOLDBEES only — predictor scope).",
+    ),
+    save: bool = typer.Option(
+        False, "--save",
+        help="Persist today's weight decisions to ClickHouse weight_checkpoints table.",
+    ),
+    evaluate: bool = typer.Option(
+        False, "--evaluate", "-e",
+        help="Show realised performance by method from stored checkpoints.",
+    ),
+    since_days: int = typer.Option(
+        90, "--since-days",
+        help="Lookback window in days for --evaluate (default 90).",
+    ),
+    blend: float = typer.Option(
+        0.5, "--blend",
+        help="Kelly blend fraction: 0=pure RG, 1=pure Kelly, 0.5=50/50 (default).",
+    ),
+) -> None:
+    """
+    Adaptive Kelly position sizing — blends LightGBM forecast with Risk Governor.
+
+    Shows recommended weights for four methods side-by-side:
+      rg         Inverse-vol + regime + trend filter (existing Risk Governor)
+      kelly      Pure Kelly from LightGBM expected return + quantile vol
+      blended    Convex blend of RG and Kelly (configurable --blend ratio)
+
+    \\b
+    Examples:
+      mosaic risk                            # show today's weights for GOLDBEES
+      mosaic risk --save                     # save today's decisions to ClickHouse
+      mosaic risk --evaluate                 # realised performance over last 90 days
+      mosaic risk --evaluate --since-days 180
+    """
+    import math
+    from datetime import date as dt_date
+    import yfinance as yf
+    import numpy as np
+
+    _setup_logging()
+
+    console.print(Panel(
+        f"[bold cyan]⚖️  Adaptive Kelly — {symbol}[/bold cyan]\n"
+        "[dim]Risk Governor (RG) + LightGBM Kelly blend[/dim]",
+        border_style="cyan",
+    ))
+
+    # ── Evaluate mode ─────────────────────────────────────────────────────────
+    if evaluate:
+        from src.tools.weight_checkpoint import evaluate_methods
+        console.print(f"\n[bold]Realised performance by method (last {since_days} days)[/bold]")
+        df = evaluate_methods(symbol=symbol, since_days=since_days)
+        if df.empty:
+            console.print("[yellow]No checkpoint data found. Run `mosaic risk --save` first.[/yellow]")
+            return
+        tbl = Table(box=box.SIMPLE_HEAD, show_header=True)
+        for col in ["method", "n", "total_return_pct", "ann_return_pct",
+                    "ann_vol_pct", "sharpe", "hit_ratio_pct", "avg_weight_pct"]:
+            tbl.add_column(col, justify="right" if col != "method" else "left")
+        for _, row in df.iterrows():
+            sharpe_color = "green" if (row.get("sharpe") or 0) > 0 else "red"
+            tbl.add_row(
+                row["method"],
+                str(int(row["n"])),
+                f"{row['total_return_pct']:.1f}%",
+                f"{row['ann_return_pct']:.1f}%",
+                f"{row['ann_vol_pct']:.1f}%",
+                f"[{sharpe_color}]{row['sharpe']:.2f}[/{sharpe_color}]",
+                f"{row['hit_ratio_pct']:.0f}%",
+                f"{row['avg_weight_pct']:.0f}%",
+            )
+        console.print(tbl)
+        return
+
+    # ── Fetch live inputs ─────────────────────────────────────────────────────
+    import clickhouse_connect
+    from config.settings import settings
+    from src.tools.risk_governor import compute_position_weight, vol_target_for
+
+    today = dt_date.today()
+
+    # 1. Latest ML prediction from ClickHouse
+    ch_raw = clickhouse_connect.get_client(
+        host=settings.clickhouse_host, port=settings.clickhouse_port,
+        database=settings.clickhouse_database,
+        username=settings.clickhouse_user, password=settings.clickhouse_password,
+    )
+    pred_df = ch_raw.query_df("""
+        SELECT expected_return_pct, confidence_low, confidence_high,
+               cv_r2_mean, regime_signal, horizon_days
+        FROM market_data.ml_predictions FINAL
+        ORDER BY as_of DESC LIMIT 1
+    """)
+
+    if pred_df.empty:
+        console.print("[red]No ML predictions found. Run `python src/main.py signals` or the trend predictor first.[/red]")
+        ch_raw.close()
+        return
+
+    pred = pred_df.iloc[0]
+    exp_ret   = float(pred["expected_return_pct"])
+    conf_low  = float(pred["confidence_low"])
+    conf_high = float(pred["confidence_high"])
+    cv_r2     = float(pred["cv_r2_mean"])
+    ml_regime = str(pred["regime_signal"])
+    horizon   = int(pred["horizon_days"])
+
+    # 2. Latest GARCH vol + regime from anomaly pipeline
+    price_df = ch_raw.query_df(f"""
+        SELECT trade_date,
+               toFloat64(argMax(close, imported_at)) AS close
+        FROM market_data.daily_prices
+        WHERE symbol = '{symbol}' AND category = 'etfs'
+        GROUP BY trade_date ORDER BY trade_date ASC
+    """)
+    ch_raw.close()
+
+    garch_vol_pct = vol_target_for(symbol)  # fallback if GARCH fails
+    regime = "✅ Normal"
+    price_below_ema50 = False
+
+    if not price_df.empty:
+        try:
+            import pandas as _pd
+            from src.ml.anomaly import run_composite_anomaly
+            price_df["trade_date"] = _pd.to_datetime(price_df["trade_date"])
+            price_df_full = _pd.DataFrame({
+                "trade_date": price_df["trade_date"],
+                "open": price_df["close"], "high": price_df["close"],
+                "low": price_df["close"],  "close": price_df["close"],
+                "volume": 0,
+            })
+            df_res, _, _ = run_composite_anomaly(price_df_full)
+            last = df_res.dropna(subset=["garch_vol"]).iloc[-1]
+            garch_vol_pct = float(last["garch_vol"])
+            regime = str(last["regime"])
+            close_series = price_df["close"]
+            ema50 = close_series.ewm(span=50, adjust=False).mean()
+            price_below_ema50 = bool(close_series.iloc[-1] < ema50.iloc[-1])
+        except Exception as exc:
+            logger.warning("GARCH computation failed, using vol target: %s", exc)
+
+    # ── Compute all method weights ─────────────────────────────────────────────
+    from src.tools.adaptive_kelly import compute_kelly_weight, compute_blended_weight
+
+    vol_target = vol_target_for(symbol)
+    rg_dec = compute_position_weight(
+        garch_annual_vol_pct=garch_vol_pct,
+        regime=regime,
+        vol_target_pct=vol_target,
+        price_below_ema50=price_below_ema50,
+    )
+    kelly_dec = compute_kelly_weight(
+        expected_return_pct=exp_ret,
+        confidence_low_pct=conf_low,
+        confidence_high_pct=conf_high,
+        horizon_days=horizon,
+        cv_r2=cv_r2,
+        garch_annual_vol_pct=garch_vol_pct,
+    )
+    blended_w   = compute_blended_weight(rg_dec.final_weight, kelly_dec.final_weight, blend)
+    blended_30  = compute_blended_weight(rg_dec.final_weight, kelly_dec.final_weight, 0.3)
+
+    # ── Display ───────────────────────────────────────────────────────────────
+    console.print(f"\n[dim]As of {today}  |  GARCH vol: {garch_vol_pct:.1f}%  |  "
+                  f"Regime: {regime}  |  EMA50: {'below ⬇' if price_below_ema50 else 'above ⬆'}[/dim]")
+    console.print(f"[dim]ML expected return: {exp_ret:+.2f}%  |  "
+                  f"Conf band: [{conf_low:.2f}%, {conf_high:.2f}%]  |  CV R²: {cv_r2:.3f}[/dim]\n")
+
+    tbl = Table(box=box.SIMPLE_HEAD, show_header=True)
+    tbl.add_column("Method",   style="bold")
+    tbl.add_column("Weight",   justify="right")
+    tbl.add_column("Tier",     justify="center")
+    tbl.add_column("Notes")
+
+    def _tier_color(w: float) -> str:
+        if w >= 0.85: return "green"
+        if w >= 0.65: return "yellow"
+        if w >= 0.40: return "dark_orange"
+        return "red"
+
+    rows_data = [
+        ("rg",          rg_dec.final_weight,  rg_dec.tier,
+         f"inverse-vol × regime × trend"),
+        ("kelly",       kelly_dec.final_weight, "—",
+         f"μ/σ²  raw={kelly_dec.raw_kelly:.1f}×  haircut={kelly_dec.confidence_haircut:.0%}"),
+        (f"blended_{int(blend*100)}", blended_w, "—",
+         f"{int((1-blend)*100)}% RG + {int(blend*100)}% Kelly"),
+        ("blended_30",  blended_30, "—",
+         "70% RG + 30% Kelly (conservative)"),
+    ]
+    for method, w, tier, notes in rows_data:
+        c_ = _tier_color(w)
+        tbl.add_row(method, f"[{c_}]{w:.0%}[/{c_}]", tier, notes)
+
+    console.print(tbl)
+
+    # ── Save checkpoints ──────────────────────────────────────────────────────
+    if save:
+        from src.tools.weight_checkpoint import save_checkpoints
+        checkpoint_rows = [
+            {
+                "as_of": today, "symbol": symbol, "method": "rg",
+                "recommended_weight": rg_dec.final_weight,
+                "garch_vol_pct": garch_vol_pct, "regime": regime,
+                "price_below_ema50": int(price_below_ema50),
+                "horizon_days": horizon,
+                "rationale": f"vol={garch_vol_pct:.1f}% regime_mult={rg_dec.regime_mult:.0%} trend={rg_dec.trend_mult:.0%}",
+            },
+            {
+                "as_of": today, "symbol": symbol, "method": "kelly",
+                "recommended_weight": kelly_dec.final_weight,
+                "expected_return_pct": exp_ret, "expected_vol_pct": kelly_dec.implied_vol_pct,
+                "garch_vol_pct": garch_vol_pct, "regime": regime,
+                "price_below_ema50": int(price_below_ema50),
+                "cv_r2": cv_r2, "horizon_days": horizon,
+                "rationale": f"raw_kelly={kelly_dec.raw_kelly:.2f} frac={kelly_dec.fractional_kelly:.2f} haircut={kelly_dec.confidence_haircut:.0%}",
+            },
+            {
+                "as_of": today, "symbol": symbol, "method": f"blended_{int(blend*100)}",
+                "recommended_weight": blended_w,
+                "expected_return_pct": exp_ret, "expected_vol_pct": kelly_dec.implied_vol_pct,
+                "garch_vol_pct": garch_vol_pct, "regime": regime,
+                "price_below_ema50": int(price_below_ema50),
+                "cv_r2": cv_r2, "horizon_days": horizon,
+                "rationale": f"rg={rg_dec.final_weight:.0%} kelly={kelly_dec.final_weight:.0%} blend={blend:.0%}",
+            },
+            {
+                "as_of": today, "symbol": symbol, "method": "blended_30",
+                "recommended_weight": blended_30,
+                "expected_return_pct": exp_ret, "expected_vol_pct": kelly_dec.implied_vol_pct,
+                "garch_vol_pct": garch_vol_pct, "regime": regime,
+                "price_below_ema50": int(price_below_ema50),
+                "cv_r2": cv_r2, "horizon_days": horizon,
+                "rationale": f"rg={rg_dec.final_weight:.0%} kelly={kelly_dec.final_weight:.0%} blend=30%",
+            },
+        ]
+        n = save_checkpoints(checkpoint_rows)
+        console.print(f"\n[green]✓ Saved {n} checkpoint rows to market_data.weight_checkpoints[/green]")
 
 
 @app.command(name="signals")

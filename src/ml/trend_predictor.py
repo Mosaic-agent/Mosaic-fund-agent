@@ -481,8 +481,14 @@ def fit_walk_forward(
     models_mean: list[Any] = []
     models_low:  list[Any] = []
     models_high: list[Any] = []
-    scores:      list[float] = []
+    models_clf:  list[Any] = []
+    scores:      list[float] = []   # primary metric: AUC (binary direction)
+    r2_scores:   list[float] = []   # legacy regression R² (kept for diagnostics)
     hit_ratios:  list[float] = []
+    aucs:        list[float] = []
+
+    # Binary direction target: 1 if forward log-return > 0, else 0
+    y_class = (y > 0).astype(int)
 
     for train_idx, test_idx in tscv.split(X):
         if len(train_idx) < min_train_size:
@@ -507,28 +513,60 @@ def fit_walk_forward(
             eval_set   = None
             callbacks  = None
 
-        # Train all three models per fold so each objective's n_estimators is
-        # calibrated independently — quantile trees converge at a different depth
-        # than MSE trees, so reusing the mean model's best_iteration_ is wrong.
+        # Train per-fold:
+        #   - classifier on sign (PRIMARY — direction is what we can predict)
+        #   - regressor (legacy diagnostic)
+        #   - quantile regressors (for confidence bands)
+        # n_estimators is calibrated independently per objective.
+        m_fold_clf  = lgb.LGBMClassifier(objective="binary", **base_params)
         m_fold_mean = lgb.LGBMRegressor(objective="regression", **base_params)
         m_fold_low  = lgb.LGBMRegressor(objective="quantile",   alpha=0.10, **base_params)
         m_fold_high = lgb.LGBMRegressor(objective="quantile",   alpha=0.90, **base_params)
 
-        fit_kwargs = dict(
-            eval_set=eval_set, callbacks=callbacks,
-        ) if use_es else {}
         X_tr, y_tr = X.iloc[train_part], y[train_part]
+        y_cls_tr   = y_class[train_part]
 
-        m_fold_mean.fit(X_tr, y_tr, **fit_kwargs)
-        m_fold_low.fit( X_tr, y_tr, **fit_kwargs)
-        m_fold_high.fit(X_tr, y_tr, **fit_kwargs)
+        if use_es:
+            es_reg_kwargs = dict(
+                eval_set=[(X.iloc[val_part], y[val_part])],
+                callbacks=callbacks,
+            )
+            es_cls_kwargs = dict(
+                eval_set=[(X.iloc[val_part], y_class[val_part])],
+                callbacks=callbacks,
+            )
+        else:
+            es_reg_kwargs = {}
+            es_cls_kwargs = {}
 
-        # Evaluate on the unseen test fold using the mean model only
-        y_pred = m_fold_mean.predict(X.iloc[test_idx])
-        y_true = y[test_idx]
-        scores.append(float(m_fold_mean.score(X.iloc[test_idx], y_true)))
-        hit_ratios.append(float(np.mean(np.sign(y_pred) == np.sign(y_true))))
+        m_fold_clf.fit( X_tr, y_cls_tr, **es_cls_kwargs)
+        m_fold_mean.fit(X_tr, y_tr,     **es_reg_kwargs)
+        m_fold_low.fit( X_tr, y_tr,     **es_reg_kwargs)
+        m_fold_high.fit(X_tr, y_tr,     **es_reg_kwargs)
 
+        # Evaluate on the unseen test fold
+        from sklearn.metrics import roc_auc_score
+
+        y_true     = y[test_idx]
+        y_cls_true = y_class[test_idx]
+        proba_up   = m_fold_clf.predict_proba(X.iloc[test_idx])[:, 1]
+        try:
+            auc_fold = float(roc_auc_score(y_cls_true, proba_up))
+        except ValueError:
+            auc_fold = 0.5  # all one class in this fold → undefined AUC
+        aucs.append(auc_fold)
+
+        # Hit ratio from classifier threshold (0.5)
+        y_pred_dir = (proba_up >= 0.5).astype(int)
+        hit_ratios.append(float(np.mean(y_pred_dir == y_cls_true)))
+
+        # Legacy R² from regressor (diagnostic only)
+        r2_scores.append(float(m_fold_mean.score(X.iloc[test_idx], y_true)))
+
+        # PRIMARY score = AUC − 0.5 (centred so 0 = no skill; ≤0 → Kelly=0)
+        scores.append(auc_fold - 0.5)
+
+        models_clf.append(m_fold_clf)
         models_mean.append(m_fold_mean)
         models_low.append(m_fold_low)
         models_high.append(m_fold_high)
@@ -552,6 +590,13 @@ def fit_walk_forward(
 
     final_params = {k: v for k, v in base_params.items() if k != "n_estimators"}
 
+    m_clf = lgb.LGBMClassifier(
+        objective="binary",
+        n_estimators=_avg_best_iter(models_clf),
+        **final_params,
+    )
+    m_clf.fit(X, y_class)
+
     m_mean = lgb.LGBMRegressor(
         objective="regression",
         n_estimators=_avg_best_iter(models_mean),
@@ -573,10 +618,11 @@ def fit_walk_forward(
     )
     m_high.fit(X, y)
 
-    # Average importances over the last k folds for stability
-    k = min(3, len(models_mean))
+    # Average importances over the last k folds — use the CLASSIFIER's
+    # importances since direction is the primary target now.
+    k = min(3, len(models_clf))
     avg_imp = np.mean(
-        [m.feature_importances_ for m in models_mean[-k:]], axis=0
+        [m.feature_importances_ for m in models_clf[-k:]], axis=0
     ).tolist()
     fi_df = (
         pd.DataFrame({"feature": feature_cols, "importance": avg_imp})
@@ -585,12 +631,21 @@ def fit_walk_forward(
     )
 
     log.info(
-        "Walk-forward: %d folds, R²mean=%.4f, hit_mean=%.3f  "
-        "[n_est: mean=%d low=%d high=%d]",
-        len(models_mean), np.mean(scores), np.mean(hit_ratios),
-        m_mean.n_estimators_, m_low.n_estimators_, m_high.n_estimators_,
+        "Walk-forward: %d folds, AUC=%.3f, hit=%.3f, R²(legacy)=%.4f  "
+        "[n_est: clf=%d mean=%d]",
+        len(models_clf), np.mean(aucs), np.mean(hit_ratios), np.mean(r2_scores),
+        m_clf.n_estimators_, m_mean.n_estimators_,
     )
-    return (m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols
+    return (
+        (m_clf, m_mean, m_low, m_high),
+        fi_df,
+        scores,        # AUC − 0.5 per fold (primary)
+        hit_ratios,
+        df_clean,
+        feature_cols,
+        aucs,          # raw AUC per fold (for display)
+        r2_scores,     # legacy R² (diagnostic only)
+    )
 
 
 # ── Step 5: Public API ────────────────────────────────────────────────────────
@@ -640,9 +695,11 @@ def run_trend_prediction(
     df_feat    = engineer_features(df_raw)
     df_labeled = label_forward_return(df_feat, horizon=horizon)
 
-    (m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols = fit_walk_forward(
-        df_labeled, n_splits=n_splits, gap=_GAP
-    )
+    (
+        (m_clf, m_mean, m_low, m_high),
+        fi_df, scores, hit_ratios, df_clean, feature_cols,
+        aucs, r2_scores,
+    ) = fit_walk_forward(df_labeled, n_splits=n_splits, gap=_GAP)
 
     # Predict on the latest row that has sufficient feature coverage.
     df_feat_recent   = df_feat[feature_cols].copy()
@@ -654,16 +711,24 @@ def run_trend_prediction(
             "Run: mosaic import --category etfs mf cot"
         )
     latest_row  = df_pred_eligible.iloc[[-1]]
-    
-    # ── 1. Mean prediction (log return → %) ──
-    pred_logret = float(m_mean.predict(latest_row)[0])
-    pred        = (np.exp(pred_logret) - 1) * 100
 
-    # ── 2. Quantile Confidence Bands (true statistical bounds) ──
-    # Predicted 10th and 90th percentiles for the forward log-return.
+    # ── 1. Direction probability from classifier (PRIMARY signal) ──
+    prob_up = float(m_clf.predict_proba(latest_row)[0, 1])
+
+    # ── 2. Calibrated expected return = direction × historical magnitude ──
+    # Using historical mean |r| keeps the magnitude scale stable across regimes
+    # and avoids the high-variance noise that a regression target carries.
+    train_targets   = df_clean["target"].dropna().values
+    mean_abs_logret = float(np.mean(np.abs(train_targets))) if len(train_targets) else 0.0
+    pred_logret     = (2.0 * prob_up - 1.0) * mean_abs_logret
+    pred            = (np.exp(pred_logret) - 1) * 100
+
+    # ── 3. Quantile Confidence Bands ──
+    # Quantile regressors still trained on the signed log-return target so
+    # they capture the realistic forward-distribution width.
     low_logret  = float(m_low.predict(latest_row)[0])
     high_logret = float(m_high.predict(latest_row)[0])
-    
+
     conf_low  = (np.exp(low_logret) - 1) * 100
     conf_high = (np.exp(high_logret) - 1) * 100
 
@@ -703,17 +768,30 @@ def run_trend_prediction(
             "Strong negative signal — consider reducing GOLDBEES holdings."
         )
 
+    # Primary CV metric: AUC − 0.5 (centred so 0 = no skill, ≤0 disables Kelly)
+    cv_skill_mean = float(np.mean(scores))     # already AUC − 0.5
+    cv_auc_mean   = float(np.mean(aucs))
+    cv_r2_legacy  = float(np.mean(r2_scores))
+
     result: dict[str, Any] = {
         "expected_return_pct": round(pred, 3),
+        "prob_up":             round(prob_up, 4),
         "confidence_low":      round(conf_low, 3),
         "confidence_high":     round(conf_high, 3),
         "regime_signal":       regime,
         "regime_rationale":    rationale,
         "feature_importances": fi_df,
+        # cv_r2_* now stores AUC-centred skill (kept name for downstream compat:
+        # consumers like adaptive_kelly use "≤ 0 → no skill" gate, which still
+        # holds because AUC=0.5 → score=0).
         "cv_r2_scores":        [round(s, 4) for s in scores],
-        "cv_r2_mean":          round(float(np.mean(scores)), 4),
+        "cv_r2_mean":          round(cv_skill_mean, 4),
+        "cv_auc_scores":       [round(a, 4) for a in aucs],
+        "cv_auc_mean":         round(cv_auc_mean, 4),
+        "cv_r2_legacy_mean":   round(cv_r2_legacy, 4),
         "cv_hit_ratios":       [round(h, 4) for h in hit_ratios],
         "cv_hit_ratio_mean":   round(float(np.mean(hit_ratios)), 4),
+        "mean_abs_logret":     round(mean_abs_logret, 6),
         "n_training_rows":     len(df_clean),
         "horizon_days":        horizon,
         "as_of":               date.today(),
@@ -731,6 +809,8 @@ def run_trend_prediction(
         "cv_r2_mean":          result["cv_r2_mean"],
         "n_training_rows":     result["n_training_rows"],
         "goldbees_close":      round(float(df_feat["goldbees_close"].iloc[-1]), 4),
+        "prob_up":             result["prob_up"],
+        "cv_auc_mean":         result["cv_auc_mean"],
     }
 
     # ClickHouse — create table if missing, then upsert
@@ -755,6 +835,15 @@ def run_trend_prediction(
             ) ENGINE = ReplacingMergeTree(created_at)
             ORDER BY (as_of, horizon_days)
         """)
+        # Idempotent additive migration for the classification upgrade
+        _ch.command(
+            "ALTER TABLE market_data.ml_predictions "
+            "ADD COLUMN IF NOT EXISTS prob_up Float64 DEFAULT 0.5"
+        )
+        _ch.command(
+            "ALTER TABLE market_data.ml_predictions "
+            "ADD COLUMN IF NOT EXISTS cv_auc_mean Float64 DEFAULT 0.5"
+        )
         _ch.insert(
             "market_data.ml_predictions",
             [[
@@ -763,11 +852,13 @@ def run_trend_prediction(
                 _pred_row["confidence_high"], _pred_row["regime_signal"],
                 _pred_row["cv_r2_mean"], _pred_row["n_training_rows"],
                 _pred_row["goldbees_close"],
+                _pred_row["prob_up"], _pred_row["cv_auc_mean"],
             ]],
             column_names=[
                 "as_of", "horizon_days", "expected_return_pct",
                 "confidence_low", "confidence_high", "regime_signal",
                 "cv_r2_mean", "n_training_rows", "goldbees_close",
+                "prob_up", "cv_auc_mean",
             ],
         )
         _ch.close()
@@ -812,12 +903,15 @@ if __name__ == "__main__":
     print(f"  LGBM TREND PREDICTOR — {out['as_of']}")
     print(f"{'='*62}")
     print(f"  Expected {out['horizon_days']}-day return : {out['expected_return_pct']:+.3f}%")
+    print(f"  Probability up         : {out['prob_up']:.3f}")
     print(f"  Confidence band        : [{out['confidence_low']:+.3f}%, {out['confidence_high']:+.3f}%]")
     print(f"  Regime signal          : {out['regime_signal']}")
     print(f"\n  {out['regime_rationale']}")
-    print(f"\n  CV R² per fold : {out['cv_r2_scores']}")
-    print(f"  CV R² mean     : {out['cv_r2_mean']}")
-    print(f"  Hit ratio mean : {out['cv_hit_ratio_mean']:.1%}  (>52% = useful edge)")
+    print(f"\n  CV AUC per fold : {out['cv_auc_scores']}")
+    print(f"  CV AUC mean     : {out['cv_auc_mean']:.4f}  (>0.5 = directional edge)")
+    print(f"  CV skill (AUC−0.5) : {out['cv_r2_mean']:+.4f}  (≤ 0 disables Kelly)")
+    print(f"  Hit ratio mean  : {out['cv_hit_ratio_mean']:.1%}  (>52% = useful edge)")
+    print(f"  R² (legacy)     : {out['cv_r2_legacy_mean']:+.4f}")
     print(f"  Training rows  : {out['n_training_rows']}")
     print(f"\n  Feature importances (top 5):")
     max_imp = out["feature_importances"]["importance"].max()

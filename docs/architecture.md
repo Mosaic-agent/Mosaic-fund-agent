@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-04-11
+> Last updated: 2026-04-27
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -25,7 +25,6 @@ External Data Sources
   Output
   ├── CLI tables (Rich console)
   ├── JSON reports  (output/)
-  ├── HTML dashboards (React, self-contained)
   └── Streamlit UI  (localhost:8501)
 ```
 
@@ -56,7 +55,7 @@ src/
   tools/                  Standalone signal functions (no side effects)
   ui/
     app.py                Streamlit 5-tab data hub
-  utils/                  Caching, symbol mapping, demo data helpers
+  utils/                  Caching, symbol mapping, report loading
 
 scripts/                  Standalone runnable analysis scripts
 docs/                     This documentation
@@ -79,7 +78,7 @@ All importers are **watermark-based delta-sync**: each fetcher reads `import_wat
 | `cot_fetcher` | CFTC Socrata API + ZIP archives | `cot_gold` | Weekly (Fri) |
 | `nse_inav_fetcher` | NSE website | `inav_snapshots` | Every 15 min (market hours) |
 | `fii_dii_fetcher` | Sensibull oxide API | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily` | Daily |
-| `imf_reserves_fetcher` | IMF IFS REST API | `cb_gold_reserves` | Monthly |
+| `imf_reserves_fetcher` | WGC Goldhub (primary) + World Bank WDI REST API (fallback) | `cb_gold_reserves` | Monthly |
 | `etf_aum_fetcher` | Yahoo Finance | `etf_aum` | Daily |
 | `mf_holdings_fetcher` | Morningstar (mstarpy) | `mf_holdings` | Monthly |
 | `import_dsp_history.py` (script) | DSP website ZIP archives | `mf_holdings` | One-time backfill (Sep 2023–Mar 2026); writes per-fund watermark |
@@ -212,11 +211,11 @@ Parallel enrichment per holding:
   + News (NewsAPI + GNews)
   + Earnings (Screener.in / Yahoo)
     ↓
-Per-asset LLM scoring  (fallback: rule-based if no LLM)
+Per-asset LLM scoring
     ↓
 Portfolio aggregation + LLM summary
     ↓
-JSON report + HTML dashboard
+JSON report
 ```
 
 Entry: `run_full_analysis()` | Ad-hoc: `ask(question)` via ReAct loop
@@ -251,9 +250,6 @@ Covers 18 core ETFs. Output optionally written to `signal_composite` table via `
 
 > **Planned 7th pillar — DSP Smart Money (pending):** MoM delta of DSP Multi Asset gold/equity allocation (`mf_holdings` table) as a contrarian tactical signal. Source: `scripts/dsp_quant_strategy_analyzer.py`. GSR correlation R=0.68 identified as primary driver of DSP allocation shifts.
 
-### VisualizationAgent (`visualization_agent.py`)
-Generates a self-contained React HTML dashboard from a JSON portfolio report. No build step required.
-
 ---
 
 ## Scripts (`scripts/`)
@@ -276,7 +272,7 @@ Standalone scripts that run analyses against the live database and print Rich co
 
 | Command | Purpose | Writes To |
 |---|---|---|
-| `analyze` | Full portfolio analysis (Zerodha → enrich → score → report) | JSON + HTML |
+| `analyze` | Full portfolio analysis (Zerodha → enrich → score → report) | JSON |
 | `import` | Sync market data to ClickHouse (delta or full) | ClickHouse |
 | `signals` | Run SignalAggregator for 18 ETFs | Console (+ DB with `--save`) |
 | `macro` | Run macro event scanner (8 themes) | Console (+ DB with `--save`) |
@@ -286,7 +282,6 @@ Standalone scripts that run analyses against the live database and print Rich co
 | `premium-alerts` | iNAV premium/discount threshold alerts | Console |
 | `news SYMBOL` | Multi-source sentiment for a symbol | Console |
 | `ask "question"` | Free-form ReAct agent with tool access | Console |
-| `dashboard` | Render React HTML dashboard from latest report | HTML file |
 | `config` | Show current settings (API keys masked) | Console |
 
 ---
@@ -315,8 +310,8 @@ Every fetcher checks `import_watermarks.(source, symbol).last_date` before fetch
 ### 2. Graceful Pillar Degradation
 Every signal pillar degrades to `None` (not 0) when its data source is unavailable. The composite score re-weights across available pillars only, maintaining a valid 0–100 range. Missing pillars do not penalise the composite.
 
-### 3. Dual LLM + Rule-Based Fallback
-All agent scoring paths have a rule-based fallback when no LLM is configured. LLM provider (OpenAI / Anthropic / local via OpenAI-compatible endpoint) is selected at runtime via `llm_provider` setting.
+### 3. LLM-Required Scoring
+All agent scoring paths require a configured LLM. LLM provider (OpenAI / Anthropic / local via OpenAI-compatible endpoint) is selected at runtime via `llm_provider` setting. Set `LLM_BASE_URL` for local inference with Ollama or LM Studio.
 
 ### 4. Tool Loop Protection
 - ComexAgent uses a direct function call for local LLMs (avoids ReAct loop overhead)
@@ -338,7 +333,8 @@ NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_d
 | CFTC direct TXT/ZIP | No | None | Silver COT (live `f_disagg.txt`) |
 | NSE website | No | Soft | Live iNAV snapshots |
 | Sensibull oxide API | No | None | FII/DII daily + monthly + F&O OI |
-| IMF IFS REST API | No | None | Central bank gold reserves |
+| WGC Goldhub API | No | None | Central bank gold reserves (annual, primary) |
+| World Bank WDI REST API | No | None | Central bank gold reserves (historic gap-fill) |
 | MFAPI.in | No | None | MF / ETF NAV history |
 | Morningstar (mstarpy) | No | None | MF portfolio holdings |
 | NewsAPI.org | `newsapi_key` | 100 req/day (free) | Premium Indian financial news |

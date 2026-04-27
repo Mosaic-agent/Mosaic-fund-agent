@@ -410,7 +410,11 @@ def run_import(
 
     # ── FII / DII Institutional Flows ─────────────────────────────────────────
     if "fii_dii" in categories:
-        from src.importer.fetchers.fii_dii_fetcher import fetch_fii_dii
+        from src.importer.fetchers.fii_dii_fetcher import (
+            fetch_fii_dii,
+            fetch_fii_dii_fno,
+            fetch_fii_dii_monthly
+        )
 
         console.print("\n[bold cyan]▶ FII / DII Institutional Flows[/bold cyan]")
         console.print(
@@ -425,36 +429,50 @@ def run_import(
             fii_from = fii_wm - timedelta(days=_OVERLAP_DAYS)
 
         console.print(f"  [dim]Fetching {fii_from} → {today}[/dim]")
+        
+        # 1. Daily Cash Flows
         fii_rows = fetch_fii_dii(from_date=fii_from)
-
-        if not fii_rows:
-            console.print(
-                "  [yellow]⚠ No FII/DII data returned — "
-                "NSE API may be unavailable or market is closed.[/yellow]"
-            )
-        else:
+        if fii_rows:
             inserted = ch.insert_fii_dii_flows(fii_rows, dry_run=dry_run)
-            console.print(
-                f"  [green]✓[/green] {inserted} flow rows "
-                f"{'(dry-run)' if dry_run else 'stored'}"
-            )
+            console.print(f"  [green]✓[/green] {inserted} flow rows stored")
             if not dry_run:
-                ch.set_watermark(
-                    "nse_fii_dii", "MARKET",
-                    max(r["trade_date"] for r in fii_rows),
-                )
+                ch.set_watermark("nse_fii_dii", "MARKET", max(r["trade_date"] for r in fii_rows))
             latest_fii = sorted(fii_rows, key=lambda r: r["trade_date"])[-1]
             console.print(
-                f"  Latest ({latest_fii['trade_date']}): "
+                f"  Latest Cash ({latest_fii['trade_date']}): "
                 f"FII Net ₹{latest_fii['fii_net_cr']:+,.0f} Cr  |  "
                 f"DII Net ₹{latest_fii['dii_net_cr']:+,.0f} Cr"
             )
             summary_rows.append((
-                "fii_dii", "nse",
-                inserted,
+                "fii_dii", "nse", inserted,
                 str(min(r["trade_date"] for r in fii_rows)),
                 str(latest_fii["trade_date"]),
             ))
+        else:
+            console.print("  [yellow]⚠ No daily cash rows returned.[/yellow]")
+
+        # 2. Daily F&O Participant OI
+        fno_rows = fetch_fii_dii_fno(from_date=fii_from)
+        if fno_rows:
+            inserted = ch.insert_fii_dii_fno_daily(fno_rows, dry_run=dry_run)
+            console.print(f"  [green]✓[/green] {inserted} F&O OI rows stored")
+            latest_fno = sorted(fno_rows, key=lambda r: r["trade_date"])[-1]
+            console.print(
+                f"  Latest F&O ({latest_fno['trade_date']}): "
+                f"FII Fut Net {latest_fno['fii_fut_net_oi']:+,.0f} | "
+                f"FII Opt OI {latest_fno['fii_opt_overall_net_oi']:+,.0f}"
+            )
+        else:
+            console.print("  [yellow]⚠ No F&O rows returned.[/yellow]")
+
+        # 3. Monthly Aggregates (Always full sync for monthly as it's small)
+        monthly_rows = fetch_fii_dii_monthly()
+        if monthly_rows:
+            inserted = ch.insert_fii_dii_monthly(monthly_rows, dry_run=dry_run)
+            console.print(f"  [green]✓[/green] {inserted} monthly aggregate rows stored")
+        else:
+            console.print("  [yellow]⚠ No monthly rows returned.[/yellow]")
+
 
     ch.close()
 

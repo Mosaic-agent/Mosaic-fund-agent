@@ -76,8 +76,9 @@ def _metrics(returns: pd.Series, name: str) -> dict:
     }
 
 
-def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15):
-    print(f"Risk Governor Backtest — {symbol}  (target vol: {target_vol*100:.0f}%)")
+def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15, eval_months: int = 0):
+    label = f"last {eval_months}m" if eval_months else "full history"
+    print(f"Risk Governor Backtest — {symbol}  (target vol: {target_vol*100:.0f}%  eval: {label})")
 
     # ── 1. Fetch OHLCV ────────────────────────────────────────────────────────
     client = clickhouse_connect.get_client(
@@ -126,9 +127,16 @@ def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15):
     df_res["log_ret"]   = np.log(df_res["close"] / df_res["close"].shift(1))
     df_res["strat_ret"] = df_res["applied_weight"] * df_res["log_ret"]
 
-    # ── 5. Metrics ────────────────────────────────────────────────────────────
-    bh_m    = _metrics(df_res["log_ret"],   "Buy & Hold")
-    strat_m = _metrics(df_res["strat_ret"], "Risk Governor")
+    # ── 5. Slice to evaluation window (GARCH always fit on full history) ─────
+    if eval_months > 0:
+        cutoff = df_res["trade_date"].max() - pd.DateOffset(months=eval_months)
+        eval_df = df_res[df_res["trade_date"] > cutoff].copy()
+    else:
+        eval_df = df_res
+
+    # ── 6. Metrics ────────────────────────────────────────────────────────────
+    bh_m    = _metrics(eval_df["log_ret"],   "Buy & Hold")
+    strat_m = _metrics(eval_df["strat_ret"], "Risk Governor")
 
     print("\n" + "=" * 56)
     print(f"{'Metric':<20} | {'Buy & Hold':>12} | {'Risk Governor':>12}")
@@ -140,8 +148,8 @@ def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15):
     # Last valid weight (skip NaN warmup tail)
     last_valid = df_res["weight"].dropna()
     last_w = last_valid.iloc[-1] if not last_valid.empty else float("nan")
-    print(f"\nBacktest period : {df_res['trade_date'].min().date()} → {df_res['trade_date'].max().date()}")
-    print(f"Trading days    : {len(df_res):,}")
+    print(f"\nEval period     : {eval_df['trade_date'].min().date()} → {eval_df['trade_date'].max().date()}")
+    print(f"Trading days    : {len(eval_df):,}")
     print(f"Current weight  : {last_w * 100:.1f}%")
 
 
@@ -150,5 +158,13 @@ if __name__ == "__main__":
     parser.add_argument("--symbol",     default="GOLDBEES")
     parser.add_argument("--target-vol", default=0.15, type=float,
                         help="Annualised vol target as decimal (default 0.15 = 15%%)")
+    parser.add_argument("--months", default=0, type=int,
+                        help="Evaluate over last N months only (0 = full history). GARCH always fit on full data.")
+    parser.add_argument("--symbols", default="",
+                        help="Comma-separated list of symbols to test (overrides --symbol)")
     args = parser.parse_args()
-    run_backtest(symbol=args.symbol, target_vol=args.target_vol)
+
+    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] or [args.symbol]
+    for sym in symbols:
+        run_backtest(symbol=sym, target_vol=args.target_vol, eval_months=args.months)
+        print()

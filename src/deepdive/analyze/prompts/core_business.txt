@@ -1,0 +1,19 @@
+Write section "## 1. Core Business" of the research report.
+
+Focus on these dataset fields:
+- company_name, ticker, exchange, sic
+- fiscal_year_end
+- segments[]: each item has name, revenue_usd_m, yoy_growth_pct
+- filing_excerpts.competition_section_text (for business description context only)
+
+Tasks:
+1. Open with a 1–2 sentence description of what the company does and its primary
+   end markets (infer from segment names: AECO = Architecture, Engineering &
+   Construction Operations; MFG = Manufacturing; M&E = Media & Entertainment).
+2. Present the product-family revenue breakdown for the most recent fiscal year
+   as a compact Markdown table (Segment | Revenue ($M) | % of Total).
+   Compute % of total from segments[].revenue_usd_m; cite each figure.
+3. Note which segment is the growth leader (highest revenue) and which is smallest.
+4. Comment briefly on recurring-revenue / subscription model if evidenced by the
+   high gross margin in financials[].gross_margin_pct.
+5. Do NOT venture into competitive dynamics — that belongs in section 3.

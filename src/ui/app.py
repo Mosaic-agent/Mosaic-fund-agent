@@ -132,7 +132,7 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard"])
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -461,37 +461,60 @@ ORDER BY symbol""",
 SELECT
     as_of,
     horizon_days,
-    expected_return_pct,
+    round(prob_up, 4)              AS prob_up,
+    round(expected_return_pct, 3)  AS expected_return_pct,
     confidence_low,
     confidence_high,
     regime_signal,
-    round(cv_r2_mean, 4) AS cv_r2_mean,
+    round(cv_auc_mean, 4)          AS cv_auc,
+    round(cv_r2_mean, 4)           AS cv_skill,
     n_training_rows,
     goldbees_close
 FROM market_data.ml_predictions FINAL
 ORDER BY as_of DESC, horizon_days""",
 
     "ML Predictions \u2014 accuracy check (predicted vs actual)": """\
+-- Uses log return to match model target basis.
+-- Exit price joined on exact calendar date (addDays). If horizon lands on a
+-- weekend the row will be NULL — that's expected; use evaluate_ml_performance.py
+-- for trading-day-aware evaluation.
 SELECT
     m.as_of,
     m.horizon_days,
-    m.expected_return_pct,
+    round(m.prob_up, 3)                                              AS prob_up,
+    round(m.expected_return_pct, 3)                                  AS predicted_logret_pct,
     m.regime_signal,
-    m.goldbees_close                                            AS close_at_pred,
-    argMax(p.close, p.trade_date)                               AS close_at_expiry,
-    round((argMax(p.close, p.trade_date) / m.goldbees_close - 1) * 100, 3) AS actual_return_pct,
-    round(((argMax(p.close, p.trade_date) / m.goldbees_close - 1) * 100)
-          - m.expected_return_pct, 3)                           AS error_pct
-FROM market_data.ml_predictions FINAL m
-LEFT JOIN market_data.daily_prices FINAL p
-    ON p.symbol = 'GOLDBEES'
-   AND p.category = 'etfs'
-   AND p.trade_date > m.as_of
-   AND p.trade_date <= m.as_of + toIntervalDay(m.horizon_days + 3)
-GROUP BY m.as_of, m.horizon_days, m.expected_return_pct,
-         m.regime_signal, m.goldbees_close
-HAVING close_at_expiry > 0
+    m.goldbees_close                                                 AS close_at_pred,
+    p.close                                                          AS close_at_expiry,
+    round(log(p.close / m.goldbees_close) * 100, 3)                  AS actual_logret_pct,
+    round(log(p.close / m.goldbees_close) * 100 - m.expected_return_pct, 3) AS error_pct,
+    if(m.expected_return_pct * log(p.close / m.goldbees_close) > 0, 1, 0) AS hit
+FROM (
+    SELECT as_of, horizon_days, prob_up, expected_return_pct,
+           regime_signal, goldbees_close
+    FROM market_data.ml_predictions FINAL
+) AS m
+LEFT JOIN (
+    SELECT trade_date, argMax(close, imported_at) AS close
+    FROM market_data.daily_prices
+    WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+    GROUP BY trade_date
+) AS p ON p.trade_date = addDays(m.as_of, m.horizon_days)
 ORDER BY m.as_of DESC""",
+
+    "Weight Checkpoints \u2014 Kelly vs RG vs Blended": """\
+SELECT
+    as_of,
+    method,
+    round(recommended_weight * 100, 1)  AS weight_pct,
+    round(cv_r2, 4)                     AS cv_skill,
+    round(expected_return_pct, 3)       AS exp_ret_pct,
+    round(garch_vol_pct, 2)             AS garch_vol,
+    regime,
+    rationale
+FROM market_data.weight_checkpoints FINAL
+ORDER BY as_of DESC, method
+LIMIT 60""",
 
     "FII/DII \u2014 net flows last 60 days": """\
 SELECT
@@ -1482,8 +1505,8 @@ with tab_explorer:
     with st.container():
         st.subheader("🏦 Institutional Flows — FII vs DII Net (Last 30 Days)")
         st.caption(
-            "Daily FII and DII provisional cash-market net flows (₹ Crore) from NSE India. "
-            "Positive = net buying, Negative = net selling."
+            "Daily cash-market net flows (₹ Crore) from NSE India.  "
+            "🟢 Green bar = net buying (above zero) · 🔴 Red bar = net selling (below zero)."
         )
         try:
             import altair as alt
@@ -1505,77 +1528,126 @@ with tab_explorer:
                 )
             else:
                 fii_df["trade_date"] = pd.to_datetime(fii_df["trade_date"])
-                fii_df = fii_df.sort_values("trade_date")
+                fii_df = fii_df.sort_values("trade_date").reset_index(drop=True)
 
                 # ── KPI metrics ───────────────────────────────────────────────
-                latest_row     = fii_df.iloc[-1]
-                fii_5d         = fii_df["fii_net_cr"].tail(5).sum()
-                dii_5d         = fii_df["dii_net_cr"].tail(5).sum()
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Latest FII Net",    f"₹{latest_row['fii_net_cr']:+,.0f} Cr")
-                k2.metric("Latest DII Net",    f"₹{latest_row['dii_net_cr']:+,.0f} Cr")
-                k3.metric("FII 5-Day Cumul.",  f"₹{fii_5d:+,.0f} Cr")
-                k4.metric("DII 5-Day Cumul.",  f"₹{dii_5d:+,.0f} Cr")
+                latest_row = fii_df.iloc[-1]
+                fii_5d     = fii_df["fii_net_cr"].tail(5).sum()
+                dii_5d     = fii_df["dii_net_cr"].tail(5).sum()
+                net_5d     = fii_5d + dii_5d
 
-                # ── Reshape to long form for grouped bars ─────────────────────
-                fii_long = fii_df[["trade_date", "fii_net_cr"]].rename(
-                    columns={"fii_net_cr": "net_cr"}
-                ).assign(investor="FII")
-                dii_long = fii_df[["trade_date", "dii_net_cr"]].rename(
-                    columns={"dii_net_cr": "net_cr"}
-                ).assign(investor="DII")
-                long_df = pd.concat([fii_long, dii_long], ignore_index=True)
-
-                # ── Altair grouped bar chart ──────────────────────────────────
-                bars = (
-                    alt.Chart(long_df)
-                    .mark_bar(opacity=0.80)
-                    .encode(
-                        x=alt.X(
-                            "trade_date:T",
-                            title="Date",
-                            axis=alt.Axis(format="%d %b"),
-                        ),
-                        y=alt.Y(
-                            "net_cr:Q",
-                            title="Net Flow (₹ Crore)",
-                            scale=alt.Scale(zero=True),
-                        ),
-                        xOffset=alt.XOffset("investor:N"),
-                        color=alt.Color(
-                            "investor:N",
-                            scale=alt.Scale(
-                                domain=["FII", "DII"],
-                                range=["#E74C3C", "#3498DB"],
-                            ),
-                            legend=alt.Legend(title="Investor"),
-                        ),
-                        tooltip=[
-                            alt.Tooltip("trade_date:T", title="Date"),
-                            alt.Tooltip("investor:N",   title="Investor"),
-                            alt.Tooltip("net_cr:Q",     title="Net (₹ Cr)", format="+,.0f"),
-                        ],
-                    )
-                    .properties(height=300)
-                    .interactive()
+                k1, k2, k3, k4, k5 = st.columns(5)
+                k1.metric(
+                    "FII Latest",
+                    f"₹{latest_row['fii_net_cr']:+,.0f} Cr",
+                    "buying" if latest_row["fii_net_cr"] >= 0 else "selling",
+                    delta_color="normal" if latest_row["fii_net_cr"] >= 0 else "inverse",
+                )
+                k2.metric(
+                    "DII Latest",
+                    f"₹{latest_row['dii_net_cr']:+,.0f} Cr",
+                    "buying" if latest_row["dii_net_cr"] >= 0 else "selling",
+                    delta_color="normal" if latest_row["dii_net_cr"] >= 0 else "inverse",
+                )
+                k3.metric(
+                    "FII 5-Day",
+                    f"₹{fii_5d:+,.0f} Cr",
+                    "net buying" if fii_5d >= 0 else "net selling",
+                    delta_color="normal" if fii_5d >= 0 else "inverse",
+                )
+                k4.metric(
+                    "DII 5-Day",
+                    f"₹{dii_5d:+,.0f} Cr",
+                    "net buying" if dii_5d >= 0 else "net selling",
+                    delta_color="normal" if dii_5d >= 0 else "inverse",
+                )
+                k5.metric(
+                    "Combined 5-Day",
+                    f"₹{net_5d:+,.0f} Cr",
+                    "market buying" if net_5d >= 0 else "market selling",
+                    delta_color="normal" if net_5d >= 0 else "inverse",
                 )
 
-                zero_line = (
-                    alt.Chart(pd.DataFrame({"y": [0]}))
-                    .mark_rule(color="#888888", strokeDash=[4, 4], strokeWidth=1)
-                    .encode(y="y:Q")
+                # ── Combined FII + DII line chart ─────────────────────────────
+                # Lines work cleanly for 30 daily points; grouped bars become
+                # invisible at this density. FII = solid blue, DII = dashed orange.
+                fii_long = fii_df[["trade_date", "fii_net_cr", "dii_net_cr"]].melt(
+                    id_vars="trade_date",
+                    value_vars=["fii_net_cr", "dii_net_cr"],
+                    var_name="_col",
+                    value_name="net_cr",
+                )
+                fii_long["Investor"] = fii_long["_col"].map(
+                    {"fii_net_cr": "FII", "dii_net_cr": "DII"}
+                )
+
+                _color_scale = alt.Scale(
+                    domain=["FII", "DII"],
+                    range=["#3498DB", "#E67E22"],
+                )
+                _base = alt.Chart(fii_long).encode(
+                    x=alt.X(
+                        "trade_date:T",
+                        title=None,
+                        axis=alt.Axis(format="%d %b", labelAngle=-30, grid=False),
+                    ),
+                    y=alt.Y(
+                        "net_cr:Q",
+                        title="₹ Crore",
+                        scale=alt.Scale(zero=True),
+                        axis=alt.Axis(format=",.0f", grid=True, gridOpacity=0.2),
+                    ),
+                    color=alt.Color(
+                        "Investor:N",
+                        scale=_color_scale,
+                        legend=alt.Legend(
+                            title=None, orient="top-left",
+                            symbolType="stroke", symbolStrokeWidth=3,
+                            labelFontSize=12,
+                        ),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("trade_date:T", title="Date",        format="%d %b %Y"),
+                        alt.Tooltip("Investor:N",   title="Investor"),
+                        alt.Tooltip("net_cr:Q",     title="Net (₹ Cr)", format="+,.0f"),
+                    ],
+                )
+
+                _lines = _base.mark_line(strokeWidth=2).encode(
+                    strokeDash=alt.condition(
+                        alt.datum["Investor"] == "DII",
+                        alt.value([6, 3]),   # dashed for DII
+                        alt.value([1, 0]),   # solid for FII
+                    ),
+                )
+                _dots  = _base.mark_circle(size=40, opacity=0.9)
+                _zero  = (
+                    alt.Chart(pd.DataFrame({"z": [0]}))
+                    .mark_rule(color="#555555", strokeWidth=1.5, strokeDash=[3, 3])
+                    .encode(y=alt.Y("z:Q"))
                 )
 
                 st.altair_chart(
-                    (zero_line + bars).properties(height=300),
-                    use_container_width=True,
+                    alt.layer(_zero, _lines, _dots)
+                    .properties(
+                        title=alt.TitleParams(
+                            "FII & DII Net Flows  (🔵 FII solid · 🟠 DII dashed)",
+                            fontSize=13,
+                        ),
+                        height=300,
+                    )
+                    .configure_view(strokeWidth=0)
+                    .configure_title(anchor="start")
+                    .interactive(),
+                    width="stretch",
                 )
 
                 with st.expander("📋 Raw data", expanded=False):
-                    show_df = fii_df.copy()
+                    show_df = fii_df[["trade_date", "fii_net_cr", "dii_net_cr"]].copy()
                     show_df["trade_date"] = show_df["trade_date"].dt.date
+                    show_df["combined"]   = show_df["fii_net_cr"] + show_df["dii_net_cr"]
                     show_df = show_df.sort_values("trade_date", ascending=False)
-                    show_df.columns = ["Date", "FII Net (₹ Cr)", "DII Net (₹ Cr)"]
+                    show_df.columns = ["Date", "FII Net (₹ Cr)", "DII Net (₹ Cr)", "Combined (₹ Cr)"]
                     st.dataframe(show_df, use_container_width=True, hide_index=True)
 
         except ImportError as exc:
@@ -1584,7 +1656,6 @@ with tab_explorer:
                 "Run: `.venv/bin/pip install altair`  then restart Streamlit."
             )
         except Exception as exc:
-            # ClickHouse code 60 = UNKNOWN_TABLE — table not created yet
             if "60" in str(exc) and "UNKNOWN_TABLE" in str(exc):
                 st.info(
                     "Table `market_data.fii_dii_flows` does not exist yet.  \n"
@@ -2391,11 +2462,10 @@ with tab_wis:
     st.divider()
     st.subheader("🤖 LightGBM 5-Day Forecast")
     st.caption(
-        "Learns **soft thresholds** from all 4 signals jointly via walk-forward "
-        "cross-validation. Unlike the expert system (hard IF/THEN rules), the model "
-        "discovers that e.g. 15% COT crowding is dangerous *when* the GOLDBEES "
-        "discount is also widening simultaneously.  \n"
-        "**Target:** `(price[t+5] / price[t] − 1) × 100`  ·  "
+        "Classifies **direction** (up/down) via walk-forward cross-validation, "
+        "then sizes using Kelly formula.  \n"
+        "**Target:** sign(log return over horizon) — binary classifier  ·  "
+        "**Metric:** AUC (0.5 = random, >0.55 = useful edge)  ·  "
         "**Validation:** TimeSeriesSplit — no look-ahead leakage"
     )
 
@@ -2445,22 +2515,51 @@ with tab_wis:
                     unsafe_allow_html=True,
                 )
 
-                # Key metrics
-                mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+                # Key metrics — row 1: classifier outputs
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                prob_up = ml.get("prob_up", 0.5)
                 mc1.metric(
-                    f"Expected {ml['horizon_days']}-Day Return",
-                    f"{ml['expected_return_pct']:+.2f}%",
+                    "Probability Up",
+                    f"{prob_up:.1%}",
+                    delta=f"{(prob_up - 0.5)*100:+.1f}pp vs 50%",
+                    help="Classifier confidence that GOLDBEES closes higher in horizon_days.",
                 )
                 mc2.metric(
+                    f"Expected {ml['horizon_days']}-Day Return",
+                    f"{ml['expected_return_pct']:+.2f}%",
+                    help="(2×prob_up − 1) × historical mean |return|. Calibrated from direction signal.",
+                )
+                mc3.metric(
                     "Confidence Band",
                     f"[{ml['confidence_low']:+.1f}%, {ml['confidence_high']:+.1f}%]",
                 )
-                mc3.metric("CV R² Mean", f"{ml['cv_r2_mean']:.4f}",
-                           help=">0.05 = useful predictive power. Negative = worse than mean baseline.")
-                mc4.metric("Hit Ratio",
-                           f"{ml.get('cv_hit_ratio_mean', 0)*100:.1f}%",
-                           help="Directional accuracy. >52% = statistical edge, >55% = strong edge.")
-                mc5.metric("Training Rows", f"{ml['n_training_rows']:,}")
+                mc4.metric("Training Rows", f"{ml['n_training_rows']:,}")
+
+                # Row 2: model quality metrics
+                mq1, mq2, mq3, mq4 = st.columns(4)
+                cv_auc  = ml.get("cv_auc_mean",  ml.get("cv_r2_mean", 0) + 0.5)
+                cv_skill = ml.get("cv_r2_mean", cv_auc - 0.5)
+                mq1.metric(
+                    "Model AUC",
+                    f"{cv_auc:.4f}",
+                    delta="above random" if cv_auc > 0.5 else "no edge",
+                    help="AUC > 0.5 = directional edge. > 0.55 = strong edge. < 0.5 = worse than random.",
+                )
+                mq2.metric(
+                    "Skill (AUC − 0.5)",
+                    f"{cv_skill:+.4f}",
+                    help="Centred skill score. ≤ 0 disables Kelly weight entirely.",
+                )
+                mq3.metric(
+                    "Hit Ratio",
+                    f"{ml.get('cv_hit_ratio_mean', 0)*100:.1f}%",
+                    help="Directional accuracy. >52% = statistical edge, >55% = strong edge.",
+                )
+                mq4.metric(
+                    "R² (legacy)",
+                    f"{ml.get('cv_r2_legacy_mean', ml.get('cv_r2_mean', 0)):.4f}",
+                    help="Regression R² on log-return target — diagnostic only. Negative is expected for noisy 5-day returns.",
+                )
 
                 # Feature importance bar chart
                 st.subheader("Feature Importances")
@@ -2473,17 +2572,20 @@ with tab_wis:
                     "Higher = the model relies on this signal more."
                 )
 
-                # Walk-forward CV R² per fold
-                with st.expander("Walk-Forward CV R² per fold"):
+                # Walk-forward AUC per fold
+                with st.expander("Walk-Forward AUC per fold"):
+                    _auc_list = ml.get("cv_auc_scores", [s + 0.5 for s in ml.get("cv_r2_scores", [])])
+                    _skill_list = ml.get("cv_r2_scores", [])
                     folds_df = pd.DataFrame({
-                        "fold": [f"Fold {i+1}" for i in range(len(ml["cv_r2_scores"]))],
-                        "r2":   ml["cv_r2_scores"],
+                        "fold":  [f"Fold {i+1}" for i in range(len(_auc_list))],
+                        "AUC":   _auc_list,
+                        "Skill (AUC−0.5)": _skill_list if _skill_list else [a - 0.5 for a in _auc_list],
                     }).set_index("fold")
-                    st.bar_chart(folds_df["r2"], height=160, color="#9C27B0")
+                    st.bar_chart(folds_df["AUC"], height=160, color="#9C27B0")
                     st.caption(
-                        "Each fold trains on earlier data only and tests on later data. "
-                        "R² > 0 = model has out-of-sample predictive power. "
-                        "Negative R² = that fold was noisier than the mean baseline."
+                        "Each fold trains on earlier data only and tests on the unseen future fold.  "
+                        "**AUC > 0.5** = model has directional edge on that period.  "
+                        "**AUC < 0.5** = model was worse than random — Kelly disabled for those periods."
                     )
 
                 # Walk-forward hit ratio per fold
@@ -3245,19 +3347,87 @@ with tab_etf_scan:
 with tab_news:
     st.header("📰 Market News")
     st.caption(
-        "News stored in ClickHouse — use the CLI to populate: "
-        "`mosaic macro --save`  or  `mosaic etf-news --save`"
+        "Parallel news scanner — ~5s per full scan.  "
+        "Populate via CLI: `mosaic macro --save`  ·  `mosaic etf-news --save`  "
+        "or use the **Refresh** buttons below."
     )
 
-    _SENT_ICON_N = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}
+    _SENT_ICON_N  = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}
     _CONV_COLOR_N = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
-    _IMP_C_N = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
-    _ETF_CATS_N = [
+    _IMP_C_N      = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "⚪"}
+    _ETF_CATS_N   = [
         "All", "Gold ETFs", "Nifty ETFs", "Bank ETFs", "IT ETFs",
         "PSU ETFs", "Mid/Small Cap ETFs", "Pharma ETFs",
         "International ETFs", "Debt / Liquid ETFs", "Auto ETFs",
     ]
 
+    # ── Quant Overlay — always visible, loaded from ClickHouse ────────────────
+    try:
+        _qo_fii = _query_df("""
+            SELECT sum(fii_net_cr) AS fii_net_5d, sum(dii_net_cr) AS dii_net_5d
+            FROM market_data.fii_dii_flows FINAL
+            WHERE trade_date >= today() - INTERVAL 5 DAY
+        """)
+        _qo_px = _query_df("""
+            SELECT trade_date, toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices
+            WHERE symbol='GOLDBEES' AND category='etfs'
+            GROUP BY trade_date ORDER BY trade_date DESC LIMIT 55
+        """)
+        _qo_garch = _query_df("""
+            SELECT garch_vol_pct FROM market_data.weight_checkpoints FINAL
+            WHERE symbol='GOLDBEES' AND garch_vol_pct > 0
+            ORDER BY as_of DESC LIMIT 1
+        """)
+        _qo_ok = not _qo_px.empty
+    except Exception:
+        _qo_ok = False
+
+    if _qo_ok:
+        import numpy as _np_qo
+        _qo_px = _qo_px.sort_values("trade_date").reset_index(drop=True)
+        _qo_closes = _qo_px["close"].astype(float)
+        _qo_latest = float(_qo_closes.iloc[-1])
+        _qo_ema50  = float(_qo_closes.ewm(span=50, adjust=False).mean().iloc[-1])
+        _qo_vs_ema = "above" if _qo_latest >= _qo_ema50 else "below"
+        _qo_ret5d  = (
+            round(float(_np_qo.log(_qo_latest / _qo_closes.iloc[-6])) * 100, 2)
+            if len(_qo_closes) >= 6 else None
+        )
+        _qo_fii_val = float(_qo_fii["fii_net_5d"].iloc[0]) if not _qo_fii.empty else None
+        _qo_dii_val = float(_qo_fii["dii_net_5d"].iloc[0]) if not _qo_fii.empty else None
+        _qo_gv      = float(_qo_garch["garch_vol_pct"].iloc[0]) if not _qo_garch.empty else None
+
+        with st.container(border=True):
+            st.caption("📐 **Quant Overlay** — live ClickHouse ground truth for interpreting news signals")
+            _qc1, _qc2, _qc3, _qc4 = st.columns(4)
+            _ret5d_str = f"{_qo_ret5d:+.2f}%" if _qo_ret5d is not None else "—"
+            _ema_delta = "▲ above EMA50" if _qo_vs_ema == "above" else "▼ below EMA50"
+            _qc1.metric("GOLDBEES", f"₹{_qo_latest:.2f}", _ret5d_str, delta_color="normal")
+            _qc2.metric("vs EMA50", _qo_vs_ema.upper(), _ema_delta,
+                        delta_color="normal" if _qo_vs_ema == "above" else "inverse")
+            _qc3.metric("GARCH Vol", f"{_qo_gv:.1f}%" if _qo_gv else "—",
+                        "▲ elevated" if _qo_gv and _qo_gv > 15 else "✓ normal",
+                        delta_color="inverse" if _qo_gv and _qo_gv > 15 else "normal")
+            _fii_str = f"₹{_qo_fii_val:+,.0f} Cr" if _qo_fii_val is not None else "—"
+            _fii_delta = "selling" if _qo_fii_val and _qo_fii_val < 0 else "buying"
+            _qc4.metric("FII 5d Net", _fii_str, _fii_delta,
+                        delta_color="inverse" if _qo_fii_val and _qo_fii_val < 0 else "normal")
+
+        # Signal vs price contradiction callout
+        if "macro_net_signal" in st.session_state:
+            _gold_score = st.session_state["macro_net_signal"].get("GOLDBEES", 0)
+            _n_themes   = st.session_state.get("macro_n_themes", 8)
+            _strong_th  = max(4, (_n_themes * 4) // 2)
+            if _gold_score >= _strong_th and _qo_vs_ema == "below":
+                st.warning(
+                    f"⚠️ **Signal vs Price divergence** — macro news is strongly bullish on GOLDBEES "
+                    f"(net score +{_gold_score}), but price is **below EMA50** at ₹{_qo_latest:.2f}. "
+                    "The thesis is priced into headlines, not yet into price action.",
+                    icon="⚠️",
+                )
+
+    st.divider()
     news_col1, news_col2 = st.columns([1, 1])
 
     # ── LEFT: Macro Events ─────────────────────────────────────────────────────
@@ -3267,13 +3437,15 @@ with tab_news:
             "From date", value=pd.Timestamp.now() - pd.Timedelta(days=7),
             key="macro_from_date",
         )
-        _macro_max_n = st.slider("Articles per theme (refresh)", 2, 8, 3, key="macro_max_n")
+        _macro_max_n = st.slider("Articles per theme", 2, 8, 4, key="macro_max_n")
         _refresh_macro = st.button(
-            "🔄 Refresh from live + save to DB", key="refresh_macro", type="primary",
+            "🔄 Refresh macro (live → DB)", key="refresh_macro", type="primary",
         )
 
         if _refresh_macro:
-            with st.spinner("Scanning macro events and saving to DB…"):
+            import time as _time_m
+            _t0_m = _time_m.time()
+            with st.spinner("Scanning 8 macro themes in parallel…"):
                 try:
                     from src.tools.macro_event_scanner import (
                         scan_macro_events, save_macro_events_to_db,
@@ -3288,10 +3460,33 @@ with tab_news:
                     _m_ch.ensure_schema()
                     _m_saved = save_macro_events_to_db(_m_report, _m_ch)
                     _m_ch.close()
-                    st.success(f"✓ Saved {_m_saved} macro events to DB.")
+                    _elapsed_m = _time_m.time() - _t0_m
+                    # Persist net signal + theme count for contradiction callout
+                    st.session_state["macro_net_signal"] = _m_report.etf_net_signal
+                    st.session_state["macro_n_themes"]   = len(_m_report.themes_detected)
+                    st.success(
+                        f"✓ {len(_m_report.events)} events · {len(_m_report.themes_detected)} themes · "
+                        f"{_m_saved} rows saved · {_elapsed_m:.1f}s"
+                    )
                     st.rerun()
                 except Exception as _exc_mref:
                     st.error(f"Refresh error: {_exc_mref}")
+
+        # Net score bar chart — shown after refresh (from session_state)
+        if "macro_net_signal" in st.session_state:
+            _mn_sig = st.session_state["macro_net_signal"]
+            _mn_nt  = st.session_state.get("macro_n_themes", 8)
+            if _mn_sig:
+                _mn_df = pd.DataFrame(
+                    sorted(_mn_sig.items(), key=lambda x: x[1], reverse=True),
+                    columns=["ETF", "Net Score"],
+                ).set_index("ETF")
+                _strong_t = max(4, (_mn_nt * _macro_max_n) // 2)
+                st.caption(
+                    f"Net score per ETF · ≥+{_strong_t} = strong bullish · "
+                    f"≤−{_strong_t} = strong bearish"
+                )
+                st.bar_chart(_mn_df, height=220, color="#4CAF50")
 
     # ── RIGHT: ETF News ────────────────────────────────────────────────────────
     with news_col2:
@@ -3301,13 +3496,16 @@ with tab_news:
             "From date", value=pd.Timestamp.now() - pd.Timedelta(days=7),
             key="etf_from_date",
         )
-        _etf_max_n = st.slider("Articles per topic (refresh)", 2, 8, 3, key="etf_news_max_n")
+        _etf_max_n = st.slider("Articles per topic", 2, 8, 4, key="etf_news_max_n")
         _refresh_etf = st.button(
-            "🔄 Refresh from live + save to DB", key="refresh_etf", type="primary",
+            "🔄 Refresh ETF news (live → DB)", key="refresh_etf", type="primary",
         )
 
         if _refresh_etf:
-            with st.spinner("Fetching ETF news and saving to DB…"):
+            import time as _time_e
+            _t0_e = _time_e.time()
+            _cats_label = _etf_cat_n if _etf_cat_n != "All" else "all 10 categories"
+            with st.spinner(f"Fetching {_cats_label} in parallel…"):
                 try:
                     from src.tools.etf_news_scanner import (
                         scan_etf_news, save_etf_news_to_db,
@@ -3323,7 +3521,12 @@ with tab_news:
                     _e_ch.ensure_schema()
                     _e_saved = save_etf_news_to_db(_e_report, _e_ch)
                     _e_ch.close()
-                    st.success(f"✓ Saved {_e_saved} ETF news articles to DB.")
+                    _elapsed_e = _time_e.time() - _t0_e
+                    st.success(
+                        f"✓ {len(_e_report.items)} articles · "
+                        f"{len(_e_report.categories_scanned)} categories · "
+                        f"{_e_saved} rows saved · {_elapsed_e:.1f}s"
+                    )
                     st.rerun()
                 except Exception as _exc_eref:
                     st.error(f"Refresh error: {_exc_eref}")
@@ -3350,6 +3553,16 @@ with tab_news:
             "Run `mosaic macro --save` or click **Refresh** above to populate."
         )
     else:
+        # Sentiment summary across all themes
+        _m_pos = int((_macro_db_df["sentiment"] == "POSITIVE").sum())
+        _m_neg = int((_macro_db_df["sentiment"] == "NEGATIVE").sum())
+        _m_neu = int((_macro_db_df["sentiment"] == "NEUTRAL").sum())
+        _mm1, _mm2, _mm3, _mm4 = st.columns(4)
+        _mm1.metric("Total Events", len(_macro_db_df))
+        _mm2.metric("🟢 Positive", _m_pos)
+        _mm3.metric("🔴 Negative", _m_neg)
+        _mm4.metric("⚪ Neutral",  _m_neu)
+
         from collections import defaultdict as _dd_m
         _macro_by_theme: dict = _dd_m(list)
         for _, _row in _macro_db_df.iterrows():
@@ -3357,8 +3570,11 @@ with tab_news:
 
         for _theme, _rows in _macro_by_theme.items():
             _first_imp = _rows[0].get("impact_tier", "LOW") if hasattr(_rows[0], "get") else "LOW"
+            _t_pos = sum(1 for _r in _rows if str(_r.get("sentiment","")) == "POSITIVE")
+            _t_neg = sum(1 for _r in _rows if str(_r.get("sentiment","")) == "NEGATIVE")
             with st.expander(
-                f"{_CONV_COLOR_N.get(_first_imp, '⚪')} **{_theme}** ({len(_rows)} events)",
+                f"{_CONV_COLOR_N.get(_first_imp, '⚪')} **{_theme}** "
+                f"({len(_rows)} events · 🟢{_t_pos} 🔴{_t_neg})",
                 expanded=(_first_imp == "HIGH"),
             ):
                 for _r in _rows[:10]:
@@ -3398,6 +3614,7 @@ with tab_news:
             "Run `mosaic etf-news --save` or click **Refresh** above to populate."
         )
     else:
+        # Sentiment headline metrics
         _pos_n = int((_etf_db_df["sentiment"] == "POSITIVE").sum())
         _neg_n = int((_etf_db_df["sentiment"] == "NEGATIVE").sum())
         _neu_n = int((_etf_db_df["sentiment"] == "NEUTRAL").sum())
@@ -3407,16 +3624,33 @@ with tab_news:
         _em3.metric("🔴 Negative", _neg_n)
         _em4.metric("⚪ Neutral",  _neu_n)
 
+        # Sentiment breakdown chart per category
         from collections import defaultdict as _dd_e
         _etf_by_cat: dict = _dd_e(list)
         for _, _row in _etf_db_df.iterrows():
             _etf_by_cat[_row["category"]].append(_row)
 
+        _sent_chart_rows = []
+        for _cat_k, _cat_items in _etf_by_cat.items():
+            _sent_chart_rows.append({
+                "Category": _cat_k[:12],
+                "🟢 Pos":  sum(1 for i in _cat_items if str(i.get("sentiment","")) == "POSITIVE"),
+                "🔴 Neg":  sum(1 for i in _cat_items if str(i.get("sentiment","")) == "NEGATIVE"),
+                "⚪ Neu":  sum(1 for i in _cat_items if str(i.get("sentiment","")) == "NEUTRAL"),
+            })
+        if _sent_chart_rows:
+            _sdf = pd.DataFrame(_sent_chart_rows).set_index("Category")
+            with st.expander("📊 Sentiment breakdown by category", expanded=False):
+                st.bar_chart(_sdf[["🟢 Pos", "🔴 Neg"]], height=200)
+
         for _cat, _items in _etf_by_cat.items():
             _etfs_str = str(_items[0].get("etfs_impacted", "")) if hasattr(_items[0], "get") else ""
             _imp = str(_items[0].get("impact_tier", "LOW")) if hasattr(_items[0], "get") else "LOW"
+            _c_pos = sum(1 for i in _items if str(i.get("sentiment","")) == "POSITIVE")
+            _c_neg = sum(1 for i in _items if str(i.get("sentiment","")) == "NEGATIVE")
             with st.expander(
-                f"{_IMP_C_N.get(_imp, '⚪')} **{_cat}** — `{_etfs_str}` ({len(_items)} articles)",
+                f"{_IMP_C_N.get(_imp, '⚪')} **{_cat}** — `{_etfs_str}` "
+                f"({len(_items)} articles · 🟢{_c_pos} 🔴{_c_neg})",
                 expanded=(_imp == "HIGH"),
             ):
                 for _it in _items[:8]:
@@ -3477,68 +3711,142 @@ with tab_signals:
         _sig_date = str(_sig_df["as_of"].iloc[0])
         st.subheader(f"Composite Scores — {_sig_date}")
 
-        # Summary metrics
-        _buys = int((_sig_df["action"].isin(["BUY", "ACCUMULATE"])).sum())
+        # ── Summary KPIs ──────────────────────────────────────────────────────
+        _buys  = int((_sig_df["action"].isin(["BUY", "ACCUMULATE"])).sum())
         _holds = int((_sig_df["action"] == "HOLD").sum())
         _sells = int((_sig_df["action"].isin(["TRIM", "AVOID"])).sum())
-        _sc1, _sc2, _sc3, _sc4 = st.columns(4)
-        _sc1.metric("ETFs Scored", len(_sig_df))
-        _sc2.metric("🟢 Buy/Accumulate", _buys)
-        _sc3.metric("🟡 Hold", _holds)
-        _sc4.metric("🔴 Trim/Avoid", _sells)
+        _avg   = float(_sig_df["composite_score"].mean())
+        _sc1, _sc2, _sc3, _sc4, _sc5 = st.columns(5)
+        _sc1.metric("ETFs Scored",        len(_sig_df))
+        _sc2.metric("🟢 Buy/Accumulate",  _buys)
+        _sc3.metric("🟡 Hold",            _holds)
+        _sc4.metric("🔴 Trim/Avoid",      _sells)
+        _sc5.metric("Avg Score",          f"{_avg:.0f}/100")
 
-        # Bar chart of composite scores
-        _chart_df = _sig_df[["etf_symbol", "composite_score"]].set_index("etf_symbol")
-        st.bar_chart(_chart_df, color="#4CAF50")
+        # ── Altair horizontal bar chart — color-coded by action ───────────────
+        try:
+            import altair as alt  # noqa: F811
 
-        # Styled table
-        _ACTION_COLOR = {
-            "BUY": "background-color: #1b5e20; color: white",
+            _ACTION_HEX = {
+                "BUY":        "#1b5e20",
+                "ACCUMULATE": "#2e7d32",
+                "HOLD":       "#f9a825",
+                "TRIM":       "#c62828",
+                "AVOID":      "#b71c1c",
+            }
+            _chart_src = _sig_df[["etf_symbol", "composite_score", "action"]].copy()
+            _chart_src["color"] = _chart_src["action"].map(_ACTION_HEX).fillna("#888")
+
+            _sig_bar = (
+                alt.Chart(_chart_src)
+                .mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3)
+                .encode(
+                    y=alt.Y(
+                        "etf_symbol:N",
+                        sort=alt.EncodingSortField("composite_score", order="descending"),
+                        title=None,
+                        axis=alt.Axis(labelFontSize=12),
+                    ),
+                    x=alt.X(
+                        "composite_score:Q",
+                        title="Composite Score (0–100)",
+                        scale=alt.Scale(domain=[0, 100]),
+                        axis=alt.Axis(grid=True, gridOpacity=0.2),
+                    ),
+                    color=alt.Color(
+                        "action:N",
+                        scale=alt.Scale(
+                            domain=["BUY", "ACCUMULATE", "HOLD", "TRIM", "AVOID"],
+                            range=["#1b5e20", "#2e7d32", "#f9a825", "#c62828", "#b71c1c"],
+                        ),
+                        legend=alt.Legend(title="Action", orient="bottom", columns=5),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("etf_symbol:N",      title="ETF"),
+                        alt.Tooltip("composite_score:Q", title="Score",   format=".0f"),
+                        alt.Tooltip("action:N",          title="Action"),
+                    ],
+                )
+                .properties(height=max(240, len(_sig_df) * 22))
+            )
+            # 50-point reference line (neutral threshold)
+            _mid_rule = (
+                alt.Chart(pd.DataFrame({"x": [50]}))
+                .mark_rule(color="#555555", strokeWidth=1, strokeDash=[4, 3])
+                .encode(x="x:Q")
+            )
+            st.altair_chart(
+                (_sig_bar + _mid_rule)
+                .configure_view(strokeWidth=0)
+                .configure_title(anchor="start"),
+                width="stretch",
+            )
+        except Exception as _e_sig_chart:
+            # Fallback to plain bar chart
+            st.bar_chart(
+                _sig_df[["etf_symbol", "composite_score"]].set_index("etf_symbol"),
+                color="#4CAF50",
+            )
+
+        # ── Styled breakdown table ────────────────────────────────────────────
+        _ACTION_CSS = {
+            "BUY":        "background-color: #1b5e20; color: white",
             "ACCUMULATE": "background-color: #2e7d32; color: white",
-            "HOLD": "background-color: #f9a825; color: black",
-            "TRIM": "background-color: #c62828; color: white",
-            "AVOID": "background-color: #b71c1c; color: white",
+            "HOLD":       "background-color: #f9a825; color: black",
+            "TRIM":       "background-color: #c62828; color: white",
+            "AVOID":      "background-color: #b71c1c; color: white",
         }
-
-        def _style_action(val):
-            return _ACTION_COLOR.get(val, "")
 
         _display_cols = [
             "etf_symbol", "composite_score", "action",
             "macro_score", "sentiment_score", "valuation_score",
             "flow_score", "ml_score", "anomaly_flag",
         ]
-        _styled = _sig_df[_display_cols].style.map(
-            _style_action, subset=["action"]
-        ).format(
-            {col: "{:.0f}" for col in _display_cols if col.endswith("_score")},
+        _styled = (
+            _sig_df[_display_cols]
+            .rename(columns={
+                "etf_symbol":       "ETF",
+                "composite_score":  "Score",
+                "action":           "Action",
+                "macro_score":      "Macro",
+                "sentiment_score":  "Sentiment",
+                "valuation_score":  "Valuation",
+                "flow_score":       "Flow",
+                "ml_score":         "ML",
+                "anomaly_flag":     "Anomaly",
+            })
+            .style
+            .map(lambda v: _ACTION_CSS.get(v, ""), subset=["Action"])
+            .format({c: "{:.0f}" for c in ["Score","Macro","Sentiment","Valuation","Flow","ML"]})
         )
-        st.dataframe(_styled, use_container_width=True, height=600)
+        st.dataframe(_styled, width="stretch")
 
-        # Top picks panel
-        _top = _sig_df[_sig_df["action"].isin(["BUY", "ACCUMULATE"])].head(5)
-        if not _top.empty:
-            st.subheader("🟢 Top Picks")
-            for _, _r in _top.iterrows():
-                st.success(
-                    f"**{_r['etf_symbol']}** — {_r['composite_score']:.0f}/100 → {_r['action']}  \n"
-                    f"Macro: {_r['macro_score']:.0f} · Sent: {_r['sentiment_score']:.0f} · "
-                    f"Val: {_r['valuation_score']:.0f} · Flow: {_r['flow_score']:.0f} · "
-                    f"ML: {_r['ml_score']:.0f}"
-                )
+        # ── Top picks & avoid panels ──────────────────────────────────────────
+        _col_buy, _col_sell = st.columns(2)
 
-        _bottom = _sig_df[_sig_df["action"].isin(["TRIM", "AVOID"])].tail(5)
-        if not _bottom.empty:
-            st.subheader("🔴 Avoid / Trim")
-            for _, _r in _bottom.iterrows():
-                st.error(
-                    f"**{_r['etf_symbol']}** — {_r['composite_score']:.0f}/100 → {_r['action']}  \n"
-                    f"Macro: {_r['macro_score']:.0f} · Sent: {_r['sentiment_score']:.0f} · "
-                    f"Val: {_r['valuation_score']:.0f} · Flow: {_r['flow_score']:.0f} · "
-                    f"ML: {_r['ml_score']:.0f}"
-                )
+        with _col_buy:
+            _top = _sig_df[_sig_df["action"].isin(["BUY", "ACCUMULATE"])].head(5)
+            if not _top.empty:
+                st.subheader("🟢 Top Picks")
+                for _, _r in _top.iterrows():
+                    st.success(
+                        f"**{_r['etf_symbol']}** — {_r['composite_score']:.0f}/100 → {_r['action']}  \n"
+                        f"Macro: {_r['macro_score']:.0f} · Sent: {_r['sentiment_score']:.0f} · "
+                        f"Flow: {_r['flow_score']:.0f} · ML: {_r['ml_score']:.0f}"
+                    )
 
-        st.caption(f"Signal composite as of {_sig_date} · from ClickHouse")
+        with _col_sell:
+            _bottom = _sig_df[_sig_df["action"].isin(["TRIM", "AVOID"])].head(5)
+            if not _bottom.empty:
+                st.subheader("🔴 Avoid / Trim")
+                for _, _r in _bottom.iterrows():
+                    st.error(
+                        f"**{_r['etf_symbol']}** — {_r['composite_score']:.0f}/100 → {_r['action']}  \n"
+                        f"Macro: {_r['macro_score']:.0f} · Sent: {_r['sentiment_score']:.0f} · "
+                        f"Flow: {_r['flow_score']:.0f} · ML: {_r['ml_score']:.0f}"
+                    )
+
+        st.caption(f"Signal composite as of {_sig_date} · from ClickHouse · 6 sources: macro, sentiment, valuation, FII/DII flow, ML, anomaly")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3870,3 +4178,727 @@ with tab_kite:
                 st.info("No margins data found.")
         except Exception as e:
             st.error(f"Error loading margins: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — DEEP DIVE
+# Runs the deepdive pipeline for a US ticker and displays the report +
+# all ClickHouse-persisted data (financials, valuation, segments, headcount,
+# exec comp, jobs) in a structured view.
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_deepdive:
+    st.header("🏢 Company Deep Dive")
+    st.caption(
+        "Fetches SEC filings, XBRL financials, market data, 10-K sections, "
+        "exec comp, and job postings for a US-listed company. "
+        "Results are persisted to ClickHouse — repeat runs load from cache."
+    )
+
+    # ── Controls ──────────────────────────────────────────────────────────────
+    col_ctrl, col_main = st.columns([1, 3])
+
+    with col_ctrl:
+        dd_ticker = st.text_input(
+            "Ticker",
+            value="ADSK",
+            max_chars=10,
+            help="US exchange ticker, e.g. ADSK, PCOR, CRM",
+        ).upper().strip()
+
+        dd_skip_fetch = st.toggle(
+            "Use cached data",
+            value=True,
+            help="--skip-fetch: reads from local cache and ClickHouse, no live API calls",
+        )
+
+        dd_run = st.button("▶  Run Analysis", type="primary", disabled=not dd_ticker)
+
+    # ── Run pipeline ──────────────────────────────────────────────────────────
+    with col_ctrl:
+        log_placeholder = st.empty()
+
+    if dd_run and dd_ticker:
+        import io as _io
+        import subprocess
+        import sys as _sys
+
+        log_placeholder.info("Running deepdive pipeline…")
+        buf = _io.StringIO()
+
+        cmd = [_sys.executable, "src/main.py", "deepdive", dd_ticker]
+        if dd_skip_fetch:
+            cmd.append("--skip-fetch")
+
+        with st.spinner(f"Analysing {dd_ticker}…"):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=os.path.join(os.path.dirname(__file__), "..", ".."),
+                )
+                output = result.stdout + ("\n" + result.stderr if result.stderr else "")
+                # Strip ANSI colour codes
+                import re as _re
+                output = _re.sub(r"\x1b\[[0-9;]*m", "", output)
+                log_placeholder.code(output[:6000], language="")
+                if result.returncode == 0:
+                    st.success(f"✓ {dd_ticker} analysis complete")
+                else:
+                    st.warning("Pipeline exited with errors — partial data may be shown below")
+            except Exception as exc:
+                log_placeholder.error(f"Failed to run pipeline: {exc}")
+
+    st.divider()
+
+    # ── Display data from ClickHouse ──────────────────────────────────────────
+    if dd_ticker and ok:
+        from datetime import date as _date
+
+        # Find dates that have a substantive full report (> 5 000 chars).
+        # Stub/partial runs (cache-only re-runs with no section generation)
+        # produce a ~1 200-char placeholder — exclude them from the picker.
+        @st.cache_data(ttl=30)
+        def _dd_run_dates(ticker: str) -> list[str]:
+            try:
+                r = _get_client().query(
+                    "SELECT DISTINCT toString(report_date) "
+                    "FROM market_data.deepdive_reports FINAL "
+                    "WHERE ticker = {t:String} "
+                    "  AND section_key = '__full__' "
+                    "  AND length(content_md) > 5000 "
+                    "ORDER BY report_date DESC",
+                    parameters={"t": ticker},
+                )
+                dates = [row[0] for row in r.result_rows]
+                if not dates:
+                    # Fallback: any watermark date (covers first-run before report saved)
+                    r2 = _get_client().query(
+                        "SELECT DISTINCT toString(period) FROM market_data.deepdive_watermarks "
+                        "WHERE ticker = {t:String} ORDER BY period DESC",
+                        parameters={"t": ticker},
+                    )
+                    dates = [row[0] for row in r2.result_rows]
+                return dates
+            except Exception:
+                return []
+
+        run_dates = _dd_run_dates(dd_ticker)
+
+        if not run_dates:
+            st.info(f"No deep dive data found for **{dd_ticker}** in ClickHouse. Click **▶ Run Analysis** above.")
+        else:
+            selected_date = st.selectbox(
+                "Report date",
+                options=run_dates,
+                index=0,
+                key="dd_date",
+            )
+
+            dd_tabs = st.tabs(["📋 Report", "📈 Financials", "🏷️ Valuation", "📊 Segments", "👥 Headcount & Comp", "💼 Jobs"])
+
+            # ── Report tab — source of truth: ClickHouse ──────────────────────
+            with dd_tabs[0]:
+                import re as _re  # noqa: PLC0415
+
+                def _clean_report(md: str) -> str:
+                    """Strip [src: ...] inline citations and tidy spacing.
+
+                    Handles nested brackets like [src: segments[0].revenue_usd_m]
+                    by allowing one level of inner [...] within the src annotation.
+                    """
+                    # Pass 1 — remove [src: field] and [src: table[0].field]
+                    md = _re.sub(
+                        r"\s*\[src:[^\[\]]*(?:\[[^\]]*\][^\[\]]*)*\]",
+                        "",
+                        md,
+                    )
+                    # Pass 2 — catch any leftover .field_name] artifacts
+                    md = _re.sub(r"\.[a-zA-Z_0-9\[\].]+\]", "", md)
+                    # Collapse 3+ blank lines → 2
+                    md = _re.sub(r"\n{3,}", "\n\n", md)
+                    return md.strip()
+
+                @st.cache_data(ttl=30)
+                def _load_report_sections(ticker: str, rdate: str) -> dict[str, str]:
+                    try:
+                        r = _get_client().query(
+                            "SELECT section_key, content_md "
+                            "FROM market_data.deepdive_reports FINAL "
+                            "WHERE ticker = {t:String} AND report_date = {d:Date}",
+                            parameters={"t": ticker, "d": rdate},
+                        )
+                        return {row[0]: row[1] for row in r.result_rows}
+                    except Exception:
+                        return {}
+
+                report_sections = _load_report_sections(dd_ticker, selected_date)
+
+                if "__full__" in report_sections:
+                    # Render in a centred, readable column (max ~800px)
+                    _rpt_left, _rpt_mid, _rpt_right = st.columns([1, 6, 1])
+                    with _rpt_mid:
+                        st.markdown(_clean_report(report_sections["__full__"]))
+                    if "__sources__" in report_sections:
+                        with st.expander("📎 Data sources", expanded=False):
+                            st.markdown(_clean_report(report_sections["__sources__"]))
+                elif report_sections:
+                    from src.deepdive.report import SECTION_ORDER as _SECTION_ORDER  # noqa: PLC0415
+                    _rpt_left, _rpt_mid, _rpt_right = st.columns([1, 6, 1])
+                    with _rpt_mid:
+                        for key, _heading in _SECTION_ORDER:
+                            if key in report_sections:
+                                st.markdown(_clean_report(report_sections[key]))
+                                st.divider()
+                else:
+                    st.info(
+                        f"No report found in ClickHouse for **{dd_ticker} {selected_date}**. "
+                        "Click **▶ Run Analysis** above to generate it."
+                    )
+
+            # ── Financials tab ────────────────────────────────────────────────
+            with dd_tabs[1]:
+                st.subheader(f"{dd_ticker} — Annual Financials (USD millions)")
+                try:
+                    import altair as alt  # noqa: F811
+                    fin_df = _query_df(
+                        f"SELECT fiscal_year, revenue_usd_m, gross_profit_usd_m, "
+                        f"operating_income_usd_m, net_income_usd_m, free_cash_flow_usd_m, "
+                        f"rd_expense_usd_m, gross_margin_pct, operating_margin_pct "
+                        f"FROM market_data.deepdive_financials FINAL "
+                        f"WHERE ticker = '{dd_ticker}' AND report_date = '{selected_date}' "
+                        f"ORDER BY fiscal_year"
+                    )
+                    if not fin_df.empty:
+                        fin_df.columns = [
+                            "FY", "Revenue", "Gross Profit", "Op. Income",
+                            "Net Income", "FCF", "R&D", "GM%", "Op. Margin%",
+                        ]
+
+                        # KPI row — latest year
+                        _lf = fin_df.iloc[-1]
+                        _ff = fin_df.iloc[0]
+                        _rev_cagr = (((_lf["Revenue"] / _ff["Revenue"]) ** (1 / max(len(fin_df)-1, 1))) - 1) * 100 if _ff["Revenue"] else 0
+                        k1, k2, k3, k4, k5 = st.columns(5)
+                        k1.metric("Revenue",     f"${_lf['Revenue']:,.0f}M",  f"{_rev_cagr:+.1f}% CAGR")
+                        k2.metric("Gross Margin", f"{_lf['GM%']:.1f}%")
+                        k3.metric("Op. Margin",   f"{_lf['Op. Margin%']:.1f}%")
+                        k4.metric("FCF",          f"${_lf['FCF']:,.0f}M")
+                        k5.metric("R&D",          f"${_lf['R&D']:,.0f}M")
+
+                        st.divider()
+
+                        # Styled table
+                        _money_cols = ["Revenue", "Gross Profit", "Op. Income", "Net Income", "FCF", "R&D"]
+                        _pct_cols   = ["GM%", "Op. Margin%"]
+                        _fin_styled = (
+                            fin_df.style
+                            .format({c: "${:,.0f}M" for c in _money_cols})
+                            .format({c: "{:.1f}%" for c in _pct_cols})
+                            .bar(subset=["GM%", "Op. Margin%"], color=["#c62828", "#2e7d32"], vmin=0, vmax=100)
+                        )
+                        st.dataframe(_fin_styled, width="stretch", hide_index=True)
+
+                        st.divider()
+
+                        # Revenue / GP / FCF trend — Altair multi-line
+                        _fin_long = fin_df[["FY", "Revenue", "Gross Profit", "FCF"]].melt(
+                            id_vars="FY", var_name="Metric", value_name="USD_M"
+                        )
+                        _fin_chart = (
+                            alt.Chart(_fin_long)
+                            .mark_line(point=True, strokeWidth=2)
+                            .encode(
+                                x=alt.X("FY:O", title="Fiscal Year"),
+                                y=alt.Y("USD_M:Q", title="USD millions", axis=alt.Axis(format="$,.0f")),
+                                color=alt.Color("Metric:N", legend=alt.Legend(orient="bottom", title=None)),
+                                tooltip=[
+                                    alt.Tooltip("FY:O",     title="FY"),
+                                    alt.Tooltip("Metric:N", title="Metric"),
+                                    alt.Tooltip("USD_M:Q",  title="USD M", format="$,.0f"),
+                                ],
+                            )
+                            .properties(title="Revenue · Gross Profit · FCF trend", height=280)
+                            .interactive()
+                        )
+                        st.altair_chart(_fin_chart, width="stretch")
+
+                        # Margin trend
+                        _mar_long = fin_df[["FY", "GM%", "Op. Margin%"]].melt(
+                            id_vars="FY", var_name="Margin", value_name="Pct"
+                        )
+                        _mar_chart = (
+                            alt.Chart(_mar_long)
+                            .mark_line(point=True, strokeWidth=2)
+                            .encode(
+                                x=alt.X("FY:O", title="Fiscal Year"),
+                                y=alt.Y("Pct:Q", title="%", axis=alt.Axis(format=".0f")),
+                                color=alt.Color("Margin:N", legend=alt.Legend(orient="bottom", title=None)),
+                                tooltip=[
+                                    alt.Tooltip("FY:O",    title="FY"),
+                                    alt.Tooltip("Margin:N"),
+                                    alt.Tooltip("Pct:Q",   format=".1f"),
+                                ],
+                            )
+                            .properties(title="Gross Margin % · Operating Margin %", height=200)
+                            .interactive()
+                        )
+                        st.altair_chart(_mar_chart, width="stretch")
+                    else:
+                        st.info("No financials data found.")
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+
+            # ── Valuation tab ─────────────────────────────────────────────────
+            with dd_tabs[2]:
+                st.subheader(f"{dd_ticker} — Valuation Snapshot")
+                try:
+                    import altair as alt  # noqa: F811
+                    val_df = _query_df(
+                        f"SELECT as_of_date, market_cap_usd_b, pe_trailing, pe_forward, "
+                        f"ev_revenue, ev_ebitda, fcf_yield_pct, "
+                        f"peer_pe_median, peer_ev_ebitda_median, peer_ev_revenue_median "
+                        f"FROM market_data.deepdive_valuation FINAL "
+                        f"WHERE ticker = '{dd_ticker}' AND report_date = '{selected_date}'"
+                    )
+                    if not val_df.empty:
+                        row = val_df.iloc[0]
+                        c1, c2, c3, c4, c5 = st.columns(5)
+                        c1.metric("Market Cap",    f"${row['market_cap_usd_b']:.1f}B")
+                        c2.metric("P/E (trailing)", f"{row['pe_trailing']:.1f}×"   if row['pe_trailing']   else "—")
+                        c3.metric("P/E (forward)",  f"{row['pe_forward']:.1f}×"    if row['pe_forward']    else "—")
+                        c4.metric("EV/Revenue",     f"{row['ev_revenue']:.1f}×"    if row['ev_revenue']    else "—")
+                        c5.metric("FCF Yield",      f"{row['fcf_yield_pct']:.1f}%" if row['fcf_yield_pct'] else "—")
+
+                        # vs-peers comparison bar chart
+                        _peers = []
+                        for label, ticker_val, peer_val in [
+                            ("P/E",         row["pe_trailing"],  row["peer_pe_median"]),
+                            ("EV/EBITDA",   row["ev_ebitda"],    row["peer_ev_ebitda_median"]),
+                            ("EV/Revenue",  row["ev_revenue"],   row["peer_ev_revenue_median"]),
+                        ]:
+                            if ticker_val and peer_val:
+                                _peers.append({"Metric": label, "Entity": dd_ticker, "Value": ticker_val})
+                                _peers.append({"Metric": label, "Entity": "Peer Median", "Value": peer_val})
+                        if _peers:
+                            _peers_df = pd.DataFrame(_peers)
+                            _peers_chart = (
+                                alt.Chart(_peers_df)
+                                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                                .encode(
+                                    x=alt.X("Entity:N", title=None, axis=alt.Axis(labelAngle=0)),
+                                    y=alt.Y("Value:Q",  title="Multiple (×)"),
+                                    color=alt.Color(
+                                        "Entity:N",
+                                        scale=alt.Scale(
+                                            domain=[dd_ticker, "Peer Median"],
+                                            range=["#3498DB", "#888888"],
+                                        ),
+                                        legend=alt.Legend(orient="bottom", title=None),
+                                    ),
+                                    column=alt.Column("Metric:N", title=None),
+                                    tooltip=[
+                                        alt.Tooltip("Metric:N"),
+                                        alt.Tooltip("Entity:N"),
+                                        alt.Tooltip("Value:Q", format=".1f"),
+                                    ],
+                                )
+                                .properties(title=f"{dd_ticker} vs Peers", width=160, height=220)
+                                .configure_view(strokeWidth=0)
+                                .configure_title(anchor="start")
+                            )
+                            st.altair_chart(_peers_chart)
+                    else:
+                        st.info("No valuation data found.")
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+
+                # ── Price history chart ────────────────────────────────────────
+                st.divider()
+                st.subheader(f"{dd_ticker} — 2-Year Daily Price History")
+                try:
+                    import altair as alt  # noqa: F811
+                    price_df = _query_df(
+                        f"SELECT trade_date, open, high, low, close, volume "
+                        f"FROM market_data.deepdive_prices FINAL "
+                        f"WHERE ticker = '{dd_ticker}' "
+                        f"  AND trade_date >= today() - INTERVAL 2 YEAR "
+                        f"ORDER BY trade_date"
+                    )
+                    if not price_df.empty:
+                        price_df["trade_date"] = pd.to_datetime(price_df["trade_date"])
+
+                        # KPI row
+                        sc1, sc2, sc3, sc4 = st.columns(4)
+                        sc1.metric("Latest Close", f"${price_df['close'].iloc[-1]:.2f}")
+                        sc2.metric("52W High",     f"${price_df['high'].tail(252).max():.2f}")
+                        sc3.metric("52W Low",      f"${price_df['low'].tail(252).min():.2f}")
+                        _chg = (price_df['close'].iloc[-1] / price_df['close'].iloc[0] - 1) * 100
+                        sc4.metric("2Y Return",   f"{_chg:+.1f}%", delta_color="normal" if _chg >= 0 else "inverse")
+
+                        # Close price line
+                        _price_chart = (
+                            alt.Chart(price_df)
+                            .mark_line(strokeWidth=1.5, color="#3498DB")
+                            .encode(
+                                x=alt.X("trade_date:T", title=None, axis=alt.Axis(format="%b %y", labelAngle=-30, grid=False)),
+                                y=alt.Y("close:Q",      title="Close ($)", axis=alt.Axis(format="$,.2f")),
+                                tooltip=[
+                                    alt.Tooltip("trade_date:T", title="Date",  format="%d %b %Y"),
+                                    alt.Tooltip("close:Q",      title="Close", format="$,.2f"),
+                                    alt.Tooltip("volume:Q",     title="Volume", format=","),
+                                ],
+                            )
+                            .properties(height=280)
+                        )
+                        # 52W high/low band
+                        _52w = price_df.tail(252)
+                        _band_df = pd.DataFrame({
+                            "trade_date": [_52w["trade_date"].min(), _52w["trade_date"].max()],
+                            "hi": [_52w["high"].max(),  _52w["high"].max()],
+                            "lo": [_52w["low"].min(),   _52w["low"].min()],
+                        })
+                        _hi_rule = (
+                            alt.Chart(_band_df).mark_rule(color="#2ecc71", strokeDash=[4,3], strokeWidth=1, opacity=0.6)
+                            .encode(y="hi:Q")
+                        )
+                        _lo_rule = (
+                            alt.Chart(_band_df).mark_rule(color="#e74c3c", strokeDash=[4,3], strokeWidth=1, opacity=0.6)
+                            .encode(y="lo:Q")
+                        )
+                        st.altair_chart(
+                            alt.layer(_lo_rule, _hi_rule, _price_chart)
+                            .properties(title=f"{dd_ticker} Close Price  (green = 52W high · red = 52W low)")
+                            .interactive(),
+                            width="stretch",
+                        )
+
+                        # Volume bars
+                        _vol_chart = (
+                            alt.Chart(price_df)
+                            .mark_bar(opacity=0.6, color="#888888")
+                            .encode(
+                                x=alt.X("trade_date:T", title=None, axis=alt.Axis(format="%b %y", labelAngle=-30, grid=False)),
+                                y=alt.Y("volume:Q", title="Volume", axis=alt.Axis(format=".2s")),
+                                tooltip=[
+                                    alt.Tooltip("trade_date:T", title="Date",   format="%d %b %Y"),
+                                    alt.Tooltip("volume:Q",     title="Volume", format=","),
+                                ],
+                            )
+                            .properties(height=100)
+                        )
+                        st.altair_chart(_vol_chart, width="stretch")
+                    else:
+                        st.info("No price data in ClickHouse yet. Run the pipeline to fetch it.")
+                except Exception as exc:
+                    st.error(f"Price chart error: {exc}")
+
+            # ── Segments tab ──────────────────────────────────────────────────
+            with dd_tabs[3]:
+                st.subheader(f"{dd_ticker} — Segment Revenue")
+                try:
+                    import altair as alt  # noqa: F811
+                    seg_df = _query_df(
+                        f"SELECT segment_name, revenue_usd_m, yoy_growth_pct "
+                        f"FROM market_data.deepdive_segments FINAL "
+                        f"WHERE ticker = '{dd_ticker}' AND report_date = '{selected_date}' "
+                        f"ORDER BY revenue_usd_m DESC"
+                    )
+                    if not seg_df.empty:
+                        seg_df.columns = ["Segment", "Revenue ($M)", "YoY%"]
+
+                        _col_s1, _col_s2 = st.columns([2, 3])
+                        with _col_s1:
+                            st.dataframe(
+                                seg_df.style
+                                .format({"Revenue ($M)": "${:,.0f}M", "YoY%": "{:+.1f}%"})
+                                .bar(subset=["Revenue ($M)"], color="#3498DB"),
+                                width="stretch",
+                                hide_index=True,
+                            )
+                        with _col_s2:
+                            # Encode YoY growth as a separate colour column to avoid
+                            # alt.condition which conflicts with bar rendering in Altair 6.
+                            seg_df["_color"] = seg_df["YoY%"].apply(
+                                lambda v: "#2e7d32" if v >= 0 else "#c62828"
+                            )
+                            _seg_bar = (
+                                alt.Chart(seg_df)
+                                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                                .encode(
+                                    y=alt.Y("Segment:N",
+                                            sort=alt.EncodingSortField("Revenue ($M)", order="descending"),
+                                            title=None),
+                                    x=alt.X("Revenue ($M):Q", title="Revenue (USD millions)",
+                                            axis=alt.Axis(format="$,.0f")),
+                                    color=alt.Color("_color:N",
+                                                    scale=None,
+                                                    legend=None),
+                                    tooltip=[
+                                        alt.Tooltip("Segment:N"),
+                                        alt.Tooltip("Revenue ($M):Q", format="$,.0f"),
+                                        alt.Tooltip("YoY%:Q",         format="+.1f"),
+                                    ],
+                                )
+                                .properties(height=max(160, len(seg_df) * 40))
+                            )
+                            st.altair_chart(_seg_bar, width="stretch")
+                    else:
+                        st.info("No segment data found.")
+                except Exception as exc:
+                    st.error(f"Error: {exc}")
+
+            # ── Headcount & Exec Comp tab ─────────────────────────────────────
+            with dd_tabs[4]:
+                col_hc, col_ec = st.columns(2)
+
+                with col_hc:
+                    st.subheader("👥 Headcount")
+                    try:
+                        hc_df = _query_df(
+                            f"SELECT fiscal_period, total_headcount, notes "
+                            f"FROM market_data.deepdive_headcount FINAL "
+                            f"WHERE ticker = '{dd_ticker}' "
+                            f"  AND report_date = ("
+                            f"    SELECT max(report_date) FROM market_data.deepdive_headcount "
+                            f"    WHERE ticker = '{dd_ticker}' AND report_date <= '{selected_date}'"
+                            f"  )"
+                        )
+                        if not hc_df.empty:
+                            hc_df.columns = ["Period", "Headcount", "Notes"]
+                            st.dataframe(
+                                hc_df.style.format({"Headcount": "{:,.0f}"}),
+                                width="stretch",
+                                hide_index=True,
+                            )
+                        else:
+                            st.info("No headcount data.")
+                    except Exception as exc:
+                        st.error(f"Error: {exc}")
+
+                with col_ec:
+                    st.subheader("💰 Executive Compensation (NEOs)")
+                    try:
+                        ec_df = _query_df(
+                            f"SELECT exec_name, position, fiscal_year, "
+                            f"round(total_usd / 1e6, 2) AS total_usd_m, "
+                            f"round(stock_awards_usd / 1e6, 2) AS stock_m, "
+                            f"round(stock_pct, 1) AS stock_pct "
+                            f"FROM market_data.deepdive_exec_comp FINAL "
+                            f"WHERE ticker = '{dd_ticker}' "
+                            f"  AND report_date = ("
+                            f"    SELECT max(report_date) FROM market_data.deepdive_exec_comp "
+                            f"    WHERE ticker = '{dd_ticker}' AND report_date <= '{selected_date}'"
+                            f"  ) "
+                            f"ORDER BY total_usd DESC"
+                        )
+                        if not ec_df.empty:
+                            ec_df.columns = ["Name", "Position", "FY", "Total ($M)", "Stock ($M)", "Stock%"]
+                            st.dataframe(
+                                ec_df.style
+                                .format({"Total ($M)": "${:.2f}M", "Stock ($M)": "${:.2f}M", "Stock%": "{:.1f}%"})
+                                .bar(subset=["Total ($M)"], color="#3498DB"),
+                                width="stretch",
+                                hide_index=True,
+                            )
+                        else:
+                            st.info("No exec comp data.")
+                    except Exception as exc:
+                        st.error(f"Error: {exc}")
+
+            # ── Jobs tab ──────────────────────────────────────────────────────
+            with dd_tabs[5]:
+                st.subheader(f"{dd_ticker} — Open Job Postings")
+                try:
+                    import altair as alt  # noqa: F811
+                    import json as _json  # noqa: F811
+
+                    jobs_df = _query_df(
+                        f"SELECT function_bucket, location, job_count "
+                        f"FROM market_data.deepdive_jobs FINAL "
+                        f"WHERE ticker = '{dd_ticker}' "
+                        f"  AND report_date = ("
+                        f"    SELECT max(report_date) FROM market_data.deepdive_jobs "
+                        f"    WHERE ticker = '{dd_ticker}' AND report_date <= '{selected_date}'"
+                        f"  ) "
+                        f"ORDER BY job_count DESC"
+                    )
+                    if not jobs_df.empty:
+                        jobs_df.columns = ["Function", "Location", "Openings"]
+
+                        # ── Try to load raw cache for region + AI analysis ─────
+                        from pathlib import Path as _Path  # noqa: PLC0415
+                        _cache_dirs = sorted(
+                            _Path("output/deepdive/cache").glob(f"{dd_ticker}/*/workday_jobs_raw.json"),
+                            key=lambda p: p.parent.name,
+                            reverse=True,
+                        )
+                        _raw_jobs: list[dict] = []
+                        if _cache_dirs:
+                            try:
+                                with open(_cache_dirs[0]) as _fj:
+                                    _raw_jobs = _json.load(_fj)
+                            except Exception:
+                                pass
+
+                        # ── Row 1: by-function chart + KPIs ───────────────────
+                        by_func = (
+                            jobs_df.groupby("Function")["Openings"]
+                            .sum().sort_values(ascending=False).reset_index()
+                        )
+                        by_func.columns = ["Function", "Total Openings"]
+
+                        _jk1, _jk2, _jk3, _jk4 = st.columns(4)
+                        _jk1.metric("Total Openings (DB)", f"{jobs_df['Openings'].sum():,}")
+                        _jk2.metric("Roles in Raw Cache",  f"{len(_raw_jobs):,}" if _raw_jobs else "—")
+                        _jk3.metric("Functions",           len(by_func))
+                        _jk4.metric("Locations",           jobs_df["Location"].nunique())
+
+                        st.divider()
+
+                        _col_j1, _col_j2 = st.columns([1, 2])
+                        with _col_j1:
+                            st.caption("**By function**")
+                            st.dataframe(
+                                by_func.style.format({"Total Openings": "{:,}"}),
+                                width="stretch", hide_index=True,
+                            )
+                        with _col_j2:
+                            _jobs_chart = (
+                                alt.Chart(by_func)
+                                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, color="#3498DB")
+                                .encode(
+                                    y=alt.Y("Function:N",
+                                            sort=alt.EncodingSortField("Total Openings", order="descending"),
+                                            title=None),
+                                    x=alt.X("Total Openings:Q", title="Open Roles"),
+                                    tooltip=[alt.Tooltip("Function:N"),
+                                             alt.Tooltip("Total Openings:Q", format=",")],
+                                )
+                                .properties(height=max(200, len(by_func) * 28))
+                            )
+                            st.altair_chart(_jobs_chart, width="stretch")
+
+                        # ── Region breakdown (from raw cache) ─────────────────
+                        if _raw_jobs:
+                            st.divider()
+                            st.subheader("🌍 Region Breakdown")
+
+                            _REGION_MAP = {
+                                "USA": "AMER", "CAN": "AMER", "BRA": "AMER",
+                                "MEX": "AMER", "CRI": "AMER",
+                                "IND": "APAC", "JPN": "APAC", "SGP": "APAC",
+                                "AUS": "APAC", "CHN": "APAC", "KOR": "APAC",
+                                "TWN": "APAC", "MYS": "APAC", "VNM": "APAC",
+                                "PHL": "APAC", "IDN": "APAC", "THA": "APAC",
+                                "HKG": "APAC", "NZL": "APAC",
+                                "GBR": "EMEA", "DEU": "EMEA", "FRA": "EMEA",
+                                "ESP": "EMEA", "IRL": "EMEA", "POL": "EMEA",
+                                "NLD": "EMEA", "CHE": "EMEA", "ISR": "EMEA",
+                                "ARE": "EMEA", "JOR": "EMEA", "SAU": "EMEA",
+                                "RSD": "EMEA", "CZE": "EMEA", "DNK": "EMEA",
+                                "AUT": "EMEA", "ITA": "EMEA", "HRV": "EMEA",
+                                "TUR": "EMEA", "PRT": "EMEA", "NOR": "EMEA",
+                                "SWE": "EMEA", "FIN": "EMEA", "BEL": "EMEA",
+                            }
+
+                            def _region(loc: str) -> str:
+                                u = loc.upper()
+                                if u.startswith("AMER"):   return "AMER"
+                                if u.startswith("APAC"):   return "APAC"
+                                if u.startswith("EMEA"):   return "EMEA"
+                                for code, reg in _REGION_MAP.items():
+                                    if code in u:          return reg
+                                if "REMOTE" in u:          return "Remote"
+                                return "Other"
+
+                            _reg_counts: dict[str, int] = {}
+                            for _j in _raw_jobs:
+                                _r = _region(_j.get("locationsText", ""))
+                                _reg_counts[_r] = _reg_counts.get(_r, 0) + 1
+
+                            _reg_df = pd.DataFrame(
+                                sorted(_reg_counts.items(), key=lambda x: -x[1]),
+                                columns=["Region", "Openings"],
+                            )
+                            _reg_colors = {
+                                "AMER": "#3498DB", "APAC": "#E67E22",
+                                "EMEA": "#2ECC71", "Remote": "#9B59B6", "Other": "#95A5A6",
+                            }
+                            _reg_df["_color"] = _reg_df["Region"].map(_reg_colors).fillna("#888")
+
+                            _rc1, _rc2 = st.columns([1, 2])
+                            with _rc1:
+                                st.dataframe(
+                                    _reg_df[["Region", "Openings"]].style.format({"Openings": "{:,}"}),
+                                    width="stretch", hide_index=True,
+                                )
+                            with _rc2:
+                                _reg_chart = (
+                                    alt.Chart(_reg_df)
+                                    .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                                    .encode(
+                                        y=alt.Y("Region:N",
+                                                sort=alt.EncodingSortField("Openings", order="descending"),
+                                                title=None),
+                                        x=alt.X("Openings:Q", title="Job Openings"),
+                                        color=alt.Color("_color:N", scale=None, legend=None),
+                                        tooltip=[alt.Tooltip("Region:N"),
+                                                 alt.Tooltip("Openings:Q", format=",")],
+                                    )
+                                    .properties(height=max(160, len(_reg_df) * 36))
+                                )
+                                st.altair_chart(_reg_chart, width="stretch")
+
+                        # ── ML / Agentic AI openings ───────────────────────────
+                        if _raw_jobs:
+                            st.divider()
+                            st.subheader("🤖 ML · AI · Agentic Openings")
+
+                            _AI_KW = [
+                                "machine learning", "ml ", " ai ", "artificial intelligence",
+                                "agentic", "llm", "generative", "gen ai", "nlp",
+                                "deep learning", "neural", "ai/ml", "foundation model",
+                                "computer vision", "reinforcement learning",
+                            ]
+                            _ai_rows = []
+                            for _j in _raw_jobs:
+                                _t = (_j.get("title") or "").strip()
+                                _tl = _t.lower()
+                                if any(_kw in _tl for _kw in _AI_KW):
+                                    _loc = _j.get("locationsText", "—")
+                                    # Detect sub-type
+                                    if "agentic" in _tl:            _tag = "🧠 Agentic AI"
+                                    elif "llm" in _tl or "foundation" in _tl or "generative" in _tl or "gen ai" in _tl:
+                                                                     _tag = "💬 Gen AI / LLM"
+                                    elif "machine learning" in _tl or "ml " in _tl or "ai/ml" in _tl:
+                                                                     _tag = "📊 ML Engineering"
+                                    elif "nlp" in _tl:               _tag = "📝 NLP"
+                                    elif "computer vision" in _tl:   _tag = "👁️ Computer Vision"
+                                    else:                             _tag = "🤖 AI / Other"
+                                    _ai_rows.append({"Title": _t.title(), "Tag": _tag, "Location": _loc})
+
+                            if _ai_rows:
+                                _ai_df = pd.DataFrame(_ai_rows).sort_values("Tag")
+                                _aic1, _aic2 = st.columns([3, 1])
+                                with _aic2:
+                                    # Tag summary
+                                    _tag_counts = _ai_df["Tag"].value_counts().reset_index()
+                                    _tag_counts.columns = ["Category", "Count"]
+                                    st.dataframe(_tag_counts, width="stretch", hide_index=True)
+                                with _aic1:
+                                    st.dataframe(
+                                        _ai_df[["Tag", "Title", "Location"]],
+                                        width="stretch", hide_index=True,
+                                    )
+                                st.caption(f"**{len(_ai_rows)}** AI/ML/Agentic roles out of {len(_raw_jobs)} total openings ({len(_ai_rows)/len(_raw_jobs)*100:.1f}%)")
+                            else:
+                                st.info("No ML/AI/Agentic roles detected in raw job titles.")
+
+                        with st.expander("📋 Full function × location breakdown"):
+                            st.dataframe(jobs_df, width="stretch", hide_index=True)
+                    else:
+                        st.info("No jobs data found.")
+                except Exception as exc:
+                    st.error(f"Error: {exc}")

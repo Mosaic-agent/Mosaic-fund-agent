@@ -28,7 +28,7 @@ from src.models.portfolio import (
     PortfolioReport,
     PortfolioSummary,
 )
-from src.tools.summarization import summarize_portfolio, summarize_portfolio_demo
+from src.tools.summarization import summarize_portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -423,7 +423,6 @@ def _apply_comex_to_holdings(
 def build_portfolio_report(
     portfolio: Portfolio,
     analyses: list[AssetAnalysis],
-    use_llm_scoring: bool = True,
     comex_signals: Optional[dict[str, Any]] = None,
     institutional_flows: Optional[dict[str, Any]] = None,
 ) -> PortfolioReport:
@@ -433,14 +432,8 @@ def build_portfolio_report(
     Args:
         portfolio:            Raw portfolio from Zerodha (for totals).
         analyses:             List of enriched AssetAnalysis per holding.
-        use_llm_scoring:      Use the LLM for portfolio-level summary.
-                              False → rule-based fallback (no API key needed).
         comex_signals:        Live COMEX commodity signals from ComexAgent.
-                              Injected into per-holding risk signals and the
-                              LLM portfolio prompt for commodity-aware scoring.
-        institutional_flows:  FII/DII institutional flow context from
-                              market_context.get_fii_dii_context(). Injected
-                              into the LLM prompt for macro-grounded analysis.
+        institutional_flows:  FII/DII institutional flow context.
 
     Returns:
         PortfolioReport matching the required JSON output schema.
@@ -486,8 +479,7 @@ def build_portfolio_report(
         for a in analyses
     ]
 
-    _summarize_fn = summarize_portfolio if use_llm_scoring else summarize_portfolio_demo
-    llm_portfolio = _summarize_fn(
+    llm_portfolio = summarize_portfolio(
         {
             "total_invested": total_invested,
             "total_current_value": total_value,

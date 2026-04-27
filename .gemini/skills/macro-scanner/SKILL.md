@@ -43,9 +43,41 @@ python src/main.py macro --max 2 --save
 
 ## Net Score Interpretation
 
-- ≥ +4 → Strong bullish confluence → accumulate
-- ≤ −4 → Strong bearish confluence → reduce / avoid
-- Near 0 → Mixed signals → wait for clarity
+The net score is an **article-count × static impact-weight** sum.
+With `--max 4` (default) and 8 themes active, the maximum possible score is ±32.
+
+| Score | Meaning |
+|-------|---------|
+| ≥ +16 | Strong bullish macro confluence |
+| +8 to +15 | Moderate bullish tilt |
+| −7 to +7 | Mixed / no clear macro edge |
+| −8 to −15 | Moderate bearish tilt |
+| ≤ −16 | Strong bearish macro confluence |
+
+**Important:** the score reflects number of news articles, not price magnitude.
+A score of +32 means all themes found articles pointing bullish — not a +32% return forecast.
+
+## Quant Overlay
+
+The scanner also shows a **Quant Overlay** panel fetched live from ClickHouse:
+- GOLDBEES price vs EMA50 (trend confirmation of gold news signal)
+- FII 5-day net flow (confirms or contradicts equity bearish signal)
+- GOLDBEES GARCH vol (risk-regime context)
+
+These numbers come from the DB — do NOT substitute external knowledge for them.
+
+## What the Scanner Does NOT Produce — Do NOT Fabricate
+
+❌ Specific commodity prices (e.g. "WTI at $94") — scanner shows headlines, not price levels
+❌ Specific FII flow amounts (e.g. "₹12,000 Cr outflow") — unless it appears in the Quant Overlay
+❌ Interest rate decisions (e.g. "RBI held at 6.5%") — only report what headlines say
+❌ Any numbers not visible in the terminal output
+
+When summarising the scan, report:
+- Which themes are active (from the theme list in the output)
+- The net scores for each ETF (from the table)
+- The Quant Overlay numbers **verbatim** (from the DB panel)
+- Headline text may be quoted directly from the output (≤ 15 words)
 
 ## DB Storage
 

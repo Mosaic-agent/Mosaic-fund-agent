@@ -20,7 +20,6 @@ docker compose up clickhouse -d
 ### Running the CLI
 ```bash
 python src/main.py --help
-python src/main.py analyze --demo          # no API keys needed
 python src/main.py analyze --max 3         # limit to 3 holdings
 python src/main.py analyze                 # full live portfolio (requires Zerodha login)
 python src/main.py ask "what is my riskiest holding?"
@@ -51,7 +50,7 @@ python tests/_backtest_anomaly.py
 
 ### Docker
 ```bash
-docker compose run mosaic analyze --demo
+docker compose run mosaic analyze
 docker compose up ui -d
 docker compose up                          # full stack (clickhouse + ui + app)
 ```
@@ -70,7 +69,6 @@ CLI (src/main.py)
             ↳ news_search          — GNews + NewsAPI sentiment
       → portfolio_analyzer.build_portfolio_report()
             ↳ LangGraph ReAct agent (create_react_agent)  — LLM scoring
-      → visualization_agent  — React HTML dashboard
       → output/  — JSON + HTML report files
 ```
 
@@ -87,7 +85,7 @@ CLI (src/main.py)
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
-| Utils | `src/utils/` | `sanity_checker` (ClickHouse anomaly rules), `demo_data` |
+| Utils | `src/utils/` | `sanity_checker` (ClickHouse anomaly rules) |
 
 ### Data Import Pipeline
 ```
@@ -112,6 +110,5 @@ Database: `market_data`. Tables are auto-created on first import (DDL in `src/im
 - **Tool registration:** Tools are lists of `@tool`-decorated functions (e.g., `YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `portfolio_agent.py` is the union passed to `create_react_agent`.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks when blocked. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
-- **Demo mode:** `src/utils/demo_data.py` provides synthetic holdings; triggered by `--demo` flag; no Zerodha auth required.
-- **Output files:** Reports written to `./output/` (JSON + self-contained React HTML). `NO_BROWSER=1` suppresses auto-open (set automatically in Docker).
+- **Output files:** Reports written to `./output/` as JSON.
 - **`scripts/`:** Standalone analysis scripts (DSP reverse-engineering, portfolio backup, opportunity scanner). Run independently with `python scripts/<name>.py`.

@@ -145,6 +145,16 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Seconds to wait between web-scraping requests (be polite)
     scrape_delay_seconds: float = Field(default=2.0, description="Delay between scrape requests")
 
+    # ── Company Deep-Dive ─────────────────────────────────────────────────────
+
+    # [SENSITIVE] sec-api.io API key — required for QueryApi, DownloadApi, XbrlApi,
+    # ExtractorApi, ExecCompApi, MappingApi. Free tier at https://sec-api.io/signup
+    sec_api_key: str = Field(default="", description="sec-api.io API key")
+
+    # [NON-SENSITIVE] Path to the gemini CLI binary (https://github.com/google-gemini/gemini-cli).
+    # Defaults to 'gemini' (on PATH). Override if installed to a custom location.
+    gemini_cli_path: str = Field(default="gemini", description="Path to gemini CLI binary")
+
     # ── ClickHouse (historical data importer) ────────────────────────────────
 
     # [NON-SENSITIVE] ClickHouse server host
@@ -216,6 +226,13 @@ class Settings(BaseSettings):
             warnings.append(
                 "[SENSITIVE] GOLD_API_KEY is not set. COMEX pre-market signals will be skipped. "
                 "Get a free key at https://gold-api.com/"
+            )
+
+        if not self.sec_api_key:
+            warnings.append(
+                "[SENSITIVE] SEC_API_KEY is not set. All sec-api.io calls (EDGAR filings, XBRL, "
+                "section extraction, exec comp) will fail. "
+                "Get a free key at https://sec-api.io/signup"
             )
 
         return warnings

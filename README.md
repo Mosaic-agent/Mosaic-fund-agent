@@ -2,7 +2,7 @@
 
 Ask your Zerodha portfolio a question. Get an actual answer.
 
-Pulls live holdings from Zerodha Kite, enriches each position with news, results, and iNAV data, scores risk and sentiment via LLM, and outputs a terminal report + self-contained HTML dashboard.
+Pulls live holdings from Zerodha Kite, enriches each position with news, results, and iNAV data, scores risk and sentiment via LLM, and outputs a terminal report and JSON export.
 
 A built-in **Streamlit data hub** lets you import and store historical market data in ClickHouse, run arbitrary SQL, and run composite anomaly detection and ML forecasting — no code required.
 
@@ -24,7 +24,6 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **Quant Scorecard** — Gold + Silver 4-pillar scores (Macro/Flows/Valuation/Momentum) with stale-data guards
 - **DSP Smart Money tracker** — 31-month allocation history for DSP Multi Asset Fund; reverse-engineered GSR-based tactical pivot signal (R=0.68)
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
-- **HTML dashboard** — self-contained, auto-refreshes every 5 minutes
 - **Streamlit UI** — import, SQL explorer, charts, anomaly detection, and **🪁 Kite Dashboard**
 - **Zerodha Account Backup** — persist personal holdings, margins, profile, and orders to ClickHouse for historical tracking
 - **Gemini CLI agents** — macro strategy agent + 4 skills discoverable from `.gemini/`
@@ -36,7 +35,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 ### Prerequisites
 
 - Python 3.11+
-- Zerodha account (or use `--demo` mode)
+- Zerodha account
 - OpenAI / Anthropic API key **or** a local LLM (LM Studio / Ollama)
 - Docker (for ClickHouse — required only for data hub features)
 
@@ -83,7 +82,6 @@ python src/main.py config   # verify connection
 ### Portfolio analysis
 
 ```bash
-python src/main.py analyze --demo        # no login needed
 python src/main.py analyze               # live portfolio
 python src/main.py analyze --max 3       # test with 3 holdings
 ```
@@ -101,7 +99,6 @@ python src/main.py ask "which ETFs are trading at a premium?"
 ```bash
 python src/main.py comex                 # COMEX pre-market signals
 python src/main.py news GOLDBEES         # news for a single symbol
-python src/main.py dashboard            # open HTML dashboard
 python src/main.py config               # show current settings (masked)
 ```
 
@@ -179,11 +176,10 @@ config/settings.py              Pydantic settings (LLM, ClickHouse, API keys, ma
 src/
   main.py                       CLI — 13 commands (analyze, import, signals, macro, comex, …)
   agents/
-    portfolio_agent.py          Zerodha portfolio → enrich → LLM score → HTML dashboard
+    portfolio_agent.py          Zerodha portfolio → enrich → LLM score → JSON report
     comex_agent.py              Pre-market commodity signals (XAU, XAG, XPT, XPD, HG)
     news_sentiment_agent.py     Multi-source news sentiment (NewsAPI + GNews)
     signal_aggregator.py        6-pillar composite ETF scores 0–100 → BUY/HOLD/SELL
-    visualization_agent.py      React HTML dashboard from JSON report
   analyzers/                    asset_analyzer, portfolio_analyzer
   clients/mcp_client.py         Zerodha Kite MCP (JSON-RPC 2.0)
   importer/
