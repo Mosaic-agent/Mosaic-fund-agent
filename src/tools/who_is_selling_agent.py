@@ -59,12 +59,10 @@ _CRUDE_OIL_FLOOR        = 80.0    # Crude > $80 → Middle East petrodollar flow
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _ch_client():
-    """Return a ClickHouse client (lazy import; caller must .close() it)."""
-    import clickhouse_connect
-    return clickhouse_connect.get_client(
-        host="localhost", port=8123, database="market_data"
-    )
+def _ch_pool():
+    """Return the shared ClickHouse connection pool."""
+    from src.db.pool import get_pool
+    return get_pool()
 
 
 def _pct_change(old: float, new: float) -> float:
@@ -89,40 +87,37 @@ def _signal_retail_panic() -> dict[str, Any]:
         "detail":       "",
     }
     try:
-        cl = _ch_client()
+        with _ch_pool().acquire() as cl:
+            # USDINR 60-day change
+            fx_rows = cl.query(
+                "SELECT trade_date, close FROM market_data.fx_rates FINAL "
+                "WHERE symbol = 'USDINR' ORDER BY trade_date DESC LIMIT 65"
+            ).result_rows
+            if len(fx_rows) >= 2:
+                latest_inr = fx_rows[0][1]
+                old_inr    = fx_rows[min(59, len(fx_rows) - 1)][1]
+                inr_chg    = _pct_change(old_inr, latest_inr)
+                result["usdinr_60d_pct"]  = round(inr_chg, 2)
+                result["usdinr_latest"]   = round(latest_inr, 4)
+                result["usdinr_date"]     = fx_rows[0][0]
 
-        # USDINR 60-day change
-        fx_rows = cl.query(
-            "SELECT trade_date, close FROM market_data.fx_rates FINAL "
-            "WHERE symbol = 'USDINR' ORDER BY trade_date DESC LIMIT 65"
-        ).result_rows
-        if len(fx_rows) >= 2:
-            latest_inr = fx_rows[0][1]
-            old_inr    = fx_rows[min(59, len(fx_rows) - 1)][1]
-            inr_chg    = _pct_change(old_inr, latest_inr)
-            result["usdinr_60d_pct"]  = round(inr_chg, 2)
-            result["usdinr_latest"]   = round(latest_inr, 4)
-            result["usdinr_date"]     = fx_rows[0][0]
-
-        # GOLDBEES discount to NAV — most recent matched day
-        disc_rows = cl.query("""
-            SELECT p.trade_date,
-                   round(p.close, 4)                          AS market_close,
-                   round(n.nav, 4)                            AS nav,
-                   round((p.close - n.nav) / n.nav * 100, 3) AS disc_pct
-            FROM (SELECT trade_date, close FROM market_data.daily_prices FINAL
-                  WHERE symbol = 'GOLDBEES' AND category = 'etfs') p
-            JOIN (SELECT nav_date AS trade_date, nav FROM market_data.mf_nav FINAL
-                  WHERE symbol = 'GOLDBEES') n USING (trade_date)
-            ORDER BY p.trade_date DESC LIMIT 1
-        """).result_rows
-        if disc_rows:
-            result["goldbees_disc_pct"]  = disc_rows[0][3]
-            result["goldbees_close"]     = disc_rows[0][1]
-            result["goldbees_nav"]       = disc_rows[0][2]
-            result["goldbees_date"]      = disc_rows[0][0]
-
-        cl.close()
+            # GOLDBEES discount to NAV — most recent matched day
+            disc_rows = cl.query("""
+                SELECT p.trade_date,
+                       round(p.close, 4)                          AS market_close,
+                       round(n.nav, 4)                            AS nav,
+                       round((p.close - n.nav) / n.nav * 100, 3) AS disc_pct
+                FROM (SELECT trade_date, close FROM market_data.daily_prices FINAL
+                      WHERE symbol = 'GOLDBEES' AND category = 'etfs') p
+                JOIN (SELECT nav_date AS trade_date, nav FROM market_data.mf_nav FINAL
+                      WHERE symbol = 'GOLDBEES') n USING (trade_date)
+                ORDER BY p.trade_date DESC LIMIT 1
+            """).result_rows
+            if disc_rows:
+                result["goldbees_disc_pct"]  = disc_rows[0][3]
+                result["goldbees_close"]     = disc_rows[0][1]
+                result["goldbees_nav"]       = disc_rows[0][2]
+                result["goldbees_date"]      = disc_rows[0][0]
 
         # Evaluate
         inr_panic  = (result.get("usdinr_60d_pct")    or 0) >= _USDINR_PANIC_PCT
@@ -256,12 +251,11 @@ def _signal_speculator_leverage() -> dict[str, Any]:
         "detail":      "",
     }
     try:
-        cl = _ch_client()
-        rows = cl.query(
-            "SELECT report_date, mm_long, mm_short, mm_net, open_interest "
-            "FROM market_data.cot_gold FINAL ORDER BY report_date DESC LIMIT 1"
-        ).result_rows
-        cl.close()
+        with _ch_pool().acquire() as cl:
+            rows = cl.query(
+                "SELECT report_date, mm_long, mm_short, mm_net, open_interest "
+                "FROM market_data.cot_gold FINAL ORDER BY report_date DESC LIMIT 1"
+            ).result_rows
 
         if not rows:
             result["detail"] = "No COT data in ClickHouse."
@@ -385,12 +379,11 @@ def _signal_cb_strength() -> dict[str, Any]:
         log.warning("CB strength signal failed: %s", exc)
         # Fallback to ClickHouse for USDCNY
         try:
-            cl = _ch_client()
-            rows = cl.query(
-                "SELECT trade_date, close FROM market_data.fx_rates FINAL "
-                "WHERE symbol='USDCNY' ORDER BY trade_date DESC LIMIT 35"
-            ).result_rows
-            cl.close()
+            with _ch_pool().acquire() as cl:
+                rows = cl.query(
+                    "SELECT trade_date, close FROM market_data.fx_rates FINAL "
+                    "WHERE symbol='USDCNY' ORDER BY trade_date DESC LIMIT 35"
+                ).result_rows
             if len(rows) >= 2:
                 cny_now = rows[0][1]
                 cny_30d = rows[min(29, len(rows)-1)][1]

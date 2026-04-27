@@ -20,3 +20,18 @@ temp_dsp_codes.txt
 dsp_feb_2025.xlsx
 dsp_march_2026.pdf
 fii_usd_trend.png
+
+# Runtime logs
+*.log
+ui_startup.log
+mcp-shell.log
+stderr.log
+stdout.log
+streamlit.log
+predictions_log.jsonl
+
+# Temp data uploads
+temp/
+
+# Scratch / one-off scripts (not part of main package)
+scratch/

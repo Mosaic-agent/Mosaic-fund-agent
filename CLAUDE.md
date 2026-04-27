@@ -81,6 +81,7 @@ CLI (src/main.py)
 | Analyzers | `src/analyzers/` | `asset_analyzer` (per-holding), `portfolio_analyzer` (aggregate) |
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame; composable in agents or scripts |
 | Importer | `src/importer/` | Delta-sync pipeline: fetchers → ClickHouse |
+| DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`) |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |

@@ -299,8 +299,6 @@ def compute_gold_scorecard(
     Degrades gracefully: any missing data source contributes NaN pillars;
     the composite is re-weighted from available pillars only.
     """
-    import clickhouse_connect
-
     errors: list[str] = []
     signals: dict[str, Any] = {
         "dxy_level":         None,
@@ -340,11 +338,8 @@ def compute_gold_scorecard(
 
     # ── 2. Query ClickHouse ────────────────────────────────────────────────────
     try:
-        client = clickhouse_connect.get_client(
-            host=ch_host, port=ch_port,
-            username=ch_user, password=ch_pass,
-            connect_timeout=10,
-        )
+        from src.db.pool import get_pool as _get_ch_pool
+        client = _get_ch_pool().get_client()  # unmanaged; closed explicitly below
 
         # ── Flows: latest COT mm_net / open_interest ──────────────────────────
         try:
@@ -661,8 +656,6 @@ def compute_silver_scorecard(
 
     Degrades gracefully — missing pillars are excluded and weights re-normalised.
     """
-    import clickhouse_connect
-
     errors: list[str] = []
     signals: dict[str, Any] = {
         "dxy_level":         None,
@@ -723,11 +716,8 @@ def compute_silver_scorecard(
 
     # ── 3. ClickHouse: iNAV + price history ───────────────────────────────────
     try:
-        client = clickhouse_connect.get_client(
-            host=ch_host, port=ch_port,
-            username=ch_user, password=ch_pass,
-            connect_timeout=10,
-        )
+        from src.db.pool import get_pool as _get_ch_pool
+        client = _get_ch_pool().get_client()  # unmanaged; closed explicitly below
 
         # Valuation: SILVERBEES iNAV premium/discount
         try:

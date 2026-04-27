@@ -58,25 +58,17 @@ def get_fii_dii_context(days: int = 5) -> dict[str, Any]:
     }
 
     try:
-        import clickhouse_connect
-        from config.settings import settings
+        from src.db.pool import get_pool as _get_ch_pool
 
-        client = clickhouse_connect.get_client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-        )
-
-        result = client.query(
-            f"""
-            SELECT trade_date, fii_net_cr, dii_net_cr
-            FROM market_data.fii_dii_flows FINAL
-            ORDER BY trade_date DESC
-            LIMIT {int(days)}
-            """
-        )
-        client.close()
+        with _get_ch_pool().acquire() as client:
+            result = client.query(
+                f"""
+                SELECT trade_date, fii_net_cr, dii_net_cr
+                FROM market_data.fii_dii_flows FINAL
+                ORDER BY trade_date DESC
+                LIMIT {int(days)}
+                """
+            )
 
         raw_rows = result.result_rows
         if not raw_rows:

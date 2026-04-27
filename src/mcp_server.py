@@ -187,7 +187,6 @@ async def _run_pipeline(save: bool = True, blend: float = 0.5) -> dict:
     from src.tools.risk_governor import compute_position_weight, vol_target_for
     from src.tools.adaptive_kelly import compute_kelly_weight, compute_blended_weight
     from src.tools.weight_checkpoint import save_checkpoints, latest_decisions
-    import clickhouse_connect
     import numpy as np
     import pandas as pd
 
@@ -202,25 +201,19 @@ async def _run_pipeline(save: bool = True, blend: float = 0.5) -> dict:
     )
 
     # ── Step 2: Fetch GARCH vol + regime from anomaly detector ───────────────
-    c = clickhouse_connect.get_client(
-        host=settings.clickhouse_host, port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user, password=settings.clickhouse_password,
-    )
-    try:
-        price_df = c.query_df("""
-            SELECT trade_date,
-                   toFloat64(argMax(open,   imported_at)) AS open,
-                   toFloat64(argMax(high,   imported_at)) AS high,
-                   toFloat64(argMax(low,    imported_at)) AS low,
-                   toFloat64(argMax(close,  imported_at)) AS close,
-                   toFloat64(argMax(volume, imported_at)) AS volume
-            FROM market_data.daily_prices
-            WHERE symbol = 'GOLDBEES' AND category = 'etfs'
-            GROUP BY trade_date ORDER BY trade_date ASC
-        """)
-    finally:
-        c.close()
+    from src.db.pool import get_pool as _get_ch_pool
+    _ch_pool = _get_ch_pool()
+    price_df = _ch_pool.query_df("""
+        SELECT trade_date,
+               toFloat64(argMax(open,   imported_at)) AS open,
+               toFloat64(argMax(high,   imported_at)) AS high,
+               toFloat64(argMax(low,    imported_at)) AS low,
+               toFloat64(argMax(close,  imported_at)) AS close,
+               toFloat64(argMax(volume, imported_at)) AS volume
+        FROM market_data.daily_prices
+        WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+        GROUP BY trade_date ORDER BY trade_date ASC
+    """)
 
     price_df["trade_date"] = pd.to_datetime(price_df["trade_date"])
 
@@ -329,25 +322,16 @@ async def _run_pipeline(save: bool = True, blend: float = 0.5) -> dict:
 async def _get_latest_signal() -> dict:
     """Read the latest stored recommendation from DB — no retraining."""
     from src.tools.weight_checkpoint import latest_decisions
-    import clickhouse_connect
-    from config.settings import settings
+    from src.db.pool import get_pool as _get_ch_pool
 
     decisions = latest_decisions("GOLDBEES")
 
-    c = clickhouse_connect.get_client(
-        host=settings.clickhouse_host, port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user, password=settings.clickhouse_password,
-    )
-    try:
-        last_pred = c.query_df("""
-            SELECT as_of, expected_return_pct, prob_up, cv_auc_mean,
-                   regime_signal, confidence_low, confidence_high
-            FROM market_data.ml_predictions FINAL
-            ORDER BY as_of DESC LIMIT 1
-        """)
-    finally:
-        c.close()
+    last_pred = _get_ch_pool().query_df("""
+        SELECT as_of, expected_return_pct, prob_up, cv_auc_mean,
+               regime_signal, confidence_low, confidence_high
+        FROM market_data.ml_predictions FINAL
+        ORDER BY as_of DESC LIMIT 1
+    """)
 
     pred_row = last_pred.iloc[0].to_dict() if not last_pred.empty else {}
 
@@ -375,30 +359,25 @@ async def _get_latest_signal() -> dict:
 
 async def _evaluate_performance(rows: int = 10) -> dict:
     """Evaluate realised accuracy: predictions vs actual GOLDBEES prices."""
-    import clickhouse_connect
     import numpy as np
     import pandas as pd
-    from config.settings import settings
+    from src.db.pool import get_pool as _get_ch_pool
 
-    c = clickhouse_connect.get_client(
-        host=settings.clickhouse_host, port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user, password=settings.clickhouse_password,
-    )
+    _pool = _get_ch_pool()
     try:
-        preds = c.query_df("""
+        preds = _pool.query_df("""
             SELECT as_of, horizon_days, expected_return_pct, regime_signal, goldbees_close AS start_price
             FROM market_data.ml_predictions FINAL
             ORDER BY as_of ASC
         """)
-        prices = c.query_df("""
+        prices = _pool.query_df("""
             SELECT trade_date, argMax(close, imported_at) AS close
             FROM market_data.daily_prices
             WHERE symbol = 'GOLDBEES' AND category = 'etfs'
             GROUP BY trade_date ORDER BY trade_date ASC
         """)
-    finally:
-        c.close()
+    except Exception as exc:
+        return {"error": str(exc)}
 
     preds["as_of"]        = pd.to_datetime(preds["as_of"])
     prices["trade_date"]  = pd.to_datetime(prices["trade_date"])

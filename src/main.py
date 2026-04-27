@@ -588,14 +588,8 @@ def premium_alerts(
     )
 
     try:
-        import clickhouse_connect
-        ch = clickhouse_connect.get_client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            connect_timeout=10,
-        )
+        from src.db.pool import get_pool as _get_ch_pool
+        ch = _get_ch_pool().get_client()  # unmanaged client; closed by check_premium_alerts
     except Exception as exc:
         console.print(f"[bold red]✗ ClickHouse connection failed:[/bold red] {exc}")
         raise typer.Exit(code=1)
@@ -1026,19 +1020,15 @@ def risk_cmd(
         return
 
     # ── Fetch live inputs ─────────────────────────────────────────────────────
-    import clickhouse_connect
     from config.settings import settings
     from src.tools.risk_governor import compute_position_weight, vol_target_for
 
     today = dt_date.today()
 
     # 1. Latest ML prediction from ClickHouse
-    ch_raw = clickhouse_connect.get_client(
-        host=settings.clickhouse_host, port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user, password=settings.clickhouse_password,
-    )
-    pred_df = ch_raw.query_df("""
+    from src.db.pool import get_pool as _get_ch_pool
+    _ch_pool = _get_ch_pool()
+    pred_df = _ch_pool.query_df("""
         SELECT expected_return_pct, confidence_low, confidence_high,
                cv_r2_mean, regime_signal, horizon_days
         FROM market_data.ml_predictions FINAL
@@ -1047,7 +1037,6 @@ def risk_cmd(
 
     if pred_df.empty:
         console.print("[red]No ML predictions found. Run `python src/main.py signals` or the trend predictor first.[/red]")
-        ch_raw.close()
         return
 
     pred = pred_df.iloc[0]
@@ -1059,14 +1048,13 @@ def risk_cmd(
     horizon   = int(pred["horizon_days"])
 
     # 2. Latest GARCH vol + regime from anomaly pipeline
-    price_df = ch_raw.query_df(f"""
+    price_df = _ch_pool.query_df(f"""
         SELECT trade_date,
                toFloat64(argMax(close, imported_at)) AS close
         FROM market_data.daily_prices
         WHERE symbol = '{symbol}' AND category = 'etfs'
         GROUP BY trade_date ORDER BY trade_date ASC
     """)
-    ch_raw.close()
 
     garch_vol_pct = vol_target_for(symbol)  # fallback if GARCH fails
     regime = "✅ Normal"

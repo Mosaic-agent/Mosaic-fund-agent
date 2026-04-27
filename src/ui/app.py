@@ -28,38 +28,41 @@ import streamlit as st
 # Ensure project root is importable when running as `streamlit run src/ui/app.py`
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-# ── ClickHouse connection params (from env / defaults) ────────────────────────
-CH_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
-CH_PORT = int(os.environ.get("CLICKHOUSE_PORT", "8123"))
-CH_DB   = os.environ.get("CLICKHOUSE_DATABASE", "market_data")
-CH_USER = os.environ.get("CLICKHOUSE_USER", "default")
-CH_PASS = os.environ.get("CLICKHOUSE_PASSWORD", "")
-
-
-# ── ClickHouse helpers ────────────────────────────────────────────────────────
+# ── ClickHouse connection pool ────────────────────────────────────────────────
+# Pool is a module-level singleton (src/db/pool.py). Streamlit's
+# @st.cache_resource wraps get_pool() so the same CHPool instance is reused
+# across all page reruns and concurrent users — no new TCP handshake per query.
 
 @st.cache_resource
+def _get_pool():
+    from src.db.pool import get_pool
+    return get_pool()
+
+
 def _get_client():
-    import clickhouse_connect
-    return clickhouse_connect.get_client(
-        host=CH_HOST, port=CH_PORT,
-        username=CH_USER, password=CH_PASS,
-        connect_timeout=8,
-    )
+    """Return the cached pool (kept for backward compat with call sites)."""
+    return _get_pool()
 
 
 def _query_df(sql: str) -> pd.DataFrame:
-    result = _get_client().query(sql)
-    return pd.DataFrame(result.result_rows, columns=result.column_names)
+    return _get_pool().query_df(sql)
 
 
 @st.cache_data(ttl=30)
 def _ch_ok() -> bool:
     try:
-        _get_client().command("SELECT 1")
+        _get_pool().execute("SELECT 1")
         return True
     except Exception:
         return False
+
+
+# ── ClickHouse connection constants (read-only; used in labels + legacy callers) ─
+from config.settings import settings as _settings  # noqa: E402
+CH_HOST = _settings.clickhouse_host
+CH_PORT = _settings.clickhouse_port
+CH_USER = _settings.clickhouse_user
+CH_PASS = _settings.clickhouse_password
 
 
 @st.cache_resource
@@ -2692,6 +2695,14 @@ with tab_holdings:
             format_func=lambda d: d.strftime("%b %Y") if hasattr(d, "strftime") else str(d),
         )
 
+    # Normalise to plain YYYY-MM-DD string — ClickHouse Date columns reject
+    # datetime strings like '2026-04-01 00:00:00' with a TYPE_MISMATCH error.
+    _month_str = (
+        selected_month.strftime("%Y-%m-%d")
+        if hasattr(selected_month, "strftime")
+        else str(selected_month)[:10]
+    )
+
     if not selected_funds:
         st.warning("Select at least one fund.")
         st.stop()
@@ -2704,7 +2715,7 @@ with tab_holdings:
                market_value_cr, pct_of_nav
         FROM market_data.mf_holdings FINAL
         WHERE fund_name IN ({_fund_filter})
-          AND as_of_month = '{selected_month}'
+          AND as_of_month = '{_month_str}'
         ORDER BY fund_name, pct_of_nav DESC
         """
     )
@@ -2771,17 +2782,22 @@ with tab_holdings:
             pass
 
         if _prev_month:
+            _prev_month_str = (
+                _prev_month.strftime("%Y-%m-%d")
+                if hasattr(_prev_month, "strftime")
+                else str(_prev_month)[:10]
+            )
             _drift_df = _query_df(
                 f"""
                 WITH cur AS (
                     SELECT fund_name, isin, security_name, asset_type, pct_of_nav
                     FROM market_data.mf_holdings FINAL
-                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{selected_month}'
+                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{_month_str}'
                 ),
                 prev AS (
                     SELECT fund_name, isin, security_name, pct_of_nav
                     FROM market_data.mf_holdings FINAL
-                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{_prev_month}'
+                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{_prev_month_str}'
                 )
                 SELECT
                     coalesce(cur.fund_name, prev.fund_name)           AS fund_name,
@@ -2879,7 +2895,7 @@ with tab_holdings:
                 groupArray(concat(fund_name, ' (', toString(round(pct_of_nav, 1)), '%)')) as breakdown
             FROM market_data.mf_holdings FINAL
             WHERE fund_name IN ({_fund_filter})
-              AND as_of_month = '{selected_month}'
+              AND as_of_month = '{_month_str}'
               AND asset_type = 'equity'
               AND security_name NOT LIKE '%Gold%'
               AND security_name NOT LIKE '%Silver%'
@@ -3191,14 +3207,9 @@ with tab_etf_scan:
     if st.button("📡 Scan Premiums", key="pa_scan_btn"):
         with st.spinner("Fetching iNAV snapshots and computing Z-scores…"):
             try:
-                import clickhouse_connect as _cc_pa
                 from src.tools.premium_alerts import check_premium_alerts, INTL_ETF_SYMBOLS
 
-                _pa_client = _cc_pa.get_client(
-                    host=CH_HOST, port=CH_PORT,
-                    username=CH_USER, password=CH_PASS,
-                    connect_timeout=10,
-                )
+                _pa_client = _get_pool().get_client()  # unmanaged; closed after alerts
                 _pa_results = check_premium_alerts(
                     ch_client=_pa_client,
                     symbols=INTL_ETF_SYMBOLS,
@@ -4262,24 +4273,24 @@ with tab_deepdive:
         @st.cache_data(ttl=30)
         def _dd_run_dates(ticker: str) -> list[str]:
             try:
-                r = _get_client().query(
-                    "SELECT DISTINCT toString(report_date) "
-                    "FROM market_data.deepdive_reports FINAL "
-                    "WHERE ticker = {t:String} "
-                    "  AND section_key = '__full__' "
-                    "  AND length(content_md) > 5000 "
-                    "ORDER BY report_date DESC",
-                    parameters={"t": ticker},
-                )
-                dates = [row[0] for row in r.result_rows]
-                if not dates:
-                    # Fallback: any watermark date (covers first-run before report saved)
-                    r2 = _get_client().query(
-                        "SELECT DISTINCT toString(period) FROM market_data.deepdive_watermarks "
-                        "WHERE ticker = {t:String} ORDER BY period DESC",
+                with _get_pool().acquire() as _c:
+                    r = _c.query(
+                        "SELECT DISTINCT toString(report_date) "
+                        "FROM market_data.deepdive_reports FINAL "
+                        "WHERE ticker = {t:String} "
+                        "  AND section_key = '__full__' "
+                        "  AND length(content_md) > 5000 "
+                        "ORDER BY report_date DESC",
                         parameters={"t": ticker},
                     )
-                    dates = [row[0] for row in r2.result_rows]
+                    dates = [row[0] for row in r.result_rows]
+                    if not dates:
+                        r2 = _c.query(
+                            "SELECT DISTINCT toString(period) FROM market_data.deepdive_watermarks "
+                            "WHERE ticker = {t:String} ORDER BY period DESC",
+                            parameters={"t": ticker},
+                        )
+                        dates = [row[0] for row in r2.result_rows]
                 return dates
             except Exception:
                 return []

@@ -251,15 +251,11 @@ class DeepDiveStore:
 
     def _connect(self) -> None:
         try:
-            import clickhouse_connect  # noqa: PLC0415
-            from config.settings import settings  # noqa: PLC0415
-            self._client = clickhouse_connect.get_client(
-                host=settings.clickhouse_host,
-                port=settings.clickhouse_port,
-                username=settings.clickhouse_user,
-                password=settings.clickhouse_password,
-                connect_timeout=10,
-            )
+            from src.db.pool import get_pool as _get_ch_pool  # noqa: PLC0415
+            # Get an unmanaged dedicated client from the pool's factory — this
+            # gives us the pooled config (host/port/creds) without occupying a
+            # pool slot, which is appropriate for a long-lived serial persister.
+            self._client = _get_ch_pool().get_client()
             for ddl in _ALL_DDL:
                 self._client.command(ddl)
             self._ready = True

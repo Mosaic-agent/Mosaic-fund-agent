@@ -62,25 +62,17 @@ def evaluate_methods(
         method, n, total_return_pct, ann_return_pct, ann_vol_pct,
         sharpe, hit_ratio_pct, avg_weight
     """
-    import clickhouse_connect
-    from config.settings import settings
+    from src.db.pool import get_pool as _get_ch_pool
 
     since_date = (date.today() - timedelta(days=since_days)).isoformat()
     # Only evaluate rows whose horizon has closed
     max_as_of  = (date.today() - timedelta(days=horizon_days)).isoformat()
 
-    c = clickhouse_connect.get_client(
-        host     = settings.clickhouse_host,
-        port     = settings.clickhouse_port,
-        database = settings.clickhouse_database,
-        username = settings.clickhouse_user,
-        password = settings.clickhouse_password,
-    )
-
     # Fetch checkpoints and prices separately, join in Python to avoid
     # ClickHouse 24.x inequality-join restriction in ON clauses.
     try:
-        chk = c.query_df(f"""
+        _pool = _get_ch_pool()
+        chk = _pool.query_df(f"""
             SELECT as_of, method, recommended_weight,
                    toInt32(horizon_days) AS horizon_days
             FROM market_data.weight_checkpoints FINAL
@@ -89,17 +81,15 @@ def evaluate_methods(
               AND as_of <= toDate('{max_as_of}')
             ORDER BY as_of
         """)
-        prices = c.query_df(f"""
+        prices = _pool.query_df(f"""
             SELECT trade_date, argMax(close, imported_at) AS close
             FROM market_data.daily_prices
             WHERE symbol = '{symbol}' AND category = 'etfs'
             GROUP BY trade_date
             ORDER BY trade_date
         """)
-        c.close()
     except Exception as exc:
         logger.error("evaluate_methods failed: %s", exc)
-        c.close()
         return pd.DataFrame()
 
     if chk.empty or prices.empty:
@@ -166,37 +156,24 @@ def latest_decisions(symbol: str = "GOLDBEES") -> dict[str, dict]:
 
     Returns dict keyed by method name, value is the row dict.
     """
-    import clickhouse_connect
-    from config.settings import settings
+    from src.db.pool import get_pool as _get_ch_pool
 
-    c = clickhouse_connect.get_client(
-        host     = settings.clickhouse_host,
-        port     = settings.clickhouse_port,
-        database = settings.clickhouse_database,
-        username = settings.clickhouse_user,
-        password = settings.clickhouse_password,
-    )
-    try:
-        df = c.query_df(f"""
-            SELECT *
-            FROM market_data.weight_checkpoints FINAL
-            WHERE symbol = '{symbol}'
-            ORDER BY as_of DESC
-            LIMIT 4
-        """)
-        c.close()
-        if df.empty:
-            return {}
-        result: dict[str, dict] = {}
-        for _, row in df.iterrows():
-            method = row["method"]
-            if method not in result:
-                result[method] = row.to_dict()
-        return result
-    except Exception as exc:
-        logger.warning("latest_decisions query failed: %s", exc)
-        c.close()
+    _pool = _get_ch_pool()
+    df = _pool.query_df(f"""
+        SELECT *
+        FROM market_data.weight_checkpoints FINAL
+        WHERE symbol = '{symbol}'
+        ORDER BY as_of DESC
+        LIMIT 4
+    """)
+    if df.empty:
         return {}
+    result: dict[str, dict] = {}
+    for _, row in df.iterrows():
+        method = row["method"]
+        if method not in result:
+            result[method] = row.to_dict()
+    return result
 
 
 _TRADING_DAYS = 252

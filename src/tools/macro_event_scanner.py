@@ -391,18 +391,16 @@ def _fetch_quant_overlay() -> QuantOverlay:
     fitting a GARCH model here — avoids a 2-3s computation on every macro scan.
     """
     try:
-        import clickhouse_connect
         import numpy as np
         from concurrent.futures import ThreadPoolExecutor
 
-        # Each concurrent query gets its own connection — clickhouse_connect
-        # client is not safe for concurrent use on a single connection.
-        def _make_client():
-            return clickhouse_connect.get_client(host="localhost", port=8123)
+        # Each concurrent query gets its own pooled connection — the pool's
+        # acquire() context manager guarantees exclusive per-thread checkout.
+        from src.db.pool import get_pool as _get_ch_pool
+        _pool = _get_ch_pool()
 
         def _fii():
-            cl = _make_client()
-            try:
+            with _pool.acquire() as cl:
                 return cl.query_df("""
                     SELECT
                         sum(fii_net_cr) AS fii_net_5d,
@@ -410,12 +408,9 @@ def _fetch_quant_overlay() -> QuantOverlay:
                     FROM market_data.fii_dii_flows FINAL
                     WHERE trade_date >= today() - INTERVAL 5 DAY
                 """)
-            finally:
-                cl.close()
 
         def _prices():
-            cl = _make_client()
-            try:
+            with _pool.acquire() as cl:
                 return cl.query_df("""
                     SELECT trade_date,
                            toFloat64(argMax(close, imported_at)) AS close
@@ -423,22 +418,17 @@ def _fetch_quant_overlay() -> QuantOverlay:
                     WHERE symbol = 'GOLDBEES' AND category = 'etfs'
                     GROUP BY trade_date ORDER BY trade_date DESC LIMIT 55
                 """)
-            finally:
-                cl.close()
 
         def _garch():
             # Read pre-computed GARCH vol from the last weight checkpoint row —
             # avoids a 2-3s GARCH fit on every macro scan.
             try:
-                cl = _make_client()
-                try:
+                with _pool.acquire() as cl:
                     df = cl.query_df("""
                         SELECT garch_vol_pct FROM market_data.weight_checkpoints FINAL
                         WHERE symbol = 'GOLDBEES' AND garch_vol_pct > 0
                         ORDER BY as_of DESC LIMIT 1
                     """)
-                finally:
-                    cl.close()
                 return float(df["garch_vol_pct"].iloc[0]) if not df.empty else None
             except Exception:
                 return None

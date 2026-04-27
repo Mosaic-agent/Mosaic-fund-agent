@@ -37,7 +37,7 @@ KITE_API_SECRET=
 KITE_MCP_TIMEOUT=30
 ```
 
-## ClickHouse (Data Hub)
+## ClickHouse (Data Hub & Connection Pool)
 
 ```
 CLICKHOUSE_HOST=localhost
@@ -45,7 +45,16 @@ CLICKHOUSE_PORT=8123
 CLICKHOUSE_DATABASE=market_data
 CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=
+
+# Connection pool (src/db/pool.py — shared across all service modules)
+CLICKHOUSE_POOL_MIN=2          # warm idle connections kept alive
+CLICKHOUSE_POOL_MAX=10         # hard cap on total live connections
+CLICKHOUSE_POOL_TIMEOUT=10.0   # seconds to wait for a free pool slot
 ```
+
+All service modules import the pool singleton via `from src.db.pool import get_pool`.
+Use `pool.query_df(sql)` for SELECT, `pool.execute(sql)` for DDL/INSERT,
+or `with pool.acquire() as client:` for raw multi-statement access.
 
 ## Behaviour
 

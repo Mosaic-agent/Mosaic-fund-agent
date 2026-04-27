@@ -90,8 +90,8 @@ def _collect_sentiment_scores(verbose: bool = False) -> dict[str, float]:
     Query news_articles from last 7 days → positive/negative ratio per ETF → 0–100.
     """
     try:
-        import clickhouse_connect
-        c = clickhouse_connect.get_client(host="localhost", port=8123, connect_timeout=5)
+        from src.db.pool import get_pool as _get_ch_pool
+        c = _get_ch_pool().get_client()
         result = c.query(
             "SELECT etfs_impacted, sentiment "
             "FROM market_data.news_articles "
@@ -160,8 +160,8 @@ def _collect_flow_scores(verbose: bool = False) -> dict[str, float]:
     FII net buying → bullish for equity, bearish for gold (rotation).
     """
     try:
-        import clickhouse_connect
-        c = clickhouse_connect.get_client(host="localhost", port=8123, connect_timeout=5)
+        from src.db.pool import get_pool as _get_ch_pool
+        c = _get_ch_pool().get_client()
         result = c.query(
             "SELECT sum(fii_net_cr) AS fii_5d, sum(dii_net_cr) AS dii_5d "
             "FROM market_data.fii_dii_flows FINAL "
@@ -213,8 +213,8 @@ def _collect_ml_scores(verbose: bool = False) -> dict[str, float]:
     Other ETFs get neutral (50) until multi-ETF ML is implemented.
     """
     try:
-        import clickhouse_connect
-        c = clickhouse_connect.get_client(host="localhost", port=8123, connect_timeout=5)
+        from src.db.pool import get_pool as _get_ch_pool
+        c = _get_ch_pool().get_client()
         result = c.query(
             "SELECT expected_return_pct "
             "FROM market_data.ml_predictions FINAL "
@@ -242,9 +242,9 @@ def _collect_anomaly_flags(verbose: bool = False) -> dict[str, str]:
     """
     flags = {etf: "Normal" for etf in SIGNAL_ETFS}
     try:
-        import clickhouse_connect
         import pandas as pd
-        c = clickhouse_connect.get_client(host="localhost", port=8123, connect_timeout=5)
+        from src.db.pool import get_pool as _get_ch_pool
+        c = _get_ch_pool().get_client()
         result = c.query(
             "SELECT trade_date, argMax(open, imported_at) AS open, "
             "argMax(high, imported_at) AS high, argMax(low, imported_at) AS low, "

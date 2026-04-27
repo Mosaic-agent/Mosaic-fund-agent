@@ -29,13 +29,13 @@ get_latest_signal   ← reads last stored RG weight from DB
 python -c "
 import sys; sys.path.insert(0,'.')
 from src.tools.risk_governor import compute_position_weight, explain_decision, vol_target_for
-import clickhouse_connect, pandas as pd, warnings
+from src.db.pool import get_pool
+import pandas as pd, warnings
 warnings.filterwarnings('ignore')
 
 try:
-    c = clickhouse_connect.get_client(host='localhost', port=8123)
     # Use GOLDBEES ETF prices — NOT COMEX GOLD (different asset class)
-    price_df = c.query_df('''
+    price_df = get_pool().query_df('''
         SELECT trade_date,
                toFloat64(argMax(open,   imported_at)) AS open,
                toFloat64(argMax(high,   imported_at)) AS high,
@@ -46,7 +46,6 @@ try:
         WHERE symbol='GOLDBEES' AND category='etfs'
         GROUP BY trade_date ORDER BY trade_date DESC LIMIT 300
     ''')
-    c.close()
     price_df['trade_date'] = pd.to_datetime(price_df['trade_date'])
     price_df = price_df.sort_values('trade_date').reset_index(drop=True)
     from src.ml.anomaly import run_composite_anomaly

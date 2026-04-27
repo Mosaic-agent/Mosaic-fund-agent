@@ -681,12 +681,8 @@ def run_trend_prediction(
       as_of                date
       horizon_days         int
     """
-    import clickhouse_connect
-
-    client = clickhouse_connect.get_client(
-        host=ch_host, port=ch_port, database=ch_database,
-        username=ch_user, password=ch_password,
-    )
+    from src.db.pool import get_pool as _get_ch_pool
+    client = _get_ch_pool().get_client()  # unmanaged; closed after master table build
     try:
         df_raw = build_master_table(client)
     finally:
@@ -815,11 +811,8 @@ def run_trend_prediction(
 
     # ClickHouse — create table if missing, then upsert
     try:
-        import clickhouse_connect as _cc
-        _ch = _cc.get_client(
-            host=ch_host, port=ch_port, database=ch_database,
-            username=ch_user, password=ch_password,
-        )
+        from src.db.pool import get_pool as _get_ch_pool
+        _ch = _get_ch_pool().get_client()  # unmanaged; DDL + single insert, closed below
         _ch.command("""
             CREATE TABLE IF NOT EXISTS market_data.ml_predictions (
                 as_of                Date,

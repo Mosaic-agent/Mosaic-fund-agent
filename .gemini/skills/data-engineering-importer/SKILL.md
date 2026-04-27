@@ -42,6 +42,21 @@ python src/main.py import --dry-run   # preview without writing
 - Category list and symbols: `src/importer/registry.py`
 - Delta-sync logic: `src/importer/cli.py` → `run_import()`
 
+## ClickHouse Connection Pattern
+All service modules use the shared pool at `src/db/pool.py` — never call `clickhouse_connect.get_client()` directly in `src/`. The importer (`src/importer/clickhouse.py`) is the only exception: it owns one long-lived connection for bulk inserts.
+
+```python
+# Correct pattern for any new code in src/
+from src.db.pool import get_pool
+pool = get_pool()
+df = pool.query_df("SELECT ...")       # one-shot SELECT
+pool.execute("INSERT INTO ...")        # DDL / INSERT
+with pool.acquire() as client:         # raw multi-statement access
+    client.query(...)
+```
+
+New pool config vars (`.env`): `CLICKHOUSE_POOL_MIN` (default 2), `CLICKHOUSE_POOL_MAX` (default 10), `CLICKHOUSE_POOL_TIMEOUT` (default 10.0s).
+
 ## Usage Scenarios
 
 | User Request | Action |
