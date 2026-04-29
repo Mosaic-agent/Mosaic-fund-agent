@@ -4217,6 +4217,13 @@ with tab_deepdive:
             help="US exchange ticker, e.g. ADSK, PCOR, CRM",
         ).upper().strip()
 
+        # Validate before any SQL / subprocess use — allowlist: letters, digits,
+        # hyphens, dots only (covers BRK.B, BF-B etc.)
+        import re as _re_ticker
+        if dd_ticker and not _re_ticker.fullmatch(r"[A-Z0-9.\-]{1,10}", dd_ticker):
+            st.error(f"Invalid ticker '{dd_ticker}' — only letters, digits, hyphens and dots allowed.")
+            dd_ticker = ""
+
         dd_skip_fetch = st.toggle(
             "Use cached data",
             value=True,
@@ -4373,13 +4380,14 @@ with tab_deepdive:
                 st.subheader(f"{dd_ticker} — Annual Financials (USD millions)")
                 try:
                     import altair as alt  # noqa: F811
-                    fin_df = _query_df(
-                        f"SELECT fiscal_year, revenue_usd_m, gross_profit_usd_m, "
-                        f"operating_income_usd_m, net_income_usd_m, free_cash_flow_usd_m, "
-                        f"rd_expense_usd_m, gross_margin_pct, operating_margin_pct "
-                        f"FROM market_data.deepdive_financials FINAL "
-                        f"WHERE ticker = '{dd_ticker}' AND report_date = '{selected_date}' "
-                        f"ORDER BY fiscal_year"
+                    fin_df = _get_pool().query_df(
+                        "SELECT fiscal_year, revenue_usd_m, gross_profit_usd_m, "
+                        "operating_income_usd_m, net_income_usd_m, free_cash_flow_usd_m, "
+                        "rd_expense_usd_m, gross_margin_pct, operating_margin_pct "
+                        "FROM market_data.deepdive_financials FINAL "
+                        "WHERE ticker = {t:String} AND report_date = {d:Date} "
+                        "ORDER BY fiscal_year",
+                        parameters={"t": dd_ticker, "d": selected_date},
                     )
                     if not fin_df.empty:
                         fin_df.columns = [
@@ -4466,12 +4474,13 @@ with tab_deepdive:
                 st.subheader(f"{dd_ticker} — Valuation Snapshot")
                 try:
                     import altair as alt  # noqa: F811
-                    val_df = _query_df(
-                        f"SELECT as_of_date, market_cap_usd_b, pe_trailing, pe_forward, "
-                        f"ev_revenue, ev_ebitda, fcf_yield_pct, "
-                        f"peer_pe_median, peer_ev_ebitda_median, peer_ev_revenue_median "
-                        f"FROM market_data.deepdive_valuation FINAL "
-                        f"WHERE ticker = '{dd_ticker}' AND report_date = '{selected_date}'"
+                    val_df = _get_pool().query_df(
+                        "SELECT as_of_date, market_cap_usd_b, pe_trailing, pe_forward, "
+                        "ev_revenue, ev_ebitda, fcf_yield_pct, "
+                        "peer_pe_median, peer_ev_ebitda_median, peer_ev_revenue_median "
+                        "FROM market_data.deepdive_valuation FINAL "
+                        "WHERE ticker = {t:String} AND report_date = {d:Date}",
+                        parameters={"t": dd_ticker, "d": selected_date},
                     )
                     if not val_df.empty:
                         row = val_df.iloc[0]
@@ -4530,12 +4539,13 @@ with tab_deepdive:
                 st.subheader(f"{dd_ticker} — 2-Year Daily Price History")
                 try:
                     import altair as alt  # noqa: F811
-                    price_df = _query_df(
-                        f"SELECT trade_date, open, high, low, close, volume "
-                        f"FROM market_data.deepdive_prices FINAL "
-                        f"WHERE ticker = '{dd_ticker}' "
-                        f"  AND trade_date >= today() - INTERVAL 2 YEAR "
-                        f"ORDER BY trade_date"
+                    price_df = _get_pool().query_df(
+                        "SELECT trade_date, open, high, low, close, volume "
+                        "FROM market_data.deepdive_prices FINAL "
+                        "WHERE ticker = {t:String} "
+                        "  AND trade_date >= today() - INTERVAL 2 YEAR "
+                        "ORDER BY trade_date",
+                        parameters={"t": dd_ticker},
                     )
                     if not price_df.empty:
                         price_df["trade_date"] = pd.to_datetime(price_df["trade_date"])
@@ -4610,11 +4620,12 @@ with tab_deepdive:
                 st.subheader(f"{dd_ticker} — Segment Revenue")
                 try:
                     import altair as alt  # noqa: F811
-                    seg_df = _query_df(
-                        f"SELECT segment_name, revenue_usd_m, yoy_growth_pct "
-                        f"FROM market_data.deepdive_segments FINAL "
-                        f"WHERE ticker = '{dd_ticker}' AND report_date = '{selected_date}' "
-                        f"ORDER BY revenue_usd_m DESC"
+                    seg_df = _get_pool().query_df(
+                        "SELECT segment_name, revenue_usd_m, yoy_growth_pct "
+                        "FROM market_data.deepdive_segments FINAL "
+                        "WHERE ticker = {t:String} AND report_date = {d:Date} "
+                        "ORDER BY revenue_usd_m DESC",
+                        parameters={"t": dd_ticker, "d": selected_date},
                     )
                     if not seg_df.empty:
                         seg_df.columns = ["Segment", "Revenue ($M)", "YoY%"]
@@ -4667,14 +4678,15 @@ with tab_deepdive:
                 with col_hc:
                     st.subheader("👥 Headcount")
                     try:
-                        hc_df = _query_df(
-                            f"SELECT fiscal_period, total_headcount, notes "
-                            f"FROM market_data.deepdive_headcount FINAL "
-                            f"WHERE ticker = '{dd_ticker}' "
-                            f"  AND report_date = ("
-                            f"    SELECT max(report_date) FROM market_data.deepdive_headcount "
-                            f"    WHERE ticker = '{dd_ticker}' AND report_date <= '{selected_date}'"
-                            f"  )"
+                        hc_df = _get_pool().query_df(
+                            "SELECT fiscal_period, total_headcount, notes "
+                            "FROM market_data.deepdive_headcount FINAL "
+                            "WHERE ticker = {t:String} "
+                            "  AND report_date = ("
+                            "    SELECT max(report_date) FROM market_data.deepdive_headcount "
+                            "    WHERE ticker = {t:String} AND report_date <= {d:Date}"
+                            "  )",
+                            parameters={"t": dd_ticker, "d": selected_date},
                         )
                         if not hc_df.empty:
                             hc_df.columns = ["Period", "Headcount", "Notes"]
@@ -4691,18 +4703,19 @@ with tab_deepdive:
                 with col_ec:
                     st.subheader("💰 Executive Compensation (NEOs)")
                     try:
-                        ec_df = _query_df(
-                            f"SELECT exec_name, position, fiscal_year, "
-                            f"round(total_usd / 1e6, 2) AS total_usd_m, "
-                            f"round(stock_awards_usd / 1e6, 2) AS stock_m, "
-                            f"round(stock_pct, 1) AS stock_pct "
-                            f"FROM market_data.deepdive_exec_comp FINAL "
-                            f"WHERE ticker = '{dd_ticker}' "
-                            f"  AND report_date = ("
-                            f"    SELECT max(report_date) FROM market_data.deepdive_exec_comp "
-                            f"    WHERE ticker = '{dd_ticker}' AND report_date <= '{selected_date}'"
-                            f"  ) "
-                            f"ORDER BY total_usd DESC"
+                        ec_df = _get_pool().query_df(
+                            "SELECT exec_name, position, fiscal_year, "
+                            "round(total_usd / 1e6, 2) AS total_usd_m, "
+                            "round(stock_awards_usd / 1e6, 2) AS stock_m, "
+                            "round(stock_pct, 1) AS stock_pct "
+                            "FROM market_data.deepdive_exec_comp FINAL "
+                            "WHERE ticker = {t:String} "
+                            "  AND report_date = ("
+                            "    SELECT max(report_date) FROM market_data.deepdive_exec_comp "
+                            "    WHERE ticker = {t:String} AND report_date <= {d:Date}"
+                            "  ) "
+                            "ORDER BY total_usd DESC",
+                            parameters={"t": dd_ticker, "d": selected_date},
                         )
                         if not ec_df.empty:
                             ec_df.columns = ["Name", "Position", "FY", "Total ($M)", "Stock ($M)", "Stock%"]
@@ -4725,15 +4738,16 @@ with tab_deepdive:
                     import altair as alt  # noqa: F811
                     import json as _json  # noqa: F811
 
-                    jobs_df = _query_df(
-                        f"SELECT function_bucket, location, job_count "
-                        f"FROM market_data.deepdive_jobs FINAL "
-                        f"WHERE ticker = '{dd_ticker}' "
-                        f"  AND report_date = ("
-                        f"    SELECT max(report_date) FROM market_data.deepdive_jobs "
-                        f"    WHERE ticker = '{dd_ticker}' AND report_date <= '{selected_date}'"
-                        f"  ) "
-                        f"ORDER BY job_count DESC"
+                    jobs_df = _get_pool().query_df(
+                        "SELECT function_bucket, location, job_count "
+                        "FROM market_data.deepdive_jobs FINAL "
+                        "WHERE ticker = {t:String} "
+                        "  AND report_date = ("
+                        "    SELECT max(report_date) FROM market_data.deepdive_jobs "
+                        "    WHERE ticker = {t:String} AND report_date <= {d:Date}"
+                        "  ) "
+                        "ORDER BY job_count DESC",
+                        parameters={"t": dd_ticker, "d": selected_date},
                     )
                     if not jobs_df.empty:
                         jobs_df.columns = ["Function", "Location", "Openings"]

@@ -13,7 +13,7 @@ class ImportDataCommand(Command):
 
     def execute(self) -> dict[str, Any]:
         importer = ClickHouseImporter()
-        # snapshot current state (watermarks) before mutating
+        importer.ensure_schema()
         self._snapshot = importer.snapshot(self.lookback_days)
         return importer.run(
             categories=self.categories,
