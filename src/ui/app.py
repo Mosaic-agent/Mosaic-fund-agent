@@ -135,7 +135,7 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive"])
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4927,3 +4927,254 @@ with tab_deepdive:
                         st.info("No jobs data found.")
                 except Exception as exc:
                     st.error(f"Error: {exc}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — INTERNATIONAL ETF PATTERNS
+# ML-driven pattern analysis for the 6 RBI-capped international ETFs:
+#   performance, scarcity premium, regime detection, correlation,
+#   seasonality, LightGBM feature importance, drawdown timeline.
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_intl_etf:
+    st.header("🌍 International ETF Pattern Analysis")
+    st.caption(
+        "ML-powered 3-year analysis of MAFANG · HNGSNGBEES · MON100 · "
+        "MASPTOP50 · MAHKTECH · MONQ50. "
+        "Uses KMeans regime detection, Isolation Forest anomaly detection, "
+        "and LightGBM feature importance. Results cached for 1 hour."
+    )
+
+    if not ok:
+        st.error("ClickHouse unavailable — cannot run analysis.")
+        st.stop()
+
+    @st.cache_data(ttl=3600, show_spinner="Running ML analysis — ~30 seconds…")
+    def _intl_etf_results():
+        from src.ui.intl_etf_analysis import run_full_analysis
+        return run_full_analysis(_get_pool())
+
+    col_run, col_note = st.columns([1, 4])
+    with col_run:
+        if st.button("🔄 Refresh Analysis", help="Clear cache and recompute all ML models"):
+            st.cache_data.clear()
+            st.rerun()
+    with col_note:
+        st.caption("Analysis window: last 3 years · Risk-free rate: 6.5% (Indian T-bill proxy)")
+
+    try:
+        R = _intl_etf_results()
+    except Exception as _exc:
+        st.error(f"Analysis failed: {_exc}")
+        st.stop()
+
+    # ── Sub-tabs ──────────────────────────────────────────────────────────────
+    (
+        _ie_perf, _ie_prem, _ie_regime,
+        _ie_corr, _ie_season, _ie_lgbm, _ie_dd,
+    ) = st.tabs([
+        "📊 Performance", "💰 Premium", "🎯 Regimes",
+        "🔗 Correlation", "📅 Seasonality", "🤖 LightGBM", "📉 Drawdowns",
+    ])
+
+    # ── Performance ───────────────────────────────────────────────────────────
+    with _ie_perf:
+        st.subheader("3-Year Performance Summary")
+        perf = R["perf_df"].copy()
+
+        # KPI row: top Sharpe, best 3Y return, worst max DD
+        if not perf.empty:
+            best_sharpe = perf.loc[perf["Sharpe"].idxmax()]
+            best_ret    = perf.loc[perf["3Y Ret %"].idxmax()]
+            worst_dd    = perf.loc[perf["Max DD %"].idxmin()]
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Best Sharpe",
+                      best_sharpe["ETF"].split(" · ")[0],
+                      f"{best_sharpe['Sharpe']:.2f}")
+            k2.metric("Best 3Y Return",
+                      best_ret["ETF"].split(" · ")[0],
+                      f"+{best_ret['3Y Ret %']:.1f}%")
+            k3.metric("Deepest Drawdown",
+                      worst_dd["ETF"].split(" · ")[0],
+                      f"{worst_dd['Max DD %']:.1f}%")
+            st.divider()
+
+        st.plotly_chart(R["perf_chart"], use_container_width=True)
+
+        display_perf = perf.drop(columns=["_sym"], errors="ignore")
+        st.dataframe(
+            display_perf.style
+                .background_gradient(subset=["3Y Ret %", "1Y Ret %", "6M Ret %"], cmap="RdYlGn")
+                .background_gradient(subset=["Sharpe", "Calmar"], cmap="Blues")
+                .background_gradient(subset=["Max DD %"], cmap="RdYlGn_r"),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    # ── Premium ───────────────────────────────────────────────────────────────
+    with _ie_prem:
+        st.subheader("Scarcity Premium Analysis")
+        st.info(
+            "**MASPTOP50 excluded** — its MF NAV scheme code uses a different unit base "
+            "(₹19 NAV vs ₹77 market price), producing a spurious ~300% premium.",
+            icon="ℹ️",
+        )
+        prem_stats = R["prem_stats"].copy().drop(columns=["_sym"], errors="ignore")
+        if not prem_stats.empty:
+            # KPI: highest premium, most anomalous
+            hp = prem_stats.loc[prem_stats["Current %"].idxmax()]
+            ha = prem_stats.loc[prem_stats["Anomaly Days"].idxmax()]
+            p1, p2, p3 = st.columns(3)
+            p1.metric("Highest Current Premium",
+                      hp["ETF"].split(" · ")[0],
+                      f"{hp['Current %']:.2f}%")
+            p2.metric("Most Anomalous",
+                      ha["ETF"].split(" · ")[0],
+                      f"{ha['Anomaly Days']} days flagged")
+            rising = prem_stats[prem_stats["Trend /mo"] > 0]
+            p3.metric("ETFs with Rising Premium",
+                      f"{len(rising)} / {len(prem_stats)}",
+                      "structural widening" if len(rising) == len(prem_stats) else "")
+            st.divider()
+
+        st.plotly_chart(R["prem_chart"], use_container_width=True)
+        st.dataframe(
+            prem_stats.style.background_gradient(
+                subset=["Current %", "Mean %", "Trend /mo"], cmap="YlOrRd"
+            ).background_gradient(subset=["Anomaly Days"], cmap="Reds"),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    # ── Regimes ───────────────────────────────────────────────────────────────
+    with _ie_regime:
+        st.subheader("Market Regime Detection (KMeans k=3)")
+        st.caption("Features: 30D rolling return, volatility, momentum, scarcity premium.")
+        reg_df = R["regime_df"].copy().drop(columns=["_sym"], errors="ignore")
+
+        if not reg_df.empty:
+            bears_now = reg_df[reg_df["Current"] == "Bear"]
+            bulls_now = reg_df[reg_df["Current"] == "Bull"]
+            r1, r2 = st.columns(2)
+            r1.metric("Currently in Bull Regime", f"{len(bulls_now)} ETFs",
+                      ", ".join(bulls_now["ETF"].str.split(" · ").str[0]))
+            r2.metric("Currently in Bear Regime", f"{len(bears_now)} ETFs",
+                      ", ".join(bears_now["ETF"].str.split(" · ").str[0]))
+            st.divider()
+
+        st.plotly_chart(R["regime_chart"], use_container_width=True)
+        st.dataframe(
+            reg_df.style
+                .applymap(lambda v: "color: #e74c3c" if v == "Bear"
+                          else "color: #2ecc71" if v == "Bull"
+                          else "color: #f39c12", subset=["Current"]),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    # ── Correlation ───────────────────────────────────────────────────────────
+    with _ie_corr:
+        st.subheader("Return Correlations")
+        st.plotly_chart(R["corr_chart"], use_container_width=True)
+
+        if not R["usdinr_corr"].empty:
+            st.subheader("USD/INR Correlation")
+            st.caption("Low/negative correlation → INR depreciation does NOT reliably boost short-term Indian prices of these ETFs.")
+            st.dataframe(
+                R["usdinr_corr"].style.background_gradient(
+                    subset=["Full-Period", "Last 6M"], cmap="RdBu", vmin=-0.5, vmax=0.5
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+        st.info(
+            "**Two clusters detected:**  "
+            "China (MAFANG ↔ MASPTOP50 ρ≈0.53, HNGSNGBEES ↔ MAHKTECH ρ≈0.63) "
+            "and US (MON100 ↔ MONQ50 ρ≈0.47).  "
+            "Cross-cluster correlation is weak (0.11–0.36) — "
+            "MAFANG + MON100 is the best diversification pair.",
+            icon="💡",
+        )
+
+    # ── Seasonality ───────────────────────────────────────────────────────────
+    with _ie_season:
+        st.subheader("Monthly Return Seasonality")
+        st.plotly_chart(R["season_chart"], use_container_width=True)
+        if not R["season_bw"].empty:
+            st.subheader("Best / Worst Months & Half-Year Bias")
+            st.dataframe(
+                R["season_bw"].style
+                    .background_gradient(subset=["Best Ret %"], cmap="Greens")
+                    .background_gradient(subset=["Worst Ret %"], cmap="Reds_r"),
+                hide_index=True,
+                use_container_width=True,
+            )
+        st.info(
+            "**July** is the strongest month for US/Nasdaq ETFs (Q2 earnings season).  "
+            "**February** is the weakest across most names.  "
+            "Apr–Sep outperforms Oct–Mar for all ETFs except HNGSNGBEES "
+            "(which follows Chinese New Year / HK fiscal cycle).",
+            icon="📅",
+        )
+
+    # ── LightGBM ──────────────────────────────────────────────────────────────
+    with _ie_lgbm:
+        st.subheader("LightGBM: 5-Day Return Direction Predictability")
+        st.caption(
+            "Time-series cross-validation (3 folds). Target: next-5D return positive/negative. "
+            "50% = random baseline. Features include lagged returns, rolling volatility, "
+            "premium level/z-score, and USD/INR."
+        )
+        if not R["lgbm_df"].empty:
+            best_acc = R["lgbm_df"].loc[R["lgbm_df"]["CV Accuracy"].idxmax()]
+            st.metric(
+                "Most Predictable ETF",
+                best_acc["ETF"].split(" · ")[0],
+                f"{best_acc['CV Accuracy']:.1f}% accuracy (random = 50%)",
+            )
+            st.divider()
+            st.dataframe(
+                R["lgbm_df"].style.background_gradient(
+                    subset=["CV Accuracy"], cmap="RdYlGn", vmin=45, vmax=60
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+        st.plotly_chart(R["lgbm_chart"], use_container_width=True)
+        st.info(
+            "**vol_30d dominates** across all ETFs — high-volatility regimes have more "
+            "directional follow-through.  "
+            "**Premium ranks #2–3** for MAFANG and HNGSNGBEES — an elevated premium "
+            "(vs 60D mean) predicts negative next-5D returns (mean reversion).",
+            icon="🤖",
+        )
+
+    # ── Drawdowns ─────────────────────────────────────────────────────────────
+    with _ie_dd:
+        st.subheader("Drawdown Timeline (episodes > 10%)")
+        dd_df = R["dd_df"]
+        if not dd_df.empty:
+            unrecovered = dd_df[~dd_df["Recovered"]]
+            if not unrecovered.empty:
+                st.warning(
+                    f"**{len(unrecovered)} unrecovered drawdown(s):** "
+                    + " · ".join(
+                        f"{r['ETF']} ({r['Max DD %']}% from {r['Peak Date']})"
+                        for _, r in unrecovered.iterrows()
+                    ),
+                    icon="⚠️",
+                )
+            st.plotly_chart(R["dd_chart"], use_container_width=True)
+            st.dataframe(
+                dd_df.drop(columns=["Recovered"]).style.background_gradient(
+                    subset=["Max DD %"], cmap="Reds_r"
+                ).background_gradient(
+                    subset=["Recovery Days"], cmap="YlOrRd",
+                    gmap=pd.to_numeric(dd_df["Recovery Days"], errors="coerce"),
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+        else:
+            st.info("No drawdown episodes > 10% found in the 3-year window.")

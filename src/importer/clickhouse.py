@@ -314,6 +314,62 @@ ENGINE = ReplacingMergeTree(created_at)
 ORDER BY (as_of, symbol, method)
 """
 
+_DDL_STOCK_EARNINGS = """
+CREATE TABLE IF NOT EXISTS market_data.stock_earnings (
+    symbol          String,
+    earnings_date   Date,
+    eps_estimate    Float64,
+    eps_actual      Float64,
+    surprise_pct    Float64,
+    imported_at     DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (symbol, earnings_date)
+"""
+
+_DDL_STOCK_INSIDER = """
+CREATE TABLE IF NOT EXISTS market_data.stock_insider_trades (
+    symbol              String,
+    insider_name        String,
+    relation            String,
+    transaction_date    Date,
+    transaction_type    String,
+    shares              Float64,
+    value               Float64,
+    imported_at         DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (symbol, transaction_date, insider_name)
+"""
+
+_DDL_STOCK_VALUATION = """
+CREATE TABLE IF NOT EXISTS market_data.stock_valuation (
+    symbol              String,
+    snapshot_date       Date,
+    market_cap          Float64,
+    trailing_pe         Float64,
+    forward_pe          Float64,
+    peg_ratio           Float64,
+    price_to_book       Float64,
+    price_to_sales      Float64,
+    debt_to_equity      Float64,
+    return_on_equity    Float64,
+    profit_margin       Float64,
+    operating_margin    Float64,
+    gross_margin        Float64,
+    revenue_growth      Float64,
+    earnings_growth     Float64,
+    free_cashflow       Float64,
+    beta                Float64,
+    target_price        Float64,
+    recommendation      String,
+    analyst_count       UInt32,
+    imported_at         DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (symbol, snapshot_date)
+"""
+
 _DDL_USER_HOLDINGS = """
 CREATE TABLE IF NOT EXISTS market_data.user_holdings (
     tradingsymbol         String,
@@ -436,7 +492,9 @@ class ClickHouseImporter:
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
             _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
             _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
-            _DDL_SIGNAL_COMPOSITE, _DDL_WEIGHT_CHECKPOINTS, _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
+            _DDL_SIGNAL_COMPOSITE, _DDL_WEIGHT_CHECKPOINTS,
+            _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
+            _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
         ):
             self._client.command(ddl)
@@ -1090,6 +1148,57 @@ class ClickHouseImporter:
             column_names=cols,
             settings={"max_partitions_per_insert_block": 300},
         )
+        return len(rows)
+
+    def insert_stock_earnings(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        data = [[
+            r["symbol"], r["earnings_date"],
+            r.get("eps_estimate", 0.0), r.get("eps_actual", 0.0), r.get("surprise_pct", 0.0),
+        ] for r in rows]
+        self._client.insert(
+            "market_data.stock_earnings", data,
+            column_names=["symbol", "earnings_date", "eps_estimate", "eps_actual", "surprise_pct"],
+        )
+        return len(rows)
+
+    def insert_stock_insider(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        data = [[
+            r["symbol"], r["insider_name"], r.get("relation", ""),
+            r["transaction_date"], r.get("transaction_type", ""),
+            r.get("shares", 0.0), r.get("value", 0.0),
+        ] for r in rows]
+        self._client.insert(
+            "market_data.stock_insider_trades", data,
+            column_names=["symbol", "insider_name", "relation", "transaction_date",
+                          "transaction_type", "shares", "value"],
+        )
+        return len(rows)
+
+    def insert_stock_valuation(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        cols = [
+            "symbol", "snapshot_date", "market_cap", "trailing_pe", "forward_pe",
+            "peg_ratio", "price_to_book", "price_to_sales", "debt_to_equity",
+            "return_on_equity", "profit_margin", "operating_margin", "gross_margin",
+            "revenue_growth", "earnings_growth", "free_cashflow", "beta",
+            "target_price", "recommendation", "analyst_count",
+        ]
+        data = [[
+            r["symbol"], r["snapshot_date"],
+            r.get("market_cap", 0.0), r.get("trailing_pe", 0.0), r.get("forward_pe", 0.0),
+            r.get("peg_ratio", 0.0), r.get("price_to_book", 0.0), r.get("price_to_sales", 0.0),
+            r.get("debt_to_equity", 0.0), r.get("return_on_equity", 0.0),
+            r.get("profit_margin", 0.0), r.get("operating_margin", 0.0), r.get("gross_margin", 0.0),
+            r.get("revenue_growth", 0.0), r.get("earnings_growth", 0.0), r.get("free_cashflow", 0.0),
+            r.get("beta", 0.0), r.get("target_price", 0.0),
+            r.get("recommendation", ""), r.get("analyst_count", 0),
+        ] for r in rows]
+        self._client.insert("market_data.stock_valuation", data, column_names=cols)
         return len(rows)
 
     def close(self) -> None:

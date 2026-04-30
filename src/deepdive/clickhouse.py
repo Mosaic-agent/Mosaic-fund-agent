@@ -281,6 +281,23 @@ class DeepDiveStore:
             log.warning("deepdive CH: watermark check failed: %s", exc)
             return False
 
+    def is_jobs_imported_this_month(self, ticker: str) -> bool:
+        """Return True if jobs were fetched for this ticker in the current calendar month."""
+        if not self._ready:
+            return False
+        try:
+            from datetime import date as _date  # noqa: PLC0415
+            month_prefix = _date.today().strftime("%Y-%m")
+            r = self._client.query(
+                "SELECT count() FROM market_data.deepdive_watermarks "
+                "WHERE ticker = {t:String} AND source = 'jobs' AND startsWith(period, {m:String})",
+                parameters={"t": ticker, "m": month_prefix},
+            )
+            return int(r.result_rows[0][0]) > 0
+        except Exception as exc:
+            log.warning("deepdive CH: monthly jobs check failed: %s", exc)
+            return False
+
     def _set_watermark(self, ticker: str, source: str, period: str) -> None:
         if not self._ready:
             return

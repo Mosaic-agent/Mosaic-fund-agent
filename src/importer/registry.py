@@ -82,6 +82,10 @@ ETFS: list[tuple[str, str]] = [
     ("HDFCNIFTY",   "HDFCNIFTY.NS"),
     ("SETFNIF50",   "SETFNIF50.NS"),
     ("ICICIB22",    "ICICIB22.NS"),
+    ("MON100",      "MON100.NS"),
+    ("MAHKTECH",    "MAHKTECH.NS"),
+    ("MASPTOP50",   "MASPTOP50.NS"),
+    ("MONQ50",      "MONQ50.NS"),
 ]
 
 # Commodities via Yahoo Finance (XAU/USD, XAG/USD, etc.)
@@ -102,6 +106,11 @@ FX_PAIRS: list[tuple[str, str]] = [
     ("USDAED", "USDAED=X"),   # USD / UAE Dirham        — Gulf peg
     ("USDSAR", "USDSAR=X"),   # USD / Saudi Riyal       — Gulf peg
     ("USDKWD", "USDKWD=X"),   # USD / Kuwaiti Dinar     — strongest Gulf currency
+]
+
+# US-listed stocks (NASDAQ / NYSE)
+US_STOCKS: list[tuple[str, str]] = [
+    ("ADSK",  "ADSK"),   # Autodesk Inc. — NASDAQ
 ]
 
 # Broad indices
@@ -131,6 +140,10 @@ MF_SCHEME_CODES: dict[str, str] = {
     "MAFANG":     "148927",
     "HDFCNIFTY":  "135853",
     "SETFNIF50":  "135106",
+    "MON100":     "114984",
+    "MAHKTECH":   "149379",
+    "MASPTOP50":  "148944",
+    "MONQ50":     "149438",
 }
 
 # Watchlist for MF portfolio holdings tracker
@@ -151,16 +164,17 @@ CATEGORY_MAP: dict[str, list[tuple[str, str]]] = {
     "commodities": COMMODITIES,
     "indices":     INDICES,
     "fx_rates":    FX_PAIRS,
+    "us_stocks":   US_STOCKS,
 }
 
 # Symbols for which NSE live iNAV snapshots are captured
 INAV_SYMBOLS: list[str] = [
     "GOLDBEES", "NIFTYBEES", "BANKBEES", "JUNIORBEES", "LIQUIDBEES",
     "SILVERBEES", "HNGSNGBEES", "PSUBNKBEES", "MAFANG",
-    "HDFCNIFTY", "SETFNIF50", "ICICIB22",
+    "HDFCNIFTY", "SETFNIF50", "ICICIB22", "MON100", "MAHKTECH", "MASPTOP50",
 ]
 
-ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii"]
+ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii", "earnings", "insider", "valuation"]
 
 
 def get_symbols_for_categories(categories: list[str]) -> dict[str, list[tuple[str, str]]]:

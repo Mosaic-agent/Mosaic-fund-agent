@@ -48,8 +48,10 @@ def _run_date(date_str: str | None) -> str:
     return date_str or date.today().isoformat()
 
 
-def _cache_dir(ticker: str, run_date: str) -> Path:
-    return Path(settings.output_dir) / "deepdive" / "cache" / ticker / run_date
+def _cache_dir(ticker: str, run_date: str) -> Path:  # noqa: ARG001
+    # Cache is shared across all run_dates for the same ticker so that
+    # large SEC filings and job data are not re-downloaded on each new date.
+    return Path(settings.output_dir) / "deepdive" / "cache" / ticker
 
 
 def _output_dir(ticker: str, run_date: str) -> Path:
@@ -229,8 +231,8 @@ def run_deepdive(
     jobs_cache = cache_dir / "workday_jobs_raw.json"
     jobs_raw: list[dict] = []
 
-    if ch.is_imported(ticker, "jobs", run_date):
-        console.print("  Jobs    : [dim]loaded from ClickHouse[/dim]")
+    if ch.is_jobs_imported_this_month(ticker):
+        console.print("  Jobs    : [dim]already fetched this month — skipping[/dim]")
     elif skip_fetch and not jobs_cache.exists():
         console.print("  [dim]--skip-fetch: no jobs cache found, skipping[/dim]")
     else:

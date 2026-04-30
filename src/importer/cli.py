@@ -409,6 +409,55 @@ def run_import(
                                      str(as_of_month), str(as_of_month)))
 
     # ── FII / DII Institutional Flows ─────────────────────────────────────────
+    # ── Earnings ──────────────────────────────────────────────────────────────
+    if "earnings" in categories:
+        from src.importer.registry import US_STOCKS
+        from src.importer.fetchers.earnings_fetcher import fetch_earnings
+
+        console.print(f"\n[bold cyan]▶ EARNINGS[/bold cyan] ({len(US_STOCKS)} US stocks)")
+        rows_e = fetch_earnings(US_STOCKS)
+        if not rows_e:
+            console.print("  [yellow]⚠ No earnings data returned.[/yellow]")
+        else:
+            inserted = ch.insert_stock_earnings(rows_e) if not dry_run else len(rows_e)
+            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
+            summary_rows.append(("earnings", "yfinance", inserted, str(today), str(today)))
+
+    # ── Insider Trades ────────────────────────────────────────────────────────
+    if "insider" in categories:
+        from src.importer.registry import US_STOCKS
+        from src.importer.fetchers.insider_fetcher import fetch_insider_trades
+
+        console.print(f"\n[bold cyan]▶ INSIDER TRADES[/bold cyan] ({len(US_STOCKS)} US stocks)")
+        rows_i = fetch_insider_trades(US_STOCKS)
+        if not rows_i:
+            console.print("  [yellow]⚠ No insider trade data returned.[/yellow]")
+        else:
+            inserted = ch.insert_stock_insider(rows_i) if not dry_run else len(rows_i)
+            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
+            summary_rows.append(("insider", "yfinance", inserted, str(today), str(today)))
+
+    # ── Valuation Snapshot ────────────────────────────────────────────────────
+    if "valuation" in categories:
+        from src.importer.registry import US_STOCKS
+        from src.importer.fetchers.valuation_fetcher import fetch_valuation
+
+        console.print(f"\n[bold cyan]▶ VALUATION[/bold cyan] ({len(US_STOCKS)} US stocks)")
+        rows_v = fetch_valuation(US_STOCKS)
+        if not rows_v:
+            console.print("  [yellow]⚠ No valuation data returned.[/yellow]")
+        else:
+            inserted = ch.insert_stock_valuation(rows_v) if not dry_run else len(rows_v)
+            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
+            for r in rows_v:
+                console.print(
+                    f"  {r['symbol']:8s}  PE={r['trailing_pe']:.1f}  "
+                    f"fwdPE={r['forward_pe']:.1f}  "
+                    f"ROE={r['return_on_equity']:.1%}  "
+                    f"Rec={r['recommendation']}"
+                )
+            summary_rows.append(("valuation", "yfinance", inserted, str(today), str(today)))
+
     if "fii_dii" in categories:
         from src.importer.fetchers.fii_dii_fetcher import (
             fetch_fii_dii,
