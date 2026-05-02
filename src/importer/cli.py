@@ -523,6 +523,20 @@ def run_import(
             console.print("  [yellow]⚠ No monthly rows returned.[/yellow]")
 
 
+    # ── AMC Fund-Holdings Importers (factory pattern) ────────────────────────
+    # Delegates to src/scripts/fund_imports/ for icici, nippon, icici-index.
+    # Each importer manages its own ClickHouse connection and watermarks.
+    _amc_cats = [c for c in ("icici", "nippon", "icici-index") if c in categories]
+    if _amc_cats:
+        from src.scripts.fund_imports.factory import create_importer as _create_fund_importer
+
+        for _amc_cat in _amc_cats:
+            _kwargs: dict = {}
+            if _amc_cat == "nippon":
+                _kwargs = {"full_reimport": full_reimport}
+            _imp = _create_fund_importer(_amc_cat, **_kwargs)
+            _imp.run(dry_run=dry_run)
+
     ch.close()
 
     # ── Summary ────────────────────────────────────────────────────────────
@@ -551,7 +565,7 @@ def run_import(
         daily_anomalies = detect_daily_anomalies(ch._client)
 
         if yoy_anomalies or daily_anomalies:
-            console.print("[bold yellow]⚠ Data Anomalies Detected![/bold yellow] Run [bold]python scripts/run_data_sanity_check.py[/bold] for full report.")
+            console.print("[bold yellow]⚠ Data Anomalies Detected![/bold yellow] Run [bold]python src/scripts/db/run_data_sanity_check.py[/bold] for full report.")
             
             if yoy_anomalies:
                 console.print(f"  [red]• {len(yoy_anomalies)} YoY price anomalies found (e.g., >40% return in safe assets)[/red]")

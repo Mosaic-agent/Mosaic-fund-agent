@@ -749,7 +749,10 @@ def import_data(
         "-c",
         help=(
             "Comma-separated categories to import: "
-            "stocks, etfs, commodities, indices, mf, all. "
+            "stocks, etfs, commodities, indices, mf, inav, nse_eod, "
+            "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, "
+            "earnings, insider, valuation, "
+            "icici, nippon, icici-index, all. "
             "Default: all."
         ),
     ),
@@ -863,7 +866,7 @@ def cmd_macro_themes(
     json_out: bool = typer.Option(False, "--json", help="JSON output"),
 ):
     """Long/Short macro theme agent — news + quant overlay."""
-    from scripts.macro_theme_agent import run_macro_theme_agent, print_macro_theme_report
+    from src.scripts.market.macro_theme_agent import run_macro_theme_agent, print_macro_theme_report
 
     report = run_macro_theme_agent(max_per_theme=max)
     if json_out:

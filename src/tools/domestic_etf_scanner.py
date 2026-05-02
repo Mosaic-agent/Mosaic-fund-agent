@@ -168,17 +168,38 @@ def scan_domestic_etfs(
         }
 
         try:
-            # ── Historical premium in hourly buckets ──────────────────────────
-            hist_rows = ch_client.query(f"""
+            # ── Latest premium: absolute latest row in DB (no date filter) ────
+            latest_rows = ch_client.query(
+                """
+                SELECT argMax(premium_discount_pct, snapshot_at) AS premium
+                FROM market_data.inav_snapshots
+                WHERE symbol = {sym:String}
+                """,
+                parameters={"sym": sym},
+            ).result_rows
+
+            if not latest_rows or latest_rows[0][0] is None:
+                result["error"] = "No snapshot found"
+                results.append(result)
+                continue
+
+            latest_prem = float(latest_rows[0][0])
+            result["latest_premium"] = round(latest_prem, 4)
+
+            # ── Historical premium in hourly buckets (for mean/std) ───────────
+            hist_rows = ch_client.query(
+                """
                 SELECT
                     toStartOfHour(snapshot_at)                AS hour_bucket,
                     argMax(premium_discount_pct, snapshot_at) AS premium
                 FROM market_data.inav_snapshots
-                WHERE symbol = '{sym}'
-                  AND snapshot_at >= toDateTime('{cutoff} 00:00:00')
+                WHERE symbol = {sym:String}
+                  AND snapshot_at >= toDateTime({cutoff:String})
                 GROUP BY hour_bucket
                 ORDER BY hour_bucket ASC
-            """).result_rows
+                """,
+                parameters={"sym": sym, "cutoff": f"{cutoff} 00:00:00"},
+            ).result_rows
 
             n = len(hist_rows)
             result["n_snapshots"] = n
@@ -196,24 +217,12 @@ def scan_domestic_etfs(
             result["std_premium"]  = round(std_prem, 4)
 
             if std_prem < 1e-8:
-                result["error"] = "Std ≈ 0 (premium is perfectly flat)"
+                # Flat premium — market holiday or no intraday movement.
+                result["signal"]       = "⚪ FLAT PREMIUM"
+                result["signal_style"] = "dim"
+                result["error"]        = "Spread is constant — likely a market holiday or stale iNAV"
                 results.append(result)
                 continue
-
-            # ── Latest premium ────────────────────────────────────────────────
-            latest_rows = ch_client.query(f"""
-                SELECT argMax(premium_discount_pct, snapshot_at) AS premium
-                FROM market_data.inav_snapshots
-                WHERE symbol = '{sym}'
-            """).result_rows
-
-            if not latest_rows or latest_rows[0][0] is None:
-                result["error"] = "No snapshot found"
-                results.append(result)
-                continue
-
-            latest_prem = float(latest_rows[0][0])
-            result["latest_premium"] = round(latest_prem, 4)
 
             # ── Z-score and signal classification ────────────────────────────
             z = (latest_prem - mean_prem) / std_prem

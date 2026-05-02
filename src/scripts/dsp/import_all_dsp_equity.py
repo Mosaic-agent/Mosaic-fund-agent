@@ -170,7 +170,7 @@ def process_month(as_of_str, url):
         shutil.rmtree(temp_dir)
     temp_dir.mkdir()
 
-    full_url = BASE_URL + url
+    full_url = url if url.startswith("http") else BASE_URL + url
     xl_path = download_and_extract(full_url, temp_dir)
     if not xl_path:
         return []

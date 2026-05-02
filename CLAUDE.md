@@ -112,4 +112,11 @@ Database: `market_data`. Tables are auto-created on first import (DDL in `src/im
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks when blocked. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
 - **Output files:** Reports written to `./output/` as JSON.
-- **`scripts/`:** Standalone analysis scripts (DSP reverse-engineering, portfolio backup, opportunity scanner). Run independently with `python scripts/<name>.py`.
+- **`src/scripts/`:** Standalone analysis scripts organised by domain. Run from the project root: `python src/scripts/<subdir>/<name>.py`.
+  - `dsp/` — DSP AMC import, analysis, and backtests
+  - `fund_imports/` — Factory-pattern AMC importers; run via `python src/scripts/fund_imports/run.py <icici|nippon|icici-index|all> [--dry-run] [--test]`. `base.py` has the `BaseFundImporter` ABC; `importers/` has one class per AMC; `factory.py` has `create_importer(name)`.
+  - `etf/` — ETF comparison, CAGR validation, risk analysis
+  - `ml/` — ML prediction backfill and evaluation
+  - `portfolio/` — portfolio tracking, health checks, opportunity scan
+  - `market/` — macro themes, FII/DII, metals, sentiment, whale tracker
+  - `db/` — ClickHouse backup, restore, and sanity checks

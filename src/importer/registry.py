@@ -146,13 +146,15 @@ MF_SCHEME_CODES: dict[str, str] = {
     "MONQ50":     "149438",
 }
 
-# Watchlist for MF portfolio holdings tracker
+# Watchlist for MF portfolio holdings via Morningstar sal-service API.
+# Only include AMCs that do NOT have a dedicated importer in src/scripts/fund_imports/.
+# Excluded (have own importers):
+#   DSP_*   → src/scripts/dsp/import_all_dsp_equity.py + import_latest_dsp.py
+#   ICICI_* → src/scripts/fund_imports/importers/icici_mf.py  (IciciMFImporter)
+#   NIPPON_*/RELIANCE_*/NIMF_* → src/scripts/fund_imports/importers/nippon.py
 # Each entry: (amfi_scheme_code, short_name, isin_growth)
 MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
-    ("152056", "DSP_MULTI_ASSET",   "INF740KA1TE9"),
-    ("154167", "DSP_MULTI_ASSET_OMNI_FOF", "INF740KA1YE9"),
     ("120821", "QUANT_MULTI_ASSET", "INF966L01580"),
-    ("120334", "ICICI_MULTI_ASSET", "INF109K015K4"),
     ("152639", "BAJAJ_MULTI_ASSET", "INF0QA701821"),
 ]
 
@@ -169,12 +171,21 @@ CATEGORY_MAP: dict[str, list[tuple[str, str]]] = {
 
 # Symbols for which NSE live iNAV snapshots are captured
 INAV_SYMBOLS: list[str] = [
-    "GOLDBEES", "NIFTYBEES", "BANKBEES", "JUNIORBEES", "LIQUIDBEES",
-    "SILVERBEES", "HNGSNGBEES", "PSUBNKBEES", "MAFANG",
-    "HDFCNIFTY", "SETFNIF50", "ICICIB22", "MON100", "MAHKTECH", "MASPTOP50",
+    # ── Domestic ETFs (scanned by Domestic ETF Premium/Discount Scanner) ──────
+    "GOLDBEES",   "NIFTYBEES",  "BANKBEES",   "JUNIORBEES", "LIQUIDBEES",
+    "SILVERBEES", "PSUBNKBEES", "HDFCNIFTY",  "SETFNIF50",  "ICICIB22",
+    "LIQUIDCASE", "CPSEETF",    "ITBEES",     "MID150BEES", "MONIFTY500",
+    "GILT5YBEES", "PHARMABEES", "AUTOBEES",   "FMCGIETF",   "SMALL250",
+    # ── International ETFs (scanned by Intl ETF Scarcity Premium Alerts) ─────
+    "HNGSNGBEES", "MAFANG",     "MON100",     "MAHKTECH",   "MASPTOP50",  "MONQ50",
 ]
 
-ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + ["mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings", "fii_dii", "earnings", "insider", "valuation"]
+ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + [
+    "mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings",
+    "fii_dii", "earnings", "insider", "valuation",
+    # AMC fund-holdings importers (factory pattern in src/scripts/fund_imports/)
+    "icici", "nippon", "icici-index",
+]
 
 
 def get_symbols_for_categories(categories: list[str]) -> dict[str, list[tuple[str, str]]]:

@@ -2958,9 +2958,11 @@ with tab_etf_scan:
 
     col_ctrl, col_run = st.columns([2, 1])
     with col_ctrl:
-        lookback_days = st.slider("Lookback window (days)", 7, 90, 30, key="etfscan_lookback")
-        z_threshold   = st.slider("Z-score threshold", 0.5, 3.0, 1.5, step=0.25, key="etfscan_z")
-        custom_syms   = st.text_input(
+        lookback_days  = st.slider("Lookback window (days)", 7, 90, 30, key="etfscan_lookback")
+        z_threshold    = st.slider("Z-score threshold", 0.5, 3.0, 1.5, step=0.25, key="etfscan_z")
+        min_snapshots  = st.number_input("Min hourly buckets required", 1, 50, 3, 1, key="etfscan_min_snaps",
+                                         help="Lower this if data is still building up (import runs recently)")
+        custom_syms    = st.text_input(
             "Custom symbols (comma-separated, leave blank for default)",
             value="",
             key="etfscan_syms",
@@ -2987,16 +2989,17 @@ with tab_etf_scan:
 
         with st.spinner(f"Computing Z-scores for {len(sym_list)} symbols…"):
             try:
-                results = scan_domestic_etfs(
-                    ch_client=_get_client(),
-                    symbols=sym_list,
-                    lookback_days=lookback_days,
-                    z_high=z_threshold,
-                    z_low=-z_threshold,
-                    z_mild_high=z_threshold - 0.5,
-                    z_mild_low=-(z_threshold - 0.5),
-                    min_snapshots=5,
-                )
+                with _get_pool().acquire() as _scan_client:
+                    results = scan_domestic_etfs(
+                        ch_client=_scan_client,
+                        symbols=sym_list,
+                        lookback_days=lookback_days,
+                        z_high=z_threshold,
+                        z_low=-z_threshold,
+                        z_mild_high=z_threshold - 0.5,
+                        z_mild_low=-(z_threshold - 0.5),
+                        min_snapshots=int(min_snapshots),
+                    )
             except Exception as exc:
                 st.error(f"Scan failed: {exc}")
                 st.stop()
@@ -3224,16 +3227,20 @@ with tab_etf_scan:
                 _pa_buy   = [r for r in _pa_results if "SCREAMING" in r["action"]]
                 _pa_entry = [r for r in _pa_results if "ENTRY"     in r["action"]]
                 _pa_noact = [r for r in _pa_results if "NO ACTION" in r["action"]]
+                _pa_flat  = [r for r in _pa_results if "FLAT"      in r["action"]]
 
-                _sc1, _sc2, _sc3 = st.columns(3)
+                _sc1, _sc2, _sc3, _sc4 = st.columns(4)
                 _sc1.metric("🟢 SCREAMING BUY", len(_pa_buy))
                 _sc2.metric("🟡 GOOD ENTRY",    len(_pa_entry))
                 _sc3.metric("🔴 NO ACTION",      len(_pa_noact))
+                _sc4.metric("⚪ FLAT PREMIUM",   len(_pa_flat),
+                            help="Market holiday or stale iNAV — no spread variation")
 
-                # ── Z-score bar chart ─────────────────────────────────────────
+                # ── Z-score bar chart (only symbols with a computed z-score) ──
                 import plotly.graph_objects as _go_pa
 
-                _valid = [r for r in _pa_results if r["z_score"] is not None]
+                _valid      = [r for r in _pa_results if r["z_score"]        is not None]
+                _has_prem   = [r for r in _pa_results if r["latest_premium"] is not None]
                 if _valid:
                     _bar_colors = []
                     for _r in _valid:
@@ -3294,22 +3301,29 @@ with tab_etf_scan:
                     )
                     st.plotly_chart(_fig_pa, use_container_width=True)
 
-                # ── Premium level chart (latest vs mean) ──────────────────────
-                if _valid:
+                # ── Premium level chart (all symbols with premium data) ───────
+                if _has_prem:
+                    _prem_colors = []
+                    for _r in _has_prem:
+                        if "SCREAMING" in _r["action"]:  _prem_colors.append("#4CAF50")
+                        elif "ENTRY"   in _r["action"]:  _prem_colors.append("#FFC107")
+                        elif "FLAT"    in _r["action"]:  _prem_colors.append("#90A4AE")
+                        else:                            _prem_colors.append("#F44336")
+
                     _fig_prem = _go_pa.Figure()
                     _fig_prem.add_trace(_go_pa.Bar(
                         name=f"{_pa_lookback}d Avg Premium",
-                        x=[r["symbol"]       for r in _valid],
-                        y=[r["mean_premium"] for r in _valid],
+                        x=[r["symbol"]       for r in _has_prem],
+                        y=[r["mean_premium"] for r in _has_prem],
                         marker_color="#90A4AE",
                         opacity=0.6,
                     ))
                     _fig_prem.add_trace(_go_pa.Scatter(
                         name="Latest Premium",
-                        x=[r["symbol"]         for r in _valid],
-                        y=[r["latest_premium"] for r in _valid],
+                        x=[r["symbol"]         for r in _has_prem],
+                        y=[r["latest_premium"] for r in _has_prem],
                         mode="markers",
-                        marker=dict(size=14, color=_bar_colors, symbol="diamond"),
+                        marker=dict(size=14, color=_prem_colors, symbol="diamond"),
                     ))
                     _fig_prem.update_layout(
                         title="Latest Premium vs 30d Average  (diamond = today, bar = mean)",
@@ -3952,7 +3966,7 @@ with tab_kite:
                 elif len(wealth_df) == 1:
                     st.info("Wealth tracking started today. Chart will appear after the next sync.")
                 else:
-                    st.info("No wealth history yet. Run `scripts/track_wealth_history.py` daily.")
+                    st.info("No wealth history yet. Run `src/scripts/portfolio/track_wealth_history.py` daily.")
             except Exception as e:
                 st.warning(f"Wealth chart unavailable: {e}")
 
@@ -4341,12 +4355,13 @@ with tab_deepdive:
                 @st.cache_data(ttl=30)
                 def _load_report_sections(ticker: str, rdate: str) -> dict[str, str]:
                     try:
-                        r = _get_client().query(
-                            "SELECT section_key, content_md "
-                            "FROM market_data.deepdive_reports FINAL "
-                            "WHERE ticker = {t:String} AND report_date = {d:Date}",
-                            parameters={"t": ticker, "d": rdate},
-                        )
+                        with _get_pool().acquire() as _c:
+                            r = _c.query(
+                                "SELECT section_key, content_md "
+                                "FROM market_data.deepdive_reports FINAL "
+                                "WHERE ticker = {t:String} AND report_date = {d:Date}",
+                                parameters={"t": ticker, "d": rdate},
+                            )
                         return {row[0]: row[1] for row in r.result_rows}
                     except Exception:
                         return {}

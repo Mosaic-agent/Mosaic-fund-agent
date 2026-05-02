@@ -14,7 +14,7 @@ def test_macro_theme_agent():
     print("TEST: Long/Short Macro Theme Agent")
     print("="*60)
     
-    from scripts.macro_theme_agent import run_macro_theme_agent, MacroThemeReport
+    from src.scripts.market.macro_theme_agent import run_macro_theme_agent, MacroThemeReport
     
     print("  Fetching macro themes (max 1 per theme)...")
     report = run_macro_theme_agent(max_per_theme=1)
