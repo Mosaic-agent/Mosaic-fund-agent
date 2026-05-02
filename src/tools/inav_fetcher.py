@@ -49,6 +49,14 @@ KNOWN_ETF_SYMBOLS: set[str] = {
     # International / thematic ETFs
     "MAFANG",     # Mirae Asset NYSE FANG+ ETF
     "MAHKTECH",   # Mirae Asset Hang Seng TECH ETF
+    # Motilal Oswal international ETFs (often at large premium due to SEBI overseas cap)
+    "MON100",     # Motilal Oswal NASDAQ 100 ETF
+    "MASPTOP50",  # Motilal Oswal S&P 500 Top 50 ETF
+    "MONQ50",     # Motilal Oswal NASDAQ Q-50 ETF
+    "MONIFTY500", # Motilal Oswal Nifty 500 ETF
+    "MONIFTY100", # Motilal Oswal Nifty 100 ETF
+    "MONEXT50",   # Motilal Oswal Nifty Next 50 ETF
+    "MON50EQUAL", # Motilal Oswal Nifty 50 Equal Weight ETF
     # Zerodha Case series
     "LIQUIDCASE", "GOLDCASE", "SILVERCASE",
 }
@@ -85,17 +93,55 @@ def _clean(symbol: str) -> str:
     return symbol.upper().replace(".NS", "").replace(".BO", "").strip()
 
 
+def _nse_etf_symbols() -> frozenset[str]:
+    """
+    Return the set of all ETF symbols listed on NSE by loading the live API.
+
+    Result is cached in _NSE_ETF_CACHE for the process lifetime so the
+    network call only happens once.  Falls back to KNOWN_ETF_SYMBOLS if the
+    NSE API is unreachable.
+    """
+    global _NSE_ETF_CACHE, _NSE_CACHE_LOADED
+    if not _NSE_CACHE_LOADED:
+        try:
+            with httpx.Client(
+                headers=_NSE_HEADERS,
+                follow_redirects=True,
+                timeout=12,
+            ) as client:
+                client.get(_NSE_WARMUP_URL, timeout=10)
+                time.sleep(0.5)
+                resp = client.get(_NSE_ETF_URL, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                _NSE_ETF_CACHE = data.get("data", []) if isinstance(data, dict) else data
+                _NSE_CACHE_LOADED = True
+                logger.info("NSE ETF list loaded: %d symbols", len(_NSE_ETF_CACHE))
+        except Exception as exc:
+            logger.warning("NSE ETF list unavailable (%s) — falling back to static set", exc)
+            return frozenset(KNOWN_ETF_SYMBOLS)
+    return frozenset(str(r.get("symbol", "")).upper() for r in _NSE_ETF_CACHE)
+
+
 def is_etf(symbol: str) -> bool:
     """
-    Return True if `symbol` is a known or detectable Indian ETF.
+    Return True if `symbol` is a listed Indian ETF.
 
-    First checks the static KNOWN_ETF_SYMBOLS set (fast, offline).
-    Falls back to asking Yahoo Finance quoteType for unknown symbols.
+    Check order (first match wins):
+      1. NSE ETF API — authoritative; covers all 320+ listed ETFs including
+         newly-listed ones (e.g. MON100, MASPTOP50) that Yahoo misclassifies.
+      2. Static KNOWN_ETF_SYMBOLS — fast offline fallback if NSE is down.
+      3. Yahoo Finance quoteType — last resort; unreliable for Indian ETFs
+         (returns "EQUITY" for many NSE ETFs).
     """
     clean = _clean(symbol)
+    # 1. NSE authoritative list
+    if clean in _nse_etf_symbols():
+        return True
+    # 2. Static whitelist (offline guard)
     if clean in KNOWN_ETF_SYMBOLS:
         return True
-    # Unknown symbol — ask Yahoo Finance
+    # 3. Yahoo fallback (least reliable)
     try:
         qt = yf.Ticker(f"{clean}.NS").info.get("quoteType", "")
         return qt.upper() == "ETF"
@@ -117,23 +163,9 @@ def _fetch_inav_nse(symbol: str) -> Optional[tuple[float, float]]:
     """
     global _NSE_ETF_CACHE, _NSE_CACHE_LOADED
     try:
+        # Reuse the cache populated by _nse_etf_symbols(); load it if not yet done
         if not _NSE_CACHE_LOADED:
-            with httpx.Client(
-                headers=_NSE_HEADERS,
-                follow_redirects=True,
-                timeout=12,
-            ) as client:
-                client.get(_NSE_WARMUP_URL, timeout=10)
-                time.sleep(0.5)
-                resp = client.get(_NSE_ETF_URL, timeout=10)
-                resp.raise_for_status()
-                data = resp.json()
-                if isinstance(data, dict):
-                    _NSE_ETF_CACHE = data.get("data") or []
-                elif isinstance(data, list):
-                    _NSE_ETF_CACHE = data
-                _NSE_CACHE_LOADED = True
-                logger.info("NSE ETF list cached: %d ETFs", len(_NSE_ETF_CACHE))
+            _nse_etf_symbols()   # populates _NSE_ETF_CACHE as a side-effect
 
         # Filter from cache by symbol
         clean_sym = symbol.upper()

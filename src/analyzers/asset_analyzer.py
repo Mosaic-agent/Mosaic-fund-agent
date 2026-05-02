@@ -25,6 +25,7 @@ from src.models.portfolio import (
     YahooFinanceData,
 )
 from src.tools.earnings_scraper import fetch_from_screener, fetch_from_yahoo_financials
+from src.tools.garch_position_sizer import size_position
 from src.tools.inav_fetcher import get_etf_inav, is_etf
 from src.tools.historic_inav import get_historic_inav
 from src.tools.news_search import fetch_news_for_symbol
@@ -137,6 +138,24 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
 
     llm_result = summarize_asset(asset_payload)
 
+    # ── Step 6: GARCH position sizing ─────────────────────────────────────────
+    risk_decision_data: dict | None = None
+    try:
+        rd = size_position(symbol, exchange)
+        if rd is not None:
+            risk_decision_data = {
+                "garch_vol_pct":      rd.garch_annual_vol_pct,
+                "vol_target_pct":     rd.vol_target_pct,
+                "regime":             rd.regime,
+                "recommended_weight": rd.final_weight,
+                "tier":               rd.tier,
+                "tier_label":         rd.tier_label,
+                "price_below_ema50":  rd.trend_mult < 1.0,
+                "alerts":             rd.alerts,
+            }
+    except Exception as exc:
+        logger.warning("Risk governor failed for %s: %s", symbol, exc)
+
     # ── Build AssetAnalysis model ─────────────────────────────────────────────
     return AssetAnalysis(
         symbol=symbol,
@@ -153,6 +172,7 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
         quarterly_result=quarterly,
         inav_data=inav_data,
         historic_inav_data=historic_inav_data,
+        risk_decision=risk_decision_data,
         sentiment_score=float(llm_result.get("sentiment_score", 0.0)),
         risk_score=float(llm_result.get("risk_score", 5.0)),
         summary=llm_result.get("summary", ""),

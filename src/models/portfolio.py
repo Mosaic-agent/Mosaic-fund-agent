@@ -192,6 +192,16 @@ class AssetAnalysis(BaseModel):
         description="30-day historic iNAV from AMFI + Yahoo Finance. Includes sparkline, trend, avg P/D. None for stocks.",
     )
 
+    # GARCH-based position sizing
+    risk_decision: dict | None = Field(
+        default=None,
+        description=(
+            "Volatility-targeted position sizing from risk_governor. "
+            "Keys: garch_vol_pct, vol_target_pct, regime, recommended_weight, tier, "
+            "tier_label, price_below_ema50, alerts."
+        ),
+    )
+
     # AI-generated scores
     sentiment_score: float = Field(
         default=0.0,
