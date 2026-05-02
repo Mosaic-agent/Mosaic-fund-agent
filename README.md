@@ -169,6 +169,12 @@ See [docs/import-schema.md](docs/import-schema.md) for all categories, the full 
 
 ---
 
+## Latest Reports
+
+- **[INR Hedge & Taxation Report](https://htmlpreview.github.io/?https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/output/inr_hedge_report.html)** — Comprehensive analysis of INR hedging strategies and current FoF taxation rules (Budget 2024 updates).
+
+---
+
 ## Project Structure
 
 ```
