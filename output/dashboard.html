@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Portfolio Insight Dashboard</title>
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React + ReactDOM (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel standalone for JSX transpilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: "#0f172a",
+            card:    "#1e293b",
+            border:  "#334155",
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background:#0f172a; color:#f1f5f9; font-family:'Inter',sans-serif; }
+    .scrollbar-thin::-webkit-scrollbar{width:4px;height:4px}
+    .scrollbar-thin::-webkit-scrollbar-track{background:#1e293b}
+    .scrollbar-thin::-webkit-scrollbar-thumb{background:#475569;border-radius:4px}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+  window.__PORTFOLIO_DATA__ = {
+  "generated_at": "2026-04-13T16:26:35.399322",
+  "portfolio_summary": {
+    "total_value": 85920.4,
+    "total_invested": 76750.0,
+    "total_pnl": 9170.4,
+    "total_pnl_percent": 11.95,
+    "health_score": 50.0,
+    "diversification_score": 50.0,
+    "num_holdings": 5,
+    "etf_count": 2,
+    "stock_count": 3,
+    "etf_allocation_pct": 58.93,
+    "direct_equity_allocation_pct": 41.07
+  },
+  "sector_data": [
+    {
+      "name": "Commodity ETF",
+      "value": 43.26
+    },
+    {
+      "name": "Index ETF",
+      "value": 15.67
+    },
+    {
+      "name": "Energy",
+      "value": 15.31
+    },
+    {
+      "name": "Financial Services",
+      "value": 13.87
+    },
+    {
+      "name": "Technology",
+      "value": 11.89
+    }
+  ],
+  "holdings": [
+    {
+      "symbol": "GOLDBEES",
+      "exchange": "NSE",
+      "instrument_type": "ETF",
+      "quantity": 300,
+      "average_buy_price": 48.0,
+      "current_price": 123.89,
+      "invested_value_inr": 14400.0,
+      "current_value_inr": 37167.0,
+      "pnl_percent": 29.17,
+      "sector": "Commodity ETF",
+      "sentiment_score": 0.0,
+      "risk_score": 5.0,
+      "summary": "Analysis could not be completed.",
+      "key_insights": [],
+      "risk_signals": [
+        "LLM analysis failed",
+        "COMEX 🥇Gold (XAU) BEARISH -0.85% — pre-market headwind for GOLDBEES"
+      ],
+      "recommendation": "HOLD",
+      "comex_linked_commodities": [
+        "XAU"
+      ],
+      "inav_analysis": {
+        "inav": 123.5201,
+        "market_price": 123.89,
+        "premium_discount_pct": 0.3,
+        "label": "PREMIUM"
+      },
+      "historic_records": [
+        {
+          "date": "2026-03-16",
+          "nav": 127.4494,
+          "market_close": 127.22,
+          "pct": -0.18,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-03-17",
+          "nav": 128.1796,
+          "market_close": 128.22,
+          "pct": 0.03,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-03-18",
+          "nav": 127.6079,
+          "market_close": 127.91,
+          "pct": 0.24,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-03-19",
+          "nav": 121.7709,
+          "market_close": 121.32,
+          "pct": -0.37,
+          "label": "DISCOUNT"
+        },
+        {
+          "date": "2026-03-20",
+          "nav": 121.136,
+          "market_close": 121.06,
+          "pct": -0.06,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-03-23",
+          "nav": 112.3565,
+          "market_close": 110.72,
+          "pct": -1.46,
+          "label": "DISCOUNT"
+        },
+        {
+          "date": "2026-03-24",
+          "nav": 115.9806,
+          "market_close": 115.49,
+          "pct": -0.42,
+          "label": "DISCOUNT"
+        },
+        {
+          "date": "2026-03-25",
+          "nav": 119.6137,
+          "market_close": 119.29,
+          "pct": -0.27,
+          "label": "DISCOUNT"
+        },
+        {
+          "date": "2026-03-27",
+          "nav": 117.6266,
+          "market_close": 117.53,
+          "pct": -0.08,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-03-30",
+          "nav": 120.6911,
+          "market_close": 121.19,
+          "pct": 0.41,
+          "label": "PREMIUM"
+        },
+        {
+          "date": "2026-04-01",
+          "nav": 123.915,
+          "market_close": 123.37,
+          "pct": -0.44,
+          "label": "DISCOUNT"
+        },
+        {
+          "date": "2026-04-02",
+          "nav": 120.6544,
+          "market_close": 120.58,
+          "pct": -0.06,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-04-06",
+          "nav": 122.4444,
+          "market_close": 122.81,
+          "pct": 0.3,
+          "label": "PREMIUM"
+        },
+        {
+          "date": "2026-04-07",
+          "nav": 121.4247,
+          "market_close": 121.78,
+          "pct": 0.29,
+          "label": "PREMIUM"
+        },
+        {
+          "date": "2026-04-08",
+          "nav": 124.1901,
+          "market_close": 124.39,
+          "pct": 0.16,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-04-09",
+          "nav": 123.3418,
+          "market_close": 123.21,
+          "pct": -0.11,
+          "label": "FAIR VALUE"
+        },
+        {
+          "date": "2026-04-10",
+          "nav": 123.5201,
+          "market_close": 123.49,
+          "pct": -0.02,
+          "label": "FAIR VALUE"
+        }
+      ],
+      "latest_results": {
+        "period": "",
+        "revenue_cr": 0.0,
+        "net_profit_cr": 0.0,
+        "eps": 0.0,
+        "revenue_yoy_pct": 0.0,
+        "profit_yoy_pct": 0.0
+      }
+    },
+    {
+      "symbol": "RELIANCE",
+      "exchange": "NSE",
+      "instrument_type": "STOCK",
+      "quantity": 10,
+      "average_buy_price": 1350.0,
+      "current_price": 1315.1,
+      "invested_value_inr": 13500.0,
+      "current_value_inr": 13151.0,
+      "pnl_percent": 5.14,
+      "sector": "Energy",
+      "sentiment_score": 0.0,
+      "risk_score": 5.0,
+      "summary": "Analysis could not be completed.",
+      "key_insights": [],
+      "risk_signals": [
+        "LLM analysis failed"
+      ],
+      "recommendation": "HOLD",
+      "comex_linked_commodities": [],
+      "inav_analysis": null,
+      "historic_records": [],
+      "latest_results": {
+        "period": "Dec 2025",
+        "revenue_cr": 264905.0,
+        "net_profit_cr": 22290.0,
+        "eps": 13.78,
+        "revenue_yoy_pct": 10.38,
+        "profit_yoy_pct": 1.64
+      }
+    },
+    {
+      "symbol": "HDFCBANK",
+      "exchange": "NSE",
+      "instrument_type": "STOCK",
+      "quantity": 15,
+      "average_buy_price": 1550.0,
+      "current_price": 794.7,
+      "invested_value_inr": 23250.0,
+      "current_value_inr": 11920.5,
+      "pnl_percent": 10.32,
+      "sector": "Financial Services",
+      "sentiment_score": 0.0,
+      "risk_score": 5.0,
+      "summary": "Analysis could not be completed.",
+      "key_insights": [],
+      "risk_signals": [
+        "LLM analysis failed"
+      ],
+      "recommendation": "HOLD",
+      "comex_linked_commodities": [],
+      "inav_analysis": null,
+      "historic_records": [],
+      "latest_results": {
+        "period": "Dec 2025",
+        "revenue_cr": 87067.0,
+        "net_profit_cr": 20691.0,
+        "eps": 12.87,
+        "revenue_yoy_pct": 2.38,
+        "profit_yoy_pct": 12.82
+      }
+    },
+    {
+      "symbol": "INFY",
+      "exchange": "NSE",
+      "instrument_type": "STOCK",
+      "quantity": 8,
+      "average_buy_price": 1700.0,
+      "current_price": 1276.8,
+      "invested_value_inr": 13600.0,
+      "current_value_inr": 10214.4,
+      "pnl_percent": 8.82,
+      "sector": "Technology",
+      "sentiment_score": 0.0,
+      "risk_score": 5.0,
+      "summary": "Analysis could not be completed.",
+      "key_insights": [],
+      "risk_signals": [
+        "LLM analysis failed"
+      ],
+      "recommendation": "HOLD",
+      "comex_linked_commodities": [],
+      "inav_analysis": null,
+      "historic_records": [],
+      "latest_results": {
+        "period": "Dec 2025",
+        "revenue_cr": 45479.0,
+        "net_profit_cr": 6666.0,
+        "eps": 16.41,
+        "revenue_yoy_pct": 8.9,
+        "profit_yoy_pct": -2.29
+      }
+    },
+    {
+      "symbol": "NIFTYBEES",
+      "exchange": "NSE",
+      "instrument_type": "ETF",
+      "quantity": 50,
+      "average_buy_price": 240.0,
+      "current_price": 269.35,
+      "invested_value_inr": 12000.0,
+      "current_value_inr": 13467.5,
+      "pnl_percent": 6.25,
+      "sector": "Index ETF",
+      "sentiment_score": 0.0,
+      "risk_score": 5.0,
+      "summary": "Analysis could not be completed.",
+      "key_insights": [],
+      "risk_signals": [
+        "LLM analysis failed"
+      ],
+      "recommendation": "HOLD",
+      "comex_linked_commodities": [],
+      "inav_analysis": {
+        "inav": 272.1085,
+        "market_price": 269.35,
+        "premium_discount_pct": -1.01,
+        "label": "DISCOUNT"
+      },
+      "historic_records": [],
+      "latest_results": {
+        "period": "",
+        "revenue_cr": 0.0,
+        "net_profit_cr": 0.0,
+        "eps": 0.0,
+        "revenue_yoy_pct": 0.0,
+        "profit_yoy_pct": 0.0
+      }
+    }
+  ],
+  "comex": {
+    "overall_signal": "BEARISH",
+    "summary": "↑ BULLISH: XPD (+1.50%)  |  ↓ BEARISH: XAU (-0.85%), XAG (-2.42%), XPT (-0.35%), HG (-1.77%)",
+    "run_time_ist": "2026-04-13 16:26:29 IST",
+    "pre_market": false,
+    "commodities": [
+      {
+        "symbol": "XAU",
+        "name": "Gold",
+        "emoji": "🥇",
+        "signal": "BEARISH",
+        "change_pct": -0.848,
+        "live_price": 4721.5,
+        "prev_close": 4761.899902,
+        "unit": "USD/troy oz",
+        "nse_etfs": [
+          "GOLDBEES",
+          "KOTAKGOLD",
+          "HDFCGOLD",
+          "ICICIGOLD"
+        ],
+        "colour": "#f97316"
+      },
+      {
+        "symbol": "XAG",
+        "name": "Silver",
+        "emoji": "🥈",
+        "signal": "STRONG BEARISH",
+        "change_pct": -2.419,
+        "live_price": 74.477997,
+        "prev_close": 76.323997,
+        "unit": "USD/troy oz",
+        "nse_etfs": [
+          "SILVERBEES"
+        ],
+        "colour": "#ef4444"
+      },
+      {
+        "symbol": "XPT",
+        "name": "Platinum",
+        "emoji": "⚪",
+        "signal": "BEARISH",
+        "change_pct": -0.346,
+        "live_price": 2042.0,
+        "prev_close": 2049.100098,
+        "unit": "USD/troy oz",
+        "nse_etfs": [],
+        "colour": "#f97316"
+      },
+      {
+        "symbol": "XPD",
+        "name": "Palladium",
+        "emoji": "⚡",
+        "signal": "STRONG BULLISH",
+        "change_pct": 1.499,
+        "live_price": 1551.0,
+        "prev_close": 1528.099976,
+        "unit": "USD/troy oz",
+        "nse_etfs": [],
+        "colour": "#22c55e"
+      },
+      {
+        "symbol": "HG",
+        "name": "Copper",
+        "emoji": "🔷",
+        "signal": "STRONG BEARISH",
+        "change_pct": -1.768,
+        "live_price": 5.766671,
+        "prev_close": 5.8705,
+        "unit": "USD/lb",
+        "nse_etfs": [
+          "VEDL",
+          "HINDALCO"
+        ],
+        "colour": "#ef4444"
+      }
+    ]
+  },
+  "portfolio_risks": [
+    "Portfolio analysis could not be completed."
+  ],
+  "actionable_insights": [],
+  "rebalancing_signals": []
+};
+</script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Auto-refresh hook ──────────────────────────────────────────
+const REFRESH_SECS = 300;  // 5 minutes
+
+function useCountdown() {
+  const [secs, setSecs] = useState(REFRESH_SECS);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecs(s => {
+        if (s <= 1) { location.reload(); return REFRESH_SECS; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  const m = String(Math.floor(secs / 60)).padStart(2, '0');
+  const s = String(secs % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+const DATA = window.__PORTFOLIO_DATA__;
+
+// ── helpers ────────────────────────────────────────────────────────────────
+const fmt_inr = (n) => new Intl.NumberFormat('en-IN', {
+  style:'currency', currency:'INR', maximumFractionDigits:2
+}).format(n);
+
+const fmt_pct = (n, always_sign=false) =>
+  (always_sign && n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+
+const rec_color = {
+  BUY:  '#22c55e',
+  SELL: '#ef4444',
+  HOLD: '#facc15',
+};
+
+const signal_color = (s='') => {
+  const m = {
+    'STRONG BULLISH': '#22c55e',
+    'BULLISH':        '#86efac',
+    'NEUTRAL':        '#facc15',
+    'BEARISH':        '#f97316',
+    'STRONG BEARISH': '#ef4444',
+  };
+  return m[s.toUpperCase()] || '#a1a1aa';
+};
+
+const risk_color = (score) => {
+  if (score >= 8) return '#ef4444';
+  if (score >= 6) return '#f97316';
+  if (score >= 4) return '#facc15';
+  return '#22c55e';
+};
+
+// ── MetricCard ─────────────────────────────────────────────────────────────
+function MetricCard({ label, value, sub, colour }) {
+  return (
+    <div className="bg-card rounded-2xl p-5 border border-border flex flex-col gap-1 shadow">
+      <span className="text-xs text-slate-400 uppercase tracking-widest">{label}</span>
+      <span className="text-2xl font-bold" style={{ color: colour || '#f1f5f9' }}>{value}</span>
+      {sub && <span className="text-xs text-slate-500">{sub}</span>}
+    </div>
+  );
+}
+
+// ── SectionTitle ───────────────────────────────────────────────────────────
+function SectionTitle({ children }) {
+  return (
+    <h2 className="text-lg font-bold text-slate-200 border-l-4 border-indigo-500 pl-3 mb-4">
+      {children}
+    </h2>
+  );
+}
+
+// ── COMEX Panel ────────────────────────────────────────────────────────────
+function ComexPanel({ comex }) {
+  if (!comex || !comex.commodities.length) return null;
+  const overall_col = signal_color(comex.overall_signal);
+  return (
+    <div className="bg-card rounded-2xl p-5 border border-border">
+      <div className="flex items-center justify-between mb-4">
+        <SectionTitle>🌍 COMEX Pre-Market Signals</SectionTitle>
+        <span className="text-xs px-2 py-1 rounded-full font-semibold"
+          style={{ background: overall_col + '22', color: overall_col, border:`1px solid ${overall_col}` }}>
+          {comex.overall_signal}
+        </span>
+      </div>
+      <p className="text-xs text-slate-400 mb-1">{comex.summary}</p>
+      {comex.run_time_ist &&
+        <p className="text-xs text-slate-600 mb-3">Updated: {comex.run_time_ist}{comex.pre_market ? ' (pre-market)' : ''}</p>}
+
+      <div className="overflow-x-auto scrollbar-thin">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-slate-400 border-b border-border">
+              <th className="text-left pb-2 pr-4">Commodity</th>
+              <th className="text-right pb-2 pr-4">Live Price</th>
+              <th className="text-right pb-2 pr-4">Change</th>
+              <th className="text-center pb-2 pr-4">Signal</th>
+              <th className="text-left pb-2">NSE ETFs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {comex.commodities.map(c => {
+              const col = signal_color(c.signal);
+              return (
+                <tr key={c.symbol} className="border-b border-border/50 hover:bg-slate-800/30 transition">
+                  <td className="py-2 pr-4 font-medium">
+                    {c.emoji} {c.name} <span className="text-slate-500 text-xs">({c.symbol})</span>
+                  </td>
+                  <td className="py-2 pr-4 text-right text-slate-300">
+                    ${c.live_price.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:4})}
+                    <span className="text-xs ml-1 text-slate-500">{c.unit}</span>
+                  </td>
+                  <td className="py-2 pr-4 text-right font-semibold" style={{color:col}}>
+                    {fmt_pct(c.change_pct, true)}
+                  </td>
+                  <td className="py-2 pr-4 text-center">
+                    <span className="text-xs px-2 py-0.5 rounded-full"
+                      style={{background: col+'22', color:col, border:`1px solid ${col}`}}>
+                      {c.signal}
+                    </span>
+                  </td>
+                  <td className="py-2 text-xs text-slate-400">
+                    {c.nse_etfs.length ? c.nse_etfs.join(', ') : <span className="text-slate-600">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Sector Allocation Bar Chart (pure SVG) ────────────────────────────────
+const SECTOR_COLORS = [
+  '#6366f1','#22d3ee','#f59e0b','#10b981',
+  '#ec4899','#8b5cf6','#f97316','#14b8a6',
+];
+
+function SvgSectorChart({ data }) {
+  const ROW_H = 30, GAP = 8, LABEL_W = 150, BAR_MAX = 260, TEXT_W = 64;
+  const svgH = data.length * (ROW_H + GAP) + 8;
+  const svgW = LABEL_W + BAR_MAX + TEXT_W;
+  return (
+    <div className="bg-card rounded-2xl p-5 border border-border">
+      <SectionTitle>📊 Sector Allocation</SectionTitle>
+      <svg viewBox={`0 0 ${svgW} ${svgH}`} width="100%" style={{display:'block'}}>
+        {data.map((d, i) => {
+          const y = 4 + i * (ROW_H + GAP);
+          const barW = (d.value / 100) * BAR_MAX;
+          const col = SECTOR_COLORS[i % SECTOR_COLORS.length];
+          return (
+            <g key={d.name}>
+              <text x={LABEL_W - 8} y={y + ROW_H * 0.63}
+                textAnchor="end" fill="#94a3b8" fontSize="12" fontFamily="system-ui,sans-serif">
+                {d.name}
+              </text>
+              <rect x={LABEL_W} y={y + 4} width={Math.max(barW, 4)} height={ROW_H - 8}
+                fill={col} rx="4" opacity="0.9"/>
+              <text x={LABEL_W + barW + 8} y={y + ROW_H * 0.63}
+                fill="#cbd5e1" fontSize="12" fontFamily="system-ui,sans-serif">
+                {d.value.toFixed(1)}%
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ── iNAV Chart (pure SVG) ─────────────────────────────────────────────────
+function SvgInavChart({ records, symbol }) {
+  if (!records || records.length < 2) return null;
+
+  const W = 480;
+  const P = {t:18, r:12, b:22, l:42};
+  const innerW = W - P.l - P.r;
+  const AREA_H = 150, BAR_H = 80;
+  const aIH = AREA_H - P.t - P.b;  // inner height of area chart
+  const bIH = BAR_H  - P.t - P.b;  // inner height of bar chart
+  const n = records.length;
+
+  // ── area chart scales ──
+  const navVals = records.map(r => r.nav);
+  const mktVals = records.map(r => r.market_close);
+  const allV = [...navVals, ...mktVals];
+  const minY = Math.min(...allV) * 0.9985;
+  const maxY = Math.max(...allV) * 1.0015;
+  const rangeY = (maxY - minY) || 1;
+  const xAt = i => P.l + (n > 1 ? i / (n - 1) : 0.5) * innerW;
+  const yAt = v  => P.t + (1 - (v - minY) / rangeY) * aIH;
+  const pathFor = vals => vals.map((v, i) =>
+    `${i === 0 ? 'M' : 'L'}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`
+  ).join(' ');
+  const navPath = pathFor(navVals);
+  const mktPath = pathFor(mktVals);
+  const bottom  = (P.t + aIH).toFixed(1);
+  const navArea = `${navPath} L${xAt(n-1).toFixed(1)},${bottom} L${P.l},${bottom} Z`;
+  const mktArea = `${mktPath} L${xAt(n-1).toFixed(1)},${bottom} L${P.l},${bottom} Z`;
+
+  // ── bar chart (P/D %) ──
+  const pcts    = records.map(r => r.pct);
+  const maxAbs  = Math.max(...pcts.map(Math.abs), 0.5);
+  const zeroY   = P.t + bIH * 0.5;
+  const barW    = (innerW / n) * 0.65;
+  const barHFor = v => Math.max(Math.abs(v) / maxAbs * (bIH / 2), 1);
+
+  // x-axis label indices (~5 spread)
+  const step = Math.max(1, Math.floor(n / 4));
+  const xLbl = [...new Set([0, ...Array.from({length:3},(_,i)=>(i+1)*step), n-1])]
+    .filter(i => i < n);
+
+  const gapY  = AREA_H + 10;
+  const totalH = gapY + BAR_H;
+  const yTicks = [minY, (minY + maxY) / 2, maxY];
+
+  return (
+    <div className="mt-4">
+      <p className="text-xs text-slate-400 mb-2 font-semibold">
+        {symbol} — iNAV vs Market Price
+      </p>
+      <svg viewBox={`0 0 ${W} ${totalH}`} width="100%" style={{display:'block'}}>
+        <defs>
+          <linearGradient id={`gn-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#6366f1" stopOpacity="0.35"/>
+            <stop offset="100%" stopColor="#6366f1" stopOpacity="0.02"/>
+          </linearGradient>
+          <linearGradient id={`gm-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="#22d3ee" stopOpacity="0.2"/>
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.02"/>
+          </linearGradient>
+        </defs>
+
+        {/* ── Area chart ── */}
+        {yTicks.map((v, ti) => {
+          const y = yAt(v);
+          return (
+            <g key={ti}>
+              <line x1={P.l} y1={y} x2={P.l + innerW} y2={y}
+                stroke="#334155" strokeDasharray="4 2" strokeWidth="0.6"/>
+              <text x={P.l - 4} y={y + 3.5} textAnchor="end"
+                fill="#64748b" fontSize="9" fontFamily="system-ui,sans-serif">
+                ₹{v.toFixed(0)}
+              </text>
+            </g>
+          );
+        })}
+        <path d={navArea} fill={`url(#gn-${symbol})`}/>
+        <path d={mktArea} fill={`url(#gm-${symbol})`}/>
+        <path d={navPath} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinejoin="round"/>
+        <path d={mktPath} fill="none" stroke="#22d3ee" strokeWidth="1.5" strokeLinejoin="round"/>
+        {/* Legend */}
+        <rect x={P.l}    y={3} width={8} height={8} fill="#6366f1" rx="2"/>
+        <text x={P.l+10} y={10} fill="#94a3b8" fontSize="9" fontFamily="system-ui,sans-serif">iNAV</text>
+        <rect x={P.l+46} y={3} width={8} height={8} fill="#22d3ee" rx="2"/>
+        <text x={P.l+56} y={10} fill="#94a3b8" fontSize="9" fontFamily="system-ui,sans-serif">Market</text>
+
+        {/* ── P/D bar chart ── */}
+        <g transform={`translate(0,${gapY})`}>
+          <text x={P.l} y={P.t - 4} fill="#94a3b8" fontSize="9" fontFamily="system-ui,sans-serif">
+            Premium / Discount %
+          </text>
+          <line x1={P.l} y1={P.t + bIH*0.5} x2={P.l + innerW} y2={P.t + bIH*0.5}
+            stroke="#475569" strokeDasharray="4 2" strokeWidth="0.8"/>
+          <text x={P.l - 4} y={P.t + bIH*0.5 + 3.5} textAnchor="end"
+            fill="#64748b" fontSize="9" fontFamily="system-ui,sans-serif">0</text>
+          {records.map((r, i) => {
+            const bh = barHFor(r.pct);
+            const bx = xAt(i) - barW / 2;
+            const by = r.pct >= 0 ? zeroY - bh : zeroY;
+            return (
+              <rect key={i} x={bx} y={by} width={barW} height={bh}
+                fill={r.pct >= 0 ? '#22c55e' : '#ef4444'} rx="2" opacity="0.85"/>
+            );
+          })}
+          {xLbl.map(i => (
+            <text key={i} x={xAt(i)} y={P.t + bIH + 14}
+              textAnchor="middle" fill="#64748b" fontSize="8" fontFamily="system-ui,sans-serif">
+              {records[i].date.slice(5)}
+            </text>
+          ))}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+// ── HoldingCard ────────────────────────────────────────────────────────────
+function HoldingCard({ h }) {
+  const [open, setOpen] = useState(false);
+  const pnl_col = h.pnl_percent >= 0 ? '#22c55e' : '#ef4444';
+  const rec_col = rec_color[h.recommendation] || '#94a3b8';
+  const isETF = h.instrument_type === 'ETF';
+
+  return (
+    <div className="bg-card rounded-2xl border border-border overflow-hidden shadow">
+      {/* Header row */}
+      <div
+        className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-slate-800/40 transition select-none"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold"
+            style={{background: pnl_col+'22', color: pnl_col, border:`1px solid ${pnl_col}`}}>
+            {h.symbol.slice(0,3)}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-slate-100">{h.symbol}</span>
+              {isETF && <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-900/60 text-indigo-300 border border-indigo-700">ETF</span>}
+              <span className="text-xs text-slate-500">{h.exchange}</span>
+            </div>
+            <div className="text-xs text-slate-400">{h.sector}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          {/* Current value */}
+          <div className="text-right">
+            <div className="text-sm font-semibold text-slate-100">{fmt_inr(h.current_value_inr)}</div>
+            <div className="text-xs text-slate-500">{h.quantity} qty @ ₹{h.current_price.toFixed(2)}</div>
+          </div>
+          {/* P&L */}
+          <div className="text-right min-w-[64px]">
+            <div className="font-bold text-sm" style={{color: pnl_col}}>
+              {fmt_pct(h.pnl_percent, true)}
+            </div>
+            <div className="text-xs" style={{color: pnl_col}}>
+              {h.current_value_inr - h.invested_value_inr >= 0 ? '+' : ''}
+              {fmt_inr(h.current_value_inr - h.invested_value_inr)}
+            </div>
+          </div>
+          {/* Risk */}
+          <div className="text-right min-w-[48px]">
+            <div className="text-xs text-slate-400">Risk</div>
+            <div className="font-bold text-sm" style={{color: risk_color(h.risk_score)}}>
+              {h.risk_score.toFixed(1)}/10
+            </div>
+          </div>
+          {/* Recommendation badge */}
+          <span className="text-xs px-2.5 py-1 rounded-full font-semibold"
+            style={{background: rec_col+'22', color: rec_col, border:`1px solid ${rec_col}`}}>
+            {h.recommendation}
+          </span>
+          {/* Chevron */}
+          <span className="text-slate-500 text-lg">{open ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {/* Expanded body */}
+      {open && (
+        <div className="px-5 pb-5 border-t border-border/40 pt-4 space-y-4">
+          {/* Summary */}
+          {h.summary && (
+            <p className="text-sm text-slate-300 leading-relaxed">{h.summary}</p>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Key Insights */}
+            {h.key_insights.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-indigo-400 mb-2 uppercase tracking-wider">Key Insights</p>
+                <ul className="space-y-1.5">
+                  {h.key_insights.map((ins, i) => (
+                    <li key={i} className="text-xs text-slate-300 flex gap-2">
+                      <span className="text-indigo-500 mt-0.5 shrink-0">▸</span>
+                      <span>{ins}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Risk Signals */}
+            {h.risk_signals.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-orange-400 mb-2 uppercase tracking-wider">Risk Signals</p>
+                <ul className="space-y-1.5">
+                  {h.risk_signals.map((rs, i) => (
+                    <li key={i} className="text-xs text-orange-300 flex gap-2">
+                      <span className="shrink-0">⚠</span>
+                      <span>{rs}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* COMEX linked */}
+          {h.comex_linked_commodities.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-slate-500">COMEX linked:</span>
+              {h.comex_linked_commodities.map(c => (
+                <span key={c} className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-300 border border-yellow-700">
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Quarterly results (stocks only) */}
+          {h.latest_results.period && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-2">
+              <div className="bg-slate-800/50 rounded-xl p-3">
+                <div className="text-xs text-slate-500">Revenue ({h.latest_results.period})</div>
+                <div className="font-semibold text-slate-100">₹{h.latest_results.revenue_cr.toLocaleString('en-IN')} Cr</div>
+                <div className="text-xs" style={{color: h.latest_results.revenue_yoy_pct >= 0 ? '#22c55e':'#ef4444'}}>
+                  {fmt_pct(h.latest_results.revenue_yoy_pct, true)} YoY
+                </div>
+              </div>
+              <div className="bg-slate-800/50 rounded-xl p-3">
+                <div className="text-xs text-slate-500">Net Profit</div>
+                <div className="font-semibold text-slate-100">₹{h.latest_results.net_profit_cr.toLocaleString('en-IN')} Cr</div>
+                <div className="text-xs" style={{color: h.latest_results.profit_yoy_pct >= 0 ? '#22c55e':'#ef4444'}}>
+                  {fmt_pct(h.latest_results.profit_yoy_pct, true)} YoY
+                </div>
+              </div>
+              <div className="bg-slate-800/50 rounded-xl p-3">
+                <div className="text-xs text-slate-500">EPS</div>
+                <div className="font-semibold text-slate-100">₹{h.latest_results.eps.toFixed(2)}</div>
+              </div>
+            </div>
+          )}
+
+          {/* iNAV analysis */}
+          {h.inav_analysis && (
+            <div className="bg-slate-800/40 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">iNAV Analysis</span>
+                <span className="text-xs px-2 py-0.5 rounded-full"
+                  style={{
+                    background: (h.inav_analysis.premium_discount_pct >= 0 ? '#22c55e' : '#ef4444') + '22',
+                    color:       h.inav_analysis.premium_discount_pct >= 0 ? '#22c55e' : '#ef4444',
+                    border:     `1px solid ${h.inav_analysis.premium_discount_pct >= 0 ? '#22c55e' : '#ef4444'}`,
+                  }}>
+                  {h.inav_analysis.label} ({fmt_pct(h.inav_analysis.premium_discount_pct, true)})
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-2 text-sm">
+                <div>
+                  <div className="text-xs text-slate-500">iNAV</div>
+                  <div className="font-semibold">₹{h.inav_analysis.inav.toFixed(4)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Market Price</div>
+                  <div className="font-semibold">₹{h.inav_analysis.market_price.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">P/D %</div>
+                  <div className="font-semibold" style={{color: h.inav_analysis.premium_discount_pct >= 0 ? '#22c55e':'#ef4444'}}>
+                    {fmt_pct(h.inav_analysis.premium_discount_pct, true)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Historic iNAV chart */}
+          <SvgInavChart records={h.historic_records} symbol={h.symbol}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Insight / Risk list ────────────────────────────────────────────────────
+function BulletList({ items, colour }) {
+  if (!items || items.length === 0) return <p className="text-xs text-slate-500">None reported.</p>;
+  return (
+    <ul className="space-y-2">
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-2 text-sm text-slate-300">
+          <span style={{color: colour}} className="shrink-0 mt-0.5">▸</span>
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ── Main Dashboard ─────────────────────────────────────────────────────────
+function Dashboard() {
+  const d = DATA;
+  const s = d.portfolio_summary;
+  const pnl_col = s.total_pnl >= 0 ? '#22c55e' : '#ef4444';
+  const health_col = s.health_score >= 70 ? '#22c55e' : s.health_score >= 40 ? '#facc15' : '#ef4444';
+  const countdown = useCountdown();
+  const gen_dt = new Date(d.generated_at).toLocaleString('en-IN', {
+    timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric',
+    hour:'2-digit', minute:'2-digit'
+  });
+
+  return (
+    <div className="min-h-screen bg-surface p-4 md:p-8 space-y-8 max-w-7xl mx-auto">
+
+      {/* ── Header ── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold text-slate-100 tracking-tight">
+            🇮🇳 Portfolio Insight Dashboard
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            {s.num_holdings} holdings · {s.etf_count} ETFs · {s.stock_count} stocks
+            &nbsp;·&nbsp; Generated: {gen_dt} IST
+          </p>
+        </div>
+        <div className="flex items-center gap-3 self-start md:self-auto flex-wrap">
+          {d.comex.overall_signal && (
+            <span className="text-sm px-4 py-1.5 rounded-full font-semibold"
+              style={{
+                background: signal_color(d.comex.overall_signal) + '22',
+                color:       signal_color(d.comex.overall_signal),
+                border:      `1px solid ${signal_color(d.comex.overall_signal)}`
+              }}>
+              COMEX: {d.comex.overall_signal}
+            </span>
+          )}
+          <span className="text-xs px-3 py-1.5 rounded-full font-mono"
+            style={{background:'#1e293b', color:'#64748b', border:'1px solid #334155'}}>
+            ↻ {countdown}
+          </span>
+        </div>
+      </div>
+
+      {/* ── 4 metric cards ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MetricCard
+          label="Portfolio Value"
+          value={fmt_inr(s.total_value)}
+          sub={`Invested ${fmt_inr(s.total_invested)}`}
+          colour="#e2e8f0"
+        />
+        <MetricCard
+          label="Total P&amp;L"
+          value={fmt_inr(s.total_pnl)}
+          sub={fmt_pct(s.total_pnl_percent, true)}
+          colour={pnl_col}
+        />
+        <MetricCard
+          label="Health Score"
+          value={`${s.health_score.toFixed(1)} / 100`}
+          sub={`Diversification: ${s.diversification_score.toFixed(1)}`}
+          colour={health_col}
+        />
+        <MetricCard
+          label="Allocation"
+          value={`${s.etf_allocation_pct.toFixed(1)}% ETF`}
+          sub={`${s.direct_equity_allocation_pct.toFixed(1)}% Direct Equity`}
+          colour="#818cf8"
+        />
+      </div>
+
+      {/* ── 2-col: COMEX + Sector ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ComexPanel comex={d.comex}/>
+        <SvgSectorChart data={d.sector_data}/>
+      </div>
+
+      {/* ── Holdings ── */}
+      <div>
+        <SectionTitle>📁 Holdings Deep-Dive</SectionTitle>
+        <div className="space-y-4">
+          {d.holdings.map(h => <HoldingCard key={h.symbol} h={h}/>)}
+        </div>
+      </div>
+
+      {/* ── 3-col: Risks / Insights / Rebalancing ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-card rounded-2xl p-5 border border-border">
+          <SectionTitle>⚠ Portfolio Risks</SectionTitle>
+          <BulletList items={d.portfolio_risks} colour="#f97316"/>
+        </div>
+        <div className="bg-card rounded-2xl p-5 border border-border">
+          <SectionTitle>💡 Actionable Insights</SectionTitle>
+          <BulletList items={d.actionable_insights} colour="#818cf8"/>
+        </div>
+        <div className="bg-card rounded-2xl p-5 border border-border">
+          <SectionTitle>⚖ Rebalancing Signals</SectionTitle>
+          <BulletList items={d.rebalancing_signals} colour="#22d3ee"/>
+        </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <p className="text-center text-xs text-slate-600 pb-4">
+        Portfolio Insight · Data sourced from NSE / Yahoo Finance / COMEX · Not financial advice
+      </p>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Dashboard/>);
+</script>
+</body>
+</html>
