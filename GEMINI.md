@@ -1,10 +1,10 @@
-# GEMINI.md — ofin-agent project instructions
+# GEMINI.md — Mosaic-agent project instructions
 
 This file is read automatically by Gemini CLI when working in this project.
 
 ## Project Overview
 
-ofin-agent is a quantitative investment platform for Indian equity/commodity ETFs.
+Mosaic-agent is a quantitative investment platform for Indian equity/commodity ETFs.
 The core pipeline runs LightGBM classification → Kelly position sizing → Risk Governor blend
 for GOLDBEES (gold ETF).
 

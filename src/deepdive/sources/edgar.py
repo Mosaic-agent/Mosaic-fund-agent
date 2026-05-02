@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 
 _EDGAR_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 _EDGAR_ARCHIVES_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{doc}"
-_EDGAR_HEADERS = {"User-Agent": "ofin-agent research@ofin.io"}
+_EDGAR_HEADERS = {"User-Agent": "Mosaic-agent research@mosaic-agent.io"}
 
 # Filing limits per form type
 _FETCH_LIMITS: dict[str, int] = {

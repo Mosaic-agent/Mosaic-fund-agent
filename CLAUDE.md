@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**ofin-agent** (Mosaic Fund Agent) is a Python 3.11+ financial intelligence platform for Indian equity and commodity markets. It connects to a live Zerodha portfolio via MCP, enriches holdings with market data/news/earnings, runs ML forecasting and anomaly detection, and produces LLM-scored reports.
+**Mosaic-agent** (Mosaic Fund Agent) is a Python 3.11+ financial intelligence platform for Indian equity and commodity markets.
+ It connects to a live Zerodha portfolio via MCP, enriches holdings with market data/news/earnings, runs ML forecasting and anomaly detection, and produces LLM-scored reports.
 
 ## Commands
 
