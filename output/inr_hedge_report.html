@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INR Depreciation Hedge — ₹10,00,000 Allocation Report</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d2e; --surface2: #22263a;
+    --border: #2e3350; --accent: #4f8ef7; --green: #22c55e;
+    --red: #ef4444; --amber: #f59e0b; --text: #e2e8f0; --muted: #8892a4;
+    --gold: #f4b942;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+         font-size: 14px; line-height: 1.6; padding: 32px 24px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  h2 { font-size: 1.15rem; font-weight: 600; color: var(--accent); margin: 32px 0 12px;
+       padding-bottom: 6px; border-bottom: 1px solid var(--border); letter-spacing: .4px; }
+  h3 { font-size: .95rem; font-weight: 600; color: var(--text); margin: 16px 0 8px; }
+  .subtitle { color: var(--muted); font-size: .85rem; margin-bottom: 28px; }
+  .meta { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 32px; }
+  .meta-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+               padding: 12px 18px; }
+  .meta-label { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .8px; }
+  .meta-value { font-size: 1.3rem; font-weight: 700; color: #fff; margin-top: 2px; }
+  .meta-value.red { color: var(--red); }
+  .meta-value.green { color: var(--green); }
+  .meta-value.amber { color: var(--amber); }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: .85rem; }
+  th { background: var(--surface2); color: var(--muted); font-weight: 600;
+       text-transform: uppercase; font-size: .72rem; letter-spacing: .6px;
+       padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(79,142,247,.05); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: .72rem; font-weight: 600; }
+  .badge-green  { background: rgba(34,197,94,.15);  color: var(--green); }
+  .badge-red    { background: rgba(239,68,68,.15);  color: var(--red); }
+  .badge-amber  { background: rgba(245,158,11,.15); color: var(--amber); }
+  .badge-blue   { background: rgba(79,142,247,.15); color: var(--accent); }
+  .badge-gold   { background: rgba(244,185,66,.15); color: var(--gold); }
+  .num-pos { color: var(--green); font-weight: 600; }
+  .num-neg { color: var(--red); }
+  .num-neutral { color: var(--text); }
+  .selected-row td { background: rgba(79,142,247,.07) !important; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .card-title { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .7px; }
+  .card-val { font-size: 1.5rem; font-weight: 700; color: #fff; margin: 4px 0 2px; }
+  .card-sub { color: var(--muted); font-size: .78rem; }
+
+  .inr-bar { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .inr-bar-label { width: 70px; color: var(--muted); font-size: .8rem; }
+  .inr-bar-track { flex: 1; background: var(--surface2); border-radius: 4px; height: 6px; }
+  .inr-bar-fill { height: 6px; border-radius: 4px; background: var(--red); }
+  .inr-bar-val { width: 55px; text-align: right; font-size: .8rem; font-weight: 600; color: var(--red); }
+
+  .alloc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+                padding: 16px 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; }
+  .alloc-icon { width: 42px; height: 42px; border-radius: 8px; display: flex; align-items: center;
+                justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+  .alloc-main { flex: 1; }
+  .alloc-name { font-weight: 600; font-size: .95rem; }
+  .alloc-role { color: var(--muted); font-size: .78rem; }
+  .alloc-nums { text-align: right; }
+  .alloc-deploy { font-size: 1.1rem; font-weight: 700; color: #fff; }
+  .alloc-hold  { font-size: .78rem; color: var(--amber); }
+  .alloc-units { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+  .mc-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 10px; margin: 12px 0; }
+  .mc-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+             padding: 12px; text-align: center; }
+  .mc-cell.highlight { border-color: var(--accent); background: rgba(79,142,247,.08); }
+  .mc-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .mc-val   { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 4px 0 2px; }
+  .mc-pct   { font-size: .8rem; font-weight: 600; }
+
+  .corr-table td { padding: 7px 10px; font-size: .82rem; text-align: center; }
+  .corr-high  { background: rgba(239,68,68,.2);  color: var(--red); font-weight: 600; }
+  .corr-med   { background: rgba(245,158,11,.15); color: var(--amber); }
+  .corr-low   { background: rgba(34,197,94,.12); color: var(--green); }
+  .corr-zero  { background: rgba(79,142,247,.1); color: var(--accent); font-weight: 600; }
+  .corr-diag  { background: var(--surface2); color: var(--muted); }
+
+  .note { background: rgba(79,142,247,.08); border-left: 3px solid var(--accent);
+          border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 10px 0; font-size: .83rem; color: var(--muted); }
+  .warn { background: rgba(245,158,11,.08); border-left: 3px solid var(--amber);
+          border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 10px 0; font-size: .83rem; color: var(--muted); }
+  .trigger { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+             padding: 12px 16px; margin: 8px 0; display: flex; gap: 12px; align-items: flex-start; }
+  .trigger-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+  .trigger-text { font-size: .84rem; }
+  .trigger-title { font-weight: 600; color: var(--text); }
+  .trigger-desc  { color: var(--muted); margin-top: 2px; }
+
+  .section-intro { color: var(--muted); font-size: .85rem; margin-bottom: 14px; line-height: 1.7; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border);
+           color: var(--muted); font-size: .75rem; text-align: center; }
+
+  @media (max-width: 700px) {
+    .grid2, .grid3, .mc-grid { grid-template-columns: 1fr; }
+    .alloc-card { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<h1>INR Depreciation Hedge</h1>
+<div class="subtitle">₹10,00,000 · 2-Year Allocation · Generated 2026-05-03</div>
+
+<!-- Meta strip -->
+<div class="meta">
+  <div class="meta-item">
+    <div class="meta-label">Corpus</div>
+    <div class="meta-value">₹10,00,000</div>
+  </div>
+  <div class="meta-item">
+    <div class="meta-label">Horizon</div>
+    <div class="meta-value">2 Years</div>
+  </div>
+  <div class="meta-item">
+    <div class="meta-label">USD/INR Today</div>
+    <div class="meta-value amber">₹94.88</div>
+  </div>
+  <div class="meta-item">
+    <div class="meta-label">INR Fall (1Y)</div>
+    <div class="meta-value red">−11.67%</div>
+  </div>
+  <div class="meta-item">
+    <div class="meta-label">Deploy Now</div>
+    <div class="meta-value green">₹8,60,000</div>
+  </div>
+  <div class="meta-item">
+    <div class="meta-label">Liquid Buffer</div>
+    <div class="meta-value amber">₹1,40,000</div>
+  </div>
+</div>
+
+<!-- Section 1: Why hedge -->
+<h2>1 · Why Hedge Against INR Depreciation</h2>
+<p class="section-intro">The Indian Rupee has been on a persistent depreciation path. Every ₹10,00,000 held in a savings account or domestic debt loses purchasing power relative to USD-priced assets at the rate below. Over a 2-year horizon, doing nothing costs you ~₹2.3L in real purchasing power at the current trajectory.</p>
+
+<div style="margin: 16px 0 20px;">
+  <div class="inr-bar"><div class="inr-bar-label">1 Month</div><div class="inr-bar-track"><div class="inr-bar-fill" style="width:17%"></div></div><div class="inr-bar-val">+2.05%</div></div>
+  <div class="inr-bar"><div class="inr-bar-label">3 Months</div><div class="inr-bar-track"><div class="inr-bar-fill" style="width:42%"></div></div><div class="inr-bar-val">+4.93%</div></div>
+  <div class="inr-bar"><div class="inr-bar-label">6 Months</div><div class="inr-bar-track"><div class="inr-bar-fill" style="width:59%"></div></div><div class="inr-bar-val">+6.93%</div></div>
+  <div class="inr-bar"><div class="inr-bar-label">1 Year</div><div class="inr-bar-track"><div class="inr-bar-fill" style="width:100%"></div></div><div class="inr-bar-val">+11.67%</div></div>
+</div>
+<div class="note">The INR hedge is structural, not tactical. USD-denominated assets automatically gain in INR when the Rupee weakens — you don't need to predict the FX move. The hedge is embedded in the asset class.</div>
+
+<!-- Section 2: ETF Premium Trap -->
+<h2>2 · ETF Premium Trap — Why All International ETFs Are Blocked</h2>
+<p class="section-intro">NSE-listed international ETFs are subject to SEBI's $7B overseas investment cap. When the cap is breached, fresh unit creation halts, breaking the arbitrage mechanism. ETF prices detach from NAV, trading at 14–20% premiums. Buying at these levels means you need INR to depreciate by that amount just to break even.</p>
+
+<table>
+  <thead><tr><th>ETF</th><th>Description</th><th>iNAV</th><th>LTP</th><th>Premium</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr><td>GOLDBEES</td><td>Gold ETF (XAU/INR)</td><td>₹121.69</td><td>₹123.33</td><td class="num-pos">+1.34%</td><td><span class="badge badge-green">✓ VIABLE</span></td></tr>
+    <tr><td>SILVERBEES</td><td>Silver ETF (XAG/INR)</td><td>₹224.59</td><td>₹227.55</td><td class="num-pos">+1.32%</td><td><span class="badge badge-green">✓ VIABLE</span></td></tr>
+    <tr><td>HNGSNGBEES</td><td>Hang Seng</td><td>₹462.36</td><td>₹524.99</td><td class="num-neg">+13.55%</td><td><span class="badge badge-red">✗ BLOCKED</span></td></tr>
+    <tr><td>MAHKTECH</td><td>HK Tech</td><td>₹19.90</td><td>₹23.40</td><td class="num-neg">+17.58%</td><td><span class="badge badge-red">✗ BLOCKED</span></td></tr>
+    <tr><td>MON100</td><td>NASDAQ-100</td><td>₹251.56</td><td>₹299.17</td><td class="num-neg">+18.93%</td><td><span class="badge badge-red">✗ BLOCKED</span></td></tr>
+    <tr><td>MAFANG</td><td>NYSE FANG+</td><td>₹150.91</td><td>₹180.54</td><td class="num-neg">+19.64%</td><td><span class="badge badge-red">✗ BLOCKED</span></td></tr>
+    <tr><td>MASPTOP50</td><td>S&amp;P 500 Top 50</td><td>₹64.33</td><td>₹77.08</td><td class="num-neg">+19.82%</td><td><span class="badge badge-red">✗ BLOCKED</span></td></tr>
+  </tbody>
+</table>
+<div class="warn">Premiums verified directly from NSE ETF API on 2026-05-03. MON100 and MASPTOP50 were initially misreported as 0% premium due to a static symbol whitelist bug — corrected after live NSE data was fetched.</div>
+<div class="note">Solution: the MF Fund-of-Funds route bypasses the SEBI cap entirely. These FoFs purchase US/EM equity mutual fund units at true NAV through the domestic mutual fund pipeline — 0% premium, same USD exposure.</div>
+
+<!-- Section 3: Full Fund Comparison -->
+<h2>3 · Full Fund Comparison (2-Year Lookback)</h2>
+<p class="section-intro">All funds screened for risk-adjusted return (Sharpe ratio), drawdown tolerance, and INR hedge quality. Selected funds highlighted in blue.</p>
+
+<table>
+  <thead>
+    <tr><th>Fund</th><th>Role</th><th>1Y Return</th><th>2Y Return</th><th>Sharpe</th><th>Ann Vol</th><th>Max DD</th><th>Premium</th><th>Selected</th></tr>
+  </thead>
+  <tbody>
+    <tr class="selected-row"><td><strong>ICICI Passive Multi Asset FoF</strong></td><td>Stabiliser</td><td class="num-pos">+13.3%</td><td class="num-pos">+27.5%</td><td class="num-pos">1.92</td><td>6.9%</td><td class="num-neg">−7.4%</td><td>0%</td><td><span class="badge badge-blue">✓ SELECTED</span></td></tr>
+    <tr class="selected-row"><td><strong>Kotak Global EM FoF</strong></td><td>EM Equity</td><td class="num-pos">+65.1%</td><td class="num-pos">+72.0%</td><td class="num-pos">1.62</td><td>17.7%</td><td class="num-neg">−16.6%</td><td>0%</td><td><span class="badge badge-blue">✓ SELECTED</span></td></tr>
+    <tr class="selected-row"><td><strong>DSP US Equity FoF</strong></td><td>US Equity</td><td class="num-pos">+64.2%</td><td class="num-pos">+73.2%</td><td class="num-pos">1.55</td><td>19.8%</td><td class="num-neg">−23.2%</td><td>0%</td><td><span class="badge badge-blue">✓ SELECTED</span></td></tr>
+    <tr class="selected-row"><td><strong>GOLDBEES ETF</strong></td><td>Gold</td><td class="num-pos">+—</td><td class="num-pos">+102.8%</td><td>1.47</td><td>24.8%</td><td class="num-neg">−24.4%</td><td>+1.4%</td><td><span class="badge badge-gold">✓ SELECTED</span></td></tr>
+    <tr><td>DSP Multi Asset</td><td>Multi Asset</td><td class="num-pos">+22.1%</td><td class="num-pos">+40.6%</td><td class="num-pos">1.95</td><td>9.7%</td><td class="num-neg">−9.7%</td><td>0%</td><td><span class="badge badge-amber">OVERLAP</span></td></tr>
+    <tr><td>Navi US Total Market FoF</td><td>US Equity</td><td class="num-pos">+44.6%</td><td class="num-pos">+60.9%</td><td>1.45</td><td>17.5%</td><td class="num-neg">−20.0%</td><td>0%</td><td><span class="badge badge-amber">ALT</span></td></tr>
+    <tr><td>ICICI Multi Asset (active)</td><td>Multi Asset</td><td class="num-pos">+9.5%</td><td class="num-pos">+24.3%</td><td>1.30</td><td>8.6%</td><td class="num-neg">−9.5%</td><td>0%</td><td><span class="badge badge-red">SKIP</span></td></tr>
+    <tr><td>Quant Multi Asset</td><td>Multi Asset</td><td class="num-pos">+21.8%</td><td class="num-pos">+28.8%</td><td>1.15</td><td>11.3%</td><td class="num-neg">−12.5%</td><td>0%</td><td><span class="badge badge-red">SKIP</span></td></tr>
+    <tr><td>Kotak Intl REIT FoF</td><td>REIT</td><td class="num-pos">+18.2%</td><td class="num-pos">+30.0%</td><td>0.91</td><td>16.7%</td><td class="num-neg">−18.3%</td><td>0%</td><td><span class="badge badge-red">SKIP</span></td></tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>Why DSP Multi Asset is not selected:</strong> Sharpe 1.95 is best of group but it has 0.79 correlation with ICICI Passive (same multi-asset factor). Including both is redundant. ICICI Passive wins on lower MaxDD (−7.4% vs −9.7%) and lower cost.</div>
+<div class="note"><strong>Why Quant Multi Asset is skipped:</strong> 78% domestic equity with only 9.8% commodity — it provides almost no INR hedge. Essentially an equity fund with a small gold topping.</div>
+
+<!-- Section 4: Fund Holdings -->
+<h2>4 · What the Funds Actually Hold (Apr 2026)</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>ICICI Multi Asset — Asset Allocation</h3>
+    <table style="margin-top:8px">
+      <thead><tr><th>Asset Class</th><th>% of NAV</th></tr></thead>
+      <tbody>
+        <tr><td>Domestic Equity</td><td>~60%*</td></tr>
+        <tr><td>Debt / Cash</td><td>20.8%</td></tr>
+        <tr><td>Commodity (Gold / Silver)</td><td class="num-pos"><strong>18.4%</strong></td></tr>
+        <tr><td>REIT / InvIT</td><td>1.5%</td></tr>
+        <tr><td>International Equity</td><td>0.3%</td></tr>
+      </tbody>
+    </table>
+    <div style="font-size:.75rem;color:var(--muted);margin-top:8px">*Gross exposure; fund uses derivatives overlay — reported at ~159% but net equity ~60%</div>
+  </div>
+  <div class="card">
+    <h3>Quant Multi Asset — Asset Allocation</h3>
+    <table style="margin-top:8px">
+      <thead><tr><th>Asset Class</th><th>% of NAV</th></tr></thead>
+      <tbody>
+        <tr><td>Domestic Equity</td><td class="num-neg"><strong>78.1%</strong></td></tr>
+        <tr><td>Debt / Cash</td><td>11.6%</td></tr>
+        <tr><td>Commodity (Gold / Silver)</td><td>9.8%</td></tr>
+        <tr><td>International Equity</td><td>0.5%</td></tr>
+      </tbody>
+    </table>
+    <div class="warn" style="margin-top:10px;font-size:.78rem">78% domestic equity → almost zero INR hedge. Not a multi-asset fund in the true sense.</div>
+  </div>
+</div>
+
+<!-- Section 5: GARCH Risk Governor -->
+<h2>5 · GARCH Risk Governor — GOLDBEES Sizing</h2>
+<p class="section-intro">For GOLDBEES (the only viable commodity ETF), a GARCH(1,1) model with Student-t innovations is fitted on 2 years of daily OHLCV data to compute the current conditional volatility. The inverse-vol formula w = min(1, vol_target / σ_t) scales the position down when vol exceeds the target.</p>
+
+<div class="grid3">
+  <div class="card">
+    <div class="card-title">GARCH Ann Vol</div>
+    <div class="card-val" style="color:var(--amber)">19.0%</div>
+    <div class="card-sub">Target: 15% · Gold long-run median</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Anomaly Regime</div>
+    <div class="card-val" style="color:var(--red);font-size:1.1rem">🔥 Volatile Breakout</div>
+    <div class="card-sub">From signal composite with COT data</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Composite Score</div>
+    <div class="card-val" style="color:var(--amber)">58 / 100</div>
+    <div class="card-sub">Signal action: HOLD</div>
+  </div>
+</div>
+
+<table style="margin-top:14px">
+  <thead><tr><th>Step</th><th>Calculation</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>1. Inverse-vol weight</td><td>min(1.0, 15% / 19.0%)</td><td class="num-pos">79%</td></tr>
+    <tr><td>2. Regime multiplier</td><td>🔥 Volatile Breakout</td><td class="num-neg">× 75%</td></tr>
+    <tr><td>3. Trend filter (price &lt; EMA50)</td><td>₹123.33 &lt; EMA50 ₹124.64</td><td class="num-neg">× 75%</td></tr>
+    <tr><td>4. Composite score gate</td><td>58 &gt; 35 threshold</td><td class="num-neutral">× 100%</td></tr>
+    <tr><td><strong>5. Final weight</strong></td><td>79% × 75% × 75% × 100%</td><td><strong class="num-amber" style="color:var(--amber)">44% → HALF</strong></td></tr>
+  </tbody>
+</table>
+<div class="note">Full ₹2,50,000 gold allocation split: ₹1,10,000 deployed now (44%), ₹1,40,000 held in liquid fund. Deploy remainder when GOLDBEES closes above ₹124.64 for 3 consecutive days.</div>
+
+<!-- Section 6: Correlation -->
+<h2>6 · Correlation Matrix — Why These Four Diversify Well</h2>
+<p class="section-intro">Low pairwise correlation between funds means their returns are independent. When one falls, another may hold or rise — reducing portfolio drawdowns and improving Sharpe at the basket level.</p>
+
+<table class="corr-table" style="max-width:500px">
+  <thead><tr><th></th><th>ICICI Passive</th><th>Kotak EM</th><th>DSP US</th><th>GOLDBEES</th></tr></thead>
+  <tbody>
+    <tr><th>ICICI Passive</th><td class="corr-diag">1.00</td><td class="corr-med">0.75</td><td class="corr-med">0.43</td><td class="corr-low">0.28</td></tr>
+    <tr><th>Kotak EM</th><td class="corr-med">0.75</td><td class="corr-diag">1.00</td><td class="corr-med">0.56</td><td class="corr-low">0.29</td></tr>
+    <tr><th>DSP US</th><td class="corr-med">0.43</td><td class="corr-med">0.56</td><td class="corr-diag">1.00</td><td class="corr-zero">0.03</td></tr>
+    <tr><th>GOLDBEES</th><td class="corr-low">0.28</td><td class="corr-low">0.29</td><td class="corr-zero">0.03</td><td class="corr-diag">1.00</td></tr>
+  </tbody>
+</table>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:.75rem">
+  <span><span class="badge badge-blue">~0.03</span> GOLDBEES ↔ DSP US — near-zero, best diversifiers in basket</span>
+  <span><span class="badge badge-amber">0.75</span> ICICI ↔ Kotak EM — moderate overlap acceptable</span>
+</div>
+<div class="note">The 5-fund equal-weight basket (including DSP Multi Asset) achieves Sharpe 2.30 vs the best single fund at 1.95 — diversification benefit is +18% Sharpe at no extra cost.</div>
+
+<!-- Section 7: Allocation -->
+<h2>7 · Final Allocation — ₹10,00,000</h2>
+
+<div class="alloc-card">
+  <div class="alloc-icon" style="background:rgba(79,142,247,.15)">🏦</div>
+  <div class="alloc-main">
+    <div class="alloc-name">ICICI Passive Multi Asset FoF</div>
+    <div class="alloc-role">Stabiliser · MF Direct · Sharpe 1.92 · MaxDD −7.4% · Vol 6.9%</div>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Low-vol anchor. Rebalances across equity, debt, gold automatically. Cushions drawdowns during volatile regimes.</div>
+  </div>
+  <div class="alloc-nums">
+    <div class="alloc-deploy">₹2,50,000</div>
+    <div class="alloc-units">14,952 units @ ₹16.72 NAV</div>
+    <div style="margin-top:4px"><span class="badge badge-green">0% PREMIUM</span></div>
+  </div>
+</div>
+
+<div class="alloc-card">
+  <div class="alloc-icon" style="background:rgba(34,197,94,.15)">🌏</div>
+  <div class="alloc-main">
+    <div class="alloc-name">Kotak Global EM FoF</div>
+    <div class="alloc-role">EM Equity · MF Direct · Sharpe 1.62 · MaxDD −16.6% · 1Y +65.1%</div>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Invests in Templeton Global EM Equity. USD-denominated, INR hedge embedded. Captures EM recovery cycles independent of US tech.</div>
+  </div>
+  <div class="alloc-nums">
+    <div class="alloc-deploy">₹2,50,000</div>
+    <div class="alloc-units">6,105 units @ ₹40.95 NAV</div>
+    <div style="margin-top:4px"><span class="badge badge-green">0% PREMIUM</span></div>
+  </div>
+</div>
+
+<div class="alloc-card">
+  <div class="alloc-icon" style="background:rgba(168,85,247,.15)">🇺🇸</div>
+  <div class="alloc-main">
+    <div class="alloc-name">DSP US Equity FoF</div>
+    <div class="alloc-role">US Equity · MF Direct · Sharpe 1.55 · MaxDD −23.2% · 1Y +64.2%</div>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Pure USD equity at true NAV — same exposure as MON100 at 0% vs 18.93% premium. Wins when INR falls due to US growth divergence.</div>
+  </div>
+  <div class="alloc-nums">
+    <div class="alloc-deploy">₹2,50,000</div>
+    <div class="alloc-units">2,553 units @ ₹97.91 NAV</div>
+    <div style="margin-top:4px"><span class="badge badge-green">0% PREMIUM</span></div>
+  </div>
+</div>
+
+<div class="alloc-card">
+  <div class="alloc-icon" style="background:rgba(244,185,66,.15)">🥇</div>
+  <div class="alloc-main">
+    <div class="alloc-name">GOLDBEES</div>
+    <div class="alloc-role">Gold ETF · NSE · Sharpe 1.47 · 2Y +102.8% · GARCH vol 19%</div>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Crisis hedge. Wins when INR falls from inflation or risk-off. Risk governor (HALF): deploy ₹1,10,000 now. ₹1,40,000 held in liquid until price reclaims EMA50 ₹124.64.</div>
+  </div>
+  <div class="alloc-nums">
+    <div class="alloc-deploy">₹1,10,000 <span style="font-size:.75rem;color:var(--amber)">now</span></div>
+    <div class="alloc-hold">+ ₹1,40,000 buffered</div>
+    <div class="alloc-units">891 units @ ₹123.33 · +1.4% prem</div>
+  </div>
+</div>
+
+<table style="margin-top:8px">
+  <thead><tr><th>Fund</th><th>Weight</th><th>Deploy Now</th><th>Liquid Buffer</th><th>Total</th></tr></thead>
+  <tbody>
+    <tr><td>ICICI Passive Multi Asset FoF</td><td>25%</td><td class="num-pos">₹2,50,000</td><td>—</td><td>₹2,50,000</td></tr>
+    <tr><td>Kotak Global EM FoF</td><td>25%</td><td class="num-pos">₹2,50,000</td><td>—</td><td>₹2,50,000</td></tr>
+    <tr><td>DSP US Equity FoF</td><td>25%</td><td class="num-pos">₹2,50,000</td><td>—</td><td>₹2,50,000</td></tr>
+    <tr><td>GOLDBEES (NSE ETF)</td><td>25%</td><td class="num-amber" style="color:var(--amber)">₹1,10,000</td><td class="num-amber" style="color:var(--amber)">₹1,40,000</td><td>₹2,50,000</td></tr>
+    <tr style="font-weight:700;background:var(--surface2)"><td>TOTAL</td><td>100%</td><td>₹8,60,000</td><td>₹1,40,000</td><td>₹10,00,000</td></tr>
+  </tbody>
+</table>
+
+<!-- Section 8: Monte Carlo -->
+<h2>8 · 2-Year Monte Carlo Projection (10,000 Paths)</h2>
+<p class="section-intro">GBM simulation using actual 2-year historical expected returns and volatility per fund, with empirical correlation structure. Returns are based on the 2024–2026 period (gold bull run + US tech rally + EM recovery) and may not repeat. Treat P25 as a realistic base case.</p>
+
+<div class="mc-grid">
+  <div class="mc-cell">
+    <div class="mc-label">P5 · Worst 5%</div>
+    <div class="mc-val">₹12,27,012</div>
+    <div class="mc-pct num-pos">+22.7%</div>
+  </div>
+  <div class="mc-cell">
+    <div class="mc-label">P25 · Below Avg</div>
+    <div class="mc-val">₹14,48,393</div>
+    <div class="mc-pct num-pos">+44.8%</div>
+  </div>
+  <div class="mc-cell highlight">
+    <div class="mc-label">P50 · Median</div>
+    <div class="mc-val" style="font-size:1.2rem">₹16,21,584</div>
+    <div class="mc-pct num-pos" style="font-size:.9rem">+62.2%</div>
+  </div>
+  <div class="mc-cell">
+    <div class="mc-label">P75 · Above Avg</div>
+    <div class="mc-val">₹18,19,623</div>
+    <div class="mc-pct num-pos">+82.0%</div>
+  </div>
+  <div class="mc-cell">
+    <div class="mc-label">P95 · Best 5%</div>
+    <div class="mc-val">₹21,47,771</div>
+    <div class="mc-pct num-pos">+114.8%</div>
+  </div>
+</div>
+
+<div class="grid3" style="margin-top:12px">
+  <div class="card" style="text-align:center">
+    <div class="card-title">Probability of Profit</div>
+    <div class="card-val" style="color:var(--green)">99.7%</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div class="card-title">P(&gt;20% gain)</div>
+    <div class="card-val" style="color:var(--green)">96.2%</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div class="card-title">P(&gt;50% gain)</div>
+    <div class="card-val" style="color:var(--amber)">67.7%</div>
+  </div>
+</div>
+
+<div class="warn" style="margin-top:12px">Even the P5 (worst 5%) outcome returns +₹2,27,000 — enough to cover two full years of INR depreciation at the current 11.67% annual rate. The basket's low MaxDD (−10.3% basket vs −24.4% GOLDBEES alone) is what drives the high P(profit).</div>
+
+<!-- Section 9: Tax -->
+<h2>9 · Tax Treatment</h2>
+
+<h3 style="color:#94a3b8;font-size:1rem;margin:1.2rem 0 0.6rem;">FoF Taxation — Three Phases</h3>
+<table>
+  <thead><tr><th>Phase</th><th>Period</th><th>STCG</th><th>LTCG</th><th>Indexation</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Phase 1</strong></td>
+      <td>Before Apr 1, 2023</td>
+      <td>Slab rate (held &lt; 3 yrs)</td>
+      <td>20% (held ≥ 3 yrs)</td>
+      <td>✅ Available</td>
+    </tr>
+    <tr style="background:rgba(239,68,68,0.08);">
+      <td><strong>Phase 2</strong></td>
+      <td>Apr 1, 2023 – Jul 22, 2024</td>
+      <td colspan="2" style="text-align:center;">Slab rate regardless of holding period</td>
+      <td>❌ Removed by 2023 Budget</td>
+    </tr>
+    <tr style="background:rgba(34,197,94,0.08);">
+      <td><strong>Phase 3 ✓ Current</strong></td>
+      <td>From Jul 23, 2024 (Budget 2024)</td>
+      <td>Slab rate (held &lt; 24 months)</td>
+      <td><strong>12.5%</strong> (held ≥ 24 months)</td>
+      <td>❌ Not applicable</td>
+    </tr>
+  </tbody>
+</table>
+<div class="note" style="margin-top:0.6rem;">Budget 2024 reversed the unfavourable Phase 2 rules. FoFs purchased on or after Jul 23, 2024 qualify for 12.5% LTCG after a 24-month holding period — a significant improvement for investors in the 30% tax bracket.</div>
+
+<h3 style="color:#94a3b8;font-size:1rem;margin:1.4rem 0 0.6rem;">Current Tax by Instrument (Hold ≥ 24 Months)</h3>
+<table>
+  <thead><tr><th>Instrument</th><th>Category</th><th>Tax Rate</th><th>Exemption</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>ICICI Passive Multi Asset FoF</td><td>Equity-oriented hybrid</td><td>LTCG 12.5%</td><td>₹1.25L/yr</td><td>Hold ≥ 24 months; Phase 3 rules</td></tr>
+    <tr><td>Kotak Global EM FoF</td><td>International FoF</td><td>LTCG 12.5%</td><td>₹1.25L/yr</td><td>Phase 3 — invest after Jul 23, 2024</td></tr>
+    <tr><td>DSP US Equity FoF</td><td>International FoF</td><td>LTCG 12.5%</td><td>₹1.25L/yr</td><td>Phase 3 — invest after Jul 23, 2024</td></tr>
+    <tr><td>GOLDBEES</td><td>Equity ETF (gold)</td><td>LTCG 12.5%</td><td>₹1.25L/yr</td><td>Treated as equity ETF; hold ≥ 12 months</td></tr>
+    <tr><td>Liquid Fund (buffer)</td><td>Debt MF</td><td>STCG at slab</td><td>—</td><td>Until GOLDBEES buffer is deployed</td></tr>
+  </tbody>
+</table>
+<div class="note">At P50 median (₹6,21,584 gain over 2 years), estimated LTCG tax ≈ ₹62,000–₹75,000 assuming ₹1.25L exemption is fully used. Post-tax median outcome ≈ ₹15,45,000. Verify exact treatment with your CA — FoF classification and purchase date both affect the applicable phase.</div>
+
+<!-- Section 10: Triggers -->
+<h2>10 · Action Triggers</h2>
+
+<div class="trigger">
+  <div class="trigger-icon">🟢</div>
+  <div class="trigger-text">
+    <div class="trigger-title">Deploy GOLDBEES buffer (₹1,40,000)</div>
+    <div class="trigger-desc">Trigger: GOLDBEES daily close &gt; ₹124.64 on 3 consecutive trading days. Buy ~1,135 additional units to complete the full ₹2,50,000 gold sleeve. Buffer earns ~₹820/month in liquid fund while waiting.</div>
+  </div>
+</div>
+
+<div class="trigger">
+  <div class="trigger-icon">⚖️</div>
+  <div class="trigger-text">
+    <div class="trigger-title">Rebalance at 12 months</div>
+    <div class="trigger-desc">If any single fund drifts beyond ±10% of target weight (e.g. Kotak EM &gt;35% or &lt;15%), sell the winner and buy the laggard. This mechanically enforces "buy low, sell high" within the basket.</div>
+  </div>
+</div>
+
+<div class="trigger">
+  <div class="trigger-icon">🔓</div>
+  <div class="trigger-text">
+    <div class="trigger-title">SEBI cap lifted — switch to ETF route</div>
+    <div class="trigger-desc">When MON100/MASPTOP50 premiums compress to &lt;2% (SEBI raises overseas limit), the ETF route becomes viable again. At that point DSP US Equity FoF can be replaced by MON100 ETF for better liquidity and lower TER.</div>
+  </div>
+</div>
+
+<div class="trigger">
+  <div class="trigger-icon">📤</div>
+  <div class="trigger-text">
+    <div class="trigger-title">Redeem at 24 months + 1 day</div>
+    <div class="trigger-desc">Cross the 24-month mark for LTCG treatment. Redeem all positions after that threshold to qualify for 12.5% LTCG rate rather than STCG at slab rate.</div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>Generated by <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" style="color:#60a5fa;text-decoration:none;" target="_blank">Mosaic Fund Agent</a> · 2026-05-03 · Data sources: MFAPI, NSE ETF API, Yahoo Finance, ClickHouse (market_data)</p>
+  <p style="margin-top:6px">This report is for informational purposes only. Past returns do not guarantee future performance. Consult a SEBI-registered advisor before investing.</p>
+</footer>
+
+</body>
+</html>

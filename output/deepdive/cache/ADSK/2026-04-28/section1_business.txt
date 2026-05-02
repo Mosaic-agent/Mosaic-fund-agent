@@ -1,0 +1,314 @@
+ ITEM 1. BUSINESS 
+
+Note: A glossary of terms used in this Form 10-K appears at the end of this Item 1. 
+
+GENERAL 
+
+We are a global leader in 3D design, engineering and entertainment technology solutions, spanning architecture, engineering, construction, product design, manufacturing, media, and entertainment. Our customers design, fabricate, manufacture, and build anything by visualizing, simulating, and analyzing real-world performance early in the design process. These capabilities allow our customers to foster innovation, optimize their designs, streamline their manufacturing and construction processes, save time and money, improve quality, deliver more sustainable outcomes, communicate plans, and collaborate with others. Our professional software products are sold globally through a combination of indirect and direct channels. 
+
+Corporate Information 
+
+Our internet address is www.autodesk.com. The information posted on our website is not incorporated into this Annual Report on Form 10-K. Our Annual Report on Form 10-K, Quarterly Reports on Form 10-Q, Current Reports on Form 8-K, and amendments to reports filed or furnished pursuant to Sections 13(a) and 15(d) of the Securities Exchange Act of 1934, as amended, are available free of charge on the Investor Relations portion of our website at www.autodesk.com as soon as reasonably practicable after we electronically file such material with, or furnish it to, the SEC. 
+
+PRODUCTS 
+
+Our architecture, engineering, construction and operations products improve the way building, infrastructure, and industrial projects are designed, built, and operated. Our product development and manufacturing software provides manufacturers in automotive, transportation, industrial machinery, consumer products, and building product industries with comprehensive digital design, engineering, manufacturing, and production solutions. These technologies bring together data from all phases of the product development and production life cycle, creating a digital pipeline that supports greater productivity, accuracy through process automation, and insights that enable more sustainable outcomes. Our digital media and entertainment products provide tools for digital sculpting, modeling, animation, effects, rendering, and compositing for design visualization, visual effects, 3D animation, games production, and enable connection of workflows and data from pre-production to post-production. Our portfolio of products and services enables our customers to foster innovation, optimize and improve their designs, save time and money, improve quality, communicate plans, and collaborate with others. A summary of our revenue by geographic area and product family is found in Part II, Item 8, Note 2, &#8220;Revenue Recognition,&#8221; in the Notes to Consolidated Financial Statements. 
+
+Autodesk&#8217;s product offerings include: 
+
+Architecture, Engineering, Construction and Operations (&#8220;AECO&#8221;) 
+
+&#8226; Architecture, Engineering, and Construction Collection 
+
+The AEC Collection, including AutoCAD, AutoCAD Civil 3D, and Revit, aims to help our customers design, engineer, and construct higher quality, more predictable building and civil infrastructure projects, commonly used by AECO industry experts. 
+
+&#8226; AutoCAD Civil 3D 
+
+AutoCAD Civil 3D solution provides a surveying, design, analysis, and documentation solution for civil engineering, including land development, transportation, and environmental projects. Using a model-centric approach that automatically updates documentation as design changes are made, AutoCAD Civil 3D enables civil engineers, designers, drafters, and surveyors to significantly boost productivity and deliver higher-quality designs and construction documentation faster. With AutoCAD Civil 3D, the entire project team works from the same consistent, up-to-date model so they stay coordinated throughout all project phases. 
+
+Table of Contents 
+
+&#8226; Autodesk Build 
+
+Autodesk Build delivers a connected set of project management and collaboration tools for the construction industry. Autodesk Build provides a toolset for managing, sharing, and accessing project documents that results in streamlined workflows between the office, trailer, and jobsite. In addition, Autodesk Build can be used to track the quality and safety of the project with issues and forms. Team members can use Autodesk Build for requests for information (RFIs), submittals, and meetings to manage the flow of information and track project progress across the construction timeline. Autodesk Build delivers field critical project information and collaboration from Autodesk Build to the jobsite. As part of Autodesk Construction Cloud (now known as Forma for Construction), Build connects data originating in design and preconstruction to the construction and operations phase, allowing users to identify, manage and de-risk project decisions. 
+
+&#8226; BIM Collaborate Pro 
+
+Autodesk BIM Collaborate Pro is cloud-based design collaboration and design management software that enables teams to: organize project data, democratize access, and connect; improve project visibility to deliver on time; and work together on increasingly complex projects. 
+
+&#8226; Building Connected 
+
+BuildingConnected is a SaaS preconstruction solution that combines a large real-time, construction network with an easy-to-use tool that helps general contractors and owners streamline subcontractor qualification, and the bid and risk management process. 
+
+&#8226; Revit 
+
+Revit software is built for Building Information Modeling (&#8220;BIM&#8221;) to help professionals design, build, and maintain higher-quality, more energy-efficient buildings. Using the information-rich models created with Revit, architects, engineers, and construction firms can collaborate to make better-informed decisions earlier in the design process to deliver projects with greater efficiency. Revit includes features for architectural, mechanical, electrical, and plumbing design as well as structural engineering and construction, providing a comprehensive solution for the entire building project team. 
+
+&#8226; Tandem 
+
+Tandem is a cloud-based platform that transforms the built asset lifecycle. Tandem helps AECO firms harness BIM data throughout the project lifecycle to create and hand over a digital twin. Tandem helps owners connect operational systems to the digital twin, turning fragmented data into business intelligence. 
+
+AutoCAD and AutoCAD LT 
+
+&#8226; AutoCAD 
+
+AutoCAD software is a customizable and extensible CAD application for professional design, drafting, detailing, and visualization. AutoCAD software provides digital tools that can be used independently and in conjunction with other specific applications in fields ranging from construction and civil engineering to manufacturing and plant design. 
+
+&#8226; AutoCAD LT 
+
+AutoCAD LT software is purpose built for professional drafting and detailing. AutoCAD LT includes document sharing capability without the need for software customization or certain advanced functionality found in AutoCAD. Users can share all design data with team members who use AutoCAD or other Autodesk products built on AutoCAD. 
+
+Manufacturing (&#8220;MFG&#8221;) 
+
+&#8226; Fusion 
+
+Fusion is the first 3D CAD, CAM, and computer-aided engineering (&#8220;CAE&#8221;) tool of its kind. It connects the entire product development process on a single cloud-based platform. 
+
+Table of Contents 
+
+&#8226; Inventor 
+
+Inventor enables manufacturers to go beyond 3D design to digital prototyping by giving engineers a comprehensive and flexible set of tools for 3D mechanical design, simulation, analysis, tooling, visualization, and documentation. Engineers can integrate AutoCAD drawings and model-based design data into a single digital model, creating a virtual representation of a final product that enables them to validate the form, fit, and function of the product before it is ever built. 
+
+&#8226; Product Design &#38; Manufacturing Collection 
+
+The Product Design &#38; Manufacturing Collection offers connected, professional-grade tools that help our customers make great products today and compete in the changing manufacturing landscape of the future. The collection offers access to a wide range of our products, including AutoCAD, Fusion, Vault, and Inventor. 
+
+&#8226; Vault 
+
+Vault data management software makes it easier to manage data in one central location, accelerate design processes, and streamline internal/external collaboration. Vault integrates with more than 30 Autodesk design applications, provides powerful revisioning and access control capabilities, and enables customers to share product data securely to improve engineering cycle time and reduce manufacturing errors. 
+
+Media and Entertainment (&#8220;M&#38;E&#8221;) 
+
+&#8226; Flow Production Tracking 
+
+Flow Production Tracking is cloud-based production management software for the M&#38;E industry. Creative companies use the Flow Production Tracking platform to provide essential tool collaboration, review, scheduling and tracking to producers, production managers, artists and supervisors, who often work globally with distributed teams. 
+
+&#8226; Maya 
+
+Maya software provides 3D modeling, animation, effects, rendering, and compositing solutions that enable film and video artists, game developers, and design visualization professionals to digitally create engaging, lifelike images, realistic animations and simulations, extraordinary visual effects, and full-length animated feature films. 
+
+&#8226; Media &#38; Entertainment Collection 
+
+The M&#38;E Collection provides end-to-end creative tools for entertainment creation. This collection enables animators, modelers, and visual effects artists to access the tools they need, including Maya and 3ds Max, to create compelling effects, 3D characters, and digital worlds. 
+
+&#8226; 3ds Max 
+
+3ds Max software provides 3D modeling, animation, and rendering solutions that enable game developers, design visualization professionals, and visual effects artists to digitally create realistic images, animations, and complex scenes and to digitally communicate abstract or complex mechanical, architectural, engineering, and construction concepts. 
+
+PRODUCT DEVELOPMENT AND INTRODUCTION 
+
+The technology industry is characterized by rapid technological change in computer hardware, operating systems, and software. In addition, o ur customers&#8217; requirements and preferences rapidly evolve, as do their expectations of the performance of our software and services. To keep pace with these changes, we maintain a vigorous program of new product development to address demands in the marketplace for our products, such as enabling convergence, more flexibility and sustainable outcomes. 
+
+We are undertaking a multi-year process to develop lifecycle solutions within and between our industry clouds, powered by shared platform services, and with our data model at its core. Together, these will help enable Autodesk, its customers, and partners, to create more valuable, data-driven, and connected products and services. 
+
+Table of Contents 
+
+Subscription plan offerings are designed to give our customers increased flexibility with how they use our products and service offerings and to attract a broader range of customers such as project-based users and small businesses. Subscription plans represent a combined hybrid offering of desktop software and cloud functionality which provides a device-independent, collaborative design workflow for designers and their stakeholders. 
+
+We dedicate considerable technical and financial resources to research and development to deliver additional automation and insights to our customers through artificial intelligence (&#8220;AI&#8221;), machine learning, and generative design, which increase efficiency and sustainability and reduce waste. These investments further enhance our existing products and create new solutions and technologies which connect the workflows and data of our customers across the ecosystem of their projects and expand our market opportunity. Our tools connect and automate the phases of design and creation, enabling greater collaboration and the seamless flow of data for individuals and teams across all phases. 
+
+Our software is primarily developed internally; however, we also use independent firms and contractors to perform some of our product development activities. Additionally, we acquire or license products and technologies developed by third parties. We continually review these investments to ensure that we are generating sufficient revenue or gaining a competitive advantage to justify their costs. 
+
+The majority of our research and product development is performed in the United States, Canada, and India. However, we employ experienced software developers in many of our other locations. Translation and localization of our products are performed in several local markets, principally Singapore and Ireland. We generally localize and translate our products into German, French, Italian, Spanish, Japanese, Korean, and simplified and traditional Chinese. 
+
+We plan to continue managing significant product development operations internationally over the next several years. We believe that our ability to conduct research and development at various locations throughout the world allows us to tap into a diverse global talent pool, optimize costs, and integrate local market knowledge into our development activities. We continually assess costs, hiring challenges, and intellectual property protection, against the benefits of our international development activities. 
+
+For further discussion regarding risks from our product development and introduction efforts, see Item 1A, &#8220;Risk Factors.&#8221; 
+
+MARKETING AND SALES 
+
+We sell our products and services globally, through a combination of direct and indirect channels. We transact directly with our enterprise and named account customers, with customers through our online Autodesk branded store, and with certain customers through our new transaction model whereby Solution Providers provide a quote to customers but the actual transaction occurs directly between Autodesk and the customer. The new transaction model helps customers with enhanced control and time savings through self-service, consistent pricing, and a more personalized buying experience. Also, it gives Solution Providers and Autodesk access to essential data to improve our offerings and the customers&#8217; buying experience. 
+
+We expect our indirect channel will continue to transact and support a considerable portion of our customers, particularly in emerging regions and with governments. Our indirect channel model includes both a two-tiered distribution structure, where distributors sell to resellers, and a one-tiered structure, where Autodesk sells directly to resellers. We have a network of approximately 1,170 resellers and distributors worldwide. For fiscal 2026, approximately 37% of our revenue was derived from indirect channel sales through distributors and resellers. We employ a variety of incentive programs and promotions to align our direct and indirect channels with our business strategies. 
+
+We anticipate that our channel mix will continue to change as we scale our business. With the continued growth of our online Autodesk branded store and our new transaction model, we are transacting directly with more end customers, rather than through distributors and resellers, without substantial disruption to our revenue. Our ability to effectively distribute our products depends in part upon the financial and business condition of our distributor, reseller and Solution Provider networks. The loss of, or a significant reduction in, business with any one of our major distributors, large resellers or Solution Providers could harm our business. See Item 1A, &#8220;Risk Factors,&#8221; for further discussion. The transition to annual billings for multi-year contracts impacted the timing of our billings and cash collections in fiscal 2026 and we expect this impact to continue into fiscal year 2027. See Part II, Item 7, &#8220;Management's Discussion and Analysis of Financial Condition and Results of Operations,&#8221; for further discussion. 
+
+Table of Contents 
+
+Revenue through our largest distributor, TD Synnex Corporation and its global affiliates (collectively, &#8220;TD Synnex&#8221;), accounted for 14%, 33%, and 39% of our net revenue for the fiscal years ended January 31, 2026, 2025 and 2024, respectively. In connection with our new transaction model, we entered into a new distribution agreement with TD Synnex for government business in certain jurisdictions. We maintained distribution relationships in emerging markets. We have increased our selling efforts with Solution Providers in connection with our new transaction model. Consequently, we believe our business is not substantially dependent on TD Synnex. No other distributor, reseller, or direct customer accounted for 10% or more of our revenue in fiscal 2026. 
+
+Our customer-related operations are divided into three geographic regions: the Americas; EMEA; and APAC. Each geographic region is supported by global marketing and sales organizations. These organizations develop and manage overall marketing and sales programs and work closely with a network of domestic and international sales offices. We believe that international sales will continue to comprise the majority of our total net revenue. Adverse economic conditions and currency exchange rates in the countries that contribute a significant portion of our net revenue, including emerging economies, may have an adverse effect on our business in those countries and our overall financial performance. Our international operations and sales subject us to a variety of risks. See Item 1A, &#8220;Risk Factors,&#8221; for further discussion. 
+
+We also work directly with distributors, Solution Providers and other partner organizations, computer manufacturers, other software developers, and peripherals manufacturers in cooperative advertising, promotions, and trade-show presentations. We connect with our audiences through scalable marketing strategies such as webinars, live and virtual events, personalized outreach, digital campaigns, sponsorships, and targeted advertising across industry publications, technology platforms, media outlets, and social networks. We also foster global user networks and online communities, enabling customers to connect, collaborate, and share insights about our products, services, and solutions. 
+
+We generate revenue primarily through various offerings that provide recurring revenue. Under our subscription plan, customers can use our software anytime, anywhere, get access to the latest updates, and previous versions through term-based product subscriptions, cloud service offerings, and enterprise business agreements (&#8220;EBA&#8221;). Historically, we have had increased EBA sales activity in our fourth fiscal quarter. This seasonality may not have an immediate impact on our revenue as we recognize subscription revenue over the term of the contract. This seasonality may also affect the relative value of our billings, Remaining Performance Obligations (&#8220;RPO&#8221;), and collections in the fourth and first fiscal quarters. 
+
+CUSTOMER AND PARTNER SUPPORT 
+
+With the new transaction model, we are approaching the final phase of modernizing our go-to-market motion, which includes building more durable and direct relationships with our customers, updating our data infrastructure, and retiring old information systems and business models. We provide technical support and training to customers through a multi-tiered support model, augmented by direct programs designed to address certain specific customer needs. Some of our customers receive support and training from resellers and distributors from which they purchased subscriptions or licenses for our products or services, with Autodesk in turn providing second-tier support to the resellers and distributors. Some of our customers may also purchase support and training from Solution Providers. Other customers are supported directly via self-service using the Autodesk Knowledge Network, which guides customers to answers in our online support assets, support forums, or webinars, or to support representatives using different modalities such as social media, phone, email, and webchat. We also support our resellers and distributors through technical product training, sales training classes, webinars, and other knowledge-sharing programs. 
+
+GOVERNANCE AND IMPACT PROGRAMS 
+
+Impact at Autodesk 
+
+Autodesk is committed to advancing a more sustainable, resilient, and inclusive world. We take action as a business to support our employees, customers, and communities in our collective opportunity to design and make a better world for all. 
+
+We focus our efforts to advance positive outcomes across three primary areas: energy and materials, health and resilience, and work and prosperity. These impact opportunity areas are derived from the UN Sustainable Development Goals (&#8220;SDGs&#8221;) and have been identified through a multi-pronged process to align the top needs of our stakeholders, the issues that are most important to our business, and the areas we are best placed to accelerate positive impact at scale. 
+
+Table of Contents 
+
+These opportunities primarily manifest as outcomes through how our customers leverage our technology to design and make net-zero carbon buildings, resilient infrastructure, more sustainable products, and a thriving workforce. We support and amplify these opportunities through powering our business with 100% renewable energy, neutralizing greenhouse gas emissions associated with our operations, developing an inclusive culture and supporting students and educators with tools and training to equip the next generation of innovators. We advance these opportunities with industry innovators through collaboration with our customers and partners, deploying philanthropic capital to changemakers, and providing software donations, and training to our wider ecosystem. Autodesk committed to target 1% of annual operating profit for the long-term support of our impact programs, which includes our philanthropic work and our climate commitments. 
+
+These programs align with our operational priorities and long-term growth strategy. We aim to maintain our commitments, fostering trust with stakeholders and enabling compliance with global regulations. 
+
+Education 
+
+Autodesk is committed to helping students gain the in-demand skills and certifications needed to demonstrate they are prepared for current and emerging roles in the industries we serve. We offer free educational licenses of Autodesk&#8217;s complete portfolio of professional software to verified students, educators, and accredited educational institutions worldwide. Additionally, we offer self-paced, modular learning and curriculum for K-12, post-secondary students, and educators. Our intention is to make Autodesk software the preferred choice for those poised to become the next generation of design, engineering, and construction professionals. 
+
+Sustainability 
+
+Climate Change 
+
+In addressing the global challenges posed by climate change, we make it possible for our customers to innovate and respond to associated changes in regulation, building code, physical climate parameters, and other climate-related developments. This effort can directly and indirectly create more demand for existing and new Autodesk products and services in the short and long-term. Furthermore, our leadership is committed to taking climate action and that commitment goes hand in hand with our values and reputation in the marketplace. 
+
+Climate Change Management Actions 
+
+To drive continued progress and meet growing demand, we continue to expand the solutions, education, and support we offer, helping customers secure a competitive advantage for a low-carbon future by designing high-performance buildings, resilient cities and infrastructure, and more efficient transportation and products. To continue to grow this market, we invest in our tools to meet customer&#8217;s demand as well as provide software and support to early-stage entrepreneurs, nonprofit organizations, and start-up companies who are designing clean technologies. We are expanding these offerings based upon demand and opportunity in response to challenges posed by climate change. 
+
+Internally, we are investing in best practices to mitigate our greenhouse gas emissions (&#8220;GHGs&#8221;) and climate change risk through investments in renewable energy, energy efficiency, and disaster management and recovery strategies. Our Enterprise Risk Management process considered how climate impacts could affect and potentially amplify the overall significance of each identified risk and opportunity. We regularly assess risks and opportunities in this area and respond accordingly. 
+
+Emissions Performance &#38; Other Key Performance Indicators 
+
+In fiscal year 2025, we made progress on our science-based GHG reduction target, to reduce Scope 1 and Scope 2 GHGs 50%, and reduce Scope 3 GHGs per dollar of gross profit 55%, by fiscal year 2031, compared to fiscal year 2020. Additionally, in fiscal 2025, we were responsible for 155,000 metric tons of carbon dioxide equivalent emissions across our market-based operational boundary. This represents a 32% reduction compared to our fiscal year 2020 base line. In addition, our residual 155,000 metric tons of CO2e emissions were neutralized through the procurement of high quality carbon offsets credits. 
+
+Impact Reports 
+
+More information about our sustainability financing and commitment can be found in our annual Impact Reports, which we have published on our website since 2008. Our fiscal 2026 Impact Report will be published in fiscal 2027. Information contained on or accessible through our website is not part of or incorporated by reference into this report. 
+
+Table of Contents 
+
+Philanthropy 
+
+The Autodesk Foundation (the &#8220;Foundation&#8221;), a privately funded 501(c)(3) charity organization established and solely funded by us, leads our philanthropic efforts. The purpose of the Foundation is twofold: to support employees to create a better world at work, at home, and in the community by matching employees&#8217; volunteer time and donations to nonprofit organizations; and to support organizations using design and make solutions to drive positive impact. In the latter case, we use philanthropic capital, software donations, and training to accomplish this goal, selecting the most impactful and innovative organizations around the world who are innovating to create a better future for our planet. On our behalf, the Foundation also administers a discounted software donation program to nonprofit organizations, entrepreneurs, and others who are developing design solutions that will shape a more sustainable future. 
+
+DEVELOPER PROGRAMS 
+
+Our business and our customers benefit from our relationships with an extensive developer network. These developers create and sell their own interoperable products that further enhance the range of integrated solutions available to our customers. One of our key strategies is to maintain an API based architecture of our software products to facilitate third-party development of complementary products and industry-specific software solutions. This approach enables customers and third parties to customize solutions for a wide variety of highly specific uses. We offer several programs that provide strategic investment funding, technological platforms, user communities, technical support, forums, and events to developers who develop add-on applications for our products. For example, we have established the Autodesk Platform Services to support innovators that build solutions to facilitate the development of a single connected ecosystem for the future of how things are designed, made, and used. Autodesk Platform Services facilitates the development of a single connected ecosystem for integrating Autodesk applications with other enterprise, web, and mobile solutions. 
+
+COMPETITION 
+
+The markets for our products are highly competitive, are subject to rapid change, and can have complex interdependencies between many of the larger businesses. We strive to increase our competitive separation by investing in research and development, allowing us to bring new products to market and create exciting new versions of existing products that offer compelling efficiencies for our customers. We also compete through investments in marketing and sales to more effectively reach new customers and better serve existing customers. 
+
+Our competitors include large, global, publicly traded companies; small, geographically focused firms; startup firms; and solutions produced in-house by their users. Our primary global competitors include Adobe Systems Incorporated, Bentley Systems, Inc., Dassault Syst&#232;mes S.A. and its subsidiary Dassault Syst&#232;mes SolidWorks Corp., Intergraph Corporation, a wholly owned subsidiary of Hexagon AB, MSC Software Corporation, Nemetschek AG, Oracle Corporation, Procore Technologies, Inc., PTC Inc., 3D Systems Corporation, Siemens PLM, and Trimble Navigation Limited, among others. 
+
+The software industry has limited barriers to entry, and the availability of computing power with continually expanding performance at progressively lower prices contributes to the ease of market entry. The industry continues to undergo a platform shift from the personal computer to cloud and mobile computing. This shift further lowers barriers to entry and poses a disruptive challenge to established software companies. The design software market is characterized by vigorous competition in each of the vertical markets in which we compete, both from existing competitors and by entry of new competitors with innovative technologies. Competition is increasingly enhanced by consolidation of companies with complementary products and technologies and the possibility that competitors in one vertical segment may enter other vertical segments that we serve. In addition, some of our competitors in certain markets have greater financial, technical, sales and marketing, and other resources than we do. Our competitors and new entrants may also be able to develop and market new technologies that render our existing or future products less competitive. Disruptive technologies such as machine learning and other AI technologies may significantly alter the market for our products in unpredictable ways and reduce customer demand. Because of these and other factors, competitive conditions in these industries are likely to continue to intensify in the future. Increased competition could result in price reductions, reduced net revenue and profit margins, and loss of market share, any of which could harm our business. See Item 1A, &#8220;Risk Factors,&#8221; for further discussion of risks regarding competition. 
+
+We believe that our future results depend largely upon our ability to better serve customers by offering new products, including cloud and mobile computing products, whether by internal development or acquisition, and to continue to provide existing product offerings that compete favorably with respect to ease of use, reliability, performance, range of useful features, continuing product enhancements, reputation, price, and training. 
+
+Table of Contents 
+
+INTELLECTUAL PROPERTY AND LICENSES 
+
+We maintain an active program to legally protect our investment in technology through intellectual property rights. We protect our intellectual property through a combination of patent, copyright, trademark, and trade secret protections, confidentiality procedures, and contractual provisions. The nature and extent of legal protection associated with each such intellectual property right depends on, among other things, the type of intellectual property right and the given jurisdiction in which such right arises. We believe that our intellectual property rights are valuable and important to our business. 
+
+Nonetheless, our intellectual property rights may not be successfully asserted in the future or may be invalidated, circumvented, or challenged. In addition, the laws and enforcement of the laws of various foreign countries where our products are distributed do not protect our intellectual property rights to the same extent as U.S. laws. Enforcement of intellectual property rights against alleged infringers can sometimes lead to costly litigation and counterclaims. Our inability to protect our proprietary information could harm our business. 
+
+From time to time, we receive claims alleging infringement of a third party&#8217;s intellectual property rights, including patents. Disputes involving our intellectual property rights or those of another party have in the past and may in the future lead to, among other things, costly litigation or product shipment delays, which could harm our business. 
+
+We retain ownership of software we develop. Our combined hybrid offerings include both desktop software and cloud functionality. Desktop software is licensed to users pursuant to &#8216;click through&#8217; or signed license agreements containing restrictions on duplication, disclosure, and transfer. Cloud software and associated services are provided to users pursuant to online or signed terms of service agreements containing restrictions on access and use. 
+
+We believe that because of the limitations of laws protecting our intellectual property and the rapid, ongoing technological changes in both the computer hardware and software industries, we must rely principally upon software engineering and marketing skills to continually maintain and enhance our competitive market position. 
+
+While we have recovered some revenue resulting from the unauthorized use of our software solutions, we are unable to measure the full extent to which unauthorized use of our software products exists. We believe, however, that unauthorized use of our software is and can be expected to be a persistent problem that negatively impacts our revenue and financial results. We believe that our transition from perpetual use software licenses to a subscription-based business model combined with the change from desktop to cloud-based computing will shift the incentives and means by which software is used without authorization. 
+
+In addition, through various licensing arrangements, we receive certain rights to intellectual property of others. We expect to maintain current licensing arrangements and to secure licensing arrangements in the future, as needed and to the extent available on reasonable terms and conditions, to support continued development and sales of our products and services. Some of these licensing arrangements require or may require royalty payments and other licensing fees. The amount of these payments and fees may depend on various factors, including but not limited to: the structure of royalty payments, offsetting considerations, if any, and the degree of use of the licensed technology. 
+
+See Item 1A, &#8220;Risk Factors,&#8221; for further discussion of risks related to protecting our intellectual property. 
+
+PRODUCTION AND SUPPLIERS 
+
+The production of our software products and services involves duplication or hosting of software media. The way that we deliver software has evolved during our business model transition. For certain cloud-based products, we use a combination of co-located hosting facilities and increasingly Amazon Web Services and to a lesser degree other infrastructure-as-a-service providers. We offer customers an electronic software download option for both initial product fulfillment and subsequent product updates. Customers who choose electronic fulfillment receive the latest version of the software from our vendor&#8217;s secure servers. Customers may also obtain our software through media such as DVDs and USB flash drives available from multiple sources. 
+
+TALENT AND HUMAN CAPITAL MANAGEMENT 
+
+Our employees play a central role in the success of our long-term strategy. Autodesk&#8217;s Culture Code defines values and behaviors that support our commitment to being a customer company, where each employee takes responsibility for 
+
+Table of Contents 
+
+understanding our customers&#8217; needs, expectations, and experiences. As of January 31, 2026, we employed approximately 14,300 people, a decrease from approximately 15,300 employees as of the end of fiscal year 2025. None of our employees in the United States are represented by a labor union. In certain foreign countries, our employees are represented by trade unions or works councils. We have never experienced any work stoppages and believe our employee relations are strong. Reliance upon employees in other countries entails various risks and changes in these foreign countries, such as government instability or regulation unfavorable to foreign-owned businesses, which could negatively impact our business in the future. 
+
+Diversity and Belonging 
+
+Autodesk views our culture, diversity, and belonging efforts as directly linked to high performance and unlocking human ingenuity. Our commitment to maintaining a global workforce is grounded in our values and how we work, being inclusive, respectful, and collaborative. Our culture seeks to enable Autodesk employees to do their best work, innovate, contribute to the success of our company, and prosper. 
+
+We believe there are markets for talent that remain untapped or underutilized, which drives our sourcing and networking efforts. We do this by widening our talent pipelines to attract and retain the most capable, skilled, and top-tier professionals from all backgrounds. This strategy strengthens our ability to meet and speak to an ever-expanding and diverse customer base, fueling our competitive edge, increasing customer trust, and driving sustainable growth and success in a dynamic global marketplace. 
+
+We consistently expand our networks and investments in targeted partnerships-both professional and academic- including: Hispanic-serving educational institutions, Historically Black Colleges and Universities and professional organizations around the globe that provide greater access to pools of under recognized talent in key sectors like technology. By leveraging our extensive portfolio of programs&#8212;scholarships, internships, sponsorship agreements, mentorship, and development&#8212;we demonstrate our capability to nurture and retain top-tier talent. 
+
+We offer continuous development opportunities to all employees that facilitate mentorship relationships, as well as focused sponsorship and leadership development programs in partnership with our Employee Resource Groups (ERGs). 
+
+We proudly support nine ERGs, which are open to all employees and play a pivotal role in scaling a sense of belonging across the Company. These groups are formed based on various factors, including shared interests, backgrounds, unique identities, and professional experiences. Our culture promotes choice, allowing employees to engage and participate in ways that resonate with them&#8212;whether as allies or direct members of one or more groups. ERGs are one of the ways we retain and engage our talent community of Autodesk employees, while also creating a work environment that learns from and leverages diverse perspectives and experiences that enrich how we all work together as one Autodesk. 
+
+Finally, we are an equal opportunity employer that does not discriminate in recruiting, hiring, training, or promoting on any basis protected by law. Additional information on our Diversity and Belonging program, initiatives, and metrics can be found on our website at autodesk.com/company/diversity-and-belonging. Information contained on or accessible through our website is not part of or incorporated by reference into this report. 
+
+Professional Development and Employee Impact 
+
+We believe career development plays an important role in keeping our employees engaged and in providing additional opportunities for them to grow and build their careers. Autodesk offers extensive professional and technical development opportunities for our employees. These include self-service online modules and personalized learning paths, professional and management development programs, and a tuition reimbursement program. 
+
+We also encourage our employees to advance our vision for a better world and support their professional development by participating in our pro bono consulting program, using paid time to volunteer, and have their charitable giving matched by the Autodesk Foundation. 
+
+Total Rewards 
+
+To attract, retain, and support our employees, we offer competitive compensation and benefits programs, several of which include an element of choice to meet the needs of our diverse and global population. In addition to competitive base pay and opportunities to receive short-term incentives, all our employees are eligible to participate in our long-term plans. We also have 
+
+Table of Contents 
+
+comprehensive health and wellness benefits, a generous time off program, an employee stock purchase plan, sabbaticals, retirement plans, financial support programs, financial tools and education, and an employee assistance program. 
+
+ACQUISITIONS 
+
+We acquired new technology or supplemented our existing technology by purchasing businesses or technology related assets focused in specific markets or industries. During the fiscal year ended January 31, 2026, Autodesk did not complete any business combinations. 
+
+We acquire technology-related assets that are complementary to or otherwise enhance our existing technologies. We also make investments in privately held companies that develop technology that is complementary to or provide strategic value and expand opportunities for our technologies. 
+
+REGULATION 
+
+We are subject to various regulations, particularly those involving privacy and import/export controls. See Item 1A, &#8220;Risk Factors&#8212;Risks Relating to Laws and Regulations,&#8221; for further discussion. 
+
+GLOSSARY OF TERMS 
+
+Billings: Total revenue plus the net change in deferred revenue from the beginning to the end of the period. 
+
+Cloud Service Offerings: Represents individual term-based offerings deployed through web browser technologies or in a hybrid software and cloud configuration. Cloud service offerings that are bundled with other product offerings are not captured as a separate cloud service offering. 
+
+Constant Currency (CC) Growth Rates: We attempt to represent the changes in the underlying business operations by eliminating fluctuations caused by changes in foreign currency exchange rates as well as eliminating hedge gains or losses recorded within the current and comparative periods. We calculate constant currency growth rates by (i) applying the applicable prior period exchange rates to current period results and (ii) excluding any gains or losses from foreign currency hedge contracts that are reported in the current and comparative periods. 
+
+Design Business: Represents the combination of maintenance, product subscriptions, and all EBAs. Main products include, but are not limited to, AutoCAD, AutoCAD LT, Industry Collections, Revit, Inventor, Maya, and 3ds Max. Certain products, such as our computer aided manufacturing solutions, incorporate both Design and Make functionality and are classified as Design. 
+
+Enterprise Business Agreements (EBAs): Represents programs providing enterprise customers with token-based access to a broad pool of Autodesk products over a defined contract term. 
+
+Flex: A pay-as-you-go consumption option to pre-purchase tokens to access any product available with Flex for a daily rate. 
+
+Free Cash Flow: Cash flow from operating activities minus capital expenditures. 
+
+Industry Collections: Autodesk Industry Collections are a combination of products and services that target a specific user objective and support a set of workflows for that objective. Our Industry Collections consist of: Autodesk Architecture, Engineering, and Construction Collection, Autodesk Product Design and Manufacturing Collection, and Autodesk Media and Entertainment Collection. 
+
+Maintenance Plan: Our maintenance plans provide our customers with a cost effective and predictable budgetary option to obtain the productivity benefits of our new releases and enhancements when and if released during the term of their contracts. Under our maintenance plans, customers are eligible to receive unspecified upgrades when and if available, and technical support. We recognize maintenance revenue over the term of the agreements, generally one year. 
+
+Make Business: Represents certain cloud-based product subscriptions. Main products include, but are not limited to, Autodesk Build, BIM Collaborate Pro, BuildingConnected, Fusion, and Flow Production Tracking. Certain products, such as Fusion, incorporate both Design and Make functionality and are classified as Make. 
+
+Table of Contents 
+
+Net Revenue Retention Rate (NR3): Measures the year-over-year change in Recurring Revenue for the population of customers that existed one year ago (&#8220;base customers&#8221;). Net revenue retention rate is calculated by dividing the current quarter Recurring Revenue related to base customers by the total corresponding quarter Recurring Revenue from one year ago. Recurring Revenue is based on USD reported revenue, and fluctuations caused by changes in foreign currency exchange rates and hedge gains or losses have not been eliminated. Recurring Revenue related to acquired companies, one year after acquisition, has been captured as existing customers until such data conforms to the calculation methodology. This may cause variability in the comparison. 
+
+Other Revenue: Consists of revenue from consulting, training and other products and services, and is recognized as the products are delivered and services are performed. 
+
+Product Family: A grouping of related products or solutions that address specific industry or market needs, customer types, or use cases, or share core underlying technology or deployment models. Where a customer has a right to use different products over time, Autodesk may classify amounts to a single product family based on the customer&#8217;s primary industry or use case, or to product family other, or allocate the amounts across product families using estimates. 
+
+Product Subscription: Provides customers a flexible, cost-effective way to access and manage 3D design, engineering, and entertainment software tools. Our product subscriptions currently represent a hybrid of desktop and cloud functionality, which provides a device-independent, collaborative design workflow for designers and their stakeholders. 
+
+Recurring Revenue: Consists of the revenue for the period from our traditional maintenance plans, our subscription plan offerings, and certain Other revenue. It excludes subscription revenue related to third-party products. Recurring revenue acquired with the acquisition of a business is captured when total subscriptions are captured in our systems and may cause variability in the comparison of this calculation. 
+
+Remaining Performance Obligations (RPO): The sum of total short-term, long-term, and unbilled deferred revenue. Current remaining performance obligations is the amount of revenue we expect to recognize in the next twelve months. 
+
+Solution Provider : Solution Provider is the name of our channel partners who primarily serve our new transaction model customers worldwide. Solution Providers may also be resellers in relation to Autodesk solutions . 
+
+Spend : The sum of cost of revenue and operating expenses. 
+
+Subscription Plan: Comprises our term-based product subscriptions, cloud service offerings, and EBAs. Subscriptions represent a combined hybrid offering of desktop software and cloud functionality which provides a device-independent, collaborative design workflow for designers and their stakeholders. With subscription, customers can use our software anytime, anywhere, and get access to the latest updates to previous versions. 
+
+Subscription Revenue: Includes our cloud-enabled term-based product subscriptions, cloud service offerings, and flexible EBAs. 
+
+Unbilled Deferred Revenue: Unbilled deferred revenue represents contractually stated or committed contracts under early renewal and multi-year billing plans for subscription, services, and maintenance for which the associated deferred revenue has not been recognized. Under FASB Accounting Standards Codification ("ASC") Topic 606, unbilled deferred revenue is not included as a receivable or deferred revenue on our Consolidated Balance Sheet. 
+
