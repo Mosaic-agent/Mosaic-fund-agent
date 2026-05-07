@@ -320,10 +320,16 @@ def run_deepdive(
             "locator": "yfinance.Ticker.info",
         })
     if jobs_cache.exists():
+        _ad = get_careers_adapter(ticker)
+        locator = (
+            getattr(type(_ad), "sitemap_url", None)
+            or f"{type(_ad).__name__} careers API"
+            if _ad else "careers cache"
+        )
         dataset.sources.append({
             "field": "jobs",
             "file": str(jobs_cache),
-            "locator": "Workday API /wday/cxs/autodesk/Autodesk_Global/jobs",
+            "locator": locator,
         })
 
     # Re-write dataset.json now that phases 3+4 are populated
@@ -507,14 +513,25 @@ def run_deepdive(
     console.print(
         f"  Prompts   : {len(targets)} assembled → [dim]{prompts_dir}[/dim]"
     )
-    console.print(
-        "  [dim]Gemini CLI should now generate one response block per section above.[/dim]"
-    )
 
     # ── Phase 7: Report assembly ───────────────────────────────────────────────
+    # Sections are written to sections/<key>.md by the caller (Claude CLI) after
+    # reading the Phase 6 prompt blocks from stdout and generating the content.
+    # This phase assembles whatever section files are present into report.md.
     console.print("[bold]Phase 7:[/bold] Assembling report.md + sources.md…")
 
     from src.deepdive.report import SECTION_ORDER, assemble_report  # noqa: PLC0415
+
+    sections_dir = out_dir / "sections"
+
+    # Report which sections are present / missing before assembly
+    present = [k for k, _ in SECTION_ORDER if (sections_dir / f"{k}.md").exists()
+               and (sections_dir / f"{k}.md").stat().st_size > 100]
+    missing = [k for k, _ in SECTION_ORDER if k not in present]
+    if present:
+        console.print(f"  Sections  : {len(present)} ready — {', '.join(present)}")
+    if missing:
+        console.print(f"  [yellow]Missing   : {', '.join(missing)}[/yellow]")
 
     try:
         report_path, sources_path = assemble_report(
@@ -533,7 +550,6 @@ def run_deepdive(
         )
 
         # Persist report to ClickHouse so the UI reads from CH, not the filesystem
-        sections_dir = out_dir / "sections"
         sections_payload: dict[str, tuple[str, str]] = {}
         for key, heading in SECTION_ORDER:
             section_file = sections_dir / f"{key}.md"

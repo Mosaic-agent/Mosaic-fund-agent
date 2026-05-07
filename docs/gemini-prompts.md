@@ -450,22 +450,150 @@ Run a cross-asset correlation check between GOLDBEES and NIFTYBEES:
 Check what institutional multi-asset funds (DSP, Quant, ICICI) are holding and detect allocation shifts.
 
 ```
-Check the latest mutual fund portfolio holdings:
+Check the latest DSP Multi Asset holdings:
 
-1. Query the most recent disclosure:
-   SELECT scheme_code, as_of_month, isin, name, weight_pct, asset_type
+1. Query the most recent month's top holdings:
+   SELECT fund_name, as_of_month, security_name, pct_of_nav, market_value_cr, asset_type
    FROM market_data.mf_holdings FINAL
-   WHERE as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL)
-   ORDER BY scheme_code, weight_pct DESC;
+   WHERE fund_name = 'DSP_MULTI_ASSET'
+     AND as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL
+                        WHERE fund_name = 'DSP_MULTI_ASSET')
+   ORDER BY pct_of_nav DESC
+   LIMIT 20;
 
-2. If empty or stale, refresh: python src/main.py import --category mf_holdings
+2. Check asset class allocation breakdown:
+   SELECT asset_type, sum(pct_of_nav) as total_pct, count() as num_securities
+   FROM market_data.mf_holdings FINAL
+   WHERE fund_name = 'DSP_MULTI_ASSET'
+     AND as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL
+                        WHERE fund_name = 'DSP_MULTI_ASSET')
+   GROUP BY asset_type
+   ORDER BY total_pct DESC;
 
-3. From the holdings data:
-   - What percentage are multi-asset funds allocating to gold vs equity vs debt?
-   - Are any of them holding tracked ETFs (GOLDBEES, NIFTYBEES, BANKBEES, etc.)?
-   - Compare current month to previous month: which assets increased vs decreased?
-   - Is there a consensus "smart money" signal? (e.g., all 3 funds increased gold = bullish confirmation)
+3. Compare two months to detect allocation shifts:
+   SELECT h1.security_name, h1.pct_of_nav as current_pct, h2.pct_of_nav as prev_pct,
+          (h1.pct_of_nav - h2.pct_of_nav) as change_pct
+   FROM market_data.mf_holdings FINAL h1
+   LEFT JOIN market_data.mf_holdings FINAL h2
+     ON h1.fund_name = h2.fund_name AND h1.isin = h2.isin
+     AND h2.as_of_month = addMonths(h1.as_of_month, -1)
+   WHERE h1.fund_name = 'DSP_MULTI_ASSET'
+     AND h1.as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL
+                           WHERE fund_name = 'DSP_MULTI_ASSET')
+   ORDER BY abs(change_pct) DESC
+   LIMIT 15;
 
-4. Cross-reference with signal aggregator: python src/main.py signals
+4. From the holdings data:
+   - What % is allocated to equity vs debt vs gold vs international?
+   - Are any tracked ETFs (GOLDBEES, NIFTYBEES, BANKBEES) held directly?
+   - Which positions grew/shrank the most month-over-month?
+   - Is there a consensus "smart money" signal? (e.g., increased gold = bullish on commodities)
+
+5. Cross-reference with signal aggregator: python src/main.py signals
    Do the fund managers' allocations agree with the composite scores?
+
+NOTE: Columns are security_name, pct_of_nav, market_value_cr — NOT name/weight_pct.
+```
+
+---
+
+## I. DSP Fund Analysis
+
+### 21. DSP Fund Month-over-Month Return Analysis
+
+Analyse NAV returns for any DSP fund over any lookback period.
+
+```
+Run the MoM return analyser for DSP Multi Asset Direct Growth (scheme 152056):
+
+  python src/scripts/portfolio/fund_mom_returns.py --scheme 152056 --months 12
+
+From the output, report:
+- The NAV at the start and end of the period
+- Month-by-month return with direction (positive/negative)
+- Best and worst calendar months with the return %
+- Average MoM return and count of positive vs negative months
+- Overall period return %
+
+Then compare with DSP Multi Asset Omni FoF Direct Growth (scheme 154167):
+  python src/scripts/portfolio/fund_mom_returns.py --scheme 154167 --months 12
+
+Which fund delivered better risk-adjusted returns over the period?
+Note: DSP Multi Asset Omni FoF launched in late 2025 — limited history is expected.
+```
+
+### 22. DSP Holdings X-Ray — What's Inside the Fund
+
+Deep-dive into a DSP fund's portfolio composition across multiple months.
+
+```
+Run a holdings X-ray on DSP Multi Asset (fund_name = 'DSP_MULTI_ASSET'):
+
+1. Get available history (months with data):
+   SELECT DISTINCT as_of_month, count() as num_holdings
+   FROM market_data.mf_holdings FINAL
+   WHERE fund_name = 'DSP_MULTI_ASSET'
+   GROUP BY as_of_month
+   ORDER BY as_of_month DESC;
+
+2. Top 10 holdings in the latest month:
+   SELECT security_name, isin, asset_type, pct_of_nav, market_value_cr
+   FROM market_data.mf_holdings FINAL
+   WHERE fund_name = 'DSP_MULTI_ASSET'
+     AND as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL
+                        WHERE fund_name = 'DSP_MULTI_ASSET')
+   ORDER BY pct_of_nav DESC
+   LIMIT 10;
+
+3. Asset class breakdown (equity / debt / gold / international / cash):
+   SELECT asset_type, round(sum(pct_of_nav), 2) as alloc_pct, count() as n_securities
+   FROM market_data.mf_holdings FINAL
+   WHERE fund_name = 'DSP_MULTI_ASSET'
+     AND as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL
+                        WHERE fund_name = 'DSP_MULTI_ASSET')
+   GROUP BY asset_type ORDER BY alloc_pct DESC;
+
+4. 6-month allocation trend (equity vs debt vs gold):
+   SELECT as_of_month, asset_type, round(sum(pct_of_nav), 2) as alloc_pct
+   FROM market_data.mf_holdings FINAL
+   WHERE fund_name = 'DSP_MULTI_ASSET'
+     AND as_of_month >= addMonths(today(), -6)
+   GROUP BY as_of_month, asset_type
+   ORDER BY as_of_month, alloc_pct DESC;
+
+From the data:
+- Is the fund running higher equity or debt/gold allocation vs its stated mandate?
+- Which single security has the highest concentration risk (pct_of_nav)?
+- Has the gold allocation increased or decreased over 6 months?
+- Cross-reference the equity holdings vs signal aggregator: python src/main.py signals
+```
+
+### 23. DSP Fund Comparison — Pick the Best Multi-Asset Option
+
+Compare DSP Multi Asset vs DSP Multi Asset Omni FoF side by side.
+
+```
+Compare DSP Multi Asset (DSP_MULTI_ASSET, scheme 152056) vs
+DSP Multi Asset Omni FoF (DSP_MULTI_ASSET_OMNI_FOF, scheme 154167):
+
+Step 1 — MoM Return comparison:
+  python src/scripts/portfolio/fund_mom_returns.py --scheme 152056 --months 12
+  python src/scripts/portfolio/fund_mom_returns.py --scheme 154167 --months 12
+
+Step 2 — Holdings comparison (latest month):
+  SELECT fund_name, asset_type, round(sum(pct_of_nav), 2) as alloc_pct
+  FROM market_data.mf_holdings FINAL
+  WHERE fund_name IN ('DSP_MULTI_ASSET', 'DSP_MULTI_ASSET_OMNI_FOF')
+    AND as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL)
+  GROUP BY fund_name, asset_type
+  ORDER BY fund_name, alloc_pct DESC;
+
+Step 3 — Answer these questions from the data:
+- Which fund has the higher 12-month return?
+- Which has a higher equity allocation? Higher gold/commodity?
+- DSP Multi Asset Omni FoF is a Fund-of-Funds — does its holdings data show underlying funds
+  or direct securities?
+- Given the limited history of DSP_MULTI_ASSET_OMNI_FOF (launched late 2025), is
+  DSP_MULTI_ASSET the safer choice for long-term allocation analysis?
+- Recommended choice for a conservative multi-asset investor and why.
 ```

@@ -9,10 +9,12 @@ implemented per platform with a common interface.
 Platforms implemented:
   WorkdayAdapter        — JSON POST API (tenant.wd1.myworkdayjobs.com)
   HtmlPaginatedAdapter  — HTML page scraping, ?page=N (BeautifulSoup)
+  SitemapAdapter        — XML sitemap parsing (for WAF-protected sites)
 
 Concrete company adapters:
   AutodeskAdapter  (ADSK) — WorkdayAdapter
   ProcoreAdapter   (PCOR) — HtmlPaginatedAdapter
+  RokuAdapter      (ROKU) — SitemapAdapter (weareroku.com)
 
 All adapters produce normalized job dicts compatible with jobs_signal.bucket_jobs():
   {
@@ -332,11 +334,198 @@ class ProcoreAdapter(HtmlPaginatedAdapter):
         return jobs, total
 
 
+# ── Sitemap adapter (XML sitemap → slug parsing) ───────────────────────────────
+
+# Countries that appear in weareroku.com job URL slugs (slug-form → display name).
+# Multi-word countries come before single-word ones so we check longest match first.
+_COUNTRY_SLUG_MAP: dict[str, str] = {
+    "united-states": "United States",
+    "united-kingdom": "United Kingdom",
+    "south-korea": "South Korea",
+    "costa-rica": "Costa Rica",
+    "czech-republic": "Czech Republic",
+    "new-zealand": "New Zealand",
+    "australia": "Australia",
+    "austria": "Austria",
+    "brazil": "Brazil",
+    "canada": "Canada",
+    "china": "China",
+    "denmark": "Denmark",
+    "finland": "Finland",
+    "france": "France",
+    "germany": "Germany",
+    "india": "India",
+    "ireland": "Ireland",
+    "israel": "Israel",
+    "italy": "Italy",
+    "japan": "Japan",
+    "mexico": "Mexico",
+    "netherlands": "Netherlands",
+    "norway": "Norway",
+    "poland": "Poland",
+    "portugal": "Portugal",
+    "romania": "Romania",
+    "singapore": "Singapore",
+    "spain": "Spain",
+    "sweden": "Sweden",
+    "switzerland": "Switzerland",
+    "taiwan": "Taiwan",
+    "ukraine": "Ukraine",
+}
+
+_UUID_SUFFIX_RE = re.compile(
+    r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+def _parse_roku_slug(slug: str) -> tuple[str, str]:
+    """
+    Parse a weareroku.com job URL slug into (title, locationsText).
+
+    Slug format (after stripping optional UUID suffix):
+      {title-words}-{city-words}-{state/region}-{country-words}
+
+    Strategy: identify the country at the end (1 or 2 words), then take the
+    immediately preceding word as the state/region.  The full slug (hyphens
+    replaced with spaces, title-cased) is used as the title so that all
+    function-classification keywords survive even when the city is multi-word.
+    """
+    slug = _UUID_SUFFIX_RE.sub("", slug)
+    parts = slug.split("-")
+
+    # Detect country — try 2-word match first, then 1-word
+    country: str | None = None
+    country_nwords = 0
+
+    if len(parts) >= 2:
+        two = f"{parts[-2]}-{parts[-1]}"
+        if two in _COUNTRY_SLUG_MAP:
+            country = _COUNTRY_SLUG_MAP[two]
+            country_nwords = 2
+
+    if country is None and parts and parts[-1] in _COUNTRY_SLUG_MAP:
+        country = _COUNTRY_SLUG_MAP[parts[-1]]
+        country_nwords = 1
+
+    # Full slug → title (guarantees all function-classification keywords are present)
+    title = " ".join(p.title() for p in parts)
+
+    if country and len(parts) > country_nwords:
+        # Take the word immediately before the country as state/region label
+        region_part = parts[-(country_nwords + 1)].title()
+        location = f"{region_part}, {country}"
+    elif country:
+        location = country
+    else:
+        location = "Unknown"
+
+    return title, location
+
+
+class SitemapAdapter(BaseCareersAdapter):
+    """
+    Fetches job postings from a public XML sitemap and parses the URL slugs.
+
+    Used for sites protected by JS challenges (e.g. AWS WAF) where direct HTML
+    scraping is blocked but the sitemap remains publicly accessible.
+
+    Subclasses must set `sitemap_url` and implement `_slug_to_job`.
+    """
+
+    sitemap_url: str = ""
+
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/xml,text/xml,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    def _fetch_sitemap_xml(self) -> str:
+        resp = requests.get(
+            self.sitemap_url, headers=self._HEADERS, timeout=_REQUEST_TIMEOUT
+        )
+        resp.raise_for_status()
+        return resp.text
+
+    def _extract_job_urls(self, xml_text: str) -> list[str]:
+        import xml.etree.ElementTree as ET  # noqa: PLC0415
+
+        ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+        root = ET.fromstring(xml_text)
+        urls = []
+        for loc in root.findall(".//sm:loc", ns):
+            if loc.text and "/jobs/" in loc.text:
+                urls.append(loc.text.strip())
+        return urls
+
+    @abstractmethod
+    def _slug_to_job(self, slug: str) -> dict[str, Any]:
+        """Convert a URL slug to a normalized job dict."""
+
+    def fetch_all_jobs(self, cache_path: Path) -> list[dict[str, Any]]:
+        if cache_path.exists():
+            log.debug("careers: cache hit %s", cache_path.name)
+            return json.loads(cache_path.read_text())
+
+        log.info("careers: fetching sitemap %s", self.sitemap_url)
+        try:
+            xml_text = self._fetch_sitemap_xml()
+        except Exception as exc:
+            log.warning("careers: sitemap fetch failed: %s", exc)
+            return []
+
+        job_urls = self._extract_job_urls(xml_text)
+        log.info("careers: %d job URLs found in sitemap", len(job_urls))
+
+        all_jobs = []
+        for url in job_urls:
+            slug = url.rstrip("/").rsplit("/", 1)[-1]
+            try:
+                all_jobs.append(self._slug_to_job(slug))
+            except Exception as exc:
+                log.debug("careers: slug parse error for %s: %s", slug, exc)
+
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(all_jobs, indent=2))
+        log.info("careers: cached %d postings → %s", len(all_jobs), cache_path.name)
+        return all_jobs
+
+
+class RokuAdapter(SitemapAdapter):
+    """
+    Fetches open job postings for Roku (ROKU) from the public sitemap at
+    https://www.weareroku.com/sitemap.xml.
+
+    weareroku.com is built on ClinchTalent and protected by AWS WAF, so direct
+    HTML scraping is blocked.  The sitemap is publicly accessible and lists all
+    active job URLs in the format:
+      /jobs/{title-slug}-{city}-{state}-{country}[-{uuid}]
+
+    Title and location are extracted from the slug; function bucketing is
+    handled downstream by jobs_signal.bucket_jobs().
+    """
+
+    sitemap_url = "https://www.weareroku.com/sitemap.xml"
+
+    def _slug_to_job(self, slug: str) -> dict[str, Any]:
+        title, location = _parse_roku_slug(slug)
+        return {
+            "title": title,
+            "locationsText": location,
+            "department": "",
+        }
+
+
 # ── Adapter registry ───────────────────────────────────────────────────────────
 
 _REGISTRY: dict[str, type[BaseCareersAdapter]] = {
     "ADSK": AutodeskAdapter,
     "PCOR": ProcoreAdapter,
+    "ROKU": RokuAdapter,
 }
 
 

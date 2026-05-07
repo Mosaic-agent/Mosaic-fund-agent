@@ -24,9 +24,14 @@ python src/main.py --help
 python src/main.py analyze --max 3         # limit to 3 holdings
 python src/main.py analyze                 # full live portfolio (requires Zerodha login)
 python src/main.py ask "what is my riskiest holding?"
-python src/main.py import --category stocks,etfs
+python src/main.py import --category stocks,etfs,mf,fii_dii,cot,fx_rates
 python src/main.py import --full           # full backfill (ignores watermarks)
 python src/main.py import --dry-run
+python src/main.py signals --save --verbose  # composite signal aggregator
+python src/main.py macro --max 3             # macro theme scanner
+python src/main.py comex                     # COMEX pre-market gold/silver/copper
+python src/main.py etf-news --max 3 --save  # ETF news sentiment
+python src/main.py premium-alerts           # iNAV premium/discount alerts
 python src/main.py ui                      # Streamlit at localhost:8501
 python src/main.py config                  # show masked config
 ```
@@ -106,6 +111,80 @@ CLI import command
 
 ### ClickHouse Schema
 Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`. All use `ReplacingMergeTree` — idempotent inserts are safe.
+
+## User Context
+
+Dhiraj's wife is a treasurer at a major Indian AMC. Her domain expertise shaped the
+platform's fund/ETF signal design, macro theme mapping, and institutional flow
+interpretation. Assume strong domain knowledge — skip basic MF/ETF/flow definitions.
+
+## MCP Tools (ofin-pipeline server)
+
+`run_pipeline`, `get_latest_signal`, `evaluate_performance`, `import_data` are MCP
+tools — call them directly, not as shell commands.
+
+| Tool | Call when user says |
+|------|---------------------|
+| `run_pipeline` | "run pipeline", "today's signal", "what should I do with GOLDBEES" |
+| `get_latest_signal` | "latest signal", "last recommendation" |
+| `evaluate_performance` | "evaluate", "how accurate", "hit ratio" |
+| `import_data` | "refresh data", "update prices", "import" |
+
+## Rules — Enforced in Every Session
+
+### No LLM Calculations
+Never compute any number inside an LLM response. All numeric work — returns, ratios,
+aggregations, scores, Kelly fractions, PE ratios — must be computed in Python or SQL,
+then narrated. The LLM only summarises pre-computed results.
+
+- ✅ Run a script/query, then explain the output
+- ❌ "The average MoM return is ~X%" — if you derived it yourself, do not state it
+
+### No Co-Authored-By in Commits
+Never add `Co-Authored-By: Claude ...` trailers to git commit messages.
+
+### Grounding — Pipeline Outputs
+The GOLDBEES pipeline produces a fixed output set. Never invent anything beyond these fields:
+- `prob_up` — LightGBM classifier probability (0–1)
+- `expected_return_pct` — predicted 5-day log return (%)
+- `confidence_band` — [low%, high%] quantile bounds
+- `regime_signal` — BUY / WATCH_LONG / HOLD / WATCH_SHORT / SELL
+- `cv_auc` — model AUC (0.5 = random, >0.55 = useful)
+- `cv_skill` — AUC − 0.5 (≤0 = no skill, Kelly disabled)
+- `hit_ratio` — directional accuracy from walk-forward CV
+- `weights.rg` — Rule-based Risk Governor weight
+- `weights.kelly` — Kelly-optimal weight
+- `weights.blended_50` — **recommended weight** (50% RG + 50% Kelly)
+- `weights.blended_30` — conservative blend (70% RG + 30% Kelly)
+
+Never invent:
+- Composite scores (e.g. "69/100") or macro/sentiment/flow scores
+- "ACCUMULATE" / "STRONG BUY" labels — use `regime_signal` as-is
+- The RG weight is NOT the recommendation — `weights.blended_50` is
+
+When a tool returns a `display_report` field, show it **verbatim** — do not reformat.
+
+### Macro Scanner
+- Net scores are article-counts, not % return forecasts
+- Only cite prices/flows that appear in the Quant Overlay panel
+- Score ≥ +16 = strong bullish | +8–+15 = moderate | ≤ −16 = strong bearish
+
+### Number Sources
+All market data comes from ClickHouse (live DB). Never substitute numbers from
+training knowledge — gold prices, FII flows, USDINR etc. change daily and the
+DB value is the only valid source.
+
+### ClickHouse Queries
+Always add `FINAL` to queries against `ReplacingMergeTree` tables to deduplicate:
+```sql
+SELECT ... FROM market_data.mf_holdings FINAL WHERE ...
+```
+
+### DSP Fund Holdings Schema
+`market_data.mf_holdings` columns: `scheme_code`, `fund_name`, `as_of_month`,
+`isin`, `security_name`, `asset_type`, `market_value_cr`, `pct_of_nav`, `imported_at`.
+**Never use** `weight_pct` or `name` — those columns do not exist.
+Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 
 ## Important Patterns
 
