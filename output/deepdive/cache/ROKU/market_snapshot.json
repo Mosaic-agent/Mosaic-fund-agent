@@ -1,0 +1,29 @@
+{
+  "as_of_date": "2026-05-06",
+  "pe_trailing": 93.0,
+  "pe_forward": 37.20419,
+  "ev_revenue": 3.367,
+  "ev_ebitda": 43.335,
+  "fcf_yield_pct": 3.65,
+  "market_cap_usd_b": 18.54,
+  "peer_pe_median": null,
+  "peer_ev_ebitda_median": null,
+  "peer_ev_revenue_median": null,
+  "raw": {
+    "primary": {
+      "symbol": "ROKU",
+      "name": "Roku, Inc.",
+      "market_cap_usd": 18542950400.0,
+      "current_price": 125.55,
+      "pe_trailing": 93.0,
+      "pe_forward": 37.20419,
+      "ev_revenue": 3.367,
+      "ev_ebitda": 43.335,
+      "free_cash_flow": 676668096.0,
+      "revenue_ttm": 4965457920.0,
+      "fifty_two_week_high": 127.9,
+      "fifty_two_week_low": 58.77
+    },
+    "peers": []
+  }
+}
