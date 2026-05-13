@@ -1,55 +1,147 @@
 flowchart TD
     User(["👤 User"])
 
-    subgraph CLI ["CLI — src/main.py (typer)"]
-        CLICmd["analyze [--demo --max N --quiet]\nask \"question\"\nconfig"]
+    %% ── CLI ────────────────────────────────────────────────────────────────
+    subgraph CLI ["CLI — src/main.py (Typer)"]
+        CLIImport["import --category …"]
+        CLISignals["signals [--save]"]
+        CLIAnalyze["analyze / ask"]
+        CLIMacro["macro / comex / etf-news"]
+        CLIUI["ui  →  localhost:8501"]
     end
 
-    subgraph Agent ["PortfolioAgent — portfolio_agent.py"]
-        subgraph Pipeline ["analyze → Sequential Pipeline (run_full_analysis)"]
-            S1["① Fetch Holdings\nKiteMCPClient → Zerodha Kite MCP\nOAuth browser login · demo: built-in sample data"]
-            S2["② Enrich Each Holding\nasset_analyzer.py — runs once per holding"]
-            S3["③ LLM Scoring\nsummarization.py\nrisk 1–10 · sentiment −1 to +1 · 5 insights"]
-            S4["④ Portfolio Aggregation\nportfolio_analyzer.py\nsector allocation · health score · rebalancing"]
-            S5["⑤ COMEX Pre-Market Signals\ncomex_fetcher.py\nXAU XAG HG XPT XPD — live spot vs prev close"]
-            S6["⑥ Format & Save\noutput.py\nRich terminal panels · JSON ./output/*.json"]
-            S1 --> S2 --> S3 --> S4 --> S5 --> S6
+    %% ── Import pipeline (Adapter + Repository + Observer) ──────────────────
+    subgraph ImportPipeline ["Import Pipeline — Adapter + Repository + Observer"]
+        subgraph Adapters ["Fetcher Adapters  src/importer/fetchers/adapters.py"]
+            FA1["YFinanceFetcher\nstocks · etfs · commodities · indices"]
+            FA2["MFNavFetcher\nMFAPI.in NAV"]
+            FA3["FIIDIIFetcher\nSensibull cash + F&O + monthly"]
+            FA4["FXRatesFetcher\nUSDINR · USDCNY · USDAED …"]
+            FA5["COTGoldFetcher\nCFTC Disaggregated weekly"]
         end
 
-        subgraph ReActLoop ["ask → LangGraph ReAct Loop"]
-            ReAct["LLM reasons over registered tools\nreason → act → observe · repeats until done"]
+        Repo["MarketDataRepository\nsrc/db/repository.py\nrun_fetcher() — watermark → fetch → insert → event"]
+
+        subgraph EventBus ["EventBus  src/events/bus.py"]
+            EV["DataImportedEvent\nsource · category · n_rows · to_date"]
+        end
+
+        subgraph Observers ["Post-Import Observers  src/events/observers.py"]
+            OBS1["ModelCacheInvalidator\n🔴 sync — deletes stale .joblib"]
+            OBS2["MLPredictionObserver\n🟡 async — re-runs LightGBM"]
+            OBS3["SignalAggregatorObserver\n🟡 async — refreshes composite scores"]
+            OBS4["SanityCheckObserver\n🟡 async — anomaly validation"]
         end
     end
 
-    subgraph Tools ["Enrichment Tools (Step ②)"]
-        YF["yahoo_finance.py\nprice · P/E · sector · 30-day momentum"]
-        NS["news_search.py\nNewsAPI.org — last 7 days"]
-        ES["earnings_scraper.py\nScreener.in · Yahoo Finance fallback"]
-        IV["inav_fetcher.py (ETF only)\nNSE live iNAV — every 15 seconds"]
-        HI["historic_inav.py (ETF only)\nAMFI 30-day NAV via MFAPI.in"]
+    %% ── ClickHouse ──────────────────────────────────────────────────────────
+    subgraph CH ["ClickHouse — market_data (19 tables)"]
+        T1[("daily_prices\nmf_nav · fx_rates · etf_aum")]
+        T2[("fii_dii_flows\ncot_gold · cb_gold_reserves")]
+        T3[("ml_predictions\nsignal_composite")]
+        T4[("inav_snapshots\nnews_articles")]
+        T5[("import_watermarks")]
     end
 
-    subgraph Ext ["External Services"]
-        KiteSvc[("Zerodha Kite MCP\nmcp.kite.trade")]
-        YFSvc[("Yahoo Finance\n.NS / .BO / GC=F SI=F HG=F")]
-        NewsSvc[("NewsAPI.org")]
-        ScrnSvc[("Screener.in")]
-        NSESvc[("NSE API + MFAPI.in")]
-        GoldSvc[("gold-api.com\nx-access-token auth")]
-        LLMSvc[("OpenAI / Anthropic\nGPT-4o-mini · Claude Haiku")]
+    %% ── Signal pipeline (Repository + Strategy) ────────────────────────────
+    subgraph SignalPipeline ["Signal Pipeline — Repository + Strategy"]
+        RepoRead["MarketDataRepository\ntyped reads: fii_dii_5d() · ohlcv()\nlatest_ml_prediction() · inav_latest_and_history()"]
+
+        subgraph Sources ["SignalSource strategies  src/agents/signal_sources.py"]
+            direction LR
+            SS1["MacroSignalSource\n25% — GNews themes"]
+            SS2["SentimentSignalSource\n15% — news_articles"]
+            SS3["ValuationSignalSource\n15% — iNAV Z-score"]
+            SS4["FlowSignalSource\n25% — FII/DII 5D net"]
+            SS5["MLSignalSource\n15% — ml_predictions"]
+            SS6["GARCHAnomalySource\n5% — GARCH + IF"]
+        end
+
+        Aggregator["SignalAggregator\nsrc/agents/signal_aggregator.py\n6 sources × ThreadPoolExecutor\n→ composite 0–100 + BUY/HOLD/SELL\n79 s → 9 s after parallelisation"]
     end
 
-    User --> CLICmd
-    CLICmd -->|analyze| S1
-    CLICmd -->|ask| ReAct
+    %% ── ML pipeline ────────────────────────────────────────────────────────
+    subgraph MLPipeline ["ML Pipeline  src/ml/"]
+        TP["TrendPredictor\ntrend_predictor.py\nLightGBM walk-forward CV\nDXY + US10Y fetched in parallel"]
+        ModelCache[("Model cache\noutput/.cache/ml_models/\n*.joblib — auto-invalidated\nby ModelCacheInvalidator")]
+        AD["AnomalyDetector\nanomaly.py\nGARCH(1,1) + Isolation Forest\n_IF_CACHE — 6× speedup on reuse"]
+    end
 
-    S2 --- YF & NS & ES & IV & HI
+    %% ── Portfolio analysis (existing) ──────────────────────────────────────
+    subgraph PortfolioFlow ["Portfolio Analysis — src/agents/portfolio_agent.py"]
+        PA1["① Fetch Holdings\nKiteMCPClient → Zerodha Kite"]
+        PA2["② Enrich (parallel)\nyfinance · news · earnings · iNAV"]
+        PA3["③ LLM Scoring\nrisk 1–10 · sentiment · insights"]
+        PA4["④ Aggregate + Format\nJSON report → output/"]
+        PA1 --> PA2 --> PA3 --> PA4
+    end
 
-    S1 -.->|OAuth + REST| KiteSvc
-    YF -.-> YFSvc
-    NS -.-> NewsSvc
-    ES -.-> ScrnSvc
-    IV & HI -.-> NSESvc
-    S3 -.->|"demo: rule-based, no LLM key needed"| LLMSvc
-    S5 -.->|live spot prices| GoldSvc
-    S5 -.->|futures prev close| YFSvc
+    %% ── Streamlit UI ───────────────────────────────────────────────────────
+    UI["Streamlit UI\nsrc/ui/app.py\nExplorer · Anomaly · Signals\nHoldings · Kite · Deep Dive"]
+
+    %% ── External sources ───────────────────────────────────────────────────
+    subgraph Ext ["External Data Sources"]
+        E1[("Yahoo Finance\n.NS / futures / DXY / ^TNX")]
+        E2[("NSE API + MFAPI.in\niNAV · NAV")]
+        E3[("Sensibull oxide API\nFII/DII cash + F&O")]
+        E4[("CFTC Socrata + ZIP\nCOT gold weekly")]
+        E5[("GNews RSS\nmacro themes")]
+        E6[("Zerodha Kite MCP\nportfolio + orders")]
+        E7[("OpenAI / Anthropic\nLLM scoring")]
+    end
+
+    %% ── Flows ──────────────────────────────────────────────────────────────
+    User --> CLI
+
+    CLIImport --> Adapters
+    FA1 & FA2 & FA3 & FA4 & FA5 --> Repo
+    Repo --> T5
+    Repo --> T1 & T2
+    Repo --> EV
+    EV -->|sync| OBS1
+    EV -->|async| OBS2 & OBS3 & OBS4
+
+    CLISignals --> RepoRead
+    RepoRead --> SS1 & SS2 & SS3 & SS4 & SS5 & SS6
+    SS1 & SS2 & SS3 & SS4 & SS5 & SS6 --> Aggregator
+    Aggregator --> T3
+
+    OBS2 --> TP
+    OBS3 --> Aggregator
+    TP <--> ModelCache
+    TP --> T3
+    AD --> T3
+
+    CLIAnalyze --> PA1
+    PA4 -->|JSON| User
+
+    CLIUI --> UI
+    UI --> T1 & T2 & T3 & T4
+
+    CLIMacro --> E5
+
+    FA1 -.-> E1
+    FA2 -.-> E2
+    FA3 -.-> E3
+    FA4 -.-> E1
+    FA5 -.-> E4
+    PA1 -.-> E6
+    PA2 -.-> E1 & E2
+    PA3 -.-> E7
+    SS1 -.-> E5
+    TP -.-> E1
+
+    %% ── Styles ─────────────────────────────────────────────────────────────
+    classDef repo fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef adapter fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef observer fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef storage fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    classDef strategy fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+    classDef ext fill:#f1f5f9,stroke:#94a3b8,color:#334155
+
+    class Repo,RepoRead repo
+    class FA1,FA2,FA3,FA4,FA5 adapter
+    class OBS1,OBS2,OBS3,OBS4 observer
+    class T1,T2,T3,T4,T5,ModelCache storage
+    class SS1,SS2,SS3,SS4,SS5,SS6 strategy
+    class E1,E2,E3,E4,E5,E6,E7 ext
