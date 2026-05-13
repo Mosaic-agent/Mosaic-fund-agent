@@ -1897,19 +1897,20 @@ with tab_anomaly:
         with col_cfg:
             st.subheader("Settings")
 
-            try:
-                _sym_opts = _query_df("""
-                    SELECT DISTINCT symbol, category
-                    FROM market_data.daily_prices FINAL
-                    WHERE category IN ('commodities', 'etfs')
-                    ORDER BY category, symbol
-                """)
-                _sym_labels = [
-                    f"{r['symbol']} ({r['category']})"
-                    for _, r in _sym_opts.iterrows()
-                ]
-            except Exception:
-                _sym_labels = ["GOLD (commodities)"]
+            @st.cache_data(ttl=3600)
+            def _anomaly_sym_labels() -> list[str]:
+                try:
+                    df = _query_df("""
+                        SELECT DISTINCT symbol, category
+                        FROM market_data.daily_prices FINAL
+                        WHERE category IN ('commodities', 'etfs')
+                        ORDER BY category, symbol
+                    """)
+                    return (df["symbol"] + " (" + df["category"] + ")").tolist()
+                except Exception:
+                    return ["GOLD (commodities)"]
+
+            _sym_labels = _anomaly_sym_labels()
 
             _default_idx = next(
                 (i for i, lbl in enumerate(_sym_labels) if lbl.startswith("GOLD")), 0
@@ -2000,17 +2001,25 @@ This *boosts* only days suspicious to **both** algorithms.
 
                     raw["trade_date"] = pd.to_datetime(raw["trade_date"])
 
-                    # ── Fetch cross-asset data (COT + USDINR) ─────────────────
+                    # ── Fetch cross-asset data (COT + USDINR) in parallel ─────
                     with st.spinner("Fetching cross-asset data (COT, FX)…"):
-                        df_cot_raw = _query_df(
-                            "SELECT report_date, mm_net, open_interest "
-                            "FROM market_data.cot_gold"
-                        )
-                        df_fx_raw = _query_df(
-                            "SELECT symbol, trade_date, toFloat64(close) AS close "
-                            "FROM market_data.fx_rates FINAL "
-                            "WHERE symbol = 'USDINR'"
-                        )
+                        from concurrent.futures import ThreadPoolExecutor as _XATPE
+                        def _fetch_cot():
+                            return _query_df(
+                                "SELECT report_date, mm_net, open_interest "
+                                "FROM market_data.cot_gold"
+                            )
+                        def _fetch_fx():
+                            return _query_df(
+                                "SELECT symbol, trade_date, toFloat64(close) AS close "
+                                "FROM market_data.fx_rates FINAL "
+                                "WHERE symbol = 'USDINR'"
+                            )
+                        with _XATPE(max_workers=2) as _xapool:
+                            _f_cot = _xapool.submit(_fetch_cot)
+                            _f_fx  = _xapool.submit(_fetch_fx)
+                            df_cot_raw = _f_cot.result()
+                            df_fx_raw  = _f_fx.result()
                         if not df_cot_raw.empty:
                             df_cot_raw["report_date"] = pd.to_datetime(df_cot_raw["report_date"])
                         if not df_fx_raw.empty:

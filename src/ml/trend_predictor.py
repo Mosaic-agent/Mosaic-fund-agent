@@ -55,6 +55,7 @@ Public API
 from __future__ import annotations
 
 import logging
+import pathlib
 from datetime import date
 from typing import Any
 
@@ -165,14 +166,17 @@ def _fetch_macro_series(start_date: str, end_date: str) -> pd.DataFrame:
     """
     try:
         import yfinance as yf
-        dxy_raw = yf.download(
-            "DX-Y.NYB", start=start_date, end=end_date,
-            auto_adjust=True, progress=False,
-        )
-        tnx_raw = yf.download(
-            "^TNX", start=start_date, end=end_date,
-            auto_adjust=True, progress=False,
-        )
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+
+        def _dl(ticker: str):
+            return yf.download(ticker, start=start_date, end=end_date,
+                               auto_adjust=True, progress=False)
+
+        with _TPE(max_workers=2) as _pool:
+            _f_dxy = _pool.submit(_dl, "DX-Y.NYB")
+            _f_tnx = _pool.submit(_dl, "^TNX")
+            dxy_raw = _f_dxy.result()
+            tnx_raw = _f_tnx.result()
         pieces: list[pd.DataFrame] = []
         if not dxy_raw.empty:
             dxy = dxy_raw[["Close"]].copy()
@@ -648,6 +652,42 @@ def fit_walk_forward(
     )
 
 
+# ── Model persistence helpers ─────────────────────────────────────────────────
+
+_MODEL_CACHE_DIR = pathlib.Path(__file__).parents[2] / "output" / ".cache" / "ml_models"
+
+
+def _model_cache_key(df_labeled: pd.DataFrame, n_splits: int, horizon: int) -> str:
+    max_date = str(df_labeled["trade_date"].max().date())
+    n_rows   = len(df_labeled.dropna(subset=["target"]))
+    return f"goldbees_lgbm_{max_date}_{n_rows}_{n_splits}_{horizon}"
+
+
+def _load_model_cache(cache_key: str):
+    cache_file = _MODEL_CACHE_DIR / f"{cache_key}.joblib"
+    if cache_file.exists():
+        try:
+            import joblib
+            log.info("Loading cached models from %s", cache_file.name)
+            return joblib.load(cache_file)
+        except Exception as exc:
+            log.warning("Model cache load failed (%s) — will retrain", exc)
+    return None
+
+
+def _save_model_cache(cache_key: str, payload) -> None:
+    try:
+        import joblib
+        _MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        # Remove stale cache files for this asset before writing the new one
+        for old in _MODEL_CACHE_DIR.glob("goldbees_lgbm_*.joblib"):
+            old.unlink(missing_ok=True)
+        joblib.dump(payload, _MODEL_CACHE_DIR / f"{cache_key}.joblib")
+        log.info("Model cache saved: %s", cache_key)
+    except Exception as exc:
+        log.warning("Model cache save failed: %s", exc)
+
+
 # ── Step 5: Public API ────────────────────────────────────────────────────────
 
 def run_trend_prediction(
@@ -691,11 +731,21 @@ def run_trend_prediction(
     df_feat    = engineer_features(df_raw)
     df_labeled = label_forward_return(df_feat, horizon=horizon)
 
-    (
-        (m_clf, m_mean, m_low, m_high),
-        fi_df, scores, hit_ratios, df_clean, feature_cols,
-        aucs, r2_scores,
-    ) = fit_walk_forward(df_labeled, n_splits=n_splits, gap=_GAP)
+    cache_key = _model_cache_key(df_labeled, n_splits, horizon)
+    _cached   = _load_model_cache(cache_key)
+
+    if _cached is not None:
+        (m_clf, m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols, aucs, r2_scores = _cached
+    else:
+        (
+            (m_clf, m_mean, m_low, m_high),
+            fi_df, scores, hit_ratios, df_clean, feature_cols,
+            aucs, r2_scores,
+        ) = fit_walk_forward(df_labeled, n_splits=n_splits, gap=_GAP)
+        _save_model_cache(
+            cache_key,
+            ((m_clf, m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols, aucs, r2_scores),
+        )
 
     # Predict on the latest row that has sufficient feature coverage.
     df_feat_recent   = df_feat[feature_cols].copy()

@@ -10,19 +10,14 @@ Usage:
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
 log = logging.getLogger(__name__)
 
-# ── The 15 core ETFs covered by all signal sources ────────────────────────────
-
-SIGNAL_ETFS = [
-    "GOLDBEES", "NIFTYBEES", "BANKBEES", "ITBEES", "JUNIORBEES",
-    "SILVERBEES", "CPSEETF", "LIQUIDBEES", "LIQUIDCASE", "GILT5YBEES",
-    "MON100", "MAFANG", "HNGSNGBEES", "AUTOBEES", "PHARMABEES",
-    "PSUBNKBEES", "MID150BEES", "SMALL250",
-]
+# SIGNAL_ETFS is now owned by signal_sources to avoid circular imports.
+from src.agents.signal_sources import SIGNAL_ETFS  # noqa: E402
 
 # ── Weights for each pillar ───────────────────────────────────────────────────
 
@@ -354,13 +349,42 @@ def run_signal_aggregation(
     """
     log.info("Starting signal aggregation for %d ETFs...", len(SIGNAL_ETFS))
 
-    # Collect all signals
-    macro = _collect_macro_scores(verbose)
-    sentiment = _collect_sentiment_scores(verbose)
-    valuation = _collect_valuation_scores(verbose)
-    flow = _collect_flow_scores(verbose)
-    ml = _collect_ml_scores(verbose)
-    anomaly = _collect_anomaly_flags(verbose)
+    from src.db.pool import get_pool
+    from src.db.repository import MarketDataRepository
+    from src.agents.signal_sources import (
+        MacroSignalSource, SentimentSignalSource, ValuationSignalSource,
+        FlowSignalSource, MLSignalSource, GARCHAnomalySource,
+    )
+
+    repo = MarketDataRepository(get_pool())
+
+    # Registered signal sources — add/remove here to change what's scored.
+    # Order doesn't matter; they run in parallel.
+    score_sources = [
+        MacroSignalSource(),
+        SentimentSignalSource(),
+        ValuationSignalSource(),
+        FlowSignalSource(),
+        MLSignalSource(),
+    ]
+    anomaly_source = GARCHAnomalySource()
+
+    # Run all sources in parallel — each is fully independent
+    with ThreadPoolExecutor(max_workers=len(score_sources) + 1) as pool:
+        score_futures  = {pool.submit(s.collect, repo): s.name for s in score_sources}
+        anomaly_future = pool.submit(anomaly_source.collect, repo)
+
+        raw_scores: dict[str, dict[str, float]] = {}
+        for future in as_completed(score_futures):
+            raw_scores[score_futures[future]] = future.result()
+
+        anomaly = anomaly_future.result()
+
+    macro     = raw_scores["macro"]
+    sentiment = raw_scores["sentiment"]
+    valuation = raw_scores["valuation"]
+    flow      = raw_scores["flow"]
+    ml        = raw_scores["ml"]
 
     # Compute composite
     signals = _compute_composite(macro, sentiment, valuation, flow, ml, anomaly)

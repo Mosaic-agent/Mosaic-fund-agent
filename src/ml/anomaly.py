@@ -69,6 +69,11 @@ __all__ = [
     "run_composite_anomaly",
 ]
 
+# Module-level cache: keyed by (n_rows, contamination, feat_cols_tuple)
+# Avoids refitting IsolationForest when the same data + params are reused
+# within a session (e.g. repeated signal aggregator runs before new data arrives).
+_IF_CACHE: dict = {}
+
 
 # ── Step helpers ──────────────────────────────────────────────────────────────
 
@@ -215,11 +220,17 @@ def fit_isolation_forest(
 
     X = StandardScaler().fit_transform(df[feat_cols].values)
 
-    iso = IsolationForest(
-        n_estimators=300, contamination=contamination,
-        random_state=42, n_jobs=-1,
-    )
-    iso.fit(X)
+    cache_key = (len(df), contamination, tuple(feat_cols))
+    if cache_key not in _IF_CACHE:
+        iso = IsolationForest(
+            n_estimators=300, contamination=contamination,
+            random_state=42, n_jobs=-1,
+        )
+        iso.fit(X)
+        _IF_CACHE[cache_key] = iso
+    else:
+        iso = _IF_CACHE[cache_key]
+
     raw            = iso.score_samples(X)
     s_min, s_max   = raw.min(), raw.max()
 

@@ -145,12 +145,47 @@ def scan_domestic_etfs(
     with discounts last; insufficient/error rows appended at end.
     """
     import statistics
+    from collections import defaultdict
 
     if symbols is None:
         symbols = DOMESTIC_ETF_SYMBOLS
 
     cutoff = (date.today() - timedelta(days=lookback_days)).isoformat()
     results: list[dict[str, Any]] = []
+
+    # ── Batch query 1: latest premium for all symbols in one round-trip ──────
+    in_list = ", ".join(f"'{s}'" for s in symbols)
+    try:
+        _latest = ch_client.query(
+            f"SELECT symbol, argMax(premium_discount_pct, snapshot_at) AS premium "
+            f"FROM market_data.inav_snapshots "
+            f"WHERE symbol IN ({in_list}) "
+            f"GROUP BY symbol"
+        ).result_rows
+        latest_map: dict[str, float] = {
+            row[0]: float(row[1]) for row in _latest if row[1] is not None
+        }
+    except Exception as exc:
+        log.warning("domestic_etf_scanner batch-latest query failed: %s", exc)
+        latest_map = {}
+
+    # ── Batch query 2: historical hourly premiums for all symbols ────────────
+    try:
+        _hist = ch_client.query(
+            f"SELECT symbol, toStartOfHour(snapshot_at) AS hour_bucket, "
+            f"       argMax(premium_discount_pct, snapshot_at) AS premium "
+            f"FROM market_data.inav_snapshots "
+            f"WHERE symbol IN ({in_list}) "
+            f"  AND snapshot_at >= toDateTime('{cutoff} 00:00:00') "
+            f"GROUP BY symbol, hour_bucket "
+            f"ORDER BY symbol, hour_bucket ASC"
+        ).result_rows
+        hist_map: dict[str, list[float]] = defaultdict(list)
+        for row in _hist:
+            hist_map[row[0]].append(float(row[2]))
+    except Exception as exc:
+        log.warning("domestic_etf_scanner batch-hist query failed: %s", exc)
+        hist_map = defaultdict(list)
 
     for sym in symbols:
         result: dict[str, Any] = {
@@ -168,48 +203,22 @@ def scan_domestic_etfs(
         }
 
         try:
-            # ── Latest premium: absolute latest row in DB (no date filter) ────
-            latest_rows = ch_client.query(
-                """
-                SELECT argMax(premium_discount_pct, snapshot_at) AS premium
-                FROM market_data.inav_snapshots
-                WHERE symbol = {sym:String}
-                """,
-                parameters={"sym": sym},
-            ).result_rows
-
-            if not latest_rows or latest_rows[0][0] is None:
+            if sym not in latest_map:
                 result["error"] = "No snapshot found"
                 results.append(result)
                 continue
 
-            latest_prem = float(latest_rows[0][0])
+            latest_prem = latest_map[sym]
             result["latest_premium"] = round(latest_prem, 4)
 
-            # ── Historical premium in hourly buckets (for mean/std) ───────────
-            hist_rows = ch_client.query(
-                """
-                SELECT
-                    toStartOfHour(snapshot_at)                AS hour_bucket,
-                    argMax(premium_discount_pct, snapshot_at) AS premium
-                FROM market_data.inav_snapshots
-                WHERE symbol = {sym:String}
-                  AND snapshot_at >= toDateTime({cutoff:String})
-                GROUP BY hour_bucket
-                ORDER BY hour_bucket ASC
-                """,
-                parameters={"sym": sym, "cutoff": f"{cutoff} 00:00:00"},
-            ).result_rows
-
-            n = len(hist_rows)
+            premiums = hist_map.get(sym, [])
+            n = len(premiums)
             result["n_snapshots"] = n
 
             if n < min_snapshots:
                 result["error"] = f"Only {n} snapshots (need ≥ {min_snapshots})"
                 results.append(result)
                 continue
-
-            premiums = [float(r[1]) for r in hist_rows]
             mean_prem = statistics.mean(premiums)
             std_prem  = statistics.stdev(premiums) if n >= 2 else 0.0
 
