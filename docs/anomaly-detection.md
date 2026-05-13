@@ -82,6 +82,12 @@ At current gold vol (34.5%): `w = min(1.0, 15/34.5) = 43%` → hold 43% of targe
 | Final-Z threshold | 2.5 | 1.0–5.0 | Flagging sensitivity |
 | Z-score rolling window | 30 | 10–60 | Rolling MAD lookback |
 
+## Performance — In-Process Cache
+
+`fit_isolation_forest()` maintains a module-level `_IF_CACHE` dict keyed by `(n_rows, contamination, feat_cols_tuple)`. If the signal aggregator or UI runs multiple analyses in the same Python process with the same data and parameters, the Isolation Forest is refit only once (~300 ms first call, ~50 ms cached — 6× speedup).
+
+The cache is in-memory only and does not persist across processes. It is cleared automatically when new price data arrives (via `ModelCacheInvalidator` observer) or when the process restarts.
+
 ## Requirements
 
 - ≥ 60 rows per symbol in ClickHouse

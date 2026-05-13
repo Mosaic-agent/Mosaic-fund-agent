@@ -10,12 +10,33 @@ This skill manages the historical data ingestion pipeline from multiple sources 
 
 ## Core Workflows
 
-### 1. Adding a New Data Source
-To add a new data source (e.g., Sentiment from a specific API):
-1. **Scaffold Fetcher**: Run `python data-engineering-importer/scripts/add_new_fetcher.py <name>`.
-2. **Define Table**: Add the DDL to `src/importer/clickhouse.py`.
-3. **Register Source**: Update `src/importer/registry.py` with the new symbols or categories.
-4. **Wire into CLI**: Update `run_import()` in `src/importer/cli.py`.
+### 1. Adding a New Data Source (Adapter Pattern)
+Preferred path — uses the `Fetcher` ABC (`src/importer/base_fetcher.py`):
+
+```python
+# src/importer/fetchers/adapters.py
+class MySentimentFetcher(Fetcher):
+    source_name = "sentiment_api"
+    symbol_key  = "ALL"
+    overlap_days = 1
+
+    def fetch(self, from_date, to_date):
+        # call external API, return list[dict]
+        ...
+
+    def insert(self, rows, ch):
+        return ch.insert_news_articles(rows)   # or a new insert method
+
+# Register — orchestrator picks it up automatically
+get_registry()["sentiment"] = MySentimentFetcher()
+```
+
+Then `repo.run_fetcher(get_registry()["sentiment"])` handles watermarks, dry-run, and fires `DataImportedEvent` with no extra wiring.
+
+Legacy path (still works for complex categories not yet adapted):
+1. **Define Table**: Add the DDL to `src/importer/clickhouse.py`.
+2. **Register Source**: Update `src/importer/registry.py` with the new symbols or categories.
+3. **Wire into CLI**: Update `run_import()` in `src/importer/cli.py`.
 
 ### 2. Managing Historical Backfills
 To perform a full historical backfill:

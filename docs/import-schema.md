@@ -29,6 +29,46 @@ python src/main.py import --category commodities --full   # full re-import
 python src/main.py import --category etfs --dry-run       # preview, no DB writes
 ```
 
+### Fetcher Adapter Pattern
+
+Five core categories have typed **Fetcher adapters** (`src/importer/fetchers/adapters.py`):
+
+| Adapter | Category | Overlap |
+|---|---|---|
+| `YFinanceFetcher` | etfs, stocks, commodities, indices | 3 days |
+| `MFNavFetcher` | mf | 3 days |
+| `FIIDIIFetcher` | fii_dii | 3 days |
+| `FXRatesFetcher` | fx_rates | 3 days |
+| `COTGoldFetcher` | cot | 21 days |
+
+Use `MarketDataRepository.run_fetcher(fetcher)` to execute the full watermark → fetch → validate → insert → event cycle programmatically:
+
+```python
+from src.db.repository import MarketDataRepository
+from src.importer.fetchers.adapters import get_registry
+from src.db.pool import get_pool
+
+repo = MarketDataRepository(get_pool())
+result = repo.run_fetcher(get_registry()["fii_dii"], dry_run=True)
+print(result)  # FetchResult: 8 rows  2026-05-07→2026-05-13 (dry-run)
+```
+
+**Adding a new source:**
+```python
+from src.importer.base_fetcher import Fetcher
+
+class MyFetcher(Fetcher):
+    source_name = "my_source"
+    symbol_key  = "MY_KEY"
+
+    def fetch(self, from_date, to_date): ...
+    def insert(self, rows, ch): return ch.insert_my_table(rows)
+
+get_registry()["my_category"] = MyFetcher()
+```
+
+Post-import, `DataImportedEvent` fires automatically — `SignalAggregatorObserver` and `MLPredictionObserver` refresh downstream data without any manual trigger.
+
 ## ClickHouse Schema
 
 Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-imports.

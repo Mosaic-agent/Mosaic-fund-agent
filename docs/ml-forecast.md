@@ -78,6 +78,18 @@ Every prediction is written to:
 - `market_data.ml_predictions` (ClickHouse) — queryable via the SQL Explorer preset
 - `predictions_log.jsonl` (repo root) — git-trackable for accuracy backtesting
 
+### Model cache (joblib)
+
+Trained LightGBM models are cached to `output/.cache/ml_models/goldbees_lgbm_<date>_<rows>_<splits>_<horizon>.joblib` after the first fit. Subsequent same-day calls load the cache (~2 s) instead of rerunning walk-forward CV (~30 s cold).
+
+Cache invalidation is **automatic**: the `ModelCacheInvalidator` observer (sync, fires before `MLPredictionObserver`) deletes stale `.joblib` files the moment new GOLDBEES price data is imported. The next pipeline call retrains from scratch on the updated dataset.
+
+To force a retrain manually, delete any `*.joblib` file in `output/.cache/ml_models/`.
+
+### Parallel macro fetch
+
+DXY (DX-Y.NYB) and US 10Y yield (^TNX) are fetched concurrently via `ThreadPoolExecutor(max_workers=2)` inside `_fetch_macro_series()`, saving ~1–2 s per run.
+
 ### Accuracy backtesting
 
 Use the **"ML predictions accuracy"** preset in the SQL Explorer tab. Requires ≥ `horizon_days` of subsequent GOLDBEES price data before `actual_return_pct` is populated.

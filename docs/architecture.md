@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-04-27
+> Last updated: 2026-05-14
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -12,13 +12,26 @@ Mosaic Fund Agent is a multi-source financial intelligence platform for Indian e
 External Data Sources
         │
         ▼
-  Importers (src/importer/fetchers/)
-        │  delta-sync, watermark-based
+  Fetcher Adapters (src/importer/fetchers/adapters.py)
+        │  Fetcher ABC: fetch() → validate() → insert()
         ▼
-  ClickHouse  (market_data database — 15 tables)
+  MarketDataRepository.run_fetcher()  (src/db/repository.py)
+        │  watermark check → insert → set_watermark → EventBus.publish()
+        ▼
+  EventBus  (src/events/bus.py)
+        │  DataImportedEvent → async observers
+        ├──▶  ModelCacheInvalidator   (sync) → clears stale .joblib
+        ├──▶  MLPredictionObserver    (async) → re-runs LightGBM
+        ├──▶  SignalAggregatorObserver(async) → refreshes composite scores
+        └──▶  SanityCheckObserver     (async) → anomaly validation
         │
-        ├──▶  Tools (src/tools/)          ← real-time signals per asset
+        ▼
+  ClickHouse  (market_data database — 19 tables)
+        │
+        ├──▶  MarketDataRepository reads  ← typed queries, consistent FINAL
+        ├──▶  Signal Sources  (src/agents/signal_sources.py)  ← Strategy pattern
         ├──▶  ML  (src/ml/)               ← LightGBM forecast + anomaly
+        ├──▶  Tools (src/tools/)          ← real-time signals per asset
         ├──▶  Agents (src/agents/)        ← orchestrated multi-tool workflows
         │
         ▼
@@ -38,19 +51,30 @@ config/
 
 src/
   main.py                 Typer CLI — 13 commands (analyze, import, signals, macro, …)
-  agents/                 LangGraph / LangChain orchestrated workflows
+  agents/
+    signal_aggregator.py  Composite score orchestrator — parallel Strategy sources
+    signal_sources.py     Strategy pattern: SignalSource ABC + 5 pillar classes
   analyzers/              Per-asset and portfolio-level enrichment
   clients/
     mcp_client.py         Zerodha Kite MCP (JSON-RPC 2.0)
+  db/
+    pool.py               Thread-safe CHPool singleton
+    repository.py         MarketDataRepository — typed reads + run_fetcher + events
+  events/
+    bus.py                EventBus singleton, DataImportedEvent, Observer ABC
+    observers.py          4 post-import hooks (cache, ML, signals, sanity)
   formatters/             JSON / HTML report rendering
   importer/
-    cli.py                run_import() — entry point for all data imports
+    base_fetcher.py       Fetcher ABC — Adapter interface for all data sources
+    cli.py                run_import() — legacy orchestrator (still active)
     clickhouse.py         Schema DDL, bulk inserts, watermark management
     registry.py           Symbol catalogs (stocks, ETFs, commodities, indices, FX)
-    fetchers/             One file per external data source
+    fetchers/
+      adapters.py         5 concrete Fetcher adapters + FETCHER_REGISTRY
+      <name>_fetcher.py   One file per external data source
   ml/
-    trend_predictor.py    LightGBM 5-day return predictor
-    anomaly.py            Composite anomaly detection (Z + GARCH + Isolation Forest)
+    trend_predictor.py    LightGBM 5-day predictor + joblib model cache
+    anomaly.py            Composite anomaly (Z + GARCH + Isolation Forest + _IF_CACHE)
   models/                 Pydantic data schemas
   tools/                  Standalone signal functions (no side effects)
   ui/
@@ -237,14 +261,18 @@ Multi-source news sentiment for any stock or ETF.
 ### SignalAggregator (`signal_aggregator.py`)
 Composite ETF signal — 6 pillars → 0–100 score → BUY / ACCUMULATE / HOLD / TRIM / AVOID
 
-| Pillar | Weight | Source |
-|---|---|---|
-| Macro | 25% | `macro_event_scanner` → net signal across 8 themes |
-| Sentiment | 15% | `news_articles` table — pos/neg ratio last 7 days |
-| Valuation | 15% | `domestic_etf_scanner` — iNAV Z-score premium/discount |
-| Flow | 25% | `fii_dii_flows` — 5D net; equity ETFs benefit, safe-haven inverse |
-| ML | 15% | `ml_predictions` — LightGBM expected return (GOLDBEES only; others neutral) |
-| Anomaly | 5% | `anomaly.py` — Flash Crash boost / Blow-off dampener |
+Uses the **Strategy pattern**: each pillar is a `SignalSource` subclass in `signal_sources.py`. The aggregator loops over `score_sources` and an `AnomalySource`; all run in parallel via `ThreadPoolExecutor`. Signal aggregator wall-clock: ~9 s (was 79 s before parallelisation).
+
+| Pillar | Class | Weight | Source |
+|---|---|---|---|
+| Macro | `MacroSignalSource` | 25% | `macro_event_scanner` → net signal across 8 themes |
+| Sentiment | `SentimentSignalSource` | 15% | `news_articles` table — pos/neg ratio last 7 days |
+| Valuation | `ValuationSignalSource` | 15% | `domestic_etf_scanner` — iNAV Z-score premium/discount |
+| Flow | `FlowSignalSource` | 25% | `fii_dii_flows` — 5D net; equity ETFs benefit, safe-haven inverse |
+| ML | `MLSignalSource` | 15% | `ml_predictions` — LightGBM expected return (GOLDBEES only; others neutral) |
+| Anomaly | `GARCHAnomalySource` | 5% | `anomaly.py` — Flash Crash boost / Blow-off dampener |
+
+Adding a 7th pillar: subclass `SignalSource`, implement `collect(repo)`, append to `score_sources` list in `run_signal_aggregation()`.
 
 Covers 18 core ETFs. Output optionally written to `signal_composite` table via `--save`.
 
@@ -307,18 +335,30 @@ All settings are loaded from `.env`. See [docs/configuration.md](configuration.m
 ### 1. Watermark Delta Sync
 Every fetcher checks `import_watermarks.(source, symbol).last_date` before fetching. Only rows after `last_date - overlap_days` are fetched and inserted. `ReplacingMergeTree` deduplicates on re-import. Use `--full` to bypass watermarks.
 
-### 2. Graceful Pillar Degradation
-Every signal pillar degrades to `None` (not 0) when its data source is unavailable. The composite score re-weights across available pillars only, maintaining a valid 0–100 range. Missing pillars do not penalise the composite.
+### 2. Repository Pattern (`src/db/repository.py`)
+`MarketDataRepository` is the single access point for all ClickHouse reads. Centralises `FINAL` usage, typed return shapes, and the `run_fetcher()` orchestration loop. All signal sources and ML code read through the repo — never raw SQL strings scattered across files.
 
-### 3. LLM-Required Scoring
+### 3. Strategy Pattern (`src/agents/signal_sources.py`)
+`SignalSource` ABC defines `collect(repo) -> dict[etf, float]`. Each signal pillar is a subclass. The aggregator holds a `score_sources: list[SignalSource]` — adding a new pillar = one class + one list append. All sources run in parallel via `ThreadPoolExecutor`.
+
+### 4. Adapter Pattern (`src/importer/base_fetcher.py`)
+`Fetcher` ABC defines `fetch() / validate() / insert() / max_date()`. Each external data source is a concrete subclass registered in `FETCHER_REGISTRY`. `repo.run_fetcher(fetcher)` handles watermarks, dry-run, and event publishing — the fetcher only knows its data.
+
+### 5. Observer Pattern (`src/events/`)
+`EventBus` fires `DataImportedEvent` after every live `run_fetcher()` insert. Observers subscribe once; the import pipeline has zero knowledge of ML retraining or signal refresh. Built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async, daemon threads).
+
+### 6. Graceful Pillar Degradation
+Every signal pillar degrades to neutral 50 (not 0) when its data source is unavailable. The composite score remains valid across all 18 ETFs — missing data does not penalise the composite.
+
+### 7. LLM-Required Scoring
 All agent scoring paths require a configured LLM. LLM provider (OpenAI / Anthropic / local via OpenAI-compatible endpoint) is selected at runtime via `llm_provider` setting. Set `LLM_BASE_URL` for local inference with Ollama or LM Studio.
 
-### 4. Tool Loop Protection
+### 8. Tool Loop Protection
 - ComexAgent uses a direct function call for local LLMs (avoids ReAct loop overhead)
 - NewsSentimentAgent uses a single `collate_news_sentiment()` call (not a tool loop)
 - LangGraph agents have explicit loop guards (`max_iterations=2`)
 
-### 5. iNAV Arbitrage Detection
+### 9. iNAV Arbitrage Detection
 NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_discount_pct > +0.5%` triggers a premium alert; `< −0.25%` flags a discount opportunity. The SILVERBEES / GOLDBEES premium spread is a direct input to the quant scorecard valuation pillar.
 
 ---

@@ -84,10 +84,15 @@ CLI (src/main.py)
 |-------|------|------|
 | CLI | `src/main.py` | 13 Typer commands; entry point |
 | Agents | `src/agents/` | LangChain/LangGraph orchestrators |
+| Signal Sources | `src/agents/signal_sources.py` | Strategy pattern: `SignalSource` ABC + 5 pillar classes + `GARCHAnomalySource`; `SIGNAL_ETFS` list |
 | Analyzers | `src/analyzers/` | `asset_analyzer` (per-holding), `portfolio_analyzer` (aggregate) |
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame; composable in agents or scripts |
-| Importer | `src/importer/` | Delta-sync pipeline: fetchers → ClickHouse |
+| Importer | `src/importer/` | Delta-sync pipeline: Fetcher adapters → ClickHouse |
+| Fetcher ABC | `src/importer/base_fetcher.py` | Adapter interface: `fetch()`, `validate()`, `insert()`, `max_date()` |
+| Fetcher Adapters | `src/importer/fetchers/adapters.py` | 5 concrete adapters + `FETCHER_REGISTRY` keyed by CLI category |
+| Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
+| Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
 | ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`) |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
@@ -97,14 +102,24 @@ CLI (src/main.py)
 ### Data Import Pipeline
 ```
 CLI import command
-  → src/importer/cli.py  (orchestrates by category)
+  → src/importer/cli.py  (legacy orchestrator, still active)
       → src/importer/fetchers/<name>_fetcher.py  (external API → DataFrame)
       → src/importer/clickhouse.py               (watermark check → bulk insert)
           ReplacingMergeTree: re-importing same date is safe / idempotent
           Watermark: tracks last imported date per (source, symbol) to enable delta sync
+
+New pattern (Adapter + Repository):
+  → MarketDataRepository.run_fetcher(fetcher)
+      → fetcher.fetch(from_date, to_date)    ← Fetcher ABC (Adapter)
+      → fetcher.validate(rows)
+      → fetcher.insert(rows, ch)
+      → ch.set_watermark(...)
+      → EventBus.publish(DataImportedEvent)  ← triggers post-import hooks
 ```
 
 **13 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`, `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`, `yahoo_snapshot`, `expert_tweets`, plus news tools.
+
+**5 Fetcher adapters** (Adapter pattern, `src/importer/fetchers/adapters.py`): `YFinanceFetcher`, `MFNavFetcher`, `FIIDIIFetcher`, `FXRatesFetcher`, `COTGoldFetcher`. Add new sources to `FETCHER_REGISTRY` — orchestrator loop picks up automatically.
 
 ### LLM Configuration
 `LLM_PROVIDER` (`openai` or `anthropic`) + `LLM_MODEL` control which model is used. Set `LLM_BASE_URL` to an OpenAI-compatible endpoint (Ollama, LM Studio) for local inference — no API key needed in that case.
@@ -190,8 +205,12 @@ Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 
 - **Tool registration:** Tools are lists of `@tool`-decorated functions (e.g., `YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `portfolio_agent.py` is the union passed to `create_react_agent`.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks when blocked. `fake-useragent` rotates user-agents.
-- **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
+- **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL. ML models cached to `output/.cache/ml_models/` keyed by `(max_trade_date, n_rows, n_splits, horizon)` — auto-invalidated by `ModelCacheInvalidator` when new price data arrives.
 - **Output files:** Reports written to `./output/` as JSON.
+- **Repository pattern:** `MarketDataRepository` (`src/db/repository.py`) is the single access point for all ClickHouse reads. Use `repo.fii_dii_5d()`, `repo.ohlcv()`, `repo.latest_ml_prediction()` etc. — never write raw SQL in signal/ML code.
+- **Strategy pattern:** Signal sources (`src/agents/signal_sources.py`) implement `SignalSource` ABC. The aggregator loops over `score_sources` list — add a new pillar by subclassing `SignalSource` and appending to the list.
+- **Adapter pattern:** Data fetchers (`src/importer/fetchers/adapters.py`) implement `Fetcher` ABC. `MarketDataRepository.run_fetcher()` handles watermarks, dry-run, and event publishing. Add a new source by subclassing `Fetcher` and registering in `FETCHER_REGISTRY`.
+- **Observer pattern:** `EventBus` (`src/events/bus.py`) fires `DataImportedEvent` after every live `run_fetcher()` insert. Four built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async). Register with `setup_observers()` at startup.
 - **`src/scripts/`:** Standalone analysis scripts organised by domain. Run from the project root: `python src/scripts/<subdir>/<name>.py`.
   - `dsp/` — DSP AMC import, analysis, and backtests
   - `fund_imports/` — Factory-pattern AMC importers; run via `python src/scripts/fund_imports/run.py <icici|nippon|icici-index|all> [--dry-run] [--test]`. `base.py` has the `BaseFundImporter` ABC; `importers/` has one class per AMC; `factory.py` has `create_importer(name)`.

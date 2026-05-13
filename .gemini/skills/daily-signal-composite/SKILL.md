@@ -31,14 +31,18 @@ python src/main.py signals --save -v
 
 ## 6 Signal Sources (Weighted)
 
-| Source | Weight | Data |
-|--------|--------|------|
-| Macro net signal | 25% | 8-theme geopolitical → ETF directional impact sum |
-| ETF news sentiment | 15% | Positive/negative ratio from last 7 days in DB |
-| NAV premium Z-score | 15% | Discount = buy opportunity, premium = overpriced |
-| FII/DII flow momentum | 25% | 5-day institutional net flows |
-| ML prediction | 15% | LightGBM 5-day forward return (GOLDBEES) |
-| Anomaly regime | 5% | Flash Crash → contrarian boost; Blow-off → dampening |
+Each source is a `SignalSource` subclass in `src/agents/signal_sources.py` (Strategy pattern). All 6 run in parallel via `ThreadPoolExecutor`. Adding a 7th pillar = 1 new class + 1 list append in `run_signal_aggregation()`.
+
+| Source | Class | Weight | Data |
+|--------|-------|--------|------|
+| Macro net signal | `MacroSignalSource` | 25% | 8-theme geopolitical → ETF directional impact sum |
+| ETF news sentiment | `SentimentSignalSource` | 15% | Positive/negative ratio from last 7 days in DB |
+| NAV premium Z-score | `ValuationSignalSource` | 15% | Discount = buy opportunity, premium = overpriced |
+| FII/DII flow momentum | `FlowSignalSource` | 25% | 5-day institutional net flows |
+| ML prediction | `MLSignalSource` | 15% | LightGBM 5-day forward return (GOLDBEES) |
+| Anomaly regime | `GARCHAnomalySource` | 5% | Flash Crash → contrarian boost; Blow-off → dampening |
+
+All DB reads go through `MarketDataRepository` (`src/db/repository.py`) — no raw SQL in source classes.
 
 ## Action Thresholds
 
