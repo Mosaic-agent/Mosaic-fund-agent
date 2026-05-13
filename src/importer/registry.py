@@ -37,7 +37,7 @@ STOCKS: list[tuple[str, str]] = [
     ("HCLTECH",     "HCLTECH.NS"),
     ("SUNPHARMA",   "SUNPHARMA.NS"),
     ("TECHM",       "TECHM.NS"),
-    ("TATAMOTORS",  "TATAMOTORS.NS"),
+    ("TMPV",        "TMPV.NS"),          # Tata Motors PV (demerged Nov 2025; was TATAMOTORS)
     ("TATASTEEL",   "TATASTEEL.NS"),
     ("NESTLEIND",   "NESTLEIND.NS"),
     ("ULTRACEMCO",  "ULTRACEMCO.NS"),
@@ -66,7 +66,7 @@ STOCKS: list[tuple[str, str]] = [
     ("M&M",         "M&M.NS"),
     ("MPHASIS",     "MPHASIS.NS"),
     ("PERSISTENT",  "PERSISTENT.NS"),
-    ("LTIM",        "LTIM.NS"),
+    ("LTIM",        "540005.BO"),        # LTIMindtree — LTIM.NS broken on Yahoo, use BSE code
 ]
 
 ETFS: list[tuple[str, str]] = [
