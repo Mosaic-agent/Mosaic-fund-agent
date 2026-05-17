@@ -21,7 +21,7 @@ Output: ranked table — best opportunities at top.
 from __future__ import annotations
 
 import os, sys, logging
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, _ROOT)
 

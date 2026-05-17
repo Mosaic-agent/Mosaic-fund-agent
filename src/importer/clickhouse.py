@@ -800,7 +800,7 @@ class ClickHouseImporter:
             "market_data.daily_prices",
             data,
             column_names=["symbol", "category", "trade_date", "open", "high", "low", "close", "volume"],
-            settings={"max_partitions_per_insert_block": 300},
+            settings={"max_partitions_per_insert_block": 1500},
         )
         return len(rows)
 

@@ -67,6 +67,17 @@ STOCKS: list[tuple[str, str]] = [
     ("MPHASIS",     "MPHASIS.NS"),
     ("PERSISTENT",  "PERSISTENT.NS"),
     ("LTIM",        "540005.BO"),        # LTIMindtree — LTIM.NS broken on Yahoo, use BSE code
+    ("GARFIBRES",   "GARFIBRES.NS"),     # Garware Technical Fibres — quality smallcap, beta≈0
+    ("GRWRHITECH",  "GRWRHITECH.NS"),    # Garware Hi-Tech Films — polyester / sun-control films
+    ("WELCORP",     "WELCORP.NS"),       # Welspun Corp — line pipes / steel
+    ("TEJASNET",    "TEJASNET.NS"),      # Tejas Networks — telecom equipment (Tata-backed)
+    ("ADVENZYMES",  "ADVENZYMES.NS"),    # Advanced Enzyme Technologies — specialty enzymes
+    ("ZENTEC",      "ZENTEC.NS"),        # Zen Technologies — defence simulators
+    ("VAIBHAVGBL",  "VAIBHAVGBL.NS"),    # Vaibhav Global — jewellery / TV retail (US/UK)
+    ("NUVAMA",      "NUVAMA.NS"),        # Nuvama Wealth Mgmt (ex-Edelweiss)
+    ("NEWGEN",      "NEWGEN.NS"),        # Newgen Software — BPM / ECM platforms
+    ("CHOLAFIN",    "CHOLAFIN.NS"),      # Cholamandalam Investment & Finance (Murugappa)
+    ("ALKYLAMINE",  "ALKYLAMINE.NS"),    # Alkyl Amines Chemicals — specialty amines
 ]
 
 ETFS: list[tuple[str, str]] = [

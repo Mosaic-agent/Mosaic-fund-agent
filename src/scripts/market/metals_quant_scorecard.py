@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.rule import Rule
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, _ROOT)
 

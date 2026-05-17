@@ -26,7 +26,7 @@ from rich.rule import Rule
 from rich import box
 
 # ── Root path setup ──────────────────────────────────────────────────────────
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, _ROOT)
 
