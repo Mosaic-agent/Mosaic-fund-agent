@@ -207,6 +207,55 @@ to narrate results that already exist in the tool/script output.
 Never add a `Co-Authored-By:` trailer to git commit messages. Write clean,
 single-author commit messages only.
 
+### Verify Dilution Before Flagging Promoter Sale
+A drop in promoter % is **not** the same as a promoter sale. Before concluding
+"promoter sell-down" from a shareholding-pattern drop, check whether the
+denominator (total shares outstanding) expanded in the same/prior quarter:
+- **QIP** (qualified institutional placement) — search "[company] QIP [year]"
+- **Preferential allotment** to investors
+- **Rights issue** / **bonus issue** (bonus doesn't dilute %, watch for confusion)
+- **ESOP exercise** (small dilution)
+- **M&A share issuance** (acquirer paying in shares)
+
+A promoter-% drop with **unchanged absolute share count** = dilution, not sale.
+A promoter-% drop with **lower absolute share count** = actual sale (red flag).
+Screener.in's shareholding history shows % only — cross-reference with the
+annual report's "Equity Capital" line for total shares outstanding to confirm.
+
+*Why this rule exists:* I once read a 4.59% drop in Techno Electric promoter
+holding (Q1FY25 61.52% → Sep-24 56.93%) as a sell signal. It turned out to be
+dilution from a ₹1,250 Cr QIP in July 2024 — fresh equity issued at ₹1,440/share
+to institutions. The promoter's absolute share count was unchanged.
+
+### DSP Active-Fund Holdings = Highest-Conviction Single-Name Signal
+DSP active-fund holdings in `market_data.mf_holdings` are the primary
+institutional-quality signal for single-name Indian equity research. Cross-fund
+ownership (same name held by 2+ active DSP funds for 24+ months) is the
+strongest possible long-term conviction marker.
+
+**Active funds (meaningful signal):**
+`DSP_SMALL_CAP`, `DSP_MID_CAP`, `DSP_LARGE_AND_MID_CAP`, `DSP_FLEXI_CAP`,
+`DSP_MULTICAP`, `DSP_FOCUSED`, `DSP_VALUE`, `DSP_TIGER`, `DSP_BUSINESS_CYCLE`,
+`DSP_ELSS_TAX_SAVER`, `DSP_HEALTHCARE`, `DSP_BANKING_FINANCIAL_SERVICES`,
+`DSP_QUANT`.
+
+**Passive funds (weak signal — index tracking, ignore):**
+`DSP_NIFTY_*_INDEX`, `DSP_NIFTY_*_ETF`, `DSP_BSE_*_ETF`,
+`DSP_*_QUALITY_50_INDEX`.
+
+**How to apply:**
+- Query `market_data.mf_holdings FINAL` filtered by `fund_name LIKE 'DSP%'`,
+  ordered by `market_value_cr DESC` — get latest position and `months_held`.
+- MoM `pct_of_nav` change is the conviction *trend*: rising = manager adding,
+  falling = trimming.
+- For "find me an opportunity" prompts, cross-reference top adds (Jan vs Apr
+  2026 deltas) against technical setups (RSI, drawdown, volume) — the
+  intersection is the highest-quality idea pool.
+- Holdings data extends back to Jun 2022; reliable from Sep 2023 onwards
+  (62-fund coverage).
+- When interpreting any holding % change, apply the QIP/dilution check above
+  before drawing a sale/sell-down conclusion.
+
 ## Claude Code Skills Available in This Project
 
 When working alongside Claude Code (`claude` CLI), these slash commands (skills)
@@ -231,6 +280,8 @@ Current memory entries:
 - `user_background.md` — AMC domain context
 - `feedback_no_llm_calculations.md` — all numeric work in code, never in LLM
 - `feedback_no_coauthor.md` — no Co-Authored-By in commits
+- `feedback_qip_dilution_check.md` — verify QIP/dilution before flagging promoter sale
+- `project_dsp_holdings_signal.md` — DSP active-fund cross-ownership is the primary institutional signal
 
 ## Number Sources
 
