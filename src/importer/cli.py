@@ -260,9 +260,11 @@ def run_import(
         console.print("\n[bold cyan]▶ CFTC COT — Gold (Managed Money)[/bold cyan]")
         console.print("  [dim]CFTC Disaggregated report, commodity code 088 (released Fridays)[/dim]")
 
-        cot_wm = ch.get_watermark("cot", "GOLD") if not dry_run else None
+        cot_wm = ch.get_watermark("cot", "GOLD") if (not dry_run and not full_reimport) else None
         cot_from = (cot_wm - timedelta(days=21)) if cot_wm else None   # 3-week overlap
-        cot_rows = fetch_cot_gold(from_date=cot_from)
+        if full_reimport:
+            console.print("  [dim]Full reimport — ignoring watermark, fetching full history[/dim]")
+        cot_rows = fetch_cot_gold(from_date=cot_from, limit=2000 if not cot_wm else 500)
         if not cot_rows:
             console.print("  [yellow]⚠ No COT data returned — CFTC endpoint may be unavailable.[/yellow]")
         else:

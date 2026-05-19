@@ -234,8 +234,7 @@ def fetch_cot_gold(
 
     if socrata_max is None or socrata_max < stale_threshold:
         # Determine which years we need from direct files
-        gap_start = (socrata_max.year if socrata_max else (from_date.year if from_date else 2017))
-        gap_start = max(gap_start, socrata_max.year if socrata_max else gap_start)
+        gap_start = socrata_max.year if socrata_max else (from_date.year if from_date else 2017)
         years_needed = list(range(gap_start, date.today().year + 1))
         log.info("Socrata is stale (latest: %s). Fetching CFTC direct for years: %s",
                  socrata_max, years_needed)

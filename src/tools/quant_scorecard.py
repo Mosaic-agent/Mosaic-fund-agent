@@ -106,8 +106,8 @@ _LOOKBACK_DAYS = 90  # days of price history returned for rolling correlation
 
 # Staleness guards — queries returning data older than these limits degrade gracefully
 _COT_MAX_AGE_DAYS   = 14   # COT is weekly (Tuesday); 14 days allows one missed release
-_INAV_MAX_AGE_DAYS  = 2    # iNAV is intraday; >2 days = importer broken
-_ML_MAX_AGE_DAYS    = 3    # ML prediction; 3 days covers Fri→Mon weekend gap
+_INAV_MAX_AGE_DAYS  = 4    # iNAV is intraday; 4d covers Fri→Mon weekend gap (3 calendar days)
+_ML_MAX_AGE_DAYS    = 4    # ML prediction; 4d covers Fri→Mon weekend gap
 
 
 def _clamp01(value: float, low: float, high: float) -> float:

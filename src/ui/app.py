@@ -61,6 +61,7 @@ def _ch_ok() -> bool:
 from config.settings import settings as _settings  # noqa: E402
 CH_HOST = _settings.clickhouse_host
 CH_PORT = _settings.clickhouse_port
+CH_DB   = _settings.clickhouse_database
 CH_USER = _settings.clickhouse_user
 CH_PASS = _settings.clickhouse_password
 
@@ -766,22 +767,27 @@ with tab_explorer:
             import altair as alt
 
             pddf = _query_df("""
-                SELECT
-                    p.trade_date,
-                    round(p.close, 4)                              AS price,
-                    nullIf(round(n.nav_adj, 4), 0)                AS nav,
-                    if(n.nav_adj > 0, round((p.close - n.nav_adj) / n.nav_adj * 100, 3), NULL) AS premium_disc_pct
+                SELECT *
                 FROM (
-                    SELECT trade_date, close
-                    FROM market_data.daily_prices FINAL
-                    WHERE symbol = 'GOLDBEES' AND category = 'etfs'
-                ) p
-                LEFT JOIN (
-                    SELECT nav_date AS trade_date,
-                           if(nav_date < '2019-12-23', nav / 100, nav) AS nav_adj
-                    FROM market_data.mf_nav FINAL
-                    WHERE symbol = 'GOLDBEES'
-                ) n USING (trade_date)
+                    SELECT
+                        p.trade_date,
+                        round(p.close, 4)                              AS price,
+                        nullIf(round(n.nav_adj, 4), 0)                AS nav,
+                        if(n.nav_adj > 0, round((p.close - n.nav_adj) / n.nav_adj * 100, 3), NULL) AS premium_disc_pct
+                    FROM (
+                        SELECT trade_date, close
+                        FROM market_data.daily_prices FINAL
+                        WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+                    ) p
+                    LEFT JOIN (
+                        SELECT nav_date AS trade_date,
+                               -- old-scale rows (nav > 1000) are pre-split; always normalise
+                               if(nav_date < '2019-12-23' OR nav > 1000, nav / 100, nav) AS nav_adj
+                        FROM market_data.mf_nav FINAL
+                        WHERE symbol = 'GOLDBEES'
+                    ) n USING (trade_date)
+                )
+                WHERE premium_disc_pct IS NULL OR abs(premium_disc_pct) <= 10
                 ORDER BY trade_date ASC
             """)
 
@@ -1050,7 +1056,13 @@ with tab_explorer:
 
     # ── 6. CFTC COT — Managed Money Positioning ───────────────────────────────
     with st.container():
-        st.subheader("📋 CFTC COT — Managed Money Net Positioning (Gold)")
+        _cot_hdr, _cot_rng = st.columns([5, 1])
+        _cot_hdr.subheader("📋 CFTC COT — Managed Money Net Positioning (Gold)")
+        _cot_range_map = {"1Y": 52, "3Y": 156, "5Y": 260, "10Y": 520, "All": 9999}
+        _cot_range = _cot_rng.selectbox(
+            "Range", list(_cot_range_map.keys()), index=2,
+            key="cot_range", label_visibility="collapsed",
+        )
         try:
             cot_df = _query_df("""
                 SELECT
@@ -1070,6 +1082,10 @@ with tab_explorer:
                 cot_df["report_date"] = pd.to_datetime(cot_df["report_date"])
                 cot_df = cot_df.set_index("report_date")
 
+                # Apply range filter
+                _cot_n = _cot_range_map[_cot_range]
+                cot_view = cot_df.tail(_cot_n)
+
                 c1, c2, c3, c4 = st.columns(4)
                 latest = cot_df.iloc[-1]
                 c1.metric("MM Net (last week)",     f"{int(latest['mm_net']):,}")
@@ -1079,18 +1095,21 @@ with tab_explorer:
 
                 st.caption("**MM Net % OI > +25%** = crowded long (crash risk)  ·  **< −5%** = extreme short (squeeze fuel)")
                 st.line_chart(
-                    cot_df[["mm_net", "comm_net"]],
+                    cot_view[["mm_net", "comm_net"]],
                     height=240,
                     color=["#2196F3", "#FF5722"],
                 )
 
                 with st.expander("MM Net % of Open Interest"):
-                    st.bar_chart(cot_df["mm_net_pct_oi"], height=200, color="#9C27B0")
+                    st.bar_chart(cot_view["mm_net_pct_oi"], height=200, color="#9C27B0")
 
-                n_weeks = st.slider("Show last N weeks", 26, 260, 104, 26, key="cot_weeks")
+                n_weeks = st.slider(
+                    "Show last N weeks", 26, min(len(cot_view), 9999), min(len(cot_view), 104),
+                    26, key="cot_weeks",
+                )
                 st.dataframe(
-                    cot_df[["mm_long", "mm_short", "mm_net", "mm_net_pct_oi",
-                             "comm_net", "open_interest"]]
+                    cot_view[["mm_long", "mm_short", "mm_net", "mm_net_pct_oi",
+                               "comm_net", "open_interest"]]
                     .tail(n_weeks)
                     .sort_index(ascending=False)
                     .reset_index(),
@@ -2679,13 +2698,13 @@ with tab_holdings:
         )
         st.stop()
 
-    # ── Available months ───────────────────────────────────────────────────
+    # ── Available months — all months across mf_holdings (full history) ───
     _months_df = _query_df(
         "SELECT DISTINCT as_of_month FROM market_data.mf_holdings FINAL ORDER BY as_of_month DESC"
     )
     _available_months = list(_months_df.iloc[:, 0]) if not _months_df.empty else []
     if not _available_months:
-        st.warning("Holdings table exists but has no rows.")
+        st.warning("No holdings data yet. Run **📥 Import Data → mf_holdings** first.")
         st.stop()
 
     # ── Controls ────────────────────────────────────────────────────────────
@@ -2728,13 +2747,63 @@ with tab_holdings:
         ORDER BY fund_name, pct_of_nav DESC
         """
     )
-    if _hold_df.empty:
-        st.warning(f"No holdings for selected funds in {selected_month}.")
-        st.stop()
-
     _hold_df.columns = ["scheme_code", "fund_name", "isin", "security_name",
                         "asset_type", "market_value_cr", "pct_of_nav"]
-    _hold_df["fund_label"] = _hold_df["fund_name"].map(_FUND_LABELS).fillna(_hold_df["fund_name"])
+
+    # ── Fallback: for funds with no data in selected month, load their latest ─
+    _sel_month_label = selected_month.strftime("%b %Y") if hasattr(selected_month, "strftime") else str(selected_month)[:7]
+    _funds_with_data = set(_hold_df["fund_name"].unique())
+    _missing_keys = [k for k in selected_funds if k not in _funds_with_data]
+    _fallback_month_map: dict = {}  # fund_name → display label
+
+    if _missing_keys:
+        _missing_filter = ", ".join(f"'{k}'" for k in _missing_keys)
+        _fb_months_df = _query_df(
+            f"SELECT fund_name, max(as_of_month) AS latest_month"
+            f" FROM market_data.mf_holdings FINAL"
+            f" WHERE fund_name IN ({_missing_filter})"
+            f" GROUP BY fund_name"
+        )
+        if not _fb_months_df.empty:
+            _fb_months_df.columns = ["fund_name", "latest_month"]
+            _fb_chunks = []
+            for _, _fb_row in _fb_months_df.iterrows():
+                _fn  = _fb_row["fund_name"]
+                _lm  = _fb_row["latest_month"]
+                _lm_str   = _lm.strftime("%Y-%m-%d") if hasattr(_lm, "strftime") else str(_lm)[:10]
+                _lm_label = _lm.strftime("%b %Y")    if hasattr(_lm, "strftime") else str(_lm)[:7]
+                _fb_fund_df = _query_df(
+                    f"""
+                    SELECT scheme_code, fund_name, isin, security_name, asset_type,
+                           market_value_cr, pct_of_nav
+                    FROM market_data.mf_holdings FINAL
+                    WHERE fund_name = '{_fn}' AND as_of_month = '{_lm_str}'
+                    ORDER BY pct_of_nav DESC
+                    """
+                )
+                if not _fb_fund_df.empty:
+                    _fb_fund_df.columns = ["scheme_code", "fund_name", "isin", "security_name",
+                                           "asset_type", "market_value_cr", "pct_of_nav"]
+                    _fb_chunks.append(_fb_fund_df)
+                    _fallback_month_map[_fn] = _lm_label
+            if _fb_chunks:
+                import pandas as _pd
+                _hold_df = _pd.concat([_hold_df] + _fb_chunks, ignore_index=True)
+                _notes = [f"**{_FUND_LABELS[fn]}** → {lbl}" for fn, lbl in _fallback_month_map.items()]
+                st.info(f"No {_sel_month_label} data — showing latest available for: {', '.join(_notes)}")
+
+    if _hold_df.empty:
+        st.warning("No holdings data found for any selected fund.")
+        st.stop()
+
+    # fund_label: append "(fallback month)" suffix for funds not on selected month
+    def _make_fund_label(fn: str) -> str:
+        label = _FUND_LABELS.get(fn, fn)
+        if fn in _fallback_month_map:
+            label = f"{label} ({_fallback_month_map[fn]})"
+        return label
+
+    _hold_df["fund_label"] = _hold_df["fund_name"].apply(_make_fund_label)
 
     # ══ 1. Asset allocation pie per fund ══════════════════════════════════
     st.subheader("Asset Allocation")
@@ -2744,13 +2813,16 @@ with tab_holdings:
             _fd = _hold_df[_hold_df["fund_name"] == fund_key]
             _alloc = _fd.groupby("asset_type")["pct_of_nav"].sum().reset_index()
             _alloc.columns = ["asset_type", "weight"]
-            if not _alloc.empty:
+            if _alloc.empty:
+                st.caption(f"_{_FUND_LABELS[fund_key]}_")
+                st.info("No data")
+            else:
                 import plotly.express as px  # type: ignore[import]
                 fig_pie = px.pie(
                     _alloc,
                     values="weight",
                     names="asset_type",
-                    title=_FUND_LABELS[fund_key],
+                    title=_make_fund_label(fund_key),
                     color="asset_type",
                     color_discrete_map=_ASSET_COLORS,
                     hole=0.35,
@@ -2764,50 +2836,88 @@ with tab_holdings:
 
     # ══ 2. Holdings table ══════════════════════════════════════════════════
     st.subheader("Holdings Detail")
-    _disp_df = _hold_df[["fund_label", "security_name", "asset_type", "pct_of_nav", "isin"]].rename(columns={
-        "fund_label":    "Fund",
-        "security_name": "Security",
-        "asset_type":    "Type",
-        "pct_of_nav":    "Weight (%)",
-        "isin":          "ISIN",
+    _disp_df = _hold_df[["fund_label", "security_name", "asset_type", "market_value_cr", "pct_of_nav", "isin"]].rename(columns={
+        "fund_label":     "Fund",
+        "security_name":  "Security",
+        "asset_type":     "Type",
+        "market_value_cr": "Mkt Val (₹Cr)",
+        "pct_of_nav":     "Weight (%)",
+        "isin":           "ISIN",
     })
     st.dataframe(
-        _disp_df.style.format({"Weight (%)": "{:.2f}"}),
+        _disp_df.style.format({"Weight (%)": "{:.2f}", "Mkt Val (₹Cr)": "{:.1f}"}),
         width="stretch",
         height=420,
     )
 
     # ══ 3. Month-over-month drift ══════════════════════════════════════════
-    if len(_available_months) >= 2:
-        st.subheader("Month-over-Month Drift")
-        
-        # Find the month immediately preceding the selected month in the sorted list
-        _prev_month = None
-        try:
-            _curr_idx = _available_months.index(selected_month)
-            if _curr_idx + 1 < len(_available_months):
-                _prev_month = _available_months[_curr_idx + 1]
-        except ValueError:
-            pass
+    # Each fund compares its own two most recent available months so fallback
+    # funds (showing an earlier month) still produce meaningful drift.
+    st.subheader("Month-over-Month Drift")
 
-        if _prev_month:
-            _prev_month_str = (
-                _prev_month.strftime("%Y-%m-%d")
-                if hasattr(_prev_month, "strftime")
-                else str(_prev_month)[:10]
+    # Which months are being compared per fund?
+    _cmp_df = _query_df(
+        f"""
+        SELECT fund_name,
+               maxIf(as_of_month, rn = 1) AS cur_month,
+               maxIf(as_of_month, rn = 2) AS prev_month
+        FROM (
+            SELECT fund_name, as_of_month,
+                   row_number() OVER (PARTITION BY fund_name ORDER BY as_of_month DESC) AS rn
+            FROM (
+                SELECT DISTINCT fund_name, as_of_month
+                FROM market_data.mf_holdings FINAL
+                WHERE fund_name IN ({_fund_filter})
+            ) AS t1
+        ) AS t2
+        GROUP BY fund_name
+        HAVING prev_month != toDate('1970-01-01')
+        """
+    )
+
+    if _cmp_df.empty:
+        st.info("Need at least 2 months of data per fund to show drift.")
+    else:
+        _cmp_df.columns = ["fund_name", "cur_month", "prev_month"]
+        _cmp_labels = {
+            row["fund_name"]: (
+                f"{row['cur_month'].strftime('%b %Y') if hasattr(row['cur_month'], 'strftime') else str(row['cur_month'])[:7]}"
+                f" vs "
+                f"{row['prev_month'].strftime('%b %Y') if hasattr(row['prev_month'], 'strftime') else str(row['prev_month'])[:7]}"
             )
-            _drift_df = _query_df(
-                f"""
-                WITH cur AS (
-                    SELECT fund_name, isin, security_name, asset_type, pct_of_nav
+            for _, row in _cmp_df.iterrows()
+        }
+        _cmp_caption = "  |  ".join(f"**{_FUND_LABELS.get(fn, fn)}**: {lbl}" for fn, lbl in _cmp_labels.items())
+        st.caption(_cmp_caption)
+
+        _drift_df = _query_df(
+            f"""
+            WITH
+            months_ranked AS (
+                SELECT fund_name, as_of_month,
+                       row_number() OVER (PARTITION BY fund_name ORDER BY as_of_month DESC) AS rn
+                FROM (
+                    SELECT DISTINCT fund_name, as_of_month
                     FROM market_data.mf_holdings FINAL
-                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{_month_str}'
-                ),
-                prev AS (
-                    SELECT fund_name, isin, security_name, pct_of_nav
-                    FROM market_data.mf_holdings FINAL
-                    WHERE fund_name IN ({_fund_filter}) AND as_of_month = '{_prev_month_str}'
+                    WHERE fund_name IN ({_fund_filter})
+                ) AS t1
+            ),
+            cur AS (
+                SELECT fund_name, isin, security_name, asset_type, pct_of_nav
+                FROM market_data.mf_holdings FINAL
+                WHERE (fund_name, as_of_month) IN (
+                    SELECT fund_name, as_of_month FROM months_ranked WHERE rn = 1
                 )
+            ),
+            prev AS (
+                SELECT fund_name, isin, security_name, pct_of_nav
+                FROM market_data.mf_holdings FINAL
+                WHERE (fund_name, as_of_month) IN (
+                    SELECT fund_name, as_of_month FROM months_ranked WHERE rn = 2
+                )
+            )
+            SELECT *
+            FROM (
                 SELECT
                     coalesce(cur.fund_name, prev.fund_name)           AS fund_name,
                     coalesce(cur.isin, prev.isin)                     AS isin,
@@ -2819,42 +2929,41 @@ with tab_holdings:
                     CASE
                         WHEN prev.isin IS NULL OR prev.isin = '' THEN 'ENTERED'
                         WHEN cur.isin  IS NULL OR cur.isin  = '' THEN 'EXITED'
-                        WHEN abs(cur.pct_of_nav - prev.pct_of_nav) >= 2  THEN 'CHANGED'
+                        WHEN abs(cur.pct_of_nav - prev.pct_of_nav) >= 2               THEN 'CHANGED'
                         ELSE 'UNCHANGED'
                     END AS event
                 FROM cur
-                FULL OUTER JOIN prev
-                    ON cur.fund_name = prev.fund_name AND cur.isin = prev.isin
-                WHERE event != 'UNCHANGED'
-                ORDER BY fund_name, event, abs(drift) DESC
-                """
-            )
-            if _drift_df.empty:
-                st.success("No significant changes vs prior month.")
-            else:
-                _drift_df.columns = ["fund_name", "isin", "security_name", "asset_type",
-                                     "pct_cur", "pct_prev", "drift", "event"]
-                _drift_df["fund_label"] = _drift_df["fund_name"].map(_FUND_LABELS).fillna(_drift_df["fund_name"])
-                _event_color = {"ENTERED": "🟢", "EXITED": "🔴", "CHANGED": "🟡"}
-                _drift_df["🔔"] = _drift_df["event"].map(_event_color).fillna("")
-                st.dataframe(
-                    _drift_df[["🔔", "fund_label", "security_name", "asset_type",
-                               "pct_prev", "pct_cur", "drift", "event"]]
-                    .rename(columns={
-                        "fund_label":    "Fund",
-                        "security_name": "Security",
-                        "asset_type":    "Type",
-                        "pct_prev":      "Prev (%)",
-                        "pct_cur":       "Cur (%)",
-                        "drift":         "Δ (%)",
-                        "event":         "Event",
-                    })
-                    .style.format({"Prev (%)": "{:.2f}", "Cur (%)": "{:.2f}", "Δ (%)": "{:+.2f}"}),
-                    width="stretch",
-                    height=380,
-                )
+                FULL OUTER JOIN prev ON cur.fund_name = prev.fund_name AND cur.isin = prev.isin
+            ) AS joined
+            WHERE event != 'UNCHANGED'
+            ORDER BY fund_name, event, abs(drift) DESC
+            """
+        )
+
+        if _drift_df.empty:
+            st.success("No significant changes vs prior month (no ENTERED/EXITED, all weight shifts < 2 pp).")
         else:
-            st.info(f"No previous month found to compare against {selected_month.strftime('%b %Y') if hasattr(selected_month, 'strftime') else selected_month}.")
+            _drift_df.columns = ["fund_name", "isin", "security_name", "asset_type",
+                                  "pct_cur", "pct_prev", "drift", "event"]
+            _drift_df["fund_label"] = _drift_df["fund_name"].map(_FUND_LABELS).fillna(_drift_df["fund_name"])
+            _event_color = {"ENTERED": "🟢", "EXITED": "🔴", "CHANGED": "🟡"}
+            _drift_df["🔔"] = _drift_df["event"].map(_event_color).fillna("")
+            st.dataframe(
+                _drift_df[["🔔", "fund_label", "security_name", "asset_type",
+                           "pct_prev", "pct_cur", "drift", "event"]]
+                .rename(columns={
+                    "fund_label":    "Fund",
+                    "security_name": "Security",
+                    "asset_type":    "Type",
+                    "pct_prev":      "Prev (%)",
+                    "pct_cur":       "Cur (%)",
+                    "drift":         "Δ (%)",
+                    "event":         "Event",
+                })
+                .style.format({"Prev (%)": "{:.2f}", "Cur (%)": "{:.2f}", "Δ (%)": "{:+.2f}"}),
+                width="stretch",
+                height=380,
+            )
 
     # ══ 4. Asset allocation trend over time ═══════════════════════════════
     if len(_available_months) >= 2:
@@ -2892,32 +3001,31 @@ with tab_holdings:
             )
             st.plotly_chart(fig_trend, width="stretch")
 
-    # ══ 5. Common Holdings & Stock Overlap ════════════════════════════════
+    # ══ 5. Common Holdings & Overlap (all asset types) ════════════════════
     if len(selected_funds) >= 1:
-        st.subheader("Top Common Holdings (Aggregated)")
+        st.subheader("Top Holdings by Aggregate Weight")
         _common_df = _query_df(
             f"""
-            SELECT 
+            SELECT
                 security_name,
-                count(DISTINCT fund_name) as n_funds,
-                sum(pct_of_nav) as total_weight,
-                groupArray(concat(fund_name, ' (', toString(round(pct_of_nav, 1)), '%)')) as breakdown
+                any(asset_type)                                                    AS asset_type,
+                count(DISTINCT fund_name)                                          AS n_funds,
+                sum(pct_of_nav)                                                    AS total_weight,
+                groupArray(concat(fund_name, ' (', toString(round(pct_of_nav, 1)), '%)')) AS breakdown
             FROM market_data.mf_holdings FINAL
             WHERE fund_name IN ({_fund_filter})
               AND as_of_month = '{_month_str}'
-              AND asset_type = 'equity'
-              AND security_name NOT LIKE '%Gold%'
-              AND security_name NOT LIKE '%Silver%'
             GROUP BY security_name
             HAVING total_weight > 0.5
             ORDER BY total_weight DESC
-            LIMIT 15
+            LIMIT 20
             """
         )
         
         if not _common_df.empty:
-            _common_df.columns = ["Security", "Funds", "Total Weight (%)", "Breakdown"]
-            
+            _common_df.columns = ["Security", "Type", "Funds", "Total Weight (%)", "Breakdown"]
+            _sel_month_label = selected_month.strftime("%b %Y") if hasattr(selected_month, "strftime") else str(selected_month)
+
             col_chart, col_table = st.columns([1, 1])
             with col_chart:
                 import plotly.express as px # noqa: F811
@@ -2926,13 +3034,13 @@ with tab_holdings:
                     x="Total Weight (%)",
                     y="Security",
                     orientation="h",
-                    color="Funds",
-                    color_continuous_scale="Viridis",
-                    title=f"Aggregate Stock Exposure ({selected_month.strftime('%b %Y') if hasattr(selected_month, 'strftime') else selected_month})",
+                    color="Type",
+                    color_discrete_map=_ASSET_COLORS,
+                    title=f"Aggregate Exposure — All Asset Types ({_sel_month_label})",
                 )
-                fig_common.update_layout(yaxis={'categoryorder':'total ascending'}, height=450, margin=dict(l=0, r=0, t=40, b=0))
+                fig_common.update_layout(yaxis={"categoryorder": "total ascending"}, height=500, margin=dict(l=0, r=0, t=40, b=0))
                 st.plotly_chart(fig_common, width="stretch")
-            
+
             with col_table:
                 st.dataframe(
                     _common_df,
@@ -2941,10 +3049,10 @@ with tab_holdings:
                     },
                     hide_index=True,
                     width="stretch",
-                    height=450
+                    height=500,
                 )
         else:
-            st.info("No significant common stock holdings found.")
+            st.info("No holdings above 0.5% weight found for the selected funds/month.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
