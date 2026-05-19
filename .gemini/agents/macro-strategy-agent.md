@@ -102,12 +102,14 @@ python src/tools/valuation_alerts.py     # P/E vs 5-year historical averages
 
 ### 4. Strategic Analysis Framework
 
-1. **Macro Check** — `python src/main.py macro` → 8 themes, per-ETF net score (≥+16 = strong bullish)
-2. **Signal Check** — `python src/main.py signals` → composite 0–100 + regime; GOLDBEES score ≥ 60 = ACCUMULATE
-3. **Institutional Check** — `whale_tracker.py` → Quant/ICICI/DSP weight delta in the theme
-4. **Valuation Check** — `valuation_alerts.py` → "Historical Value" vs "Structurally Re-rated"
-5. **Flow Check** — `repo.fii_dii_5d()` → 5-day combined FII+DII net; DII absorbing = floor support
-6. **Cash Flow Check** — Ensure the "Real Economy" boom is translating into actual cash, not accounting profit
+1. **Import** — `python src/main.py import` → Refresh historical data.
+2. **iNAV Refresh** — `python src/main.py premium-alerts` → **Mandatory.** Ground valuation in live NSE data before continuing.
+3. **Macro Check** — `python src/main.py macro` → 8 themes, per-ETF net score (≥+16 = strong bullish)
+4. **Signal Check** — `python src/main.py signals` → composite 0–100 + regime; GOLDBEES score ≥ 60 = ACCUMULATE
+5. **Institutional Check** — `whale_tracker.py` → Quant/ICICI/DSP weight delta in the theme
+6. **Valuation Check** — `valuation_alerts.py` → "Historical Value" vs "Structurally Re-rated"
+7. **Flow Check** — `repo.fii_dii_5d()` → 5-day combined FII+DII net; DII absorbing = floor support
+8. **Cash Flow Check** — Ensure the "Real Economy" boom is translating into actual cash, not accounting profit
 
 **Number rules:** All prices, flows, and scores come from ClickHouse or live tool output. Never state a number derived from training knowledge — gold price, USDINR, FII flows change daily.
 

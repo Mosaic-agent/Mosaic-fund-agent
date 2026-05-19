@@ -166,6 +166,13 @@ User: "is the model accurate?" or "evaluate performance"
 → Do not editorialize beyond the numbers
 ```
 
+### Mandatory iNAV Freshness Rule
+**NEVER trust the database snapshots for iNAV valuation alone.**
+Because the `macro` and `signals` commands read from the database, their valuation reports will be stale if a live fetch hasn't run today.
+- **Action:** ALWAYS run `python src/main.py premium-alerts` before executing `macro` or `signals` commands.
+- **Verification:** Check the `Latest Prem (%)` in the report. If snapshots are stale or zero, the signal is invalid.
+- **Why:** During market gaps (like today's record-low Rupee), stale iNAV data can create fake +7% premiums or -5% discounts that trigger false buy/sell signals.
+
 ## Macro Scanner Output
 
 The `macro` command output contains:
