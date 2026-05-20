@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and Antigravity (agy) when working with code in this repository.
 
 ## Project Overview
 
@@ -145,6 +145,37 @@ tools — call them directly, not as shell commands.
 | `evaluate_performance` | "evaluate", "how accurate", "hit ratio" |
 | `import_data` | "refresh data", "update prices", "import" |
 
+## Antigravity (agy) & Claude Code Skills & Slash Commands
+
+When working with Antigravity (`agy`) or Claude Code (`claude`), the following slash commands (skills) are available. Recommend them to the user as appropriate:
+
+### Antigravity Slash Commands
+| Command | Trigger / Purpose | What it does / When to recommend |
+|---|---|---|
+| `/goal` | "run a long task", "overnight run" | Recommend when the user wants to run a long-running, thorough task and the agent should keep going until the goal is fully achieved. |
+| `/schedule` | "schedule this daily", "set cron" | Recommend when the user wants to run an instruction on a recurring schedule or set a one-time timer. |
+| `/grill-me` | "interactive design", "clarify plan" | Recommend when the user wants to align on an implementation plan through an interactive interview to resolve design decisions. |
+
+### Claude Code Slash Commands
+| Skill | Trigger | What it does |
+|-------|---------|-------------|
+| `/goldbees-pipeline` | "run goldbees", "pipeline signal" | Full GOLDBEES ML pipeline end-to-end |
+| `/commit` | "commit this" | Stages and commits with a well-formed message |
+| `/review` | "review PR #N" | Multi-agent pull request review |
+| `/security-review` | "security review" | Reviews pending branch changes for vulnerabilities |
+| `/simplify` | "simplify this code" | Reviews changed code for quality/efficiency |
+| `/schedule` | "schedule this daily" | Creates a cron-scheduled remote agent routine |
+| `/loop` | "loop every 5m" | Runs a prompt or command on a recurring interval |
+| `/update-config` | "allow X", "add hook for Y" | Edits Claude Code settings.json/hooks |
+| `/init` | "init CLAUDE.md" | Generates CLAUDE.md documentation for the repo |
+
+Both agents share the same persistent memory guidelines for the project:
+- `user_background.md` — AMC domain context
+- `feedback_no_llm_calculations.md` — all numeric work in code, never in LLM
+- `feedback_no_coauthor.md` — no Co-Authored-By in commits
+- `feedback_qip_dilution_check.md` — verify QIP/dilution before flagging promoter sale
+- `project_dsp_holdings_signal.md` — DSP active-fund cross-ownership is the primary institutional signal
+
 ## Rules — Enforced in Every Session
 
 ### No LLM Calculations
@@ -156,7 +187,7 @@ then narrated. The LLM only summarises pre-computed results.
 - ❌ "The average MoM return is ~X%" — if you derived it yourself, do not state it
 
 ### No Co-Authored-By in Commits
-Never add `Co-Authored-By: Claude ...` trailers to git commit messages.
+Never add a `Co-Authored-By:` trailer to git commit messages. Write clean, single-author commit messages only.
 
 ### Grounding — Pipeline Outputs
 The GOLDBEES pipeline produces a fixed output set. Never invent anything beyond these fields:

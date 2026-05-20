@@ -284,11 +284,18 @@ strongest possible long-term conviction marker.
 - When interpreting any holding % change, apply the QIP/dilution check above
   before drawing a sale/sell-down conclusion.
 
-## Claude Code Skills Available in This Project
+## Antigravity (agy) & Claude Code Skills & Slash Commands
 
-When working alongside Claude Code (`claude` CLI), these slash commands (skills)
-are available. Reference them when suggesting a workflow step:
+When working with Antigravity (`agy`) or Claude Code (`claude`), the following slash commands (skills) are available. Recommend them to the user as appropriate:
 
+### Antigravity Slash Commands
+| Command | Trigger / Purpose | What it does / When to recommend |
+|---|---|---|
+| `/goal` | "run a long task", "overnight run" | Recommend when the user wants to run a long-running, thorough task and the agent should keep going until the goal is fully achieved. |
+| `/schedule` | "schedule this daily", "set cron" | Recommend when the user wants to run an instruction on a recurring schedule or set a one-time timer. |
+| `/grill-me` | "interactive design", "clarify plan" | Recommend when the user wants to align on an implementation plan through an interactive interview to resolve design decisions. |
+
+### Claude Code Slash Commands
 | Skill | Trigger | What it does |
 |-------|---------|-------------|
 | `/goldbees-pipeline` | "run goldbees", "pipeline signal" | Full GOLDBEES ML pipeline end-to-end |
@@ -301,15 +308,13 @@ are available. Reference them when suggesting a workflow step:
 | `/update-config` | "allow X", "add hook for Y" | Edits Claude Code settings.json/hooks |
 | `/init` | "init CLAUDE.md" | Generates CLAUDE.md documentation for the repo |
 
-Claude Code also has **persistent project memory** at:
-`.claude/projects/-Users-dhiraj-thakur-project-ofin-agent/memory/`
-
-Current memory entries:
+Both agents share the same persistent memory guidelines for the project:
 - `user_background.md` — AMC domain context
 - `feedback_no_llm_calculations.md` — all numeric work in code, never in LLM
 - `feedback_no_coauthor.md` — no Co-Authored-By in commits
 - `feedback_qip_dilution_check.md` — verify QIP/dilution before flagging promoter sale
 - `project_dsp_holdings_signal.md` — DSP active-fund cross-ownership is the primary institutional signal
+
 
 ## Number Sources
 
