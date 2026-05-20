@@ -26,7 +26,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 - **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
 - **Streamlit UI** — import, SQL explorer, charts, anomaly detection, and **🪁 Kite Dashboard**
 - **Zerodha Account Backup** — persist personal holdings, margins, profile, and orders to ClickHouse for historical tracking
-- **Gemini CLI agents** — macro strategy agent + 4 skills discoverable from `.gemini/`
+- **Gemini & Antigravity (agy) CLI agents** — macro strategy agent + 4 skills discoverable from `.gemini/` and `.agents/`
 
 ---
 
@@ -234,13 +234,14 @@ python tests/_test_importer.py      # integration (requires ClickHouse)
 
 ---
 
-## Gemini CLI
+## Gemini & Antigravity (agy) CLI
 
-Gemini CLI is already configured — agents and skills are in `.gemini/`.
+Gemini CLI and Antigravity CLI are configured — agents and skills are in `.gemini/` (Gemini) and `.agents/` (Antigravity).
 
 ```bash
 cd ~/project/Mosaic-fund-agent
-gemini
+gemini  # For Gemini CLI
+agy     # For Antigravity (agy) CLI
 ```
 
 | Agent / Skill | Trigger |
