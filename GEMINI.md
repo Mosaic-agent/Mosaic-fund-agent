@@ -109,6 +109,13 @@ All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 The pipeline produces a **specific, fixed set of outputs**. You MUST NOT invent
 metrics, scores, or analysis beyond what the tools return.
 
+### Zero-Trust Verification Protocol
+**NEVER rely on memory for table-based metrics.**
+- **Re-read Mandate:** Before citing a number (premium, Z-score, probability, flow), you MUST re-scan the raw tool output from the current or immediate prior turn.
+- **Symbol-Row Locking:** Explicitly verify that the symbol in the user prompt matches the exact row you are reading.
+- **Isolation Rule:** For specific symbol inquiries, if the full table is large or ambiguous, you MUST run a targeted tool call (e.g., `premium-alerts --symbols TICKER` or a specific ClickHouse query) to isolate that single data point before responding.
+- **Overlay Priority:** Only cite specific prices or flows if they appear in the **Quant Overlay panel** or a direct SQL result.
+
 ### What the pipeline DOES produce:
 - `prob_up` — probability the ETF goes up (from LightGBM classifier, 0–1)
 - `expected_return_pct` — predicted 5-day log return (%)
@@ -166,12 +173,11 @@ User: "is the model accurate?" or "evaluate performance"
 → Do not editorialize beyond the numbers
 ```
 
-### Mandatory iNAV Freshness Rule
-**NEVER trust the database snapshots for iNAV valuation alone.**
-Because the `macro` and `signals` commands read from the database, their valuation reports will be stale if a live fetch hasn't run today.
-- **Action:** ALWAYS run `python src/main.py premium-alerts` before executing `macro` or `signals` commands.
-- **Verification:** Check the `Latest Prem (%)` in the report. If snapshots are stale or zero, the signal is invalid.
-- **Why:** During market gaps (like today's record-low Rupee), stale iNAV data can create fake +7% premiums or -5% discounts that trigger false buy/sell signals.
+### Mandatory Data Freshness Mandate
+**NEVER perform analysis on stale data.** Before executing any signal-generating or valuation command (`macro`, `signals`, `premium-alerts`), you MUST verify that the database has live data for today.
+- **Verification:** Run a quick ClickHouse check for today's snapshots: `SELECT count(*) FROM market_data.inav_snapshots WHERE toDate(snapshot_at) = today()`.
+- **Action:** If snapshots are 0 or stale, ALWAYS run `python src/main.py import --category inav` before proceeding.
+- **Why:** During high-volatility events (currency shocks, geopolitical gaps), stale data creates "phantom" premiums or discounts that trigger false buy/sell signals. The model is only as good as its latest grounding point.
 
 ## Macro Scanner Output
 

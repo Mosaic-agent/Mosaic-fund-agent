@@ -97,6 +97,12 @@ ETFS: list[tuple[str, str]] = [
     ("MAHKTECH",    "MAHKTECH.NS"),
     ("MASPTOP50",   "MASPTOP50.NS"),
     ("MONQ50",      "MONQ50.NS"),
+    ("GOLDCASE",    "GOLDCASE.NS"),
+    ("SILVERCASE",  "SILVERCASE.NS"),
+    ("TOP100CASE",  "TOP100CASE.NS"),
+    ("MID150CASE",  "MID150CASE.NS"),
+    ("SMALLCAP",    "SMALLCAP.NS"),
+    ("LTGILTCASE",  "LTGILTCASE.NS"),
 ]
 
 # Commodities via Yahoo Finance (XAU/USD, XAG/USD, etc.)
@@ -187,6 +193,8 @@ INAV_SYMBOLS: list[str] = [
     "SILVERBEES", "PSUBNKBEES", "HDFCNIFTY",  "SETFNIF50",  "ICICIB22",
     "LIQUIDCASE", "CPSEETF",    "ITBEES",     "MID150BEES", "MONIFTY500",
     "GILT5YBEES", "PHARMABEES", "AUTOBEES",   "FMCGIETF",   "SMALL250",
+    "GOLDCASE",
+    "SILVERCASE", "TOP100CASE", "MID150CASE", "SMALLCAP", "LTGILTCASE",
     # ── International ETFs (scanned by Intl ETF Scarcity Premium Alerts) ─────
     "HNGSNGBEES", "MAFANG",     "MON100",     "MAHKTECH",   "MASPTOP50",  "MONQ50",
 ]
