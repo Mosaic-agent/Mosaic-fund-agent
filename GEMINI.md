@@ -173,11 +173,19 @@ User: "is the model accurate?" or "evaluate performance"
 → Do not editorialize beyond the numbers
 ```
 
-### Mandatory Data Freshness Mandate
-**NEVER perform analysis on stale data.** Before executing any signal-generating or valuation command (`macro`, `signals`, `premium-alerts`), you MUST verify that the database has live data for today.
-- **Verification:** Run a quick ClickHouse check for today's snapshots: `SELECT count(*) FROM market_data.inav_snapshots WHERE toDate(snapshot_at) = today()`.
-- **Action:** If snapshots are 0 or stale, ALWAYS run `python src/main.py import --category inav` before proceeding.
-- **Why:** During high-volatility events (currency shocks, geopolitical gaps), stale data creates "phantom" premiums or discounts that trigger false buy/sell signals. The model is only as good as its latest grounding point.
+### Mandatory System-Wide Freshness Mandate
+**NEVER perform analysis on a stale database.** At the start of every session or before executing any signal-generating or valuation command (`macro`, `signals`, `premium-alerts`, `analyze`), you MUST verify that the entire registry (105+ symbols) is up-to-date for the current business day.
+- **Verification Audit:** Run a comprehensive audit check (via SQL or script) to verify the `max(trade_date)` for all registered categories: `Stocks`, `ETFs`, `Indices`, `Commodities`, `FX_Rates`, and `US_Stocks`.
+- **Threshold:** Any category with a `max(trade_date)` older than 1 business day (or today for iNAV) is considered STALE.
+- **Action:** If any category is stale, ALWAYS run the targeted import: `python src/main.py import --category <stale_categories>`.
+- **Why:** Macro signals and ML forecasts rely on cross-asset correlations (e.g., Gold vs. USDINR vs. US10Y). If one leg is stale, the resulting signal is mathematically invalid and dangerous.
+
+### Zero-Trust Verification Protocol
+**NEVER rely on memory for table-based metrics.**
+- **Re-read Mandate:** Before citing a number (premium, Z-score, probability, flow), you MUST re-scan the raw tool output from the current or immediate prior turn.
+- **Symbol-Row Locking:** Explicitly verify that the symbol in the user prompt matches the exact row you are reading.
+- **Isolation Rule:** For specific symbol inquiries, if the full table is large or ambiguous, you MUST run a targeted tool call (e.g., `premium-alerts --symbols TICKER` or a specific ClickHouse query) to isolate that single data point before responding.
+- **Overlay Priority:** Only cite specific prices or flows if they appear in the **Quant Overlay panel** or a direct SQL result.
 
 ## Macro Scanner Output
 
