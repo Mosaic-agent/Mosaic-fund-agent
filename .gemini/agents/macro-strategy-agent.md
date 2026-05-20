@@ -70,23 +70,21 @@ python src/main.py macro                   # 8-theme macro event scanner
 python src/main.py signals --save --verbose
 ```
 
-**Pipeline (GOLDBEES ML)**
+**Pipeline (GOLDBEES ML) — use pre-baked script, not MCP**
 ```bash
-# Via MCP tool — preferred
-run_pipeline(save=True)
-get_latest_signal()
-evaluate_performance(rows=15)
+# Single call — reads ml_predictions, weight_checkpoints, signal_composite, inav_snapshots
+python src/scripts/goldbees_report.py
 
-# Via CLI fallback
+# Data refresh before running
 python src/main.py import --category stocks,etfs,mf,fii_dii,cot,fx_rates
 ```
 
 **Analysis scripts** (run from project root)
 ```bash
-python src/scripts/market/whale_tracker.py        # Quant/ICICI/DSP institutional moves
-python src/scripts/portfolio/opportunity_scan.py  # momentum · RSI · iNAV discounts
-python src/scripts/market/metals_quant_scorecard.py  # Gold + Silver 4-pillar scorecard
-python src/main.py analyze                        # full AI portfolio report
+python src/scripts/market/whale_tracker.py           # all 7 multi-asset funds: Nippon, DSP, DSP Omni FoF, Bajaj, Quant, ICICI x2
+python src/scripts/portfolio/opportunity_scan.py     # momentum · RSI · iNAV discounts
+python src/scripts/market/metals_quant_scorecard.py  # Gold + Silver + Copper 4-pillar scorecard
+python src/main.py analyze                           # full AI portfolio report
 ```
 
 **Expert monitoring**
@@ -105,11 +103,11 @@ python src/tools/valuation_alerts.py     # P/E vs 5-year historical averages
 1. **Import** — `python src/main.py import` → Refresh historical data.
 2. **iNAV Refresh** — `python src/main.py premium-alerts` → **Mandatory.** Ground valuation in live NSE data before continuing.
 3. **Macro Check** — `python src/main.py macro` → 8 themes, per-ETF net score (≥+16 = strong bullish)
-4. **Signal Check** — `python src/main.py signals` → composite 0–100 + regime; GOLDBEES score ≥ 60 = ACCUMULATE
-5. **Institutional Check** — `whale_tracker.py` → Quant/ICICI/DSP weight delta in the theme
-6. **Valuation Check** — `valuation_alerts.py` → "Historical Value" vs "Structurally Re-rated"
-7. **Flow Check** — `repo.fii_dii_5d()` → 5-day combined FII+DII net; DII absorbing = floor support
-8. **Cash Flow Check** — Ensure the "Real Economy" boom is translating into actual cash, not accounting profit
+4. **Signal Check** — `python src/main.py signals --save` → composite 0–100 + regime for 18 ETFs
+5. **GOLDBEES Pipeline** — `python src/scripts/goldbees_report.py` → ML signal + weights (single call, pre-baked)
+6. **Institutional Check** — `python src/scripts/market/whale_tracker.py` → all 7 multi-asset funds weight delta
+7. **Metals Scorecard** — `python src/scripts/market/metals_quant_scorecard.py` → Gold/Silver/Copper 4-pillar
+8. **Flow Check** — `repo.fii_dii_5d()` → 5-day combined FII+DII net; DII absorbing = floor support
 
 **Number rules:** All prices, flows, and scores come from ClickHouse or live tool output. Never state a number derived from training knowledge — gold price, USDINR, FII flows change daily.
 

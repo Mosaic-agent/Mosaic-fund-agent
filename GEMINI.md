@@ -32,8 +32,11 @@ python src/scripts/portfolio/portfolio_health_check.py
 python src/scripts/portfolio/inr_hedge_report.py
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import
 python src/scripts/dsp/import_latest_dsp.py                        # latest month only
-python src/scripts/fund_imports/run.py <icici|nippon|all>
+python src/scripts/fund_imports/run.py <icici|nippon|all>          # Nippon: dynamic URL discovery from 2024 onward
 python src/scripts/market/analyze_news_trend.py
+python src/scripts/goldbees_report.py                              # GOLDBEES signal (pre-baked, ~2s, use instead of MCP)
+python src/scripts/market/whale_tracker.py                         # all 7 multi-asset funds
+python src/scripts/market/metals_quant_scorecard.py                # Gold/Silver/Copper 4-pillar scorecard
 python src/ml/trend_predictor.py                                   # LightGBM forecast
 ```
 
@@ -77,6 +80,18 @@ python tests/_backtest_anomaly.py
 **13 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`,
 `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`,
 `yahoo_snapshot`, `expert_tweets`, plus news tools.
+
+**Whale Tracker funds** (`src/scripts/market/whale_tracker.py`) — all 7 multi-asset funds:
+
+| Scheme Code | Fund | History |
+|---|---|---|
+| `RLMF806` | Nippon India Multi Asset | 57 months (deepest; dynamic import from 2024) |
+| `152056` | DSP Multi Asset | 33 months |
+| `154167` | DSP Multi Asset Omni FoF | 3 months |
+| `152639` | Bajaj Multi Asset | 2 months |
+| `120821` | Quant Multi Asset | 2 months |
+| `120334` | ICICI Multi Asset | 1 month (shows ⚠ insufficient data) |
+| `120716` | ICICI Multi Asset II | 1 month (shows ⚠ insufficient data) |
 
 **LLM config:** `LLM_PROVIDER` (`openai` or `anthropic`) + `LLM_MODEL`.
 Set `LLM_BASE_URL` to an OpenAI-compatible endpoint for local inference (Ollama, LM Studio).
@@ -141,36 +156,28 @@ metrics, scores, or analysis beyond what the tools return.
 When a tool returns a `display_report` field, show it **verbatim** without modification.
 Do not reformat, reinterpret, or add to it.
 
-## MCP Tools Available
+## GOLDBEES Pipeline — Pre-baked Script (preferred)
 
-`run_pipeline`, `get_latest_signal`, `evaluate_performance`, and `import_data`
-are **MCP tools** registered under the `ofin-pipeline` server.
-They are NOT files, scripts, or shell commands — call them directly as tools.
+The MCP `run_pipeline` tool is not reliably available. Use the pre-baked script instead — one shell call, ~2s, no import probing:
 
-Do NOT use FindFiles, shell, or search to locate them.
-Do NOT enter Plan Mode to decide whether to call them — just call them.
+```bash
+python src/scripts/goldbees_report.py
+```
 
-| Tool | Call when user says |
-|---|---|
-| `run_pipeline` | "run pipeline", "today's signal", "what should I do with GOLDBEES" |
-| `get_latest_signal` | "latest signal", "last recommendation", "--latest" |
-| `evaluate_performance` | "evaluate", "how accurate", "hit ratio", "--evaluate" |
-| `import_data` | "refresh data", "update prices", "import" |
+This reads from 4 ClickHouse tables (`ml_predictions`, `weight_checkpoints`, `signal_composite`, `inav_snapshots`) and prints the full recommendation block. **Do not query ClickHouse interactively for GOLDBEES signals — run this script.**
 
 ## Correct Workflow
 
 ```
-User: "run_pipeline" or "what should I do with GOLDBEES today?"
-→ Call MCP tool: run_pipeline (save: true)
-→ Show display_report field verbatim — do not modify it
-→ Answer follow-up questions using only the returned JSON values
+User: "run goldbees pipeline" / "today's signal" / "what should I do with GOLDBEES"
+→ Run: python src/scripts/goldbees_report.py
+→ Display output verbatim
+→ Narrate one-line recommendation from the printed weights
 ```
 
 ```
-User: "is the model accurate?" or "evaluate performance"
-→ Call MCP tool: evaluate_performance (rows: 15)
-→ Report hit_ratio, MAE, RMSE exactly as returned
-→ Do not editorialize beyond the numbers
+User: "evaluate performance" / "hit ratio"
+→ Run: python src/main.py signals --verbose 2>&1 | grep -A 20 "GOLDBEES"
 ```
 
 ### Mandatory System-Wide Freshness Mandate

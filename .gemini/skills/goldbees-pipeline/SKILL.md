@@ -34,26 +34,24 @@ Use this skill when the user asks:
 
 ## Steps to execute
 
-Parse any flags from the user's message, then:
+Parse any flags from the user's message, then run the pre-baked report script —
+**do not probe imports or query ClickHouse interactively**:
 
-**Default / no flags:**
-Use the `run_pipeline` MCP tool with `save: true`.
-Present the result as:
-- Regime + GARCH vol
-- ML signal: prob_up, expected return, AUC
-- Weights table: RG / Kelly / Blended-50 / Blended-30
-- One-line recommendation
-
-**--no-save:**
-Use `run_pipeline` with `save: false`.
+**Default / no flags / --latest:**
+```bash
+python src/scripts/goldbees_report.py
+```
+Capture stdout and display verbatim. That's it — one Bash call, no exploration needed.
+All queries are pre-baked: ml_predictions, weight_checkpoints, inav, ohlcv, signal_composite.
 
 **--evaluate:**
-Use `evaluate_performance` with `rows: 15`.
-Show hit ratio, MAE, RMSE and recent predictions table.
+```bash
+python src/main.py signals --verbose 2>&1 | grep -A 20 "GOLDBEES"
+```
+Show hit ratio from the composite score table output.
 
-**--latest:**
-Use `get_latest_signal`.
-Show last stored signal without retraining.
+**--no-save:**
+Same as default — `goldbees_report.py` is read-only (does not write to DB).
 
 ## Output format
 

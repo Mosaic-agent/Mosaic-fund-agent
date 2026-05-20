@@ -57,43 +57,91 @@ lm, hm   = repo.inav_latest_and_history(["GOLDBEES"])     # iNAV premium/discoun
 
 Score ≥ 75 = BUY · 60–74 = ACCUMULATE · 40–59 = HOLD · 25–39 = TRIM · < 25 = AVOID
 
-## Commands to Run
+## Steps to Execute (run all, then format report)
 
-**Daily workflow:**
+**Do not probe imports or query ClickHouse interactively. Run these exact commands:**
+
 ```bash
-python src/main.py import --category stocks,etfs,mf,fii_dii,cot,fx_rates
-python src/main.py macro                    # 8-theme scanner (net score ≥+16 = strong bullish)
-python src/main.py signals --save           # composite 0–100 for 18 ETFs
+# Step 1 — GOLDBEES signal (pre-baked, ~2s)
+python src/scripts/goldbees_report.py
+
+# Step 2 — Macro themes + ETF scores (run together)
+python src/main.py macro
+python src/main.py signals --save
+
+# Step 3 — Deep analysis (run together)
+python src/scripts/market/metals_quant_scorecard.py
+python src/scripts/market/whale_tracker.py
 ```
 
-**GOLDBEES pipeline (MCP — preferred):**
+Steps 2 and 3 can run in parallel. Capture all stdout, then produce the report below.
+
+## Output Format (always use this structure)
+
 ```
-run_pipeline(save=True)       # full LightGBM + Risk Governor
-get_latest_signal()           # last stored signal
-evaluate_performance(rows=15) # hit ratio + MAE
+## Macro Strategy Briefing — {date}
+
+### Regime: {MIXED / RISK-OFF / RISK-ON} → {one-line characterisation}
+
+---
+
+### Macro Scorecard (8 themes)
+| Theme | Conviction | ETF Direction |
+|---|---|---|
+{rows from macro scan — HIGH themes first, list top bullish/bearish ETFs}
+
+**{ETF} macro net score: {N} — {one-line summary of dominant themes}**
+
+---
+
+### Metals Quant Scorecard
+| Metal | Composite | Signal |
+|---|---|---|
+| SILVERBEES | {score}/100 | {signal} |
+| Copper (HG=F) | {score}/100 | {signal} |
+| GOLDBEES | {score}/100 | {signal} |
+
+{2–3 lines: highlight the highest-conviction metal and why (COT, iNAV, momentum)}
+
+---
+
+### Institutional Flows (Whale Tracker)
+**{Fund} ({date range}):**
+- {security}: {change}% — {interpretation}
+{repeat for notable moves; skip noise (<0.1% change)}
+
+{1-line conclusion: what the whales are adding/trimming}
+
+---
+
+### GOLDBEES Pipeline
+| Field | Value |
+|---|---|
+| Regime | {regime_signal} |
+| GARCH vol | {garch_vol}% |
+| Prob up | {prob_up} |
+| Expected return | {expected_return_pct}% (5d) |
+| Blended weight | **{blended_50}%** ← recommended |
+| iNAV | {inav_prem}% {✅ or ⚠️} |
+| Anomaly | {anomaly_flag} |
+
+---
+
+### Allocation View
+| Bucket | Thesis | Action |
+|---|---|---|
+{rows — one per ETF/asset with signal score and ADD/HOLD/TRIM/AVOID}
+
+**{closing one-liner reinforcing the baton-pass thesis}**
 ```
 
-**Deep analysis:**
-```bash
-python src/scripts/market/whale_tracker.py            # Quant/ICICI/DSP institutional moves
-python src/scripts/portfolio/opportunity_scan.py      # RSI · momentum · iNAV discounts
-python src/scripts/market/metals_quant_scorecard.py   # Gold + Silver 4-pillar scorecard
-python src/main.py analyze                            # full AI portfolio report
-```
+## Rules for the report
 
-**Expert signal monitoring:**
-- Ritesh Jain (Macro Expert) — X: `https://x.com/riteshmjn` | Substack: `pinetreemacroresearch.substack.com`
-
-## Analysis Framework (run in order)
-
-1. **Import** — refresh all data categories
-2. **Macro check** — `python src/main.py macro` → identify HIGH-conviction themes and their ETF direction
-3. **Signal check** — `python src/main.py signals` → composite score + regime; note GOLDBEES score and anomaly flag
-4. **GOLDBEES pipeline** — `run_pipeline()` → prob_up, expected_return_pct, blended_50 weight
-5. **iNAV premium** — check live from NSE; if > +5%, flag — do not enter at premium
-6. **Institutional check** — `whale_tracker.py` → are Quant/ICICI/DSP increasing the theme?
-7. **Flow check** — `repo.fii_dii_5d()` → combined net; DII absorbing FII selling = floor support
-8. **Valuation check** — `valuation_alerts.py` → P/E vs 5-year average
+- All numbers must come from script output — never LLM-computed
+- Macro net score ≥ +32 = strong bullish | +16 = moderate | ≤ −32 = strong bearish
+- GOLDBEES action = `regime_signal` from ml_predictions, not composite score
+- If iNAV premium > +5%: flag with ⚠️ at the top of the report before anything else
+- Skip whale tracker rows with |change| < 0.1%
 
 ## Recommended Allocation (Private Alpha Model)
 

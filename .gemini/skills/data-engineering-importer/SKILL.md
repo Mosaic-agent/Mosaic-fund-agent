@@ -38,7 +38,21 @@ Legacy path (still works for complex categories not yet adapted):
 2. **Register Source**: Update `src/importer/registry.py` with the new symbols or categories.
 3. **Wire into CLI**: Update `run_import()` in `src/importer/cli.py`.
 
-### 2. Managing Historical Backfills
+### 2. Nippon India AMC Importer — Dynamic URL Discovery
+
+The Nippon importer (`src/scripts/fund_imports/importers/nippon.py`) auto-discovers monthly XLS files from 2024 onward. **No manual URL additions are needed for new months.**
+
+- Historical entries (Jan 2017 – Dec 2023): static `XLS_FILES` list (irregular URL formats)
+- From 2024: `_discover_recent_months()` probes `mf.nipponindiaim.com` via HEAD requests at runtime, tries multiple filename variants per month (handles April/June/July full names, no-day November quirk)
+- Delta sync: already-imported months are skipped automatically
+
+```bash
+python src/scripts/fund_imports/run.py nippon          # delta sync (new months only)
+python src/scripts/fund_imports/run.py nippon --full   # reimport all months
+python src/scripts/fund_imports/run.py nippon --dry-run
+```
+
+### 3. Managing Historical Backfills
 To perform a full historical backfill:
 ```bash
 # Correct syntax — category is a --flag, not a positional arg

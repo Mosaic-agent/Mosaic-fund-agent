@@ -8,6 +8,7 @@ are skipped unless --full is passed.
 
 from __future__ import annotations
 
+import calendar
 import io
 import re
 from datetime import date, datetime
@@ -21,7 +22,9 @@ from src.scripts.fund_imports.base import BaseFundImporter, classify_asset
 BASE_URL = "https://mf.nipponindiaim.com"
 _ISIN_RE = re.compile(r'^[A-Z]{2}[A-Z0-9]{10}$')
 
-# ── Monthly file list (Jan 2017 → Mar 2026) ───────────────────────────────────
+# ── Monthly file list (Jan 2017 → Dec 2023) ───────────────────────────────────
+# Historical entries with irregular URL formats — kept as-is.
+# 2024 onward: auto-discovered by _discover_recent_months().
 # (as_of_date, url_path)  — date is the last calendar day of the month
 
 XLS_FILES: list[tuple[str, str]] = [
@@ -104,38 +107,84 @@ XLS_FILES: list[tuple[str, str]] = [
     ("2023-10-31", "/InvestorServices/FactsheetsDocuments/MONTHLY-PORTFOLIO-OCTOBER-2023.xls"),
     ("2023-11-30", "/InvestorServices/FactsheetsDocuments/MONTHLY-PORTFOLIO-NOV-23.xls"),
     ("2023-12-31", "/InvestorServices/FactsheetsDocuments/MONTHLY-PORTFOLIO-DEC-23.xls"),
-    # 2024
-    ("2024-01-31", "/InvestorServices/FactsheetsDocuments/MONTHLY-PORTFOLIO-JAN-2024.xls"),
-    ("2024-02-29", "/InvestorServices/FactsheetsDocuments/MONTHLY-PORTFOLIO-REPORT-FEB-24.xls"),
-    ("2024-03-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-REPORT-March-24.xls"),
-    ("2024-04-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-APRIL-2024.xls"),
-    # File deleted from Nippon server; archived copy from Wayback Machine (20240704)
-    ("2024-05-31", "https://web.archive.org/web/20240704135859/https://mf.nipponindiaim.com/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-May-24.xlsx"),
-    ("2024-06-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-June-24.xls"),
-    ("2024-07-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-July-24.xls"),
-    ("2024-08-31", "/InvestorServices/FactsheetsDocuments/NIMF_MONTHLY_PORTFOLIO_31-Aug-24.xls"),
-    ("2024-09-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-30-Sep-24.xls"),
-    ("2024-10-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Oct-24.xls"),
-    ("2024-11-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-30-Nov-2024.xls"),
-    ("2024-12-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Dec-24.xls"),
-    # 2025
-    ("2025-01-31", "/InvestorServices/FactsheetsDocuments/NIMF_MONTHLY_PORTFOLIO_31-Jan-25.xls"),
-    ("2025-02-28", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-28-Feb-25.xls"),
-    ("2025-03-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Mar-25.xls"),
-    ("2025-04-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-30-April-25.xls"),
-    ("2025-05-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-May-25.xls"),
-    ("2025-06-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-30-June-25.xls"),
-    ("2025-07-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-July-25.xls"),
-    ("2025-08-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Aug-25.xls"),
-    ("2025-09-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-30-Sep-25.xls"),
-    ("2025-10-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Oct-25.xls"),
-    ("2025-11-30", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-Nov-25.xls"),
-    ("2025-12-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Dec-25.xls"),
-    # 2026
-    ("2026-01-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Jan-26.xls"),
-    ("2026-02-28", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-28-Feb-26.xls"),
-    ("2026-03-31", "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-31-Mar-26.xls"),
 ]
+
+# ── Dynamic discovery for 2024 onward ─────────────────────────────────────────
+# Nippon settled on a stable naming convention from 2024:
+#   NIMF-MONTHLY-PORTFOLIO-{DD}-{MonthName}-{YY}.xls
+# Some months use full names (April, June, July, November) others use short.
+# _discover_recent_months() probes all variants via HEAD and returns confirmed URLs.
+
+_MONTH_VARIANTS: dict[int, list[str]] = {
+    1:  ["Jan"],
+    2:  ["Feb"],
+    3:  ["Mar"],
+    4:  ["April", "Apr"],
+    5:  ["May"],
+    6:  ["June", "Jun"],
+    7:  ["July", "Jul"],
+    8:  ["Aug"],
+    9:  ["Sep"],
+    10: ["Oct"],
+    11: ["Nov", "November"],
+    12: ["Dec"],
+}
+
+_PATH_TMPL = "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-{dd}-{month}-{yy}.xls"
+_PATH_TMPL_NODASH = "/InvestorServices/FactsheetsDocuments/NIMF-MONTHLY-PORTFOLIO-{month}-{yy}.xls"
+
+
+def _last_day(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+
+def _candidate_paths(year: int, month: int) -> list[str]:
+    dd = f"{_last_day(year, month):02d}"
+    yy = str(year)[-2:]
+    paths = []
+    for name in _MONTH_VARIANTS[month]:
+        paths.append(_PATH_TMPL.format(dd=dd, month=name, yy=yy))
+        paths.append(_PATH_TMPL_NODASH.format(month=name, yy=yy))
+    return paths
+
+
+def _discover_recent_months(
+    from_year: int = 2024,
+    http: httpx.Client | None = None,
+) -> list[tuple[str, str]]:
+    """Probe Nippon's server for monthly XLS files from `from_year` to today.
+
+    Returns confirmed (as_of_date, url_path) pairs in chronological order.
+    Only months whose file actually exists (HTTP 200) are returned.
+    """
+    today = date.today()
+    found: list[tuple[str, str]] = []
+    close_client = http is None
+    if http is None:
+        http = httpx.Client(timeout=15, follow_redirects=True)
+
+    try:
+        for year in range(from_year, today.year + 1):
+            for month in range(1, 13):
+                mo = date(year, month, _last_day(year, month))
+                # Skip months in the future or the current incomplete month
+                if mo >= date(today.year, today.month, 1):
+                    break
+                as_of_str = mo.strftime("%Y-%m-%d")
+                for path in _candidate_paths(year, month):
+                    url = BASE_URL + path
+                    try:
+                        r = http.head(url)
+                        if r.status_code == 200:
+                            found.append((as_of_str, path))
+                            break  # first match wins; skip remaining variants
+                    except Exception:
+                        continue
+    finally:
+        if close_client:
+            http.close()
+
+    return found
 
 _COLUMNS = [
     "scheme_code", "fund_name", "as_of_month", "isin",
@@ -168,7 +217,24 @@ class NipponImporter(BaseFundImporter):
         return "Nippon India AMC"
 
     def fetch_sources(self) -> list[Any]:
-        return [(d, p) for d, p in XLS_FILES if int(d[:4]) >= self._from_year]
+        # Static historical list (pre-2024 URLs are too irregular to generate)
+        static = [(d, p) for d, p in XLS_FILES if int(d[:4]) >= self._from_year]
+
+        # Dynamic discovery for 2024 onward — probes server, no manual updates needed
+        discover_from = max(self._from_year, 2024)
+        self._console.print(f"[dim]Probing Nippon server for months from {discover_from}…[/dim]")
+        dynamic = _discover_recent_months(from_year=discover_from)
+
+        # Merge: dynamic entries override static ones for the same date
+        static_dates = {d for d, _ in static}
+        dynamic_new = [(d, p) for d, p in dynamic if d not in static_dates]
+        merged = sorted(static + dynamic_new, key=lambda x: x[0])
+
+        self._console.print(
+            f"[dim]Sources: {len(static)} static + {len(dynamic_new)} discovered "
+            f"= {len(merged)} total months[/dim]"
+        )
+        return merged
 
     def filter_sources(self, sources: list, client) -> list:
         if self._full_reimport:

@@ -6,10 +6,8 @@ Monitors "Whale" (Institutional) moves in core 2026 macro themes:
   2. Electrification & Nuclear (NTPC, L&T, BHEL, etc.)
   3. Energy (ONGC, IOC, etc.)
 
-Tracks changes between the two most recent portfolio disclosures for:
-  - Quant Multi Asset Fund (120821)
-  - ICICI Multi Asset Fund (120334)
-  - DSP Multi Asset Fund (152056)
+Tracks changes between the two most recent portfolio disclosures for all
+multi-asset funds in ClickHouse (≥2 months of data required).
 """
 
 import sys
@@ -29,9 +27,13 @@ from rich.panel import Panel
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 WHALE_FUNDS = {
-    '120821': 'Quant Multi Asset',
-    '120334': 'ICICI Multi Asset',
-    '152056': 'DSP Multi Asset'
+    'RLMF806': 'Nippon India Multi Asset',
+    '152056':  'DSP Multi Asset',
+    '154167':  'DSP Multi Asset Omni FoF',
+    '152639':  'Bajaj Multi Asset',
+    '120821':  'Quant Multi Asset',
+    '120334':  'ICICI Multi Asset',
+    '120716':  'ICICI Multi Asset II',
 }
 
 # Key themes to track
