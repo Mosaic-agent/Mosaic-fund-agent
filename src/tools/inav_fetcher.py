@@ -116,6 +116,33 @@ def _nse_etf_symbols() -> frozenset[str]:
                 data = resp.json()
                 _NSE_ETF_CACHE = data.get("data", []) if isinstance(data, dict) else data
                 _NSE_CACHE_LOADED = True
+
+                # Apply SILVERCASE iNAV correction if glitch is present (NSE repeats GOLDCASE iNAV for SILVERCASE)
+                goldcase_entry = next((x for x in _NSE_ETF_CACHE if str(x.get("symbol")).upper() == "GOLDCASE"), None)
+                silvercase_entry = next((x for x in _NSE_ETF_CACHE if str(x.get("symbol")).upper() == "SILVERCASE"), None)
+                silverbees_entry = next((x for x in _NSE_ETF_CACHE if str(x.get("symbol")).upper() == "SILVERBEES"), None)
+
+                if goldcase_entry and silvercase_entry and silverbees_entry:
+                    raw_gold_nav = goldcase_entry.get("nav")
+                    raw_silver_nav = silvercase_entry.get("nav")
+                    raw_silverbees_nav = silverbees_entry.get("nav")
+
+                    if raw_gold_nav and raw_silver_nav and raw_silverbees_nav:
+                        try:
+                            gold_nav = float(str(raw_gold_nav).replace(",", ""))
+                            silver_nav = float(str(raw_silver_nav).replace(",", ""))
+                            silverbees_nav = float(str(raw_silverbees_nav).replace(",", ""))
+
+                            if abs(gold_nav - silver_nav) < 1e-6 and silverbees_nav > 0:
+                                corrected_silver_nav = round(silverbees_nav * 0.106127, 4)
+                                silvercase_entry["nav"] = str(corrected_silver_nav)
+                                logger.info(
+                                    "Corrected SILVERCASE iNAV from %s to %s using SILVERBEES iNAV %s",
+                                    raw_silver_nav, corrected_silver_nav, silverbees_nav
+                                )
+                        except (TypeError, ValueError):
+                            pass
+
                 logger.info("NSE ETF list loaded: %d symbols", len(_NSE_ETF_CACHE))
         except Exception as exc:
             logger.warning("NSE ETF list unavailable (%s) — falling back to static set", exc)
