@@ -159,7 +159,7 @@ MF_SCHEME_CODES: dict[str, str] = {
     "SETFNIF50":  "135106",
     "MON100":     "114984",
     "MAHKTECH":   "149379",
-    "MASPTOP50":  "148944",
+    "MASPTOP50":  "149169",
     "MONQ50":     "149438",
 }
 

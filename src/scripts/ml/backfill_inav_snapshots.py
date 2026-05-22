@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # International ETFs to backfill
-SYMBOLS = ["MAFANG", "HNGSNGBEES", "MAHKTECH", "MON100", "MASPTOP50"]
+SYMBOLS = ["MAFANG", "HNGSNGBEES", "MAHKTECH", "MON100", "MASPTOP50", "MONQ50"]
 
 def backfill():
     client = clickhouse_connect.get_client(
