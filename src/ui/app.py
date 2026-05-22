@@ -3997,7 +3997,7 @@ with tab_news:
                                 """)
                             
                             theme_cards_html.append('</div>')
-                            st.markdown("\n".join(theme_cards_html), unsafe_allow_html=True)
+                            st.html("\n".join(theme_cards_html))
                         else:
                             st.info("Select at least one macro theme to visualize the network.")
                     except Exception as _exc_net:

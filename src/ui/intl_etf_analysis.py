@@ -475,7 +475,10 @@ def compute_lgbm(price_wide: pd.DataFrame, prem: pd.DataFrame) -> tuple[pd.DataF
             "3rd Feature": fi.index[2] if len(fi) > 2 else "—",
         })
 
-    return pd.DataFrame(summary_rows), importance_data
+    df = pd.DataFrame(summary_rows)
+    if not df.empty and "Premium Rank" in df.columns:
+        df["Premium Rank"] = df["Premium Rank"].astype(str)
+    return df, importance_data
 
 
 def lgbm_importance_chart(importance_data: dict) -> go.Figure:
