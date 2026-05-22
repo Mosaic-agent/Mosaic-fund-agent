@@ -98,6 +98,37 @@ def _table_stats() -> pd.DataFrame:
     """)
 
 
+def _init_macro_signals_from_db() -> None:
+    if "macro_net_signal" not in st.session_state:
+        try:
+            # Query the latest batch of macro events from ClickHouse
+            _latest_articles = _query_df("""
+                SELECT category, impact_tier, title
+                FROM market_data.news_articles
+                WHERE source_type = 'macro_event'
+                  AND fetched_at = (
+                      SELECT max(fetched_at)
+                      FROM market_data.news_articles
+                      WHERE source_type = 'macro_event'
+                  )
+            """)
+            if not _latest_articles.empty:
+                from src.tools.macro_event_scanner import MACRO_THEMES
+                theme_maps = {t["theme"]: t["impact_map"] for t in MACRO_THEMES}
+                etf_net = {}
+                themes_detected = set()
+                for _, row in _latest_articles.iterrows():
+                    theme = row["category"]
+                    themes_detected.add(theme)
+                    impact_map = theme_maps.get(theme, {})
+                    for etf, direction in impact_map.items():
+                        etf_net[etf] = etf_net.get(etf, 0) + direction
+                st.session_state["macro_net_signal"] = etf_net
+                st.session_state["macro_n_themes"] = len(themes_detected)
+        except Exception:
+            pass
+
+
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -3487,6 +3518,7 @@ with tab_etf_scan:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_news:
+    _init_macro_signals_from_db()
     st.header("📰 Market News")
     st.caption(
         "Parallel news scanner — ~5s per full scan.  "
@@ -3629,6 +3661,98 @@ with tab_news:
                     f"≤−{_strong_t} = strong bearish"
                 )
                 st.bar_chart(_mn_df, height=220, color="#4CAF50")
+
+                # ── Macro to ETF Weighted Impact Network ──────────────────────
+                st.write("")
+                with st.expander("🌍 Macro to ETF Weighted Impact Network (Mermaid Graph)", expanded=True):
+                    try:
+                        from src.tools.macro_event_scanner import MACRO_THEMES
+                        all_theme_names = [t["theme"] for t in MACRO_THEMES]
+                        
+                        # Identify active themes from the latest articles in DB
+                        _latest_themes_df = _query_df("""
+                            SELECT DISTINCT category
+                            FROM market_data.news_articles
+                            WHERE source_type = 'macro_event'
+                              AND fetched_at = (
+                                  SELECT max(fetched_at)
+                                  FROM market_data.news_articles
+                                  WHERE source_type = 'macro_event'
+                              )
+                        """)
+                        active_themes = list(_latest_themes_df["category"].unique()) if not _latest_themes_df.empty else []
+                        
+                        if not active_themes:
+                            active_themes = ["Geopolitical / War", "Central Bank Policy (Fed / RBI)", "Global Risk-Off / Equity Sell-Off"]
+                        
+                        selected_themes = st.multiselect(
+                            "Filter themes in network",
+                            options=all_theme_names,
+                            default=[t for t in active_themes if t in all_theme_names],
+                            key="network_selected_themes"
+                        )
+                        
+                        if selected_themes:
+                            mermaid_code = ["graph LR"]
+                            
+                            # Modern design classes for nodes (sleek dark colors)
+                            mermaid_code.append("    classDef themeNode fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;")
+                            mermaid_code.append("    classDef etfNode fill:#334155,stroke:#475569,stroke-width:1px,color:#f1f5f9;")
+                            mermaid_code.append("    classDef goldNode fill:#451a03,stroke:#ca8a04,stroke-width:2px,color:#fef9c3;")
+                            
+                            theme_ids = {t["theme"]: f"T{i}" for i, t in enumerate(MACRO_THEMES)}
+                            referenced_etfs = set()
+                            link_styles = []
+                            link_idx = 0
+                            
+                            for theme_def in MACRO_THEMES:
+                                theme_name = theme_def["theme"]
+                                if theme_name not in selected_themes:
+                                    continue
+                                
+                                t_id = theme_ids[theme_name]
+                                t_icon = theme_def.get("icon", "🌍")
+                                t_conv = theme_def.get("conviction", "MEDIUM")
+                                t_weight = 3 if t_conv == "HIGH" else 2
+                                
+                                # Add theme node
+                                mermaid_code.append(f'    {t_id}["{t_icon} {theme_name} ({t_conv})"]')
+                                mermaid_code.append(f'    class {t_id} themeNode;')
+                                
+                                # Add links to ETFs
+                                impact_map = theme_def.get("impact_map", {})
+                                for etf, direction in impact_map.items():
+                                    if direction == 0:
+                                        continue
+                                    
+                                    referenced_etfs.add(etf)
+                                    sign = "+" if direction > 0 else "-"
+                                    w_str = f"{sign}{t_weight}"
+                                    
+                                    # Mermaid link
+                                    mermaid_code.append(f'    {t_id} -->|"{w_str}"| {etf}')
+                                    
+                                    # Color: green for positive (+), red for negative (-)
+                                    color = "#4CAF50" if direction > 0 else "#F44336"
+                                    width = "3px" if t_weight == 3 else "1.5px"
+                                    link_styles.append(f"    linkStyle {link_idx} stroke:{color},stroke-width:{width};")
+                                    link_idx += 1
+                            
+                            # Style ETF nodes
+                            for etf in referenced_etfs:
+                                if etf in ["GOLDBEES", "SILVERBEES"]:
+                                    mermaid_code.append(f'    class {etf} goldNode;')
+                                else:
+                                    mermaid_code.append(f'    class {etf} etfNode;')
+                                    
+                            mermaid_code.extend(link_styles)
+                            
+                            # Render Mermaid Graph
+                            st.markdown(f"```mermaid\n" + "\n".join(mermaid_code) + "\n```")
+                        else:
+                            st.info("Select at least one macro theme to visualize the network.")
+                    except Exception as _exc_net:
+                        st.error(f"Error rendering network: {_exc_net}")
 
     # ── RIGHT: ETF News ────────────────────────────────────────────────────────
     with news_col2:
