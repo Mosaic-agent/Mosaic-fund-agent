@@ -231,9 +231,9 @@ to narrate results that already exist in the tool/script output.
 - ❌ "The average MoM return is approximately X%" — if you computed that yourself, do not state it
 - ❌ Deriving PE ratios, CAGR, Kelly weights, or any financial metric from training knowledge
 
-### Commit Style
-Never add a `Co-Authored-By:` trailer to git commit messages. Write clean,
-single-author commit messages only.
+### Commit and PR Workflow
+- Never push directly to `main`. Always create a Pull Request (PR) for any changes.
+- Never add a `Co-Authored-By:` trailer to git commit messages. Write clean, single-author commit messages only.
 
 ### Verify Dilution Before Flagging Promoter Sale
 A drop in promoter % is **not** the same as a promoter sale. Before concluding

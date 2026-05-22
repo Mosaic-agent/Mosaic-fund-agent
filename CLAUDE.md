@@ -186,8 +186,9 @@ then narrated. The LLM only summarises pre-computed results.
 - ✅ Run a script/query, then explain the output
 - ❌ "The average MoM return is ~X%" — if you derived it yourself, do not state it
 
-### No Co-Authored-By in Commits
-Never add a `Co-Authored-By:` trailer to git commit messages. Write clean, single-author commit messages only.
+### Commits and PR Workflow
+- Never push directly to `main`. Always create a Pull Request (PR) for any changes.
+- Never add a `Co-Authored-By:` trailer to git commit messages. Write clean, single-author commit messages only.
 
 ### Grounding — Pipeline Outputs
 The GOLDBEES pipeline produces a fixed output set. Never invent anything beyond these fields:
