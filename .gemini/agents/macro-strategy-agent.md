@@ -2,12 +2,12 @@
 name: macro-strategy-agent
 description: Expert in global macro analysis, "Baton Pass" commodity cycles, electrification/nuclear themes, and institutional "Whale" tracking for 2026.
 tools:
-  - activate_skill
-  - google_web_search
-  - web_fetch
-  - run_shell_command
-  - read_file
+  - run_command
+  - view_file
+  - search_web
+  - read_url_content
   - grep_search
+  - list_dir
 model: inherit
 temperature: 0.1
 max_turns: 20

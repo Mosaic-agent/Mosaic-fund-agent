@@ -143,6 +143,8 @@ def test_config_masking():
     s = Settings(
         openai_api_key="sk-test1234567890",
         gold_api_key="gold123xyz",
+        newsapi_key="news123xyz",
+        sec_api_key="sec123xyz",
     )
     warnings = s.validate_sensitive_fields()
     assert len(warnings) == 0, f"Unexpected warnings: {warnings}"
@@ -476,7 +478,7 @@ if __name__ == "__main__":
         test_portfolio_models,
         test_sector_allocation,
         test_config_masking,
-        test_news_tool_no_key,
+        test_news_tool_gnews,
         test_yahoo_finance,
         test_earnings_scraper,
         test_inav_fetcher,

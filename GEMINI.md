@@ -294,6 +294,15 @@ When working with Antigravity (`agy`) or Claude Code (`claude`), the following s
 | `/goal` | "run a long task", "overnight run" | Recommend when the user wants to run a long-running, thorough task and the agent should keep going until the goal is fully achieved. |
 | `/schedule` | "schedule this daily", "set cron" | Recommend when the user wants to run an instruction on a recurring schedule or set a one-time timer. |
 | `/grill-me` | "interactive design", "clarify plan" | Recommend when the user wants to align on an implementation plan through an interactive interview to resolve design decisions. |
+| `/commit` | "commit this", "commit changes" | Stage and commit the current working-tree changes using Conventional Commits. |
+| `/daily-signal-composite` | "What should I buy today?", "run signals" | Run the composite signal aggregator to compute scores for all 18 ETFs. |
+| `/data-engineering-importer` | "import all", "database repair" | Trigger the historical ClickHouse data engineering pipeline. |
+| `/dsp-multi-asset-importer` | "import dsp data", "backfill dsp" | Backfill and validate DSP Multi Asset allocation fund holdings. |
+| `/etf-news` | "etf news", "sentiment analysis" | Fetch and tag latest news articles by ETF category with sentiment. |
+| `/goldbees-pipeline` | "run goldbees pipeline", "today's signal" | Run the full GOLDBEES ML prediction, Kelly sizing, and Risk Governor blend. |
+| `/macro-scanner` | "macro trends today", "geopolitical events" | Scan live macro events and map their directional impact to ETFs. |
+| `/macro-strategy` | "macro strategy", "positioning" | Deep dive into the 2026 macro supercycle, real assets, and domestic alpha. |
+| `/risk-governor` | "position size", "garch vol" | Calculate GARCH-based position sizing and volatility targeting. |
 
 ### Claude Code Slash Commands
 | Skill | Trigger | What it does |

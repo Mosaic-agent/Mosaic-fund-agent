@@ -166,24 +166,23 @@ def _fetch_macro_series(start_date: str, end_date: str) -> pd.DataFrame:
     """
     try:
         import yfinance as yf
-        from concurrent.futures import ThreadPoolExecutor as _TPE
-
-        def _dl(ticker: str):
-            return yf.download(ticker, start=start_date, end=end_date,
-                               auto_adjust=True, progress=False)
-
-        with _TPE(max_workers=2) as _pool:
-            _f_dxy = _pool.submit(_dl, "DX-Y.NYB")
-            _f_tnx = _pool.submit(_dl, "^TNX")
-            dxy_raw = _f_dxy.result()
-            tnx_raw = _f_tnx.result()
+        dxy_raw = yf.download("DX-Y.NYB", start=start_date, end=end_date,
+                              auto_adjust=True, progress=False)
+        tnx_raw = yf.download("^TNX", start=start_date, end=end_date,
+                              auto_adjust=True, progress=False)
         pieces: list[pd.DataFrame] = []
         if not dxy_raw.empty:
-            dxy = dxy_raw[["Close"]].copy()
+            dxy = dxy_raw.copy()
+            if isinstance(dxy.columns, pd.MultiIndex):
+                dxy.columns = dxy.columns.get_level_values(0)
+            dxy = dxy[["Close"]].copy()
             dxy.columns = ["dxy_close"]
             pieces.append(dxy)
         if not tnx_raw.empty:
-            tnx = tnx_raw[["Close"]].copy()
+            tnx = tnx_raw.copy()
+            if isinstance(tnx.columns, pd.MultiIndex):
+                tnx.columns = tnx.columns.get_level_values(0)
+            tnx = tnx[["Close"]].copy()
             tnx.columns = ["us10y_close"]
             pieces.append(tnx)
         if not pieces:
