@@ -469,13 +469,16 @@ def compute_lgbm(price_wide: pd.DataFrame, prem: pd.DataFrame) -> tuple[pd.DataF
         summary_rows.append({
             "ETF": ETF_LABELS.get(sym, sym),
             "CV Accuracy": round(np.mean(accs) * 100, 1),
-            "Premium Rank": p_rank if p_rank else "—",
+            "Premium Rank": str(p_rank) if p_rank else "—",
             "Top Feature": fi.index[0],
             "2nd Feature": fi.index[1] if len(fi) > 1 else "—",
             "3rd Feature": fi.index[2] if len(fi) > 2 else "—",
         })
 
-    return pd.DataFrame(summary_rows), importance_data
+    df = pd.DataFrame(summary_rows)
+    if not df.empty and "Premium Rank" in df.columns:
+        df["Premium Rank"] = df["Premium Rank"].astype(str)
+    return df, importance_data
 
 
 def lgbm_importance_chart(importance_data: dict) -> go.Figure:

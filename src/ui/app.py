@@ -98,6 +98,37 @@ def _table_stats() -> pd.DataFrame:
     """)
 
 
+def _init_macro_signals_from_db() -> None:
+    if "macro_net_signal" not in st.session_state:
+        try:
+            # Query the latest batch of macro events from ClickHouse
+            _latest_articles = _query_df("""
+                SELECT category, impact_tier, title
+                FROM market_data.news_articles
+                WHERE source_type = 'macro_event'
+                  AND fetched_at = (
+                      SELECT max(fetched_at)
+                      FROM market_data.news_articles
+                      WHERE source_type = 'macro_event'
+                  )
+            """)
+            if not _latest_articles.empty:
+                from src.tools.macro_event_scanner import MACRO_THEMES
+                theme_maps = {t["theme"]: t["impact_map"] for t in MACRO_THEMES}
+                etf_net = {}
+                themes_detected = set()
+                for _, row in _latest_articles.iterrows():
+                    theme = row["category"]
+                    themes_detected.add(theme)
+                    impact_map = theme_maps.get(theme, {})
+                    for etf, direction in impact_map.items():
+                        etf_net[etf] = etf_net.get(etf, 0) + direction
+                st.session_state["macro_net_signal"] = etf_net
+                st.session_state["macro_n_themes"] = len(themes_detected)
+        except Exception:
+            pass
+
+
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
@@ -3487,6 +3518,7 @@ with tab_etf_scan:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_news:
+    _init_macro_signals_from_db()
     st.header("📰 Market News")
     st.caption(
         "Parallel news scanner — ~5s per full scan.  "
@@ -3615,6 +3647,37 @@ with tab_news:
                     st.error(f"Refresh error: {_exc_mref}")
 
         # Net score bar chart — shown after refresh (from session_state)
+        if "macro_net_signal" not in st.session_state:
+            try:
+                from src.tools.macro_event_scanner import MACRO_THEMES
+                _latest_themes_db = _query_df("""
+                    SELECT category, count() as cnt
+                    FROM market_data.news_articles
+                    WHERE source_type = 'macro_event'
+                      AND fetched_at = (
+                          SELECT max(fetched_at)
+                          FROM market_data.news_articles
+                          WHERE source_type = 'macro_event'
+                      )
+                    GROUP BY category
+                """)
+                if not _latest_themes_db.empty:
+                    _etf_net = {}
+                    _n_themes_set = set()
+                    for _, _row in _latest_themes_db.iterrows():
+                        _theme_name = _row["category"]
+                        _cnt = int(_row["cnt"])
+                        _theme_def = next((t for t in MACRO_THEMES if t["theme"] == _theme_name), None)
+                        if _theme_def and "impact_map" in _theme_def:
+                            _n_themes_set.add(_theme_name)
+                            for _etf, _direction in _theme_def["impact_map"].items():
+                                _etf_net[_etf] = _etf_net.get(_etf, 0) + (_direction * _cnt)
+                    if _etf_net:
+                        st.session_state["macro_net_signal"] = _etf_net
+                        st.session_state["macro_n_themes"] = len(_n_themes_set)
+            except Exception as _exc_init:
+                pass
+
         if "macro_net_signal" in st.session_state:
             _mn_sig = st.session_state["macro_net_signal"]
             _mn_nt  = st.session_state.get("macro_n_themes", 8)
@@ -3629,6 +3692,316 @@ with tab_news:
                     f"≤−{_strong_t} = strong bearish"
                 )
                 st.bar_chart(_mn_df, height=220, color="#4CAF50")
+
+                # ── Macro to ETF Weighted Impact Network ──────────────────────
+                st.write("")
+                with st.expander("🌍 Active Macro Themes & Transmission Channels (Latest News)", expanded=True):
+                    try:
+                        from src.tools.macro_event_scanner import MACRO_THEMES
+                        all_theme_names = [t["theme"] for t in MACRO_THEMES]
+                        
+                        # Fetch active themes and article counts from latest DB run
+                        _latest_themes_df = _query_df("""
+                            SELECT category, count() as cnt
+                            FROM market_data.news_articles
+                            WHERE source_type = 'macro_event'
+                              AND fetched_at = (
+                                  SELECT max(fetched_at)
+                                  FROM market_data.news_articles
+                                  WHERE source_type = 'macro_event'
+                              )
+                            GROUP BY category
+                        """)
+                        
+                        if not _latest_themes_df.empty:
+                            active_themes = list(_latest_themes_df["category"].unique())
+                            theme_counts = dict(zip(_latest_themes_df["category"], _latest_themes_df["cnt"]))
+                        else:
+                            active_themes = ["Geopolitical / War", "Central Bank Policy (Fed / RBI)", "Global Risk-Off / Equity Sell-Off"]
+                            theme_counts = {t: 0 for t in active_themes}
+                        
+                        selected_themes = st.multiselect(
+                            "Filter themes in view",
+                            options=all_theme_names,
+                            default=[t for t in active_themes if t in all_theme_names],
+                            key="network_selected_themes"
+                        )
+                        
+                        if selected_themes:
+                            theme_cards_html = []
+                            
+                            # Fetch articles details from latest DB run
+                            _latest_articles_df = _query_df("""
+                                SELECT category, title, source, sentiment, url, published_at
+                                FROM market_data.news_articles
+                                WHERE source_type = 'macro_event'
+                                  AND fetched_at = (
+                                      SELECT max(fetched_at)
+                                      FROM market_data.news_articles
+                                      WHERE source_type = 'macro_event'
+                                  )
+                                ORDER BY published_at DESC
+                            """)
+                            
+                            from collections import defaultdict as _dd_m
+                            theme_articles = _dd_m(list)
+                            if not _latest_articles_df.empty:
+                                for _, _row in _latest_articles_df.iterrows():
+                                    theme_articles[_row["category"]].append({
+                                        "title": _row["title"],
+                                        "source": _row["source"],
+                                        "sentiment": _row["sentiment"],
+                                        "url": _row["url"],
+                                        "published_at": _row["published_at"]
+                                    })
+                            
+                            # Custom CSS stylesheet for glassmorphism layout
+                            css_styles = """
+                            <style>
+                              .theme-grid {
+                                display: grid;
+                                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                                gap: 16px;
+                                padding: 10px 0;
+                                width: 100%;
+                              }
+                              .theme-card {
+                                background: rgba(30, 41, 59, 0.4);
+                                border: 1px solid rgba(71, 85, 105, 0.5);
+                                border-radius: 12px;
+                                padding: 16px;
+                                transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                                backdrop-filter: blur(8px);
+                                display: flex;
+                                flex-direction: column;
+                                justify-content: space-between;
+                              }
+                              .theme-card:hover {
+                                transform: translateY(-3px);
+                                border-color: rgba(59, 130, 246, 0.6);
+                                background: rgba(30, 41, 59, 0.6);
+                                box-shadow: 0 10px 20px -3px rgba(0, 0, 0, 0.4);
+                              }
+                              .theme-top {
+                                margin-bottom: 12px;
+                              }
+                              .theme-header {
+                                display: flex;
+                                align-items: center;
+                                gap: 8px;
+                                margin-bottom: 8px;
+                              }
+                              .theme-icon {
+                                font-size: 20px;
+                              }
+                              .theme-title {
+                                font-weight: 700;
+                                font-size: 15px;
+                                color: #F8FAFC;
+                                line-height: 1.3;
+                              }
+                              .theme-badges {
+                                display: flex;
+                                flex-wrap: wrap;
+                                gap: 6px;
+                                margin-bottom: 10px;
+                              }
+                              .badge {
+                                font-size: 9.5px;
+                                font-weight: 700;
+                                text-transform: uppercase;
+                                padding: 2px 7px;
+                                border-radius: 9999px;
+                                display: inline-block;
+                              }
+                              .badge.conviction.high {
+                                background: rgba(239, 68, 68, 0.15);
+                                color: #EF4444;
+                                border: 1px solid rgba(239, 68, 68, 0.3);
+                              }
+                              .badge.conviction.medium {
+                                background: rgba(245, 158, 11, 0.15);
+                                color: #F59E0B;
+                                border: 1px solid rgba(245, 158, 11, 0.3);
+                              }
+                              .badge.conviction.low {
+                                background: rgba(148, 163, 184, 0.15);
+                                color: #94A3B8;
+                                border: 1px solid rgba(148, 163, 184, 0.3);
+                              }
+                              .badge.count {
+                                background: rgba(59, 130, 246, 0.15);
+                                color: #3B82F6;
+                                border: 1px solid rgba(59, 130, 246, 0.3);
+                              }
+                              .badge.sentiment-positive {
+                                background: rgba(16, 185, 129, 0.15);
+                                color: #10B981;
+                                border: 1px solid rgba(16, 185, 129, 0.3);
+                              }
+                              .badge.sentiment-negative {
+                                background: rgba(239, 68, 68, 0.15);
+                                color: #EF4444;
+                                border: 1px solid rgba(239, 68, 68, 0.3);
+                              }
+                              .theme-transmission {
+                                font-size: 11.5px;
+                                color: #CBD5E1;
+                                line-height: 1.45;
+                                margin-bottom: 12px;
+                                border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+                                padding-bottom: 10px;
+                              }
+                              .theme-news {
+                                display: flex;
+                                flex-direction: column;
+                                gap: 10px;
+                              }
+                              .news-header {
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #94A3B8;
+                                text-transform: uppercase;
+                                margin-bottom: 4px;
+                                letter-spacing: 0.05em;
+                              }
+                              .news-item {
+                                font-size: 11px;
+                                line-height: 1.4;
+                                padding-bottom: 8px;
+                                border-bottom: 1px dashed rgba(71, 85, 105, 0.3);
+                              }
+                              .news-item:last-child {
+                                border-bottom: none;
+                                padding-bottom: 0;
+                              }
+                              .news-title-row {
+                                display: flex;
+                                align-items: flex-start;
+                                gap: 6px;
+                              }
+                              .news-sent-icon {
+                                font-size: 11px;
+                                line-height: 1.4;
+                              }
+                              .news-title-link {
+                                color: #60A5FA;
+                                text-decoration: none;
+                                font-weight: 500;
+                                display: inline-block;
+                              }
+                              .news-title-link:hover {
+                                color: #93C5FD;
+                                text-decoration: underline;
+                              }
+                              .news-title-text {
+                                color: #E2E8F0;
+                                font-weight: 500;
+                              }
+                              .news-meta {
+                                display: flex;
+                                justify-content: space-between;
+                                font-size: 9.5px;
+                                color: #64748B;
+                                margin-top: 4px;
+                                padding-left: 17px;
+                              }
+                            </style>
+                            """
+                            theme_cards_html.append(css_styles)
+                            theme_cards_html.append('<div class="theme-grid">')
+                            
+                            for theme_def in MACRO_THEMES:
+                                theme_name = theme_def["theme"]
+                                if theme_name not in selected_themes:
+                                    continue
+                                
+                                t_icon = theme_def.get("icon", "🌍")
+                                t_conv = theme_def.get("conviction", "MEDIUM")
+                                t_transmission = theme_def.get("transmission", "")
+                                count = int(theme_counts.get(theme_name, 0))
+                                
+                                # Calculate bias from articles
+                                theme_art_list = theme_articles.get(theme_name, [])
+                                pos_count = sum(1 for a in theme_art_list if a["sentiment"] == "POSITIVE")
+                                neg_count = sum(1 for a in theme_art_list if a["sentiment"] == "NEGATIVE")
+                                
+                                if pos_count > neg_count:
+                                    bias_badge = "<span class='badge sentiment-positive'>🟢 Bullish Bias</span>"
+                                elif neg_count > pos_count:
+                                    bias_badge = "<span class='badge sentiment-negative'>🔴 Bearish Bias</span>"
+                                else:
+                                    bias_badge = "<span class='badge conviction low'>⚪ Neutral Bias</span>"
+                                
+                                conv_badge = f"<span class='badge conviction {t_conv.lower()}'>{t_conv}</span>"
+                                count_badge = f"<span class='badge count'>{count} Articles</span>"
+                                
+                                # Build news section HTML
+                                import html as _html_m
+                                news_items_html = []
+                                if theme_art_list:
+                                    for _art in theme_art_list[:3]:
+                                        _art_sent = _art.get("sentiment", "NEUTRAL")
+                                        _art_icon = _SENT_ICON_N.get(_art_sent, "⚪")
+                                        _raw_date = str(_art.get("published_at", ""))
+                                        _pub_date = _raw_date[:16] if len(_raw_date) >= 16 else _raw_date
+                                        
+                                        _escaped_title = _html_m.escape(_art.get("title", ""))
+                                        _escaped_source = _html_m.escape(_art.get("source", "Unknown"))
+                                        
+                                        if _art.get("url"):
+                                            _escaped_url = _html_m.escape(_art["url"])
+                                            title_html = f'<a class="news-title-link" href="{_escaped_url}" target="_blank">{_escaped_title}</a>'
+                                        else:
+                                            title_html = f'<span class="news-title-text">{_escaped_title}</span>'
+                                            
+                                        news_items_html.append(f"""
+                                        <div class="news-item">
+                                          <div class="news-title-row">
+                                            <span class="news-sent-icon">{_art_icon}</span>
+                                            {title_html}
+                                          </div>
+                                          <div class="news-meta">
+                                            <span>{_escaped_source}</span>
+                                            <span>{_pub_date}</span>
+                                          </div>
+                                        </div>
+                                        """)
+                                else:
+                                    news_items_html.append('<div class="news-item" style="color: #64748B; font-style: italic; padding-left: 4px;">No recent headlines found</div>')
+                                    
+                                theme_news_section = "\n".join(news_items_html)
+                                
+                                theme_cards_html.append(f"""
+                                <div class="theme-card">
+                                  <div class="theme-top">
+                                    <div class="theme-header">
+                                      <span class="theme-icon">{t_icon}</span>
+                                      <span class="theme-title">{theme_name}</span>
+                                    </div>
+                                    <div class="theme-badges">
+                                      {conv_badge}
+                                      {count_badge}
+                                      {bias_badge}
+                                    </div>
+                                    <div class="theme-transmission">
+                                      {t_transmission}
+                                    </div>
+                                  </div>
+                                  <div class="theme-news">
+                                    <div class="news-header">Latest Headlines</div>
+                                    {theme_news_section}
+                                  </div>
+                                </div>
+                                """)
+                            
+                            theme_cards_html.append('</div>')
+                            st.html("\n".join(theme_cards_html))
+                        else:
+                            st.info("Select at least one macro theme to visualize the network.")
+                    except Exception as _exc_net:
+                        st.error(f"Error rendering network: {_exc_net}")
 
     # ── RIGHT: ETF News ────────────────────────────────────────────────────────
     with news_col2:
