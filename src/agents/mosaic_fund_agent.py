@@ -370,4 +370,3 @@ class MosaicFundAgent:
                     raw = await client.get_holdings()
                     return _parse_holdings(raw)
                 raise
-raise
