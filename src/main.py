@@ -290,6 +290,9 @@ def news(
 
     _setup_logging()
 
+    if not _check_config():
+        raise typer.Exit(code=1)
+
     symbol_upper = symbol.strip().upper()
     display_name = f"{symbol_upper} — {company}" if company else symbol_upper
 
@@ -888,6 +891,10 @@ def cmd_macro_themes(
     json_out: bool = typer.Option(False, "--json", help="JSON output"),
 ):
     """Long/Short macro theme agent — news + quant overlay."""
+    _setup_logging()
+    if not _check_config():
+        raise typer.Exit(code=1)
+
     from src.scripts.market.macro_theme_agent import run_macro_theme_agent, print_macro_theme_report
 
     report = run_macro_theme_agent(max_per_theme=max)
