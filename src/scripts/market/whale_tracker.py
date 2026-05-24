@@ -26,15 +26,36 @@ from rich.panel import Panel
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-WHALE_FUNDS = {
-    'RLMF806': 'Nippon India Multi Asset',
-    '152056':  'DSP Multi Asset',
-    '154167':  'DSP Multi Asset Omni FoF',
-    '152639':  'Bajaj Multi Asset',
-    '120821':  'Quant Multi Asset',
-    '120334':  'ICICI Multi Asset',
-    '120716':  'ICICI Multi Asset II',
-}
+WHALE_FUNDS = [
+    {
+        'name': 'Nippon India Multi Asset',
+        'query_filter': "scheme_code = 'RLMF806'",
+    },
+    {
+        'name': 'Nippon India Multi Asset FoF',
+        'query_filter': "scheme_code = 'RLMF811'",
+    },
+    {
+        'name': 'DSP Multi Asset',
+        'query_filter': "scheme_code = '152056'",
+    },
+    {
+        'name': 'DSP Multi Asset Omni FoF',
+        'query_filter': "scheme_code = '154167'",
+    },
+    {
+        'name': 'Bajaj Multi Asset',
+        'query_filter': "scheme_code = '152639'",
+    },
+    {
+        'name': 'Quant Multi Asset',
+        'query_filter': "scheme_code = '120821'",
+    },
+    {
+        'name': 'ICICI Multi Asset',
+        'query_filter': "fund_name = 'ICICI_MULTI_ASSET'",
+    },
+]
 
 # Key themes to track
 THEME_KEYWORDS = {
@@ -45,12 +66,13 @@ THEME_KEYWORDS = {
     '🏗️ Infra': ['Larsen', 'L&T', 'Reliance', 'Adani Ports', 'NMDC', 'REC', 'PFC']
 }
 
-def get_fund_holdings(client, scheme_code: str, as_of_month: str) -> Dict[str, float]:
-    """Fetch security_name -> pct_of_nav for a given fund and month."""
+def get_fund_holdings(client, query_filter: str, as_of_month: str) -> Dict[str, float]:
+    """Fetch security_name -> max(pct_of_nav) for a given fund filter and month."""
     query = f"""
-    SELECT security_name, pct_of_nav 
+    SELECT security_name, max(pct_of_nav)
     FROM market_data.mf_holdings 
-    WHERE scheme_code = '{scheme_code}' AND as_of_month = '{as_of_month}'
+    WHERE {query_filter} AND as_of_month = '{as_of_month}'
+    GROUP BY security_name
     """
     res = client.query(query).result_rows
     return {row[0]: float(row[1]) for row in res}
@@ -70,9 +92,11 @@ def run_whale_tracker():
         border_style="cyan"
     ))
 
-    for scheme_code, fund_name in WHALE_FUNDS.items():
+    for fund in WHALE_FUNDS:
+        fund_name = fund['name']
+        query_filter = fund['query_filter']
         # 1. Identify two most recent months for this fund
-        months_query = f"SELECT DISTINCT as_of_month FROM market_data.mf_holdings WHERE scheme_code = '{scheme_code}' ORDER BY as_of_month DESC LIMIT 2"
+        months_query = f"SELECT DISTINCT as_of_month FROM market_data.mf_holdings WHERE {query_filter} ORDER BY as_of_month DESC LIMIT 2"
         months = [str(r[0]) for r in client.query(months_query).result_rows]
 
         if len(months) < 2:
@@ -80,8 +104,8 @@ def run_whale_tracker():
             continue
 
         latest_m, prev_m = months[0], months[1]
-        latest_h = get_fund_holdings(client, scheme_code, latest_m)
-        prev_h = get_fund_holdings(client, scheme_code, prev_m)
+        latest_h = get_fund_holdings(client, query_filter, latest_m)
+        prev_h = get_fund_holdings(client, query_filter, prev_m)
 
         table = Table(title=f"{fund_name} (Changes: {prev_m} → {latest_m})", show_header=True)
         table.add_column("Theme", style="dim")

@@ -82,6 +82,16 @@ def _check_config(require_llm: bool = True) -> bool:
     return True
 
 
+# ── Global Callback ─────────────────────────────────────────────────────────────
+@app.callback()
+def main(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show live LangChain reasoning and tool calls."),
+):
+    if verbose:
+        from langchain_core.globals import set_debug, set_verbose
+        set_debug(True)
+        set_verbose(True)
+
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 @app.command()

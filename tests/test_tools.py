@@ -150,7 +150,14 @@ def test_config_masking():
     assert len(warnings) == 0, f"Unexpected warnings: {warnings}"
     print("  ✓ No warnings when keys are set")
 
-    s2 = Settings(openai_api_key="", anthropic_api_key="")
+    s2 = Settings(
+        openai_api_key="",
+        anthropic_api_key="",
+        llm_base_url="",
+        newsapi_key="",
+        gold_api_key="",
+        sec_api_key="",
+    )
     warnings2 = s2.validate_sensitive_fields()
     assert len(warnings2) > 0
     print(f"  ✓ {len(warnings2)} warnings raised for missing sensitive fields")

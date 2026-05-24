@@ -37,19 +37,25 @@ from src.tools.news_search import NEWS_TOOLS
 from src.tools.summarization import SUMMARIZATION_TOOLS
 from src.tools.yahoo_finance import YAHOO_TOOLS
 from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
+from src.tools.skills_tools import SKILLS_TOOLS
 
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + EARNINGS_TOOLS + SUMMARIZATION_TOOLS
+ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS
 
 
 # System prompt for the LangGraph ReAct agent
 AGENT_SYSTEM_PROMPT = (
     "You are a Financial Portfolio Intelligence Agent for Indian equity markets (NSE/BSE). "
-    "You have access to tools to fetch portfolio data, market information, news, and financial results. "
+    "You have access to tools to fetch portfolio data, market information, news, financial results, "
+    "and run core platform scripts (like GOLDBEES pipeline reports, daily signal composite, macro scanner, "
+    "risk governor vol calculations, whale tracking of institutional multi-asset moves, DSP multi-asset comparisons, "
+    "and mutual fund MoM NAV returns). "
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "
-    "Always reason step by step and use the available tools to gather data before answering."
+    "Always reason step by step and use the available tools to gather data before answering. "
+    "When presenting structured data, weight shifts, signals, returns, or tabular results from any tool, "
+    "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points."
 )
 
 
@@ -262,29 +268,10 @@ class PortfolioAgent:
         if self._agent is None:
             return "Agent not available — LLM is not configured. Set LLM_PROVIDER and API key in .env."
 
-        from langchain_core.messages import HumanMessage, SystemMessage
-        from src.utils.report_loader import load_latest_report, _compact_context
+        from langchain_core.messages import HumanMessage
 
         try:
-            messages = []
-
-            # Inject the most recent analyze report so the agent can answer
-            # questions without re-fetching everything from scratch.
-            last_report = load_latest_report(settings.output_dir)
-            if last_report:
-                context = _compact_context(last_report)
-                messages.append(
-                    SystemMessage(
-                        content=(
-                            "The user's most recent portfolio analysis is shown below. "
-                            "Use it as context when answering — call tools only if you need "
-                            "fresher or more detailed data than what is provided here.\n\n"
-                            f"--- LAST PORTFOLIO REPORT ---\n{context}\n--- END REPORT ---"
-                        )
-                    )
-                )
-
-            messages.append(HumanMessage(content=question))
+            messages = [HumanMessage(content=question)]
 
             result = self._agent.invoke({"messages": messages})
             msgs = result.get("messages", [])
