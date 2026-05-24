@@ -104,6 +104,10 @@ AGENT_SYSTEM_PROMPT = (
     "  • US Company Deep-Dive / SEC Filings: Use `run_deepdive_analysis` to fetch SEC filings (10-K, 10-Q, etc.) and generate a multi-section research report for US stocks (like ADSK, AAPL). These reports are automatically persisted to ClickHouse and will be used to enhance your insights during `analyze` if they exist. You can also use the `query_clickhouse_db` tool to read raw data from `deepdive_*` tables or the `view_file` tool to read the final report.md file.\n"
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "
     "Always reason step by step and use the available tools to gather data before answering. "
+    "CRITICAL RULES:\n"
+    "1. NEVER repeat your introductory welcome message ('Hello! I am the Mosaic-fund-agent...') once you have started using tools. "
+    "2. If you have called tools, your final response MUST be a synthesis of the data returned by those tools (e.g. news headlines, financial metrics, sentiment). "
+    "3. If multiple tools fail or return no data, state clearly what you tried and what was missing (e.g. 'I tried to fetch news but the service was unavailable').\n"
     "When presenting structured data, weight shifts, signals, returns, or tabular results from any tool, "
     "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points."
 )

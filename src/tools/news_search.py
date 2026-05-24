@@ -34,9 +34,14 @@ try:
     def _process_url_with_timeout(item, exclude_websites=None, proxy=None):  # type: ignore[no-redef]
         raw = item.link if hasattr(item, "link") else item.get("link", "")
         try:
+            # Try to resolve the final URL with a short timeout.
+            # Some Google News redirects hang indefinitely.
             resp = _requests.head(raw, timeout=5, allow_redirects=True)
-            return resp.url
-        except Exception:
+            if resp is not None and hasattr(resp, "url"):
+                return resp.url
+            return raw
+        except Exception as e:
+            logger.debug("GNews URL expansion failed for %s: %s", raw, e)
             return raw
 
     _gnews_utils.process_url = _process_url_with_timeout
