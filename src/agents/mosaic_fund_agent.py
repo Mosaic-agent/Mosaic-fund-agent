@@ -318,8 +318,22 @@ class MosaicFundAgent:
         if self._agent is None:
             return "Agent not available — LLM is not configured. Set LLM_PROVIDER and API key in .env."
 
-        from langchain_core.messages import HumanMessage
+        from langchain_core.messages import HumanMessage, SystemMessage
         import os
+        import re
+
+        # Heuristic for weak models: if question looks like a deep-dive request, trigger it manually
+        if re.search(r"(deepdive|deepdown)", question.lower()):
+            ticker_match = re.search(r"\b([A-Z]{1,5})\b", question.upper())
+            if ticker_match:
+                ticker = ticker_match.group(1)
+                logger.info("Heuristic trigger: running deep-dive for %s", ticker)
+                from src.tools.skills_tools import run_deepdive_analysis
+                try:
+                    # LangChain tools are invoked via .invoke()
+                    return run_deepdive_analysis.invoke({"ticker": ticker})
+                except Exception as e:
+                    logger.error("Heuristic deep-dive failed: %s", e)
 
         try:
             messages = [HumanMessage(content=question)]
@@ -336,7 +350,12 @@ class MosaicFundAgent:
                 logger.warning("Model does not support tools. Falling back to direct LLM Q&A.")
                 if self._llm is not None:
                     try:
-                        res = self._llm.invoke(messages)
+                        # Include system prompt in fallback so the model knows its identity
+                        fallback_messages = [
+                            SystemMessage(content=AGENT_SYSTEM_PROMPT),
+                            HumanMessage(content=question)
+                        ]
+                        res = self._llm.invoke(fallback_messages)
                         return str(res.content)
                     except Exception as fallback_exc:
                         logger.error("Fallback LLM query failed: %s", fallback_exc)
