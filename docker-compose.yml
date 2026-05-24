@@ -38,6 +38,8 @@ services:
       - ./config:/app/config
       - ./output:/app/output
       - ./tests:/app/tests
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -66,7 +68,8 @@ services:
       - ./src:/app/src
       - ./config:/app/config
       - ./tests:/app/tests
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       clickhouse:
         condition: service_healthy
