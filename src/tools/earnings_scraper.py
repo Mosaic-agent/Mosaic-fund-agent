@@ -174,8 +174,11 @@ def fetch_from_yahoo_financials(symbol: str, exchange: str = "NSE") -> Quarterly
     try:
         import yfinance as yf
 
-        suffix = settings.bse_suffix if exchange.upper() == "BSE" else settings.nse_suffix
-        yf_symbol = f"{symbol}{suffix}"
+        if exchange.upper() in ("US", "NASDAQ", "NYSE"):
+            yf_symbol = symbol
+        else:
+            suffix = settings.bse_suffix if exchange.upper() == "BSE" else settings.nse_suffix
+            yf_symbol = f"{symbol}{suffix}"
         ticker = yf.Ticker(yf_symbol)
 
         # Quarterly income statement
@@ -187,6 +190,8 @@ def fetch_from_yahoo_financials(symbol: str, exchange: str = "NSE") -> Quarterly
         latest_col = qf.columns[0]
         period_label = str(latest_col.date()) if hasattr(latest_col, "date") else str(latest_col)
 
+        # Retrieve values using the original row labels
+        # (Total Revenue/Net Income are standard labels yfinance returns)
         revenue = _safe_get(qf, "Total Revenue", latest_col)
         net_income = _safe_get(qf, "Net Income", latest_col)
 
@@ -195,8 +200,12 @@ def fetch_from_yahoo_financials(symbol: str, exchange: str = "NSE") -> Quarterly
         revenue_prev = _safe_get(qf, "Total Revenue", prev_col) if prev_col else 0
         income_prev = _safe_get(qf, "Net Income", prev_col) if prev_col else 0
 
-        # Convert from INR to Crores (Yahoo Finance returns absolute INR values)
+        # Convert from absolute currency value (Yahoo Finance returns absolute values)
         def to_cr(val: float) -> float:
+            if exchange.upper() in ("US", "NASDAQ", "NYSE"):
+                # Scale USD absolute values to Millions
+                return round(val / 1e6, 2) if val else 0.0
+            # Scale INR absolute values to Crores
             return round(val / 1e7, 2) if val else 0.0
 
         revenue_yoy = (

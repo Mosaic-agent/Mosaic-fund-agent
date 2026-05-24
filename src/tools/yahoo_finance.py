@@ -37,9 +37,13 @@ def _build_yf_symbol(symbol: str, exchange: str = "NSE") -> str:
     Examples:
       RELIANCE + NSE  →  RELIANCE.NS
       RELIANCE + BSE  →  RELIANCE.BO
+      ADSK + US      →  ADSK
     """
     # Already has suffix – return as-is
     if symbol.endswith(".NS") or symbol.endswith(".BO"):
+        return symbol
+
+    if exchange.upper() in ("US", "NASDAQ", "NYSE"):
         return symbol
 
     suffix = settings.bse_suffix if exchange.upper() == "BSE" else settings.nse_suffix
