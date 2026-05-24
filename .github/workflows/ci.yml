@@ -1,0 +1,82 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Job 1: Check code style and formatting
+  lint-and-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Linting Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black
+
+      - name: Run Ruff Linter
+        run: ruff check src tests config
+
+      - name: Check formatting with Black
+        run: black --check src tests config
+
+  # Job 2: Run unit tests (ClickHouse not required)
+  run-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Unit Tests
+        env:
+          # Tell scripts we are running in CI / allow bypass
+          ALLOW_LOCAL_RUN: "1"
+          LLM_PROVIDER: openai
+          LLM_MODEL: gpt-4o-mini
+          OPENAI_API_KEY: mock-key-for-ci
+        run: |
+          python tests/test_tools.py
+          python tests/test_quant_signals.py
+          python tests/test_news_sentiment.py
+          python tests/test_cache.py
+          python tests/test_inav_cli.py
+          python tests/test_macro_theme_agent.py
+
+  # Job 3: Verify Docker image compiles successfully
+  verify-docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image (Verify)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: mosaic-fund-agent:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
