@@ -109,7 +109,7 @@ Set `LLM_BASE_URL` to an OpenAI-compatible endpoint for local inference (Ollama,
 
 ### Architecture (analyze command flow)
 ```
-CLI → PortfolioAgent.run()
+CLI → MosaicFundAgent.run()
   → KiteMCPClient          (Zerodha auth via mcp.kite.trade)
   → _parse_holdings()      (raw Kite → List[Holding])
   → asset_analyzer         (per holding: yfinance + earnings + news)
@@ -124,7 +124,7 @@ CLI → PortfolioAgent.run()
 All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 
 ### Important Patterns
-- **Tool registration:** Tools are `@tool`-decorated function lists (`YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `portfolio_agent.py` is the union passed to `create_react_agent`.
+- **Tool registration:** Tools are `@tool`-decorated function lists (`YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `mosaic_fund_agent.py` is the union passed to `create_react_agent`.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
 - **Output files:** Reports written to `./output/` as JSON/HTML.

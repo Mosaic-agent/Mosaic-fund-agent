@@ -234,7 +234,7 @@ class ComexAgent:
 
     def _build_llm(self) -> Any:
         """
-        Build LLM with same priority as PortfolioAgent and NewsSentimentAgent:
+        Build LLM with same priority as MosaicFundAgent and NewsSentimentAgent:
           1. Local OpenAI-compatible server (LLM_BASE_URL)
           2. Anthropic cloud
           3. OpenAI cloud

@@ -3,7 +3,7 @@ src/utils/report_loader.py
 ──────────────────────────
 Utility to load the most recent portfolio report from the output directory.
 
-Used by PortfolioAgent.ask() to inject prior portfolio context into the
+Used by MosaicFundAgent.ask() to inject prior portfolio context into the
 LangGraph ReAct loop — so the agent can answer questions about the user's
 portfolio without re-fetching all data from scratch on every ask().
 """

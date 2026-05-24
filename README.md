@@ -199,7 +199,7 @@ config/settings.py              Pydantic settings (LLM, ClickHouse, API keys, ma
 src/
   main.py                       CLI — 13 commands (analyze, import, signals, macro, comex, …)
   agents/
-    portfolio_agent.py          Zerodha portfolio → enrich → LLM score → JSON report
+    mosaic_fund_agent.py          Zerodha portfolio → enrich → LLM score → JSON report
     comex_agent.py              Pre-market commodity signals (XAU, XAG, XPT, XPD, HG)
     news_sentiment_agent.py     Multi-source news sentiment (NewsAPI + GNews)
     signal_aggregator.py        6-pillar composite ETF scores 0–100 → BUY/HOLD/SELL

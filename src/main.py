@@ -141,10 +141,10 @@ def analyze(
         settings.__dict__["max_holdings_per_run"] = max_holdings
 
     # Import agent lazily to avoid import errors when just checking config
-    from src.agents.portfolio_agent import PortfolioAgent
+    from src.agents.mosaic_fund_agent import MosaicFundAgent
     from src.formatters.output import print_report_to_console, save_json_report
 
-    agent = PortfolioAgent()
+    agent = MosaicFundAgent()
 
     try:
         report = agent.run_full_analysis(console=console)
@@ -188,10 +188,10 @@ def ask(
     if not _check_config():
         raise typer.Exit(code=1)
 
-    from src.agents.portfolio_agent import PortfolioAgent
+    from src.agents.mosaic_fund_agent import MosaicFundAgent
 
     console.print(f"\n[bold]Question:[/bold] {question}\n")
-    agent = PortfolioAgent()
+    agent = MosaicFundAgent()
 
     try:
         answer = agent.ask(question)

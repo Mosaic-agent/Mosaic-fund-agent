@@ -224,7 +224,7 @@ Fire rate ~5% (vs. Random Forest's spurious 21% prior to GARCH replacement).
 
 Agents orchestrate multiple tools into complete workflows using LangGraph / LangChain.
 
-### PortfolioAgent (`portfolio_agent.py`)
+### MosaicFundAgent (`mosaic_fund_agent.py`)
 Full Zerodha portfolio intelligence workflow.
 
 ```

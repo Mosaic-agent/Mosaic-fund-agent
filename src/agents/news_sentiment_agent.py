@@ -239,7 +239,7 @@ class NewsSentimentAgent:
 
     def _build_llm(self) -> Any:
         """
-        Build LLM with same priority as PortfolioAgent:
+        Build LLM with same priority as MosaicFundAgent:
           1. Local OpenAI-compatible server (LLM_BASE_URL)
           2. Anthropic cloud
           3. OpenAI cloud

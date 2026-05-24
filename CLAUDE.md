@@ -68,7 +68,7 @@ python tests/_backtest_anomaly.py
 ### Request Flow (analyze command)
 ```
 CLI (src/main.py)
-  → PortfolioAgent.run()
+  → MosaicFundAgent.run()
       → KiteMCPClient  — authenticates with Zerodha via mcp.kite.trade
       → _parse_holdings()  — raw Kite response → List[Holding]
       → asset_analyzer.analyze_holding()  per holding (parallel)
@@ -244,9 +244,10 @@ SELECT ... FROM market_data.mf_holdings FINAL WHERE ...
 **Never use** `weight_pct` or `name` — those columns do not exist.
 Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 
-## Important Patterns
+→ MosaicFundAgent.run()
+...
+- **Tool registration:** Tools are lists of `@tool`-decorated functions (e.g., `YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `mosaic_fund_agent.py` is the union passed to `create_react_agent`.
 
-- **Tool registration:** Tools are lists of `@tool`-decorated functions (e.g., `YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `portfolio_agent.py` is the union passed to `create_react_agent`.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks when blocked. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL. ML models cached to `output/.cache/ml_models/` keyed by `(max_trade_date, n_rows, n_splits, horizon)` — auto-invalidated by `ModelCacheInvalidator` when new price data arrives.
 - **Output files:** Reports written to `./output/` as JSON.

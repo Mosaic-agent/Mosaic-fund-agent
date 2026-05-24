@@ -298,7 +298,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 **Examples:**
 
 ```
-feat(agent): add LangGraph stateful graph for portfolio_agent
+feat(agent): add LangGraph stateful graph for mosaic_fund_agent
 
 Replaces linear script with a retry-capable stateful graph.
 State includes per-holding retry counters and enrichment tracking.

@@ -154,7 +154,7 @@ def deepdive(
 ```
 
 Add `src/deepdive/runner.py` as the orchestration entry point — keeps `src/main.py` clean (mirrors
-how `src/agents/portfolio_agent.py` is imported lazily in the existing `analyze` command).
+how `src/agents/mosaic_fund_agent.py` is imported lazily in the existing `analyze` command).
 
 ---
 

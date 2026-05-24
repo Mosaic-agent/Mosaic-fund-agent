@@ -1,12 +1,12 @@
 """
-src/agents/portfolio_agent.py
+src/agents/mosaic_fund_agent.py
 ──────────────────────────────
 LangChain ReAct agent that orchestrates the full portfolio intelligence workflow.
 
 Architecture:
   User triggers CLI
     ↓
-  PortfolioAgent.run()
+  MosaicFundAgent.run()
     ↓
   Step 1: Authenticate with Kite MCP → get login URL
   Step 2: Fetch all holdings via Kite MCP
@@ -109,9 +109,9 @@ AGENT_SYSTEM_PROMPT = (
 )
 
 
-# ── Portfolio Agent ────────────────────────────────────────────────────────────
+# ── Mosaic Fund Agent ──────────────────────────────────────────────────────────
 
-class PortfolioAgent:
+class MosaicFundAgent:
     """
     Orchestrates the full portfolio intelligence workflow.
 
@@ -370,3 +370,4 @@ class PortfolioAgent:
                     raw = await client.get_holdings()
                     return _parse_holdings(raw)
                 raise
+raise

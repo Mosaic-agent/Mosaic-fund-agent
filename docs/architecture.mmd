@@ -68,7 +68,7 @@ flowchart TD
     end
 
     %% ── Portfolio analysis (existing) ──────────────────────────────────────
-    subgraph PortfolioFlow ["Portfolio Analysis — src/agents/portfolio_agent.py"]
+    subgraph PortfolioFlow ["Portfolio Analysis — src/agents/mosaic_fund_agent.py"]
         PA1["① Fetch Holdings\nKiteMCPClient → Zerodha Kite"]
         PA2["② Enrich (parallel)\nyfinance · news · earnings · iNAV"]
         PA3["③ LLM Scoring\nrisk 1–10 · sentiment · insights"]
