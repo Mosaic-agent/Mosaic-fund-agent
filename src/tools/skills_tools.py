@@ -384,3 +384,77 @@ SKILLS_TOOLS = [
     run_comex_analysis,
     run_premium_alerts,
 ]
+
+
+@tool
+def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: bool = False) -> str:
+    """
+    Run a comprehensive company deep-dive report for a US listed stock (e.g., ADSK, AAPL, MSFT)
+    using the deep-dive engine.
+    This fetches SEC filings (via sec-api.io), XBRL financials, job postings, and peer market data,
+    and compiles a multi-section markdown report saved under output/deepdive/<TICKER>/<DATE>/report.md.
+    Args:
+        ticker: The US ticker symbol (e.g., 'ADSK', 'AAPL').
+        section: Optional. Limit execution to one specific section:
+                 core_business, financials, competitors, investments, execution, valuation, talent.
+        skip_fetch: If True, uses cached data only and skips live network calls.
+    """
+    ticker_clean = ticker.strip().upper()
+    args = ["src/main.py", "deepdive", ticker_clean]
+    if section:
+        args.extend(["--section", section])
+    if skip_fetch:
+        args.append("--skip-fetch")
+        
+    cmd_output = _run_cmd(args)
+    
+    # Try to locate the generated report.md file
+    from datetime import date
+    today_str = date.today().isoformat()
+    report_path = os.path.join(PROJECT_ROOT, "output", "deepdive", ticker_clean, today_str, "report.md")
+    
+    if os.path.exists(report_path):
+        try:
+            with open(report_path, "r", encoding="utf-8") as f:
+                content = f.read(1500)
+            preview = f"\n\n--- PREVIEW OF THE REPORT ---\n{content}...\n[End of Preview. Full report is available at: {report_path}]"
+        except Exception:
+            preview = f"\n\nFull report was successfully saved to: {report_path}"
+    else:
+        # Fallback to search if not today's date
+        base_dir = os.path.join(PROJECT_ROOT, "output", "deepdive", ticker_clean)
+        if os.path.exists(base_dir):
+            dates = sorted([d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))], reverse=True)
+            if dates:
+                report_path = os.path.join(base_dir, dates[0], "report.md")
+                if os.path.exists(report_path):
+                    with open(report_path, "r", encoding="utf-8") as f:
+                        content = f.read(1500)
+                    preview = f"\n\n--- PREVIEW OF THE REPORT ({dates[0]}) ---\n{content}...\n[End of Preview. Full report is available at: {report_path}]"
+                else:
+                    preview = ""
+            else:
+                preview = ""
+        else:
+            preview = ""
+            
+    return f"Deep-dive analysis executed.\n\nCommand Log:\n{cmd_output}{preview}"
+
+
+# Unified list of core skill tools
+SKILLS_TOOLS = [
+    run_goldbees_pipeline,
+    run_daily_signal_composite,
+    run_macro_scanner,
+    run_etf_news_sentiment,
+    run_dsp_multi_asset_importer,
+    run_data_engineering_importer,
+    run_risk_governor_analysis,
+    query_clickhouse_db,
+    run_whale_tracker,
+    run_dsp_multi_asset_comparison,
+    run_fund_mom_returns,
+    run_comex_analysis,
+    run_premium_alerts,
+    run_deepdive_analysis,
+]
