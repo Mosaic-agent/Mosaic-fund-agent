@@ -190,7 +190,8 @@ def _fetch_macro_series(start_date: str, end_date: str) -> pd.DataFrame:
         df_macro = pieces[0]
         for extra in pieces[1:]:
             df_macro = df_macro.join(extra, how="outer")
-        df_macro = df_macro.reset_index().rename(columns={"Date": "trade_date"})
+        df_macro.index.name = "trade_date"
+        df_macro = df_macro.reset_index()
         df_macro["trade_date"] = pd.to_datetime(df_macro["trade_date"]).dt.tz_localize(None)
         return df_macro.sort_values("trade_date").reset_index(drop=True)
     except Exception as exc:
@@ -221,7 +222,11 @@ def build_master_table(ch_client) -> pd.DataFrame:
     start    = str(df["trade_date"].min().date())
     end      = str((df["trade_date"].max() + pd.Timedelta(days=3)).date())
     df_macro = _fetch_macro_series(start, end)
-    if not df_macro.empty:
+    if df_macro.empty:
+        # Create empty columns filled with NaN if fetch failed to degrade gracefully
+        df["dxy_close"] = np.nan
+        df["us10y_close"] = np.nan
+    else:
         df = df.merge(df_macro, on="trade_date", how="left")
         df["dxy_close"]   = df["dxy_close"].ffill()
         df["us10y_close"] = df["us10y_close"].ffill()

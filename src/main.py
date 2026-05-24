@@ -66,14 +66,14 @@ def _setup_logging() -> None:
     logging.getLogger("yfinance").setLevel(logging.WARNING)
 
 
-def _check_config() -> bool:
+def _check_config(require_llm: bool = True) -> bool:
     """Validate sensitive config fields and warn if missing. Returns True if OK."""
     warnings = settings.validate_sensitive_fields()
     if warnings:
         console.print("\n[bold yellow]⚠ Configuration Warnings:[/bold yellow]")
         for w in warnings:
             console.print(f"  [yellow]• {w}[/yellow]")
-        if not settings.openai_api_key and not settings.anthropic_api_key:
+        if require_llm and not settings.openai_api_key and not settings.anthropic_api_key:
             console.print(
                 "\n[bold red]✗ Cannot run analysis without an LLM API key.[/bold red]\n"
                 "  Copy [bold].env.example → .env[/bold] and fill in your API keys.\n"
@@ -289,6 +289,9 @@ def news(
     from rich.text import Text
 
     _setup_logging()
+
+    if not _check_config():
+        raise typer.Exit(code=1)
 
     symbol_upper = symbol.strip().upper()
     display_name = f"{symbol_upper} — {company}" if company else symbol_upper
@@ -717,7 +720,7 @@ def deepdive(
       python src/main.py deepdive ADSK --section valuation
     """
     _setup_logging()
-    if not _check_config():
+    if not _check_config(require_llm=False):
         raise typer.Exit(code=1)
     from src.deepdive.runner import run_deepdive
     run_deepdive(ticker=ticker.upper(), date=date, skip_fetch=skip_fetch, section=section)
@@ -870,7 +873,13 @@ def macro_scan(
     if save:
         from src.importer.clickhouse import ClickHouseImporter
         from src.tools.macro_event_scanner import save_macro_events_to_db
-        ch = ClickHouseImporter()
+        ch = ClickHouseImporter(
+            host=settings.clickhouse_host,
+            port=settings.clickhouse_port,
+            username=settings.clickhouse_user,
+            password=settings.clickhouse_password,
+            database=settings.clickhouse_database,
+        )
         ch.ensure_schema()
         n = save_macro_events_to_db(report, ch)
         console.print(f"[green]✓ Saved {n} macro events to DB.[/green]")
@@ -882,6 +891,10 @@ def cmd_macro_themes(
     json_out: bool = typer.Option(False, "--json", help="JSON output"),
 ):
     """Long/Short macro theme agent — news + quant overlay."""
+    _setup_logging()
+    if not _check_config():
+        raise typer.Exit(code=1)
+
     from src.scripts.market.macro_theme_agent import run_macro_theme_agent, print_macro_theme_report
 
     report = run_macro_theme_agent(max_per_theme=max)
@@ -954,7 +967,13 @@ def etf_news(
     if save:
         from src.importer.clickhouse import ClickHouseImporter
         from src.tools.etf_news_scanner import save_etf_news_to_db
-        ch = ClickHouseImporter()
+        ch = ClickHouseImporter(
+            host=settings.clickhouse_host,
+            port=settings.clickhouse_port,
+            username=settings.clickhouse_user,
+            password=settings.clickhouse_password,
+            database=settings.clickhouse_database,
+        )
         ch.ensure_schema()
         n = save_etf_news_to_db(report, ch)
         console.print(f"[green]✓ Saved {n} ETF news articles to DB.[/green]")

@@ -37,6 +37,7 @@ services:
       - ./src:/app/src
       - ./config:/app/config
       - ./output:/app/output
+      - ./tests:/app/tests
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -64,6 +65,7 @@ services:
       - ./output:/app/output
       - ./src:/app/src
       - ./config:/app/config
+      - ./tests:/app/tests
 
     depends_on:
       clickhouse:
