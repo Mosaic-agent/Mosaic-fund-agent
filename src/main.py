@@ -88,9 +88,8 @@ def main(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show live LangChain reasoning and tool calls."),
 ):
     if verbose:
-        from langchain_core.globals import set_debug, set_verbose
-        set_debug(True)
-        set_verbose(True)
+        import os
+        os.environ["VERBOSE"] = "1"
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 

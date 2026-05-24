@@ -38,11 +38,56 @@ from src.tools.summarization import SUMMARIZATION_TOOLS
 from src.tools.yahoo_finance import YAHOO_TOOLS
 from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
 from src.tools.skills_tools import SKILLS_TOOLS
+from langchain_core.callbacks import BaseCallbackHandler
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
 
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
 ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS
+
+
+class RichConsoleCallbackHandler(BaseCallbackHandler):
+    """Callback handler to print intermediate LLM steps and tool calls beautifully in the console."""
+
+    def __init__(self) -> None:
+        self.console = Console()
+
+    def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
+        self.console.print("\n[bold cyan]🤖 Thinking...[/bold cyan]")
+
+    def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:
+        tool_name = serialized.get("name", "Unknown Tool")
+        self.console.print(Panel(
+            f"[bold yellow]🔧 Calling Tool:[/bold yellow] [green]{tool_name}[/green]\n"
+            f"[dim]Arguments: {input_str.strip()}[/dim]",
+            border_style="yellow",
+            title="Tool Call",
+        ))
+
+    def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        if hasattr(output, "content"):
+            output_str = str(output.content).strip()
+        else:
+            output_str = str(output).strip()
+        # Check if output is a markdown table or has markdown elements
+        if "|" in output_str and "-" in output_str:
+            self.console.print(Panel(
+                Markdown(output_str),
+                border_style="green",
+                title="Tool Output",
+            ))
+        else:
+            self.console.print(Panel(
+                output_str,
+                border_style="green",
+                title="Tool Output",
+            ))
+
+    def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
+        self.console.print(f"[bold red]✗ Tool Error:[/bold red] {error}")
 
 
 # System prompt for the LangGraph ReAct agent
@@ -269,11 +314,15 @@ class PortfolioAgent:
             return "Agent not available — LLM is not configured. Set LLM_PROVIDER and API key in .env."
 
         from langchain_core.messages import HumanMessage
+        import os
 
         try:
             messages = [HumanMessage(content=question)]
+            config = {}
+            if os.getenv("VERBOSE") == "1":
+                config["callbacks"] = [RichConsoleCallbackHandler()]
 
-            result = self._agent.invoke({"messages": messages})
+            result = self._agent.invoke({"messages": messages}, config=config)
             msgs = result.get("messages", [])
             return msgs[-1].content if msgs else "No answer generated."
         except Exception as exc:
