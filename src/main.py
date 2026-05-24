@@ -870,7 +870,13 @@ def macro_scan(
     if save:
         from src.importer.clickhouse import ClickHouseImporter
         from src.tools.macro_event_scanner import save_macro_events_to_db
-        ch = ClickHouseImporter()
+        ch = ClickHouseImporter(
+            host=settings.clickhouse_host,
+            port=settings.clickhouse_port,
+            username=settings.clickhouse_user,
+            password=settings.clickhouse_password,
+            database=settings.clickhouse_database,
+        )
         ch.ensure_schema()
         n = save_macro_events_to_db(report, ch)
         console.print(f"[green]✓ Saved {n} macro events to DB.[/green]")
@@ -954,7 +960,13 @@ def etf_news(
     if save:
         from src.importer.clickhouse import ClickHouseImporter
         from src.tools.etf_news_scanner import save_etf_news_to_db
-        ch = ClickHouseImporter()
+        ch = ClickHouseImporter(
+            host=settings.clickhouse_host,
+            port=settings.clickhouse_port,
+            username=settings.clickhouse_user,
+            password=settings.clickhouse_password,
+            database=settings.clickhouse_database,
+        )
         ch.ensure_schema()
         n = save_etf_news_to_db(report, ch)
         console.print(f"[green]✓ Saved {n} ETF news articles to DB.[/green]")
