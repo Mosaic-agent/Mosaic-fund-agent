@@ -55,11 +55,13 @@ python tests/_backtest_anomaly.py
 ```
 
 ### Docker
-```bash
-docker compose run mosaic analyze
-docker compose up ui -d
-docker compose up                          # full stack (clickhouse + ui + app)
-```
+- **Start UI:** `./run.sh` (macOS/Linux) or `run.bat` (Windows)
+- **Stop UI:** `./stop.sh` (macOS/Linux) or `stop.bat` (Windows)
+- **Run CLI/Scripts in Docker:** Use the `mosaic.sh`/`mosaic.bat` wrappers:
+  - `./mosaic.sh comex`
+  - `./mosaic.sh ask "what is my riskiest holding?"`
+  - `./mosaic.sh src/scripts/goldbees_report.py`
+
 
 ## Architecture
 

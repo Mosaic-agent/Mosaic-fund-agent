@@ -9,6 +9,21 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, _ROOT)
 
+# Guard: Ensure script is running inside the Docker container to prevent local package import errors
+if not os.environ.get('RUNNING_IN_DOCKER') and not os.path.exists('/.dockerenv') and os.environ.get('ALLOW_LOCAL_RUN') != '1':
+    print("=================================================================", file=sys.stderr)
+    print(" ERROR: This script must be run inside the Docker container", file=sys.stderr)
+    print(" to ensure that all required dependencies are loaded correctly.", file=sys.stderr)
+    print("-----------------------------------------------------------------", file=sys.stderr)
+    print(" Please use the wrapper script instead:", file=sys.stderr)
+    print(f"   ./mosaic.sh src/scripts/goldbees_report.py", file=sys.stderr)
+    print(" (On Windows, use 'mosaic.bat' instead)", file=sys.stderr)
+    print("-----------------------------------------------------------------", file=sys.stderr)
+    print(" If you are a developer and want to bypass this check, set:", file=sys.stderr)
+    print("   export ALLOW_LOCAL_RUN=1  (or set it in your environment)", file=sys.stderr)
+    print("=================================================================", file=sys.stderr)
+    sys.exit(1)
+
 from db.pool import query_df, get_pool
 from db.repository import MarketDataRepository
 

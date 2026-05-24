@@ -41,6 +41,9 @@ ENV PYTHONUNBUFFERED=1
 # The HTML dashboard is still generated and available via the mounted volume.
 ENV NO_BROWSER=1
 
+# Mark that the code is running inside the Docker container
+ENV RUNNING_IN_DOCKER=1
+
 # ENTRYPOINT is always the CLI; CMD provides a safe no-auth default.
 # Override CMD by appending the desired subcommand to `docker compose run mosaic`.
 ENTRYPOINT ["python", "src/main.py"]
