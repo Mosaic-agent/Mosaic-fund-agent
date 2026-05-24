@@ -52,8 +52,9 @@ jobs:
           # Tell scripts we are running in CI / allow bypass
           ALLOW_LOCAL_RUN: "1"
           LLM_PROVIDER: openai
-          LLM_MODEL: gpt-4o-mini
-          OPENAI_API_KEY: mock-key-for-ci
+          LLM_MODEL: ${{ secrets.LLM_MODEL || 'gemini-1.5-flash' }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SEC_API_KEY: ${{ secrets.SEC_API_KEY }}
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
         run: |
