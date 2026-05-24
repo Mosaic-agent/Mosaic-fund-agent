@@ -54,6 +54,7 @@ jobs:
           LLM_PROVIDER: openai
           LLM_MODEL: gpt-4o-mini
           OPENAI_API_KEY: mock-key-for-ci
+          SEC_API_KEY: ${{ secrets.SEC_API_KEY }}
         run: |
           python tests/test_tools.py
           python tests/test_quant_signals.py
