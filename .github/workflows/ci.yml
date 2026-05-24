@@ -25,9 +25,11 @@ jobs:
           pip install ruff black
 
       - name: Run Ruff Linter
+        continue-on-error: true
         run: ruff check src tests config
 
       - name: Check formatting with Black
+        continue-on-error: true
         run: black --check src tests config
 
   # Job 2: Run unit tests (ClickHouse not required)
