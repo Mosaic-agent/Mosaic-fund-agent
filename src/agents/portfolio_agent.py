@@ -290,6 +290,16 @@ class PortfolioAgent:
             msgs = result.get("messages", [])
             return msgs[-1].content if msgs else "No answer generated."
         except Exception as exc:
+            err_msg = str(exc).lower()
+            if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:
+                logger.warning("Model does not support tools. Falling back to direct LLM Q&A.")
+                if self._llm is not None:
+                    try:
+                        res = self._llm.invoke(messages)
+                        return str(res.content)
+                    except Exception as fallback_exc:
+                        logger.error("Fallback LLM query failed: %s", fallback_exc)
+                        return f"Error: {fallback_exc}"
             logger.error("Agent query failed: %s", exc)
             return f"Error: {exc}"
 
