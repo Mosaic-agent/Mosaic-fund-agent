@@ -26,6 +26,22 @@ from rich import box
 # Ensure project root is on sys.path when running as script
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Guard: Ensure script is running inside the Docker container to prevent local package import errors
+import os
+if not os.environ.get('RUNNING_IN_DOCKER') and not os.path.exists('/.dockerenv') and os.environ.get('ALLOW_LOCAL_RUN') != '1':
+    print("=================================================================", file=sys.stderr)
+    print(" ERROR: This command must be run inside the Docker container", file=sys.stderr)
+    print(" to ensure that all required dependencies are loaded correctly.", file=sys.stderr)
+    print("-----------------------------------------------------------------", file=sys.stderr)
+    print(" Please use the wrapper script instead:", file=sys.stderr)
+    print(f"   ./mosaic.sh {' '.join(sys.argv[1:])}", file=sys.stderr)
+    print(" (On Windows, use 'mosaic.bat' instead)", file=sys.stderr)
+    print("-----------------------------------------------------------------", file=sys.stderr)
+    print(" If you are a developer and want to bypass this check, set:", file=sys.stderr)
+    print("   export ALLOW_LOCAL_RUN=1  (or set it in your environment)", file=sys.stderr)
+    print("=================================================================", file=sys.stderr)
+    sys.exit(1)
+
 from config.settings import settings
 
 app = typer.Typer(

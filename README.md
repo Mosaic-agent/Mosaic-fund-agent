@@ -32,14 +32,31 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 ## Quick Start
 
-### Prerequisites
+### One-Click Setup (Non-Technical)
 
-- Python 3.11+
-- Zerodha account
-- OpenAI / Anthropic API key **or** a local LLM (LM Studio / Ollama)
-- Docker (for ClickHouse — required only for data hub features)
+If you are not a developer or want to avoid setting up Python and installing libraries manually, you can run the entire stack (ClickHouse database, Streamlit Web Dashboard, and agents) with **Docker Desktop**:
 
-### Install
+1. Install **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** and make sure it is running.
+2. Double-click **[run.sh](file:///home/dt/project/Mosaic-fund-agent/run.sh)** (macOS/Linux) or **[run.bat](file:///home/dt/project/Mosaic-fund-agent/run.bat)** (Windows).
+   - *First-run only:* This creates a `.env` file in the project folder. Open it in a text editor to add your API keys (like OpenAI, Zerodha login, etc.).
+3. Once configured, run the script again. It will automatically build the image, start the containers, and open the Web Dashboard at **http://localhost:8501** in your browser.
+4. To run individual CLI commands or scripts without installing Python locally, use the **[mosaic.sh](file:///home/dt/project/Mosaic-fund-agent/mosaic.sh)** (macOS/Linux) or **[mosaic.bat](file:///home/dt/project/Mosaic-fund-agent/mosaic.bat)** (Windows) wrappers:
+   - For standard CLI commands:
+     ```bash
+     ./mosaic.sh comex
+     ./mosaic.sh ask "am I overexposed to IT?"
+     ./mosaic.sh analyze --max 3
+     ```
+   - For specific Python scripts:
+     ```bash
+     ./mosaic.sh src/scripts/goldbees_report.py
+     ```
+5. To stop the application, double-click **[stop.sh](file:///home/dt/project/Mosaic-fund-agent/stop.sh)** (macOS/Linux) or **[stop.bat](file:///home/dt/project/Mosaic-fund-agent/stop.bat)** (Windows).
+
+See the detailed **[Docker Setup Guide](file:///home/dt/project/Mosaic-fund-agent/docs/docker_install_guide.md)** for platform-specific installation steps.
+
+### Developer Install (Manual)
+
 
 ```bash
 git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git

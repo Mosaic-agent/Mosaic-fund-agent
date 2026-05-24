@@ -33,6 +33,10 @@ services:
     env_file: .env
     environment:
       CLICKHOUSE_HOST: clickhouse
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./output:/app/output
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -58,6 +62,8 @@ services:
       # Persist JSON reports and the HTML dashboard on the host filesystem.
       # The disk cache (output/.cache/) is included automatically.
       - ./output:/app/output
+      - ./src:/app/src
+      - ./config:/app/config
 
     depends_on:
       clickhouse:

@@ -41,6 +41,8 @@ python src/ml/trend_predictor.py                                   # LightGBM fo
 ```
 
 ### Setup & Docker
+
+**Manual setup (requires Python 3.11):**
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -49,6 +51,15 @@ cp .env.example .env         # fill in API keys
 docker compose up clickhouse -d
 docker compose up            # full stack (clickhouse + ui + app)
 ```
+
+**Zero-dependency / Docker setup (Docker Desktop required):**
+- **Start Dashboard:** `./run.sh` (macOS/Linux) or `run.bat` (Windows)
+- **Stop Dashboard:** `./stop.sh` (macOS/Linux) or `stop.bat` (Windows)
+- **Run CLI/Scripts in Docker:** Use the `mosaic.sh`/`mosaic.bat` wrappers:
+  - `./mosaic.sh comex`
+  - `./mosaic.sh ask "question"`
+  - `./mosaic.sh src/scripts/goldbees_report.py`
+
 
 ### Tests
 ```bash
