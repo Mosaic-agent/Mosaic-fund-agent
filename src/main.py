@@ -66,14 +66,14 @@ def _setup_logging() -> None:
     logging.getLogger("yfinance").setLevel(logging.WARNING)
 
 
-def _check_config() -> bool:
+def _check_config(require_llm: bool = True) -> bool:
     """Validate sensitive config fields and warn if missing. Returns True if OK."""
     warnings = settings.validate_sensitive_fields()
     if warnings:
         console.print("\n[bold yellow]⚠ Configuration Warnings:[/bold yellow]")
         for w in warnings:
             console.print(f"  [yellow]• {w}[/yellow]")
-        if not settings.openai_api_key and not settings.anthropic_api_key:
+        if require_llm and not settings.openai_api_key and not settings.anthropic_api_key:
             console.print(
                 "\n[bold red]✗ Cannot run analysis without an LLM API key.[/bold red]\n"
                 "  Copy [bold].env.example → .env[/bold] and fill in your API keys.\n"
@@ -720,7 +720,7 @@ def deepdive(
       python src/main.py deepdive ADSK --section valuation
     """
     _setup_logging()
-    if not _check_config():
+    if not _check_config(require_llm=False):
         raise typer.Exit(code=1)
     from src.deepdive.runner import run_deepdive
     run_deepdive(ticker=ticker.upper(), date=date, skip_fetch=skip_fetch, section=section)
