@@ -98,20 +98,84 @@ class MacroSignalSource(SignalSource):
 
     Net signal range ≈ −8 to +8 (article-count × theme weight).
     Linear map: −8 → 0, 0 → 50, +8 → 100.
+
+    Fundamentals overlay: World Bank / IMF WEO data (from market_data.macro_indicators)
+    adds a bounded ±5 adjustment to India-relevant ETFs based on GDP growth, CPI,
+    and current account balance.  Degrades gracefully if the table is empty.
     """
     name   = "macro"
     weight = 0.25
+
+    # ETF buckets for fundamentals adjustment
+    _INDIA_EQUITY = frozenset({
+        "NIFTYBEES", "BANKBEES", "JUNIORBEES", "CPSEETF",
+        "AUTOBEES", "PHARMABEES", "PSUBNKBEES", "MID150BEES", "SMALL250",
+    })
+    _GOLD_ETFS = frozenset({"GOLDBEES", "SILVERBEES"})
+    _BOND_ETFS = frozenset({"GILT5YBEES", "LIQUIDBEES", "LIQUIDCASE"})
+
+    @staticmethod
+    def _fundamentals_delta(mf, etf: str) -> float:
+        """
+        Return a score delta (clamped to ±5) based on India annual macro fundamentals.
+        Applied additively to the news-derived 0-100 score before final clamping.
+        Rules use India structural benchmarks: GDP trend ~6.5%, CPI target 4%, CA -2% GDP.
+        """
+        from src.tools.macro_event_scanner import MacroFundamentals
+        delta = 0.0
+        is_equity = etf in MacroSignalSource._INDIA_EQUITY
+        is_gold   = etf in MacroSignalSource._GOLD_ETFS
+
+        if mf.gdp_growth_pct is not None and is_equity:
+            if mf.gdp_growth_pct >= 7.0:
+                delta += 5.0
+            elif mf.gdp_growth_pct >= 6.0:
+                delta += 2.5
+            elif mf.gdp_growth_pct < 5.0:
+                delta -= 5.0
+            elif mf.gdp_growth_pct < 6.0:
+                delta -= 2.5
+
+        if mf.cpi_pct is not None:
+            if is_gold:
+                # Elevated CPI → real-return erosion → gold inflation hedge bid
+                if mf.cpi_pct > 6.0:
+                    delta += 5.0
+                elif mf.cpi_pct > 5.0:
+                    delta += 2.5
+            elif is_equity:
+                # High inflation → RBI rate-hike risk → equity premium compression
+                if mf.cpi_pct > 6.0:
+                    delta -= 3.0
+                elif mf.cpi_pct > 5.0:
+                    delta -= 1.5
+
+        if mf.ca_balance_pct is not None and is_equity:
+            # Wide CA deficit → INR pressure → imported inflation → equity headwind
+            if mf.ca_balance_pct < -3.0:
+                delta -= 3.0
+            elif mf.ca_balance_pct < -2.0:
+                delta -= 1.5
+
+        return max(-5.0, min(5.0, delta))
 
     def collect(self, repo) -> dict[str, float]:
         try:
             from src.tools.macro_event_scanner import scan_macro_events
             report = scan_macro_events(max_per_theme=3)
+            mf     = report.quant.macro_fundamentals
             scores = {}
             for etf in SIGNAL_ETFS:
                 net     = report.etf_net_signal.get(etf, 0)
                 clamped = max(-8, min(8, net))
-                scores[etf] = round(50 + (clamped / 8) * 50, 1)
-            log.info("Macro: %d themes, %d ETF signals", len(report.themes_detected), len(scores))
+                base    = 50 + (clamped / 8) * 50
+                delta   = self._fundamentals_delta(mf, etf)
+                scores[etf] = round(max(0.0, min(100.0, base + delta)), 1)
+            log.info(
+                "Macro: %d themes, %d ETF signals, fundamentals=%s",
+                len(report.themes_detected), len(scores),
+                "ok" if mf.gdp_growth_pct is not None else "unavailable",
+            )
             return scores
         except Exception as exc:
             log.warning("MacroSignalSource failed: %s", exc)

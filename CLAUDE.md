@@ -121,13 +121,13 @@ New pattern (Adapter + Repository):
 
 **13 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`, `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`, `yahoo_snapshot`, `expert_tweets`, plus news tools.
 
-**5 Fetcher adapters** (Adapter pattern, `src/importer/fetchers/adapters.py`): `YFinanceFetcher`, `MFNavFetcher`, `FIIDIIFetcher`, `FXRatesFetcher`, `COTGoldFetcher`. Add new sources to `FETCHER_REGISTRY` — orchestrator loop picks up automatically.
+**5 Fetcher adapters** (Adapter pattern, `src/importer/fetchers/adapters.py`): `YFinanceFetcher`, `MFNavFetcher`, `FIIDIIFetcher`, `FXRatesFetcher`, `COTGoldFetcher`, `WorldBankMacroFetcher`, `IMFWEOFetcher`. Add new sources to `FETCHER_REGISTRY` — orchestrator loop picks up automatically.
 
 ### LLM Configuration
 `LLM_PROVIDER` (`openai` or `anthropic`) + `LLM_MODEL` control which model is used. Set `LLM_BASE_URL` to an OpenAI-compatible endpoint (Ollama, LM Studio) for local inference — no API key needed in that case.
 
 ### ClickHouse Schema
-Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`. All use `ReplacingMergeTree` — idempotent inserts are safe.
+Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`, `macro_indicators` (World Bank / IMF WEO annual data). All use `ReplacingMergeTree` — idempotent inserts are safe.
 
 ## User Context
 

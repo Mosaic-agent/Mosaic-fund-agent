@@ -3,6 +3,16 @@ from typing import Any, Optional
 from src.commands.base import Command
 from src.importer.clickhouse import ClickHouseImporter
 
+def _make_importer() -> ClickHouseImporter:
+    from config.settings import settings
+    return ClickHouseImporter(
+        host=settings.clickhouse_host,
+        port=settings.clickhouse_port,
+        database=settings.clickhouse_database,
+        username=settings.clickhouse_user,
+        password=settings.clickhouse_password,
+    )
+
 @dataclass
 class ImportDataCommand(Command):
     categories: list[str]
@@ -12,7 +22,7 @@ class ImportDataCommand(Command):
     _snapshot: Optional[list[dict[str, Any]]] = field(default=None, repr=False)
 
     def execute(self) -> dict[str, Any]:
-        importer = ClickHouseImporter()
+        importer = _make_importer()
         importer.ensure_schema()
         self._snapshot = importer.snapshot(self.lookback_days)
         return importer.run(
@@ -25,4 +35,4 @@ class ImportDataCommand(Command):
     def undo(self) -> None:
         if self._snapshot is None:
             raise RuntimeError("No snapshot — execute() was never called")
-        ClickHouseImporter().restore(self._snapshot)
+        _make_importer().restore(self._snapshot)

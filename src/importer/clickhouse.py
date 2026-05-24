@@ -452,6 +452,21 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (order_id, imported_at)
 """
 
+_DDL_MACRO_INDICATORS = """
+CREATE TABLE IF NOT EXISTS market_data.macro_indicators (
+    ref_year        UInt16,       -- e.g. 2024 (annual cadence for both WB and IMF)
+    country_code    String,       -- ISO2: IN, US, CN, etc.
+    indicator_code  String,       -- e.g. 'NY.GDP.MKTP.KD.ZG' or 'NGDP_RPCH'
+    indicator_name  String,       -- human-readable label
+    value           Float64,
+    source          String,       -- 'world_bank' | 'imf_weo'
+    is_forecast     UInt8,        -- 1 = IMF WEO projection (future year)
+    imported_at     DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (ref_year, country_code, indicator_code, source)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -496,6 +511,7 @@ class ClickHouseImporter:
             _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
+            _DDL_MACRO_INDICATORS,
         ):
             self._client.command(ddl)
         # Column migrations (idempotent — ADD COLUMN IF NOT EXISTS)
@@ -974,6 +990,39 @@ class ClickHouseImporter:
                           "reserves_tonnes", "source"],
             settings={"max_partitions_per_insert_block": 300},
         )
+        return len(rows)
+
+    # ── Bulk insert: macro_indicators ─────────────────────────────────────────
+
+    def insert_macro_indicators(self, rows: list[dict[str, Any]]) -> int:
+        """
+        Insert macro indicator rows into market_data.macro_indicators.
+
+        Each dict must have keys:
+            ref_year (int), country_code, indicator_code, indicator_name,
+            value (float), source, is_forecast (int 0|1)
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        self._client.insert(
+            "market_data.macro_indicators",
+            [[
+                int(r["ref_year"]),
+                r["country_code"],
+                r["indicator_code"],
+                r["indicator_name"],
+                float(r["value"]),
+                r["source"],
+                int(r.get("is_forecast", 0)),
+            ] for r in rows],
+            column_names=[
+                "ref_year", "country_code", "indicator_code",
+                "indicator_name", "value", "source", "is_forecast",
+            ],
+        )
+        logger.info("Inserted %d macro indicator rows", len(rows))
         return len(rows)
 
     # ── Bulk insert: etf_aum ─────────────────────────────────────────────────

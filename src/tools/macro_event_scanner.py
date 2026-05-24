@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -359,6 +359,24 @@ class MacroEvent:
 
 
 @dataclass
+class MacroFundamentals:
+    """
+    Annual macro indicators for India from World Bank WDI / IMF WEO,
+    read from market_data.macro_indicators in ClickHouse.
+    All fields None if the table is not yet populated or DB is unreachable.
+    Populate with: mosaic import --category world_bank,imf_weo
+    """
+    gdp_growth_pct:     float | None = None  # India real GDP growth % (latest WB actual)
+    cpi_pct:            float | None = None  # India CPI inflation % (latest WB actual)
+    ca_balance_pct:     float | None = None  # Current account balance (% of GDP)
+    fiscal_balance_pct: float | None = None  # Net govt lending/borrowing (% of GDP)
+    gdp_forecast_pct:   float | None = None  # IMF WEO nearest future-year GDP growth
+    cpi_forecast_pct:   float | None = None  # IMF WEO nearest future-year CPI
+    actual_year:        int | None   = None  # Year of the latest actual data
+    forecast_year:      int | None   = None  # Year of the IMF forecast
+
+
+@dataclass
 class QuantOverlay:
     """Live quantitative context fetched from ClickHouse — validates / grounds news signals."""
     fii_net_5d_cr: float | None = None       # 5-day FII net flow (₹ Cr) — positive = buying
@@ -368,6 +386,7 @@ class QuantOverlay:
     goldbees_5d_logret_pct: float | None = None
     garch_vol_pct: float | None = None       # annualised GARCH vol for GOLDBEES
     data_as_of: str | None = None
+    macro_fundamentals: MacroFundamentals = field(default_factory=MacroFundamentals)
 
 
 @dataclass
@@ -377,6 +396,176 @@ class MacroReport:
     themes_detected: list[str] = field(default_factory=list)
     etf_net_signal: dict[str, int] = field(default_factory=dict)   # aggregated across all events
     quant: QuantOverlay = field(default_factory=QuantOverlay)
+
+
+# ── Macro fundamentals from ClickHouse ───────────────────────────────────────
+
+def _is_macro_stale(mf: MacroFundamentals) -> bool:
+    """
+    Return True if the stored macro fundamentals need a refresh.
+
+    Staleness criteria (any one triggers auto-import):
+    - Table is empty (actual_year is None)
+    - Latest actual is older than current_year − 2  (World Bank has ~12mo lag,
+      so current_year − 1 is normal; current_year − 2 means genuinely stale)
+    - No IMF WEO forecast exists for the current year or ahead
+    """
+    current_year = date.today().year
+    if mf.actual_year is None:
+        return True
+    if mf.actual_year < current_year - 2:
+        return True
+    if mf.forecast_year is None or mf.forecast_year < current_year:
+        return True
+    return False
+
+
+def _auto_import_macro() -> None:
+    """
+    Fetch fresh World Bank WDI + IMF WEO data and insert into ClickHouse.
+    Called automatically by _fetch_macro_fundamentals() when data is stale.
+    Bypasses the full CLI orchestrator — uses fetchers + ClickHouseImporter directly.
+    """
+    current_year = date.today().year
+    log.info(
+        "Macro fundamentals stale — auto-importing world_bank + imf_weo "
+        "(this may take ~15s for first run)…"
+    )
+    try:
+        from config.settings import settings
+        from src.importer.clickhouse import ClickHouseImporter
+        from src.importer.fetchers.worldbank_macro_fetcher import fetch_worldbank_macro
+        from src.importer.fetchers.imf_weo_fetcher import fetch_imf_weo
+
+        ch = ClickHouseImporter(
+            host     = settings.clickhouse_host,
+            port     = settings.clickhouse_port,
+            database = settings.clickhouse_database,
+            username = settings.clickhouse_user,
+            password = settings.clickhouse_password,
+        )
+        ch.ensure_schema()
+
+        wb_rows = fetch_worldbank_macro(from_year=2000, to_year=current_year)
+        if wb_rows:
+            ch.insert_macro_indicators(wb_rows)
+            ch.set_watermark(
+                "world_bank", "MACRO_GROUP",
+                date(max(int(r["ref_year"]) for r in wb_rows), 12, 31),
+            )
+            log.info("Auto-imported %d World Bank macro rows", len(wb_rows))
+        else:
+            log.warning("World Bank API returned no rows during auto-import")
+
+        imf_rows = fetch_imf_weo(from_year=2000, to_year=current_year + 3)
+        if imf_rows:
+            ch.insert_macro_indicators(imf_rows)
+            actual_imf = [r for r in imf_rows if not r.get("is_forecast", 0)]
+            if actual_imf:
+                ch.set_watermark(
+                    "imf_weo", "MACRO_GROUP",
+                    date(max(int(r["ref_year"]) for r in actual_imf), 12, 31),
+                )
+            log.info("Auto-imported %d IMF WEO rows", len(imf_rows))
+        else:
+            log.warning("IMF WEO API returned no rows during auto-import")
+
+    except Exception as exc:
+        log.warning("Auto-import of macro fundamentals failed: %s", exc)
+
+
+def _fetch_macro_fundamentals() -> MacroFundamentals:
+    """
+    Read latest India annual macro indicators from market_data.macro_indicators.
+    If the data is stale (empty table, data too old, or no IMF forecasts for
+    the current year), automatically triggers a World Bank + IMF WEO import
+    before re-querying.
+    Returns empty MacroFundamentals if DB is unreachable.
+    """
+    try:
+        from src.db.pool import get_pool as _get_ch_pool
+        _pool = _get_ch_pool()
+        current_year = date.today().year
+
+        def _query() -> MacroFundamentals:
+            with _pool.acquire() as cl:
+                df = cl.query_df("""
+                    SELECT indicator_code, ref_year, value, source, is_forecast
+                    FROM market_data.macro_indicators FINAL
+                    WHERE country_code = 'IN'
+                      AND indicator_code IN (
+                          'NY.GDP.MKTP.KD.ZG', 'FP.CPI.TOTL.ZG',
+                          'BN.CAB.XOKA.GD.ZS', 'GGXCNL_NGDP',
+                          'NGDP_RPCH', 'PCPIPCH', 'BCA_NGDPDZ'
+                      )
+                    ORDER BY ref_year DESC
+                    LIMIT 200
+                """)
+
+            if df.empty:
+                return MacroFundamentals()
+
+            actuals   = df[df["is_forecast"] == 0]
+            forecasts = df[df["is_forecast"] == 1]
+
+            def _latest_actual(codes: list[str]) -> tuple[float | None, int | None]:
+                sub = actuals[actuals["indicator_code"].isin(codes)]
+                if sub.empty:
+                    return None, None
+                row = sub.sort_values("ref_year", ascending=False).iloc[0]
+                return float(row["value"]), int(row["ref_year"])
+
+            def _nearest_forecast(codes: list[str]) -> tuple[float | None, int | None]:
+                sub = forecasts[
+                    forecasts["indicator_code"].isin(codes) &
+                    (forecasts["ref_year"] >= current_year)
+                ]
+                if sub.empty:
+                    return None, None
+                row = sub.sort_values("ref_year").iloc[0]
+                return float(row["value"]), int(row["ref_year"])
+
+            gdp_val,   actual_yr = _latest_actual(["NY.GDP.MKTP.KD.ZG", "NGDP_RPCH"])
+            cpi_val,   _         = _latest_actual(["FP.CPI.TOTL.ZG", "PCPIPCH"])
+            ca_val,    _         = _latest_actual(["BN.CAB.XOKA.GD.ZS", "BCA_NGDPDZ"])
+            fis_val,   _         = _latest_actual(["GGXCNL_NGDP"])
+            gdp_fcast, fcast_yr  = _nearest_forecast(["NGDP_RPCH"])
+            cpi_fcast, _         = _nearest_forecast(["PCPIPCH"])
+
+            return MacroFundamentals(
+                gdp_growth_pct     = round(gdp_val,   2) if gdp_val   is not None else None,
+                cpi_pct            = round(cpi_val,   2) if cpi_val   is not None else None,
+                ca_balance_pct     = round(ca_val,    2) if ca_val    is not None else None,
+                fiscal_balance_pct = round(fis_val,   2) if fis_val   is not None else None,
+                gdp_forecast_pct   = round(gdp_fcast, 2) if gdp_fcast is not None else None,
+                cpi_forecast_pct   = round(cpi_fcast, 2) if cpi_fcast is not None else None,
+                actual_year        = actual_yr,
+                forecast_year      = fcast_yr,
+            )
+
+        # First query attempt — table may not exist yet on a fresh install.
+        # Treat any DB error the same as an empty result (stale) so auto-import fires.
+        try:
+            mf = _query()
+        except Exception as exc:
+            log.info("macro_indicators table missing or unreadable (%s) — will auto-import", exc)
+            mf = MacroFundamentals()
+
+        if _is_macro_stale(mf):
+            log.info(
+                "Macro fundamentals stale (actual_year=%s, forecast_year=%s) — refreshing…",
+                mf.actual_year, mf.forecast_year,
+            )
+            _auto_import_macro()
+            try:
+                mf = _query()
+            except Exception as exc:
+                log.warning("Second macro query failed after auto-import: %s", exc)
+
+        return mf
+    except Exception as exc:
+        log.warning("MacroFundamentals fetch failed: %s", exc)
+        return MacroFundamentals()
 
 
 # ── Quant overlay from ClickHouse ─────────────────────────────────────────────
@@ -433,13 +622,15 @@ def _fetch_quant_overlay() -> QuantOverlay:
             except Exception:
                 return None
 
-        with ThreadPoolExecutor(max_workers=3) as ex:
+        with ThreadPoolExecutor(max_workers=4) as ex:
             f_fii    = ex.submit(_fii)
             f_prices = ex.submit(_prices)
             f_garch  = ex.submit(_garch)
+            f_macro  = ex.submit(_fetch_macro_fundamentals)
             fii_df        = f_fii.result()
             price_df      = f_prices.result()
             garch_vol_raw = f_garch.result()
+            macro_funds   = f_macro.result()
 
         fii_net = float(fii_df["fii_net_5d"].iloc[0]) if not fii_df.empty else None
         dii_net = float(fii_df["dii_net_5d"].iloc[0]) if not fii_df.empty else None
@@ -468,6 +659,7 @@ def _fetch_quant_overlay() -> QuantOverlay:
             goldbees_5d_logret_pct = ret5d,
             garch_vol_pct          = garch_vol,
             data_as_of             = data_date,
+            macro_fundamentals     = macro_funds,
         )
     except Exception as exc:
         log.debug("Quant overlay unavailable: %s", exc)
@@ -517,9 +709,15 @@ def _yf_news_fetch(symbol: str, max_results: int = 5) -> list[dict]:
 
 # ── Main scanner ──────────────────────────────────────────────────────────────
 
-def scan_macro_events(max_per_theme: int = 4) -> MacroReport:
+def scan_macro_events(max_per_theme: int = 4, progress_cb=None) -> MacroReport:
     """
     Fetch and classify macro/geopolitical events, map to ETF impact.
+
+    Parameters
+    ----------
+    max_per_theme : max articles to keep per theme
+    progress_cb   : optional callable(step: str) called at each major stage
+                    (fires from worker threads — must be thread-safe)
 
     Returns MacroReport with per-event impact maps, an aggregated
     net ETF signal (sum of all event directions per ETF), and a
@@ -534,16 +732,18 @@ def scan_macro_events(max_per_theme: int = 4) -> MacroReport:
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    def _cb(msg: str) -> None:
+        if progress_cb:
+            try:
+                progress_cb(msg)
+            except Exception:
+                pass
+
     report = MacroReport(as_of=datetime.now().strftime("%Y-%m-%d %H:%M IST"))
 
     # ── Build all fetch tasks up-front ────────────────────────────────────────
-    # Task: (tag, callable) where tag identifies which theme(s) get the result.
-    # GNews tasks: one per (theme, query) pair — always theme-specific.
-    # YF tasks:   deduplicated across themes; results fan-out to all themes that
-    #             list that symbol.
-
-    gnews_tasks: list[tuple[str, str]] = []           # (theme_name, query)
-    yf_sym_to_themes: dict[str, list[str]] = {}       # sym → [theme_name, ...]
+    gnews_tasks: list[tuple[str, str]] = []
+    yf_sym_to_themes: dict[str, list[str]] = {}
 
     for theme_def in MACRO_THEMES:
         tname = theme_def["theme"]
@@ -552,21 +752,27 @@ def scan_macro_events(max_per_theme: int = 4) -> MacroReport:
         for sym in theme_def.get("yf_symbols", []):
             yf_sym_to_themes.setdefault(sym, []).append(tname)
 
-    # Result buckets: theme_name → list of raw article dicts
     theme_raw: dict[str, list[dict]] = {t["theme"]: [] for t in MACRO_THEMES}
+    total_tasks = len(gnews_tasks) + len(yf_sym_to_themes)
+    completed   = 0
 
     def _gnews_task(theme_name: str, query: str):
-        return "gnews", theme_name, _gnews_fetch(query, max_results=max_per_theme)
+        articles = _gnews_fetch(query, max_results=max_per_theme)
+        _cb(f"📰 GNews — {theme_name[:30]}")
+        return "gnews", theme_name, articles
 
     def _yf_task(sym: str):
-        return "yf", sym, _yf_news_fetch(sym, max_results=max_per_theme)
+        articles = _yf_news_fetch(sym, max_results=max_per_theme)
+        _cb(f"📈 Yahoo Finance — {sym}")
+        return "yf", sym, articles
 
-    # Fire quant overlay concurrently with the news fetches
-    max_workers = min(32, len(gnews_tasks) + len(yf_sym_to_themes) + 1)
+    _cb(f"🔍 Scanning {len(MACRO_THEMES)} macro themes via GNews + Yahoo Finance…")
+
+    max_workers = min(32, total_tasks + 1)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
 
-        # Quant overlay runs in the same pool — no extra latency
+        _cb("📐 Fetching quant overlay (FII flows, GOLDBEES, macro fundamentals)…")
         f_quant = executor.submit(_fetch_quant_overlay)
 
         for tname, q in gnews_tasks:
@@ -577,6 +783,7 @@ def scan_macro_events(max_per_theme: int = 4) -> MacroReport:
         for fut in as_completed(futures):
             try:
                 result = fut.result()
+                completed += 1
                 if result[0] == "gnews":
                     _, theme_name, articles = result
                     theme_raw[theme_name].extend(articles)
@@ -587,6 +794,7 @@ def scan_macro_events(max_per_theme: int = 4) -> MacroReport:
             except Exception as exc:
                 log.debug("Fetch task failed: %s", exc)
 
+        _cb("⚙️  Scoring articles and mapping ETF impact…")
         report.quant = f_quant.result()
 
     # ── Score and assemble per-theme ──────────────────────────────────────────
@@ -646,6 +854,10 @@ def scan_macro_events(max_per_theme: int = 4) -> MacroReport:
     log.info(
         "Macro scan: %d events across %d themes",
         len(report.events), len(report.themes_detected),
+    )
+    _cb(
+        f"✅ Scan complete — {len(report.events)} events across "
+        f"{len(report.themes_detected)} themes"
     )
     return report
 
@@ -785,6 +997,36 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
             lines.append(
                 f"  FII 5d net [{fii_col}]{q.fii_net_5d_cr:+,.0f} Cr[/{fii_col}]{dii_str}"
             )
+
+        # ── Macro Fundamentals (World Bank / IMF WEO) ─────────────────────────
+        mf = q.macro_fundamentals
+        if mf.gdp_growth_pct is not None or mf.gdp_forecast_pct is not None:
+            yr_label = f" ({mf.actual_year})" if mf.actual_year else ""
+            gdp_col  = "green" if (mf.gdp_growth_pct or 0) >= 6.0 else "red"
+            cpi_col  = "green" if (mf.cpi_pct or 99) <= 5.0 else "yellow"
+            ca_col   = "green" if (mf.ca_balance_pct or 0) >= -2.0 else "red"
+
+            parts: list[str] = []
+            if mf.gdp_growth_pct is not None:
+                parts.append(f"GDP [{gdp_col}]{mf.gdp_growth_pct:+.1f}%{yr_label}[/{gdp_col}]")
+            if mf.cpi_pct is not None:
+                parts.append(f"CPI [{cpi_col}]{mf.cpi_pct:+.1f}%[/{cpi_col}]")
+            if mf.ca_balance_pct is not None:
+                parts.append(f"CA [{ca_col}]{mf.ca_balance_pct:+.1f}% GDP[/{ca_col}]")
+            if mf.fiscal_balance_pct is not None:
+                fis_col = "green" if mf.fiscal_balance_pct >= -4.5 else "red"
+                parts.append(f"Fiscal [{fis_col}]{mf.fiscal_balance_pct:+.1f}% GDP[/{fis_col}]")
+            lines.append("  India Macro  " + "  ".join(parts))
+
+            fcast_parts: list[str] = []
+            if mf.gdp_forecast_pct is not None:
+                fcast_parts.append(f"GDP {mf.gdp_forecast_pct:+.1f}%")
+            if mf.cpi_forecast_pct is not None:
+                fcast_parts.append(f"CPI {mf.cpi_forecast_pct:+.1f}%")
+            if fcast_parts and mf.forecast_year:
+                lines.append(
+                    f"  IMF {mf.forecast_year} forecast  " + "  ".join(fcast_parts)
+                )
 
         if lines:
             console.print(Panel(

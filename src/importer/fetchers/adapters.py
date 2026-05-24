@@ -188,6 +188,83 @@ class COTGoldFetcher(Fetcher):
         return max(r["report_date"] for r in rows)
 
 
+# ── World Bank Macro Indicators ───────────────────────────────────────────────
+
+class WorldBankMacroFetcher(Fetcher):
+    """
+    Annual macro indicators for India + G4 peers from World Bank WDI API.
+    Covers: GDP growth, CPI, current account, govt debt, savings, FDI,
+    unemployment, exports.  ~12-month lag; no auth required.
+    """
+
+    source_name  = "world_bank"
+    symbol_key   = "MACRO_GROUP"
+    description  = "World Bank WDI macro indicators (India + G4 peers)"
+    overlap_days = 365  # annual data — always re-check the last full year
+
+    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        from_year = from_date.year
+        to_year   = to_date.year
+        try:
+            from src.importer.fetchers.worldbank_macro_fetcher import fetch_worldbank_macro
+            return fetch_worldbank_macro(from_year=from_year, to_year=to_year)
+        except Exception as exc:
+            log.warning("%s fetch failed: %s", self, exc)
+            return []
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_macro_indicators(rows)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("value") is not None]
+
+    def max_date(self, rows: list[dict]) -> date:
+        max_year = max(int(r["ref_year"]) for r in rows)
+        return date(max_year, 12, 31)
+
+
+# ── IMF WEO Projections ───────────────────────────────────────────────────────
+
+class IMFWEOFetcher(Fetcher):
+    """
+    IMF World Economic Outlook projections via DataMapper API.
+    Covers: GDP growth, CPI, current account, fiscal balance, unemployment.
+    Published twice yearly (Apr/Oct); includes 2–3 year forecasts.
+    No auth required.
+    """
+
+    source_name  = "imf_weo"
+    symbol_key   = "MACRO_GROUP"
+    description  = "IMF WEO projections (India + G4 peers)"
+    overlap_days = 180  # semi-annual release — overlap half a year
+
+    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        from_year = from_date.year
+        # Extend to_year by 3 to capture WEO forecasts (published for 3 years ahead)
+        to_year = to_date.year + 3
+        try:
+            from src.importer.fetchers.imf_weo_fetcher import fetch_imf_weo
+            return fetch_imf_weo(from_year=from_year, to_year=to_year)
+        except Exception as exc:
+            log.warning("%s fetch failed: %s", self, exc)
+            return []
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_macro_indicators(rows)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("value") is not None]
+
+    def max_date(self, rows: list[dict]) -> date:
+        # Use only actuals (is_forecast=0) for the watermark
+        actual_rows = [r for r in rows if not r.get("is_forecast", 0)]
+        if actual_rows:
+            max_year = max(int(r["ref_year"]) for r in actual_rows)
+        else:
+            max_year = max(int(r["ref_year"]) for r in rows)
+        return date(max_year, 12, 31)
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 # Maps CLI category name → Fetcher instance.
 # The orchestrator loops over this — adding a new source = one line here.
@@ -207,6 +284,8 @@ def _build_registry() -> dict[str, Fetcher]:
     registry["fii_dii"] = FIIDIIFetcher()
     registry["fx_rates"] = FXRatesFetcher()
     registry["cot"]     = COTGoldFetcher()
+    registry["world_bank"] = WorldBankMacroFetcher()
+    registry["imf_weo"]    = IMFWEOFetcher()
     return registry
 
 

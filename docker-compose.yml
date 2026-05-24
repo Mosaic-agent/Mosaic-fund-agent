@@ -36,10 +36,13 @@ services:
     volumes:
       - ./src:/app/src
       - ./config:/app/config
-      - ./output:/app/output
       - ./tests:/app/tests
+      - mosaic-output:/app/output   # named volume — persists inside Docker
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -53,23 +56,27 @@ services:
     env_file: .env
 
     environment:
-      # Suppress webbrowser.open() — the HTML file is still generated and
-      # accessible on the host via the ./output volume mount below.
+      # Suppress webbrowser.open() — the HTML file is still generated inside
+      # the mosaic-output named volume at /app/output.
       NO_BROWSER: "1"
-      # Reports + disk cache both live inside ./output (cache at ./output/.cache/)
+      # Reports + disk cache + LLM cache all live inside the named volume.
       OUTPUT_DIR: /app/output
       # Connect to the ClickHouse service defined above
       CLICKHOUSE_HOST: clickhouse
 
     volumes:
-      # Persist JSON reports and the HTML dashboard on the host filesystem.
-      # The disk cache (output/.cache/) is included automatically.
-      - ./output:/app/output
+      # Named volume — all output (reports, ML cache, LLM cache) lives inside
+      # Docker.  Use `docker compose cp` or `docker run --rm -v mosaic-output:/data`
+      # to inspect or extract files when needed.
+      - mosaic-output:/app/output
       - ./src:/app/src
       - ./config:/app/config
       - ./tests:/app/tests
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -110,3 +117,4 @@ services:
 volumes:
   clickhouse-data:
   clickhouse-backups:
+  mosaic-output:    # reports, ML model cache, LLM response cache

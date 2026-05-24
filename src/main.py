@@ -203,6 +203,31 @@ def ask(
 
 
 @app.command()
+def chat() -> None:
+    """
+    Start an interactive multi-turn chat session with the Mosaic-fund-agent.
+
+    Features:
+      - Infinite prompt loop (exit with 'quit' or Ctrl-C)
+      - In-session conversation memory (resets on exit)
+      - Intent-based sub-agent routing: deepdive / signals / macro / main
+      - Slash commands: /analyze, /signals, /deepdive TICKER, /macro, /clear, /help
+
+    Examples:
+      ./mosaic.sh                     — default: starts this chat
+      ./mosaic.sh chat                — explicit
+      /analyze --max 3               — run portfolio analysis inside chat
+      /deepdive ADSK                 — US stock SEC deep-dive
+      deep-dives adsk                — auto-routes to DeepDive sub-agent
+    """
+    _setup_logging()
+    if not _check_config():
+        raise typer.Exit(code=1)
+    from src.commands.chat_cmd import run_chat_loop
+    run_chat_loop(console)
+
+
+@app.command()
 def config() -> None:
     """
     Display current non-sensitive configuration settings.
@@ -781,6 +806,7 @@ def import_data(
             "stocks, etfs, commodities, indices, mf, inav, nse_eod, "
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, "
             "earnings, insider, valuation, "
+            "world_bank, imf_weo, "
             "icici, nippon, icici-index, all. "
             "Default: all."
         ),
@@ -875,9 +901,26 @@ def macro_scan(
     """
     _setup_logging()
 
+    from rich.live import Live
+    from rich.spinner import Spinner
+    from rich.text import Text
     from src.tools.macro_event_scanner import scan_macro_events, print_macro_report
 
-    report = scan_macro_events(max_per_theme=max_per_theme)
+    status = {"msg": "Initialising macro scanner…"}
+
+    def _cb(msg: str) -> None:
+        status["msg"] = msg
+
+    def _render():
+        return Text.assemble(Spinner("dots").render(0), " ", status["msg"])
+
+    with Live(_render(), refresh_per_second=8, console=console) as live:
+        def _live_cb(msg: str) -> None:
+            status["msg"] = msg
+            live.update(Text.assemble("⠿ ", ("  " + msg, "cyan")))
+
+        report = scan_macro_events(max_per_theme=max_per_theme, progress_cb=_live_cb)
+
     print_macro_report(report, max_per_theme=max_per_theme)
 
     if save:
@@ -905,13 +948,19 @@ def cmd_macro_themes(
     if not _check_config():
         raise typer.Exit(code=1)
 
+    from rich.live import Live
+    from rich.text import Text
     from src.scripts.market.macro_theme_agent import run_macro_theme_agent, print_macro_theme_report
 
-    report = run_macro_theme_agent(max_per_theme=max)
+    with Live("", refresh_per_second=8, console=console) as live:
+        def _cb(msg: str) -> None:
+            live.update(Text.assemble("⠿ ", ("  " + msg, "cyan")))
+
+        report = run_macro_theme_agent(max_per_theme=max, progress_cb=_cb)
+
     if json_out:
         import json
         from dataclasses import asdict
-
         typer.echo(json.dumps(asdict(report), indent=2))
     else:
         print_macro_theme_report(report)

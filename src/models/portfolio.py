@@ -191,6 +191,14 @@ class AssetAnalysis(BaseModel):
         default=None,
         description="30-day historic iNAV from AMFI + Yahoo Finance. Includes sparkline, trend, avg P/D. None for stocks.",
     )
+    deepdive_data: dict | None = Field(
+        default=None,
+        description=(
+            "Structured deep-dive data from ClickHouse (US stocks only). "
+            "Keys: report_date (str), age_days (int), financials (list of annual P&L dicts), "
+            "valuation (ValuationSnapshot dict), segments (list of SegmentRevenue dicts)."
+        ),
+    )
 
     # GARCH-based position sizing
     risk_decision: dict | None = Field(

@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, _ROOT)
 
 try:
-    from tools.macro_event_scanner import scan_macro_events, MacroEvent, MacroReport
+    from tools.macro_event_scanner import scan_macro_events, MacroEvent, MacroReport, MacroFundamentals
 except ImportError as e:
     print(f"Error importing project modules: {e}")
     sys.exit(1)
@@ -94,6 +94,7 @@ class MacroThemeReport:
     net_etf_signal: dict[str, int] = field(default_factory=dict)
     conflicts: list[str] = field(default_factory=list)
     quant: Optional[QuantContext] = None
+    macro_fundamentals: Optional[Any] = None   # MacroFundamentals from WB/IMF
 
 # ── Logic ────────────────────────────────────────────────────────────────────
 
@@ -170,8 +171,8 @@ def _resolve_direction(bias: str, pos_n: int, neg_n: int, bullish_etfs: list[str
 
     return "MIXED", [], [], "Undefined impact"
 
-def _quant_assessment(theme: str, direction: str, quant: QuantContext):
-    """Adjust conviction based on market data."""
+def _quant_assessment(theme: str, direction: str, quant: QuantContext, mf=None):
+    """Adjust conviction based on market data and macro fundamentals."""
     confirms, conflicts = [], []
     adj = 0
 
@@ -200,7 +201,16 @@ def _quant_assessment(theme: str, direction: str, quant: QuantContext):
             conflicts.append(f"Yields Rising ({quant.us10y_5d_chg:+.2f} pts)")
             adj -= 6
 
-    # India Macro
+        # High inflation = real-return erosion → gold bid confirmed
+        if mf and mf.cpi_pct is not None:
+            if mf.cpi_pct > 6.0:
+                confirms.append(f"Elevated CPI {mf.cpi_pct:.1f}% (gold inflation hedge)")
+                adj += 8
+            elif mf.cpi_pct > 5.0:
+                confirms.append(f"Rising CPI {mf.cpi_pct:.1f}%")
+                adj += 4
+
+    # India Macro — use World Bank/IMF fundamentals as the primary signal
     if theme == "India Macro (GDP / Budget / Policy)":
         if quant.vix_now and quant.vix_now < _VIX_RISK_OFF:
             confirms.append("Stable global backdrop")
@@ -209,9 +219,64 @@ def _quant_assessment(theme: str, direction: str, quant: QuantContext):
             conflicts.append("High global volatility")
             adj -= 8
 
+        if mf:
+            if mf.gdp_growth_pct is not None:
+                if mf.gdp_growth_pct >= 7.0:
+                    confirms.append(f"GDP +{mf.gdp_growth_pct:.1f}% (strong, above 7%)")
+                    adj += 15
+                elif mf.gdp_growth_pct >= 6.0:
+                    confirms.append(f"GDP +{mf.gdp_growth_pct:.1f}% (solid, 6–7% range)")
+                    adj += 8
+                elif mf.gdp_growth_pct < 5.5:
+                    conflicts.append(f"GDP +{mf.gdp_growth_pct:.1f}% (below trend — headwind)")
+                    adj -= 10
+
+            if mf.gdp_forecast_pct is not None:
+                yr = mf.forecast_year or "fwd"
+                if mf.gdp_forecast_pct >= 6.5:
+                    confirms.append(f"IMF {yr} GDP forecast +{mf.gdp_forecast_pct:.1f}%")
+                    adj += 5
+                elif mf.gdp_forecast_pct < 5.5:
+                    conflicts.append(f"IMF {yr} GDP forecast +{mf.gdp_forecast_pct:.1f}% (weak outlook)")
+                    adj -= 8
+
+            if mf.cpi_pct is not None:
+                if mf.cpi_pct > 6.0:
+                    conflicts.append(f"CPI {mf.cpi_pct:.1f}% — stagflation risk, RBI constrained")
+                    adj -= 10
+                elif mf.cpi_pct > 5.0:
+                    conflicts.append(f"CPI {mf.cpi_pct:.1f}% above RBI target")
+                    adj -= 5
+                elif mf.cpi_pct <= 4.5:
+                    confirms.append(f"CPI {mf.cpi_pct:.1f}% — within RBI comfort zone")
+                    adj += 5
+
+            if mf.ca_balance_pct is not None and mf.ca_balance_pct < -3.0:
+                conflicts.append(
+                    f"CA deficit {mf.ca_balance_pct:.1f}% GDP — INR/import pressure"
+                )
+                adj -= 8
+
+            if mf.fiscal_balance_pct is not None and mf.fiscal_balance_pct < -5.5:
+                conflicts.append(
+                    f"Fiscal deficit {mf.fiscal_balance_pct:.1f}% GDP — crowding-out risk"
+                )
+                adj -= 5
+
+    # Central Bank Policy — CPI informs rate-cut probability
+    if theme == "Central Bank Policy (Fed / RBI)" and mf:
+        if mf.cpi_forecast_pct is not None:
+            yr = mf.forecast_year or "fwd"
+            if mf.cpi_forecast_pct <= 4.5:
+                confirms.append(f"IMF {yr} CPI forecast {mf.cpi_forecast_pct:.1f}% → rate-cut room")
+                adj += 5
+            elif mf.cpi_forecast_pct > 5.5:
+                conflicts.append(f"IMF {yr} CPI forecast {mf.cpi_forecast_pct:.1f}% → sticky inflation")
+                adj -= 5
+
     return confirms, conflicts, adj
 
-def _classify_theme(theme_name: str, events: list[MacroEvent], quant: QuantContext) -> ThemeStance:
+def _classify_theme(theme_name: str, events: list[MacroEvent], quant: QuantContext, mf=None) -> ThemeStance:
     icon = events[0].icon
     bias = _THEME_BIAS.get(theme_name, "SENTIMENT_DRIVEN")
     
@@ -234,8 +299,8 @@ def _classify_theme(theme_name: str, events: list[MacroEvent], quant: QuantConte
     base_score = min(30, total * 10)
     tier_bonus = {"HIGH": 30, "MEDIUM": 20, "LOW": 10}.get(events[0].conviction, 10)
     
-    # Quant overlay
-    confirms, conflicts, adj = _quant_assessment(theme_name, direction, quant)
+    # Quant overlay (market data + WB/IMF fundamentals)
+    confirms, conflicts, adj = _quant_assessment(theme_name, direction, quant, mf)
     
     score = max(0, min(100, base_score + tier_bonus + adj))
     
@@ -283,10 +348,23 @@ def _detect_conflicts(long_themes: list[ThemeStance], short_themes: list[ThemeSt
 
 # ── Runner ───────────────────────────────────────────────────────────────────
 
-def run_macro_theme_agent(max_per_theme: int = 4) -> MacroThemeReport:
+def run_macro_theme_agent(max_per_theme: int = 4, progress_cb=None) -> MacroThemeReport:
     """Run scanner and classify themes into tradeable stances."""
-    report = scan_macro_events(max_per_theme=max_per_theme)
-    quant = _fetch_quant_context()
+    def _cb(msg: str) -> None:
+        if progress_cb:
+            try:
+                progress_cb(msg)
+            except Exception:
+                pass
+
+    _cb("🚀 Starting macro theme agent…")
+    report = scan_macro_events(max_per_theme=max_per_theme, progress_cb=progress_cb)
+    _cb("📊 Fetching DXY / US10Y / VIX context…")
+    quant  = _fetch_quant_context()
+
+    # MacroFundamentals from World Bank / IMF WEO (auto-imported if stale)
+    mf = report.quant.macro_fundamentals
+    _cb("🧠 Classifying themes + scoring conviction…")
     
     by_theme = defaultdict(list)
     for ev in report.events:
@@ -294,12 +372,12 @@ def run_macro_theme_agent(max_per_theme: int = 4) -> MacroThemeReport:
     
     stances = []
     for theme_name, events in by_theme.items():
-        stances.append(_classify_theme(theme_name, events, quant))
+        stances.append(_classify_theme(theme_name, events, quant, mf))
     
     # Sort by conviction score
     stances.sort(key=lambda s: -s.conviction_score)
     
-    long_themes = [s for s in stances if s.direction == "LONG"]
+    long_themes  = [s for s in stances if s.direction == "LONG"]
     short_themes = [s for s in stances if s.direction == "SHORT"]
     mixed_themes = [s for s in stances if s.direction == "MIXED"]
     
@@ -319,8 +397,10 @@ def run_macro_theme_agent(max_per_theme: int = 4) -> MacroThemeReport:
         mixed_themes=mixed_themes,
         net_etf_signal=net_etf,
         conflicts=_detect_conflicts(long_themes, short_themes),
-        quant=quant
+        quant=quant,
+        macro_fundamentals=mf,
     )
+
 
 # ── Rich Printer ──────────────────────────────────────────────────────────────
 
@@ -394,7 +474,47 @@ def print_macro_theme_report(report: MacroThemeReport) -> None:
             tbl.add_row(etf, f"{score:+d}", f"[{color}]{action}[/{color}]", f"[{color.split()[-1]}]{bar}[/]")
         console.print(tbl)
 
-    # 4. Conflicts
+    # 4. Macro Fundamentals panel (World Bank actuals + IMF WEO forecasts)
+    mf = report.macro_fundamentals
+    if mf and (mf.gdp_growth_pct is not None or mf.gdp_forecast_pct is not None):
+        yr_label = f" ({mf.actual_year})" if mf.actual_year else ""
+        lines = []
+
+        parts: list[str] = []
+        if mf.gdp_growth_pct is not None:
+            col = "green" if mf.gdp_growth_pct >= 6.0 else "red"
+            parts.append(f"GDP [{col}]{mf.gdp_growth_pct:+.1f}%{yr_label}[/{col}]")
+        if mf.cpi_pct is not None:
+            col = "green" if mf.cpi_pct <= 5.0 else "yellow"
+            parts.append(f"CPI [{col}]{mf.cpi_pct:+.1f}%[/{col}]")
+        if mf.ca_balance_pct is not None:
+            col = "green" if mf.ca_balance_pct >= -2.0 else "red"
+            parts.append(f"CA [{col}]{mf.ca_balance_pct:+.1f}% GDP[/{col}]")
+        if mf.fiscal_balance_pct is not None:
+            col = "green" if mf.fiscal_balance_pct >= -4.5 else "red"
+            parts.append(f"Fiscal [{col}]{mf.fiscal_balance_pct:+.1f}% GDP[/{col}]")
+        if parts:
+            lines.append("  [bold]Actuals:[/bold]  " + "   ".join(parts))
+
+        fcast_parts: list[str] = []
+        if mf.gdp_forecast_pct is not None:
+            fcast_parts.append(f"GDP {mf.gdp_forecast_pct:+.1f}%")
+        if mf.cpi_forecast_pct is not None:
+            fcast_parts.append(f"CPI {mf.cpi_forecast_pct:+.1f}%")
+        if fcast_parts:
+            yr_f = mf.forecast_year or "fwd"
+            lines.append(f"  [bold]IMF {yr_f} forecast:[/bold]  " + "   ".join(fcast_parts))
+
+        if lines:
+            console.print()
+            console.print(Panel(
+                "[bold]🌐 India Macro Fundamentals — World Bank / IMF WEO[/bold]\n"
+                + "\n".join(lines),
+                border_style="blue",
+                expand=False,
+            ))
+
+    # 5. Conflicts
     if report.conflicts:
         console.print(f"\n[bold yellow]⚠️ Theme Conflicts Detected[/bold yellow]")
         for c in report.conflicts:

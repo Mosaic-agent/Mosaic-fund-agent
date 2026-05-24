@@ -46,6 +46,24 @@ class Settings(BaseSettings):
     # Leave blank to use the official OpenAI/Anthropic cloud endpoints.
     llm_base_url: str = Field(default="", description="Custom OpenAI-compatible base URL (local models)")
 
+    # [NON-SENSITIVE] Set to true to skip the local LLM entirely and use only the cloud LLM.
+    # Useful when you want to route all traffic through the cloud model (e.g. Claude Sonnet).
+    llm_local_disabled: bool = Field(default=False, description="Disable local LLM; use cloud LLM for all requests")
+
+    # ── Secondary (cloud) LLM — for long-context / reasoning-heavy queries ────
+    # Leave llm_cloud_provider blank to disable cloud routing entirely.
+    # When set, queries matching _CLOUD_NEEDED_RE automatically use this model.
+    #
+    # Examples:
+    #   LLM_CLOUD_PROVIDER=anthropic  LLM_CLOUD_MODEL=claude-3-5-haiku-20241022
+    #   LLM_CLOUD_PROVIDER=openai     LLM_CLOUD_MODEL=gpt-4o-mini
+    #
+    # [NON-SENSITIVE] Cloud provider: "openai" | "anthropic" | "" (disabled)
+    llm_cloud_provider: str = Field(default="", description="Cloud LLM provider (openai|anthropic); blank = disabled")
+    # [NON-SENSITIVE] Cloud model name
+    llm_cloud_model: str = Field(default="claude-3-5-haiku-20241022", description="Cloud LLM model name")
+    # [NON-SENSITIVE] Context window of the cloud model (tokens)
+    llm_cloud_context_window: int = Field(default=200000, description="Cloud model context window")
     # ── Zerodha Kite MCP ─────────────────────────────────────────────────────
 
     # [NON-SENSITIVE] Hosted Kite MCP endpoint – no auth needed for hosted version
@@ -94,6 +112,22 @@ class Settings(BaseSettings):
     newsapi_cache_ttl_seconds: int = Field(
         default=3600,
         description="NewsAPI response cache TTL in seconds (default 1 hour)",
+    )
+
+    # ── LLM response cache ────────────────────────────────────────────────────
+    # Caches identical prompt→response pairs in output/.cache/llm_cache.db so
+    # repeated lookups (same company, same question within the TTL window) are
+    # served from disk instead of hitting the Anthropic/OpenAI API.
+    # [NON-SENSITIVE] Set to false to disable entirely.
+    llm_cache_enabled: bool = Field(
+        default=True,
+        description="Enable SQLite LLM response cache (saves API cost on repeated queries)",
+    )
+    # [NON-SENSITIVE] How many hours to keep a cached response.
+    # 24 h is a good default — market data refreshes daily.
+    llm_cache_ttl_hours: int = Field(
+        default=24,
+        description="LLM cache TTL in hours (0 = no expiry)",
     )
 
     # [NON-SENSITIVE] Input context window of the model in tokens.

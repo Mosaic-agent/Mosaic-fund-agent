@@ -60,10 +60,11 @@ def detect_yoy_anomalies(client: Any, symbols: List[str] = None) -> List[Dict[st
         prev_year_price,
         (end_price / prev_year_price) - 1 as return_yoy
     FROM yoy_calc
-    WHERE prev_year_price > 0 
+    WHERE prev_year_price > 0
+      AND symbol NOT IN {tuple(RATE_SYMBOLS)}
       AND (
           (symbol IN {tuple(SAFE_ASSETS)} AND abs(return_yoy) > {MAX_YOY_RETURN_SAFE_ASSET})
-          OR abs(return_yoy) > 1.0  # 100% for anything else
+          OR abs(return_yoy) > 1.0  -- 100% for anything else
       )
     ORDER BY year DESC, symbol ASC
     """
@@ -107,7 +108,11 @@ def detect_daily_anomalies(client: Any, symbols: List[str] = None) -> List[Dict[
         prev_close,
         abs((close_price / prev_close) - 1) as day_move
     FROM daily_data
-    WHERE prev_close > 0 AND day_move > {MAX_DAILY_RETURN}
+    WHERE prev_close > 0
+      AND (
+          (symbol IN {tuple(HIGH_VOL_COMMODITIES)} AND day_move > {MAX_DAILY_RETURN_HIGH_VOL})
+          OR (symbol NOT IN {tuple(HIGH_VOL_COMMODITIES)} AND day_move > {MAX_DAILY_RETURN})
+      )
     ORDER BY trade_date DESC
     LIMIT 100
     """

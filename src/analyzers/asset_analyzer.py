@@ -15,6 +15,7 @@ Returns a fully populated AssetAnalysis model per holding.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 from src.models.portfolio import (
@@ -35,6 +36,68 @@ from src.utils.symbol_mapper import get_company_name
 from src.deepdive.clickhouse import DeepDiveStore
 
 logger = logging.getLogger(__name__)
+
+
+def _load_deepdive_structured(
+    ticker: str, ch_store: "DeepDiveStore"
+) -> "dict | None":
+    """
+    Load the most recent structured deep-dive data for a US ticker from ClickHouse.
+
+    Queries deepdive_watermarks for the latest imported period, then falls back
+    to deepdive_financials.  Loads financials, valuation, and segments for that
+    date.  Returns None when no data has ever been imported for the ticker.
+    """
+    if not ch_store._ready:
+        return None
+    try:
+        # Prefer watermarks — they record the date data was last fetched
+        r = ch_store._client.query(
+            "SELECT max(period) FROM market_data.deepdive_watermarks "
+            "WHERE ticker = {t:String} AND source IN ('financials', 'valuation')",
+            parameters={"t": ticker},
+        )
+        latest_date: str | None = None
+        if r.result_rows and r.result_rows[0][0]:
+            latest_date = str(r.result_rows[0][0])
+
+        # Fallback: scan the financials table directly
+        if not latest_date:
+            r2 = ch_store._client.query(
+                "SELECT toString(max(report_date)) "
+                "FROM market_data.deepdive_financials FINAL "
+                "WHERE ticker = {t:String}",
+                parameters={"t": ticker},
+            )
+            if r2.result_rows and r2.result_rows[0][0]:
+                latest_date = str(r2.result_rows[0][0])
+
+        if not latest_date:
+            return None
+
+        financials = ch_store.load_financials(ticker, latest_date)
+        valuation = ch_store.load_valuation(ticker, latest_date)
+        segments = ch_store.load_segments(ticker, latest_date)
+
+        if not financials and valuation is None and not segments:
+            return None
+
+        try:
+            report_dt = date.fromisoformat(latest_date[:10])
+            age_days = (date.today() - report_dt).days
+        except Exception:
+            age_days = 0
+
+        return {
+            "report_date": latest_date[:10],
+            "age_days": age_days,
+            "financials": financials,
+            "valuation": valuation,
+            "segments": segments,
+        }
+    except Exception as exc:
+        logger.warning("_load_deepdive_structured failed for %s: %s", ticker, exc)
+        return None
 
 
 def analyze_holding(holding: Holding) -> AssetAnalysis:
@@ -107,29 +170,28 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
         if not result.get("error"):
             historic_inav_data = result
 
-    # ── Step 4d: Deep-dive report from ClickHouse (US stocks only) ─────────────
+    # ── Step 4d: Deep-dive structured data + text report (US stocks only) ─────
+    deepdive_data: dict | None = None
     deepdive_report: str | None = None
     if exchange.upper() in ("US", "NASDAQ", "NYSE"):
         try:
             ch_store = DeepDiveStore()
-            # Try to load the most recent report from ClickHouse
-            reports = ch_store.load_report(symbol, "")  # empty date gets latest from FINAL query in store
-            if not reports:
-                # If no date specified, load_report might fail if it expects a date.
-                # Let's check most recent report_date first.
-                r = ch_store._client.query(
-                    "SELECT max(report_date) FROM market_data.deepdive_reports WHERE ticker = {t:String}",
-                    parameters={"t": symbol}
+            deepdive_data = _load_deepdive_structured(symbol, ch_store)
+            if deepdive_data:
+                # Also load the Gemini narrative report for the same resolved date
+                try:
+                    reports = ch_store.load_report(symbol, deepdive_data["report_date"])
+                    if reports and "__full__" in reports:
+                        deepdive_report = reports["__full__"]
+                        logger.info("Deep-dive text report loaded for %s", symbol)
+                except Exception:
+                    pass
+                logger.info(
+                    "Deep-dive structured data loaded for %s (date=%s, age=%dd)",
+                    symbol, deepdive_data["report_date"], deepdive_data["age_days"],
                 )
-                if r.result_rows and r.result_rows[0][0]:
-                    max_date = str(r.result_rows[0][0])
-                    reports = ch_store.load_report(symbol, max_date)
-            
-            if reports and "__full__" in reports:
-                deepdive_report = reports["__full__"]
-                logger.info("Deep-dive report found in ClickHouse for %s", symbol)
         except Exception as exc:
-            logger.warning("Failed to load deep-dive report for %s: %s", symbol, exc)
+            logger.warning("Failed to load deep-dive data for %s: %s", symbol, exc)
 
     # ── Step 5: LLM Analysis ──────────────────────────────────────────────────
     asset_payload: dict[str, Any] = {
@@ -161,6 +223,7 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
         ],
         "quarterly_result": quarterly.model_dump() if quarterly else {},
         "deepdive_report": deepdive_report,
+        "deepdive_data": deepdive_data,
     }
 
     llm_result = summarize_asset(asset_payload)
@@ -199,6 +262,7 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
         quarterly_result=quarterly,
         inav_data=inav_data,
         historic_inav_data=historic_inav_data,
+        deepdive_data=deepdive_data,
         risk_decision=risk_decision_data,
         sentiment_score=float(llm_result.get("sentiment_score", 0.0)),
         risk_score=float(llm_result.get("risk_score", 5.0)),

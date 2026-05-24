@@ -260,6 +260,94 @@ def _format_fii_dii_for_prompt(institutional_flows: dict[str, Any]) -> str:
     summary = institutional_flows.get("summary_str", "")
     return summary if summary else "FII/DII institutional flow data unavailable."
 
+
+def _format_deepdive_for_llm(deepdive_data: dict[str, Any]) -> str:
+    """Render structured deepdive ClickHouse data as a Markdown context block."""
+    lines: list[str] = []
+    report_date = deepdive_data.get("report_date", "unknown")
+    age_days = deepdive_data.get("age_days", 0)
+    lines.append(
+        f"**SEC Filing Structured Data (ClickHouse, report date: {report_date}, {age_days} days ago)**"
+    )
+
+    financials = deepdive_data.get("financials") or []
+    if financials:
+        lines.append("")
+        lines.append("**Annual Financials (USD millions)**")
+        lines.append("| FY | Revenue | Gross Margin | Op. Margin | Net Income | FCF | R&D |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for f in financials[-5:]:
+            fy  = f.get("fiscal_year", "")
+            rev = f.get("revenue_usd_m") or 0
+            gm  = f.get("gross_margin_pct") or 0
+            om  = f.get("operating_margin_pct") or 0
+            ni  = f.get("net_income_usd_m") or 0
+            fcf = f.get("free_cash_flow_usd_m") or 0
+            rd  = f.get("rd_expense_usd_m") or 0
+            lines.append(
+                f"| {fy} | ${rev:,.0f}M | {gm:.1f}% | {om:.1f}% "
+                f"| ${ni:,.0f}M | ${fcf:,.0f}M | ${rd:,.0f}M |"
+            )
+
+    val = deepdive_data.get("valuation") or {}
+    if val:
+        lines.append("")
+        lines.append("**Valuation Multiples**")
+        pe_t   = val.get("pe_trailing") or 0
+        pe_f   = val.get("pe_forward") or 0
+        ev_rev = val.get("ev_revenue") or 0
+        ev_eb  = val.get("ev_ebitda") or 0
+        fcf_y  = val.get("fcf_yield_pct") or 0
+        mktcap = val.get("market_cap_usd_b") or 0
+        lines.append(
+            f"P/E (trailing): {pe_t:.1f}x | Forward P/E: {pe_f:.1f}x | "
+            f"EV/Revenue: {ev_rev:.1f}x | EV/EBITDA: {ev_eb:.1f}x | "
+            f"FCF Yield: {fcf_y:.1f}% | Market Cap: ${mktcap:.1f}B"
+        )
+        peer_pe     = val.get("peer_pe_median") or 0
+        peer_ev_eb  = val.get("peer_ev_ebitda_median") or 0
+        peer_ev_rev = val.get("peer_ev_revenue_median") or 0
+        if peer_pe or peer_ev_eb or peer_ev_rev:
+            lines.append(
+                f"Peer medians \u2014 P/E: {peer_pe:.1f}x | EV/EBITDA: {peer_ev_eb:.1f}x "
+                f"| EV/Revenue: {peer_ev_rev:.1f}x"
+            )
+
+    segments = deepdive_data.get("segments") or []
+    if segments:
+        lines.append("")
+        lines.append("**Revenue Segments (latest fiscal year)**")
+        for s in segments[:8]:
+            name = s.get("name", "")
+            rev  = s.get("revenue_usd_m") or 0
+            yoy  = s.get("yoy_growth_pct") or 0
+            lines.append(f"- {name}: ${rev:,.0f}M ({yoy:+.1f}% YoY)")
+
+    return "\n".join(lines)
+
+
+def _build_deepdive_context(asset_data: dict[str, Any]) -> str:
+    """
+    Combine structured deepdive table data and/or the Gemini narrative report
+    into a single context block for the LLM prompt.
+    """
+    parts: list[str] = []
+
+    dd = asset_data.get("deepdive_data")
+    if dd:
+        parts.append(_format_deepdive_for_llm(dd))
+
+    text_report = asset_data.get("deepdive_report")
+    if text_report:
+        max_chars = 3000
+        excerpt = text_report[:max_chars]
+        if len(text_report) > max_chars:
+            excerpt += "\n\u2026 [report truncated]"
+        parts.append("\n**Narrative Report Excerpt**\n" + excerpt)
+
+    return "\n\n".join(parts) if parts else "No deep-dive report available for this asset."
+
+
 def summarize_asset(asset_data: dict[str, Any]) -> dict[str, Any]:
     """
     Generate AI investment insights for a single stock/ETF.
@@ -318,7 +406,7 @@ def summarize_asset(asset_data: dict[str, Any]) -> dict[str, Any]:
                 "qr_profit_yoy": qr.get("profit_yoy_pct", "N/A"),
                 "news_days": settings.news_lookback_days,
                 "news_summary": news_summary,
-                "deepdive_report": asset_data.get("deepdive_report") or "No deep-dive report available for this asset.",
+                "deepdive_report": _build_deepdive_context(asset_data),
             }
         )
         return result

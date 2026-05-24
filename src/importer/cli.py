@@ -460,6 +460,72 @@ def run_import(
                 )
             summary_rows.append(("valuation", "yfinance", inserted, str(today), str(today)))
 
+    # ── World Bank Macro Indicators ───────────────────────────────────────────
+    if "world_bank" in categories:
+        from src.importer.fetchers.worldbank_macro_fetcher import fetch_worldbank_macro
+
+        console.print("\n[bold cyan]▶ World Bank WDI — Macro Indicators[/bold cyan]")
+        console.print("  [dim]India + G4 peers · GDP growth, CPI, current account, "
+                      "govt debt, savings, FDI, unemployment, exports · annual · no auth[/dim]")
+
+        wb_wm = ch.get_watermark("world_bank", "MACRO_GROUP") if (not dry_run and not full_reimport) else None
+        wb_from_year = (wb_wm.year - 1) if wb_wm else 2000   # overlap 1 year for revisions
+        wb_rows = fetch_worldbank_macro(from_year=wb_from_year, to_year=today.year)
+
+        if not wb_rows:
+            console.print("  [yellow]⚠ No World Bank data returned — API may be unavailable.[/yellow]")
+        else:
+            inserted = ch.insert_macro_indicators(wb_rows) if not dry_run else len(wb_rows)
+            console.print(f"  [green]✓[/green] {inserted} macro indicator rows {'(dry-run)' if dry_run else 'stored'}")
+            if not dry_run:
+                max_year = max(int(r["ref_year"]) for r in wb_rows)
+                ch.set_watermark("world_bank", "MACRO_GROUP", date(max_year, 12, 31))
+            # Show latest India GDP growth as a quick sanity check
+            india_gdp = [r for r in wb_rows if r["country_code"] == "IN"
+                         and r["indicator_code"] == "NY.GDP.MKTP.KD.ZG"]
+            if india_gdp:
+                latest_gdp = sorted(india_gdp, key=lambda r: r["ref_year"])[-1]
+                console.print(
+                    f"  India GDP growth ({latest_gdp['ref_year']}): "
+                    f"{latest_gdp['value']:+.2f}%"
+                )
+            summary_rows.append(("world_bank", "world_bank", inserted,
+                                  str(wb_from_year), str(today.year)))
+
+    # ── IMF WEO Projections ───────────────────────────────────────────────────
+    if "imf_weo" in categories:
+        from src.importer.fetchers.imf_weo_fetcher import fetch_imf_weo
+
+        console.print("\n[bold cyan]▶ IMF World Economic Outlook[/bold cyan]")
+        console.print("  [dim]India + G4 peers · GDP, CPI, fiscal balance, "
+                      "current account, unemployment · annual + 3-year forecasts · no auth[/dim]")
+
+        imf_wm = ch.get_watermark("imf_weo", "MACRO_GROUP") if (not dry_run and not full_reimport) else None
+        imf_from_year = (imf_wm.year - 1) if imf_wm else 2000   # overlap 1 year for WEO revisions
+        imf_to_year   = today.year + 3                            # include forward projections
+        imf_rows = fetch_imf_weo(from_year=imf_from_year, to_year=imf_to_year)
+
+        if not imf_rows:
+            console.print("  [yellow]⚠ No IMF WEO data returned — DataMapper API may be unavailable.[/yellow]")
+        else:
+            inserted = ch.insert_macro_indicators(imf_rows) if not dry_run else len(imf_rows)
+            console.print(f"  [green]✓[/green] {inserted} WEO rows {'(dry-run)' if dry_run else 'stored'}")
+            if not dry_run:
+                actual_rows = [r for r in imf_rows if not r.get("is_forecast", 0)]
+                if actual_rows:
+                    max_actual_year = max(int(r["ref_year"]) for r in actual_rows)
+                    ch.set_watermark("imf_weo", "MACRO_GROUP", date(max_actual_year, 12, 31))
+            # Show India GDP growth forecast
+            india_gdp = [r for r in imf_rows if r["country_code"] == "IN"
+                         and r["indicator_code"] == "NGDP_RPCH"
+                         and r["ref_year"] >= today.year]
+            if india_gdp:
+                forecasts = sorted(india_gdp, key=lambda r: r["ref_year"])[:3]
+                fwd_str = "  ".join(f"{r['ref_year']}={r['value']:+.1f}%" for r in forecasts)
+                console.print(f"  India GDP forecasts: {fwd_str}")
+            summary_rows.append(("imf_weo", "imf_weo", inserted,
+                                  str(imf_from_year), str(imf_to_year)))
+
     if "fii_dii" in categories:
         from src.importer.fetchers.fii_dii_fetcher import (
             fetch_fii_dii,

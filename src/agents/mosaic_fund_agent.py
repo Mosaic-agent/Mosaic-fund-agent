@@ -112,6 +112,14 @@ AGENT_SYSTEM_PROMPT = (
     "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points."
 )
 
+# Compact system prompt for low-context local models (≤ 4k tokens, e.g. gemma4).
+# Used in direct-LLM fallback paths where the full prompt would exceed the budget.
+AGENT_SYSTEM_PROMPT_COMPACT = (
+    "You are Mosaic-fund-agent, a financial analyst for Indian equity markets (NSE/BSE). "
+    "Answer concisely using your training knowledge. "
+    "Use ₹ for Indian monetary values. Never invent figures."
+)
+
 
 # ── Mosaic Fund Agent ──────────────────────────────────────────────────────────
 
@@ -123,13 +131,24 @@ class MosaicFundAgent:
     for the main workflow, using the ReAct agent for ad-hoc queries.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, checkpointer: Any = None) -> None:
+        self._checkpointer = checkpointer
+        # Install LLM response cache globally before building the LLM instances.
+        from src.utils.llm_cache import setup_llm_cache
+        setup_llm_cache()
         try:
             self._llm = self._build_llm()
+            self._cloud_llm = self._build_cloud_llm()
+            # When local LLM is disabled, promote cloud LLM to primary so the rest
+            # of the code (ask, chat, sub-agents) works without special-casing.
+            if self._llm is None and self._cloud_llm is not None:
+                logger.info("__init__: local LLM disabled — promoting cloud LLM to primary")
+                self._llm = self._cloud_llm
             self._agent = self._build_agent()
         except Exception as exc:
             logger.warning("LLM not available (%s).", exc)
             self._llm = None
+            self._cloud_llm = None
             self._agent = None
 
     def _build_llm(self) -> Any:
@@ -143,8 +162,13 @@ class MosaicFundAgent:
           2. OpenAI cloud  — LLM_PROVIDER=openai  (default)
           3. Anthropic cloud — LLM_PROVIDER=anthropic
 
+        Returns None when LLM_LOCAL_DISABLED=true, deferring all traffic to the cloud LLM.
         [SENSITIVE] API keys are loaded from config/settings.py → .env
         """
+        if settings.llm_local_disabled:
+            logger.info("_build_llm: local LLM disabled (LLM_LOCAL_DISABLED=true) — using cloud LLM only")
+            return None
+
         provider = settings.llm_provider.lower()
 
         # ── Local / custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.) ──
@@ -185,13 +209,84 @@ class MosaicFundAgent:
             max_tokens=settings.llm_token_budget,
         )
 
+    def _build_cloud_llm(self) -> Any:
+        """
+        Build the secondary cloud LLM for long-context / reasoning-heavy queries.
+
+        Enabled only when LLM_CLOUD_PROVIDER is set in .env.
+        Returns None when disabled — all traffic stays on the local model.
+        """
+        provider = settings.llm_cloud_provider.strip().lower()
+        if not provider:
+            return None
+
+        logger.info(
+            "Cloud LLM enabled: provider=%s  model=%s  context=%dk",
+            provider, settings.llm_cloud_model, settings.llm_cloud_context_window // 1000,
+        )
+        cloud_budget = max(1024, settings.llm_cloud_context_window // 4)
+
+        if provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(
+                model=settings.llm_cloud_model,
+                api_key=settings.anthropic_api_key,
+                temperature=0,
+                max_tokens=cloud_budget,
+            )
+
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=settings.llm_cloud_model,
+            api_key=settings.openai_api_key,
+            temperature=0,
+            max_tokens=cloud_budget,
+        )
+
+    def _pick_llm(self, question: str) -> Any:
+        """
+        Return the appropriate LLM for this query.
+
+        When LLM_LOCAL_DISABLED=true the cloud LLM is always used.
+        Otherwise routes to cloud when _needs_cloud(question) matches.
+        Falls back to the local LLM for everything else.
+        """
+        if self._cloud_llm is not None:
+            if settings.llm_local_disabled:
+                return self._cloud_llm
+            from src.agents.sub_agents import _needs_cloud
+            if _needs_cloud(question):
+                logger.info("_pick_llm: routing to cloud LLM (%s)", settings.llm_cloud_model)
+                return self._cloud_llm
+        return self._llm
+
     def _build_agent(self) -> Any:
-        """Build the LangGraph ReAct agent with all tools."""
-        return create_react_agent(
+        """Build the LangGraph ReAct agent with all tools.
+
+        Skipped for low-context models (< 8000 tokens): tool schemas alone can
+        consume 2000+ tokens, causing HTTP 400 errors before the question is sent.
+        When LLM_LOCAL_DISABLED=true the cloud context window is used instead.
+        """
+        effective_window = (
+            settings.llm_cloud_context_window
+            if settings.llm_local_disabled
+            else settings.llm_context_window
+        )
+        if effective_window < 8000:
+            logger.info(
+                "_build_agent: skipping tool-calling agent (effective context_window=%d < 8000). "
+                "route_intent fallback will be used instead.",
+                effective_window,
+            )
+            return None
+        kwargs: dict[str, Any] = dict(
             model=self._llm,
             tools=ALL_TOOLS,
             prompt=AGENT_SYSTEM_PROMPT,
         )
+        if self._checkpointer is not None:
+            kwargs["checkpointer"] = self._checkpointer
+        return create_react_agent(**kwargs)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -254,11 +349,23 @@ class MosaicFundAgent:
                 try:
                     analysis = analyze_holding(holding)
                     analyses.append(analysis)
+                    dd = analysis.deepdive_data
+                    dd_suffix = (
+                        f" | DeepDive: ✓ ({dd['report_date']}, {dd['age_days']}d ago)"
+                        if dd else ""
+                    )
                     console.print(
                         f"  [green]✓[/green] {holding.tradingsymbol} "
                         f"| Sentiment: {analysis.sentiment_score:+.2f} "
                         f"| Risk: {analysis.risk_score:.0f}/10"
+                        + dd_suffix
                     )
+                    if dd and dd.get("age_days", 0) > 90:
+                        console.print(
+                            f"  [yellow]⚠ DeepDive data for {holding.tradingsymbol} is "
+                            f"{dd['age_days']}d old — run: "
+                            f"python src/main.py deepdive {holding.tradingsymbol}[/yellow]"
+                        )
                 except Exception as exc:
                     logger.error("Analysis failed for %s: %s", holding.tradingsymbol, exc)
                     console.print(f"  [red]✗[/red] {holding.tradingsymbol} – analysis failed: {exc}")
@@ -319,7 +426,7 @@ class MosaicFundAgent:
         Returns:
             Agent's text response.
         """
-        if self._agent is None:
+        if self._llm is None:
             return "Agent not available — LLM is not configured. Set LLM_PROVIDER and API key in .env."
 
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -327,17 +434,53 @@ class MosaicFundAgent:
         import re
 
         # Heuristic for weak models: if question looks like a deep-dive request, trigger it manually
-        if re.search(r"(deepdive|deepdown)", question.lower()):
-            ticker_match = re.search(r"\b([A-Z]{1,5})\b", question.upper())
-            if ticker_match:
-                ticker = ticker_match.group(1)
-                logger.info("Heuristic trigger: running deep-dive for %s", ticker)
+        if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", question.lower()):
+            name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", question, re.I)
+            raw_query  = name_match.group(1).strip() if name_match else question
+
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(raw_query)
+            logger.info("ask: deep-dive resolved %r → %s (%s)", raw_query, info["symbol"], info["market"])
+
+            if info["market"] == "India":
+                from src.agents.sub_agents import run_subagent_for
+                prompt = (
+                    f"Research {info['company_name']} ({info['symbol']}) "
+                    f"listed on {info['exchange']}. Provide a comprehensive research note."
+                )
+                try:
+                    return run_subagent_for("india_equity", prompt)
+                except Exception as exc:
+                    logger.error("Indian equity research failed: %s", exc)
+            else:
+                ticker = info["symbol"]
+                logger.info("ask: US deep-dive heuristic → %s", ticker)
                 from src.tools.skills_tools import run_deepdive_analysis
                 try:
-                    # LangChain tools are invoked via .invoke()
                     return run_deepdive_analysis.invoke({"ticker": ticker})
-                except Exception as e:
-                    logger.error("Heuristic deep-dive failed: %s", e)
+                except Exception as exc:
+                    logger.error("Heuristic deep-dive failed: %s", exc)
+
+        # Broad intent routing — catches "find info about X", "research X", etc.
+        from src.agents.sub_agents import route_intent, run_subagent_for
+        _intent = route_intent(question)
+        if _intent != "main":
+            logger.info("ask: routing to %s sub-agent via route_intent", _intent)
+            return run_subagent_for(_intent, question)
+
+        # Low-context model (e.g. gemma4 at 3k): agent was not built, go direct to LLM.
+        if self._agent is None:
+            logger.info("ask: no tool-calling agent (low context window) — direct LLM fallback")
+            try:
+                llm = self._pick_llm(question)
+                res = llm.invoke([
+                    SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                    HumanMessage(content=question),
+                ])
+                return str(res.content)
+            except Exception as exc:
+                logger.error("ask: direct LLM fallback failed: %s", exc)
+                return f"Error: {exc}"
 
         try:
             messages = [HumanMessage(content=question)]
@@ -347,24 +490,141 @@ class MosaicFundAgent:
 
             result = self._agent.invoke({"messages": messages}, config=config)
             msgs = result.get("messages", [])
-            return msgs[-1].content if msgs else "No answer generated."
+            if not msgs:
+                return "No answer generated."
+            
+            # Search from the end for the first message with text content that isn't just a tool call
+            for m in reversed(msgs):
+                # If it's an AIMessage, it might have content or tool_calls
+                content = m.content
+                if content and not (hasattr(m, "tool_calls") and m.tool_calls):
+                    if isinstance(content, list):
+                        texts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
+                        if texts:
+                            return "\n".join(texts)
+                    elif isinstance(content, str) and content.strip():
+                        return content
+            
+            # Fallback to the very last message content if no pure text message found
+            content = msgs[-1].content
+            return str(content) if content else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
             if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:
                 logger.warning("Model does not support tools. Falling back to direct LLM Q&A.")
-                if self._llm is not None:
-                    try:
-                        # Include system prompt in fallback so the model knows its identity
-                        fallback_messages = [
-                            SystemMessage(content=AGENT_SYSTEM_PROMPT),
-                            HumanMessage(content=question)
-                        ]
-                        res = self._llm.invoke(fallback_messages)
-                        return str(res.content)
-                    except Exception as fallback_exc:
-                        logger.error("Fallback LLM query failed: %s", fallback_exc)
-                        return f"Error: {fallback_exc}"
+                try:
+                    llm = self._pick_llm(question)
+                    res = llm.invoke([
+                        SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                        HumanMessage(content=question),
+                    ])
+                    return str(res.content)
+                except Exception as fallback_exc:
+                    logger.error("Fallback LLM query failed: %s", fallback_exc)
+                    return f"Error: {fallback_exc}"
             logger.error("Agent query failed: %s", exc)
+            return f"Error: {exc}"
+
+    def chat(self, question: str, thread_id: str = "default") -> str:
+        """
+        Single turn in an ongoing multi-turn conversation.
+
+        Conversation memory is maintained across calls via the LangGraph
+        checkpointer that was passed to ``__init__``.  When no checkpointer
+        was supplied the call is stateless (equivalent to ``ask()``).
+
+        Intent-based routing:
+          - deepdive keywords  → DeepDiveSubAgent
+          - signal keywords    → SignalSubAgent
+          - macro keywords     → MacroSubAgent
+          - everything else    → main agent (with memory)
+        """
+        import os
+        import re
+        from langchain_core.messages import HumanMessage
+        from src.agents.sub_agents import route_intent, get_subagent
+
+        # Deep-dive heuristic: resolve company then route India vs US
+        if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", question.lower()):
+            # Extract everything after the deepdive keyword as the query
+            name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", question, re.I)
+            raw_query  = name_match.group(1).strip() if name_match else question
+
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(raw_query)
+            logger.info(
+                "chat: deep-dive resolved %r → %s (%s)",
+                raw_query, info["symbol"], info["market"],
+            )
+
+            if info["market"] == "India":
+                # Route to Indian equity research sub-agent
+                prompt = (
+                    f"Research {info['company_name']} ({info['symbol']}) "
+                    f"listed on {info['exchange']}. Provide a comprehensive "
+                    f"research note covering financials, earnings, MF holdings, "
+                    f"cash flow, news, and FII/DII flows."
+                )
+                return get_subagent("india_equity").run(prompt)
+            else:
+                # US stock → SEC deepdive pipeline
+                ticker = info["symbol"]
+                logger.info("chat: US deep-dive heuristic → %s", ticker)
+                from src.tools.skills_tools import run_deepdive_analysis
+                try:
+                    return run_deepdive_analysis.invoke({"ticker": ticker})
+                except Exception as exc:
+                    logger.error("Deep-dive heuristic failed: %s", exc)
+
+        # Intent-based routing to sub-agents
+        intent = route_intent(question)
+        if intent != "main":
+            logger.info("chat: routing to %s sub-agent", intent)
+            from src.agents.sub_agents import run_subagent_for
+            return run_subagent_for(intent, question)
+
+        # Main agent with (optional) memory thread
+        if self._agent is None:
+            # Low-context model: no tool-calling agent — use compact direct LLM
+            logger.info("chat: no tool-calling agent (low context window) — direct LLM fallback")
+            try:
+                from langchain_core.messages import SystemMessage
+                llm = self._pick_llm(question)
+                res = llm.invoke([
+                    SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                    HumanMessage(content=question),
+                ])
+                return str(res.content)
+            except Exception as exc:
+                logger.error("chat: direct LLM fallback failed: %s", exc)
+                return f"Error: {exc}"
+
+        config: dict = {"configurable": {"thread_id": thread_id}}
+        if os.getenv("VERBOSE") == "1":
+            config["callbacks"] = [RichConsoleCallbackHandler()]
+
+        try:
+            result = self._agent.invoke(
+                {"messages": [HumanMessage(content=question)]},
+                config=config,
+            )
+            msgs = result.get("messages", [])
+            return msgs[-1].content if msgs else "No answer generated."
+        except Exception as exc:
+            err_msg = str(exc).lower()
+            if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:
+                logger.warning("chat: model doesn't support tools, falling back to direct LLM")
+                try:
+                    from langchain_core.messages import SystemMessage
+                    llm = self._pick_llm(question)
+                    res = llm.invoke([
+                        SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                        HumanMessage(content=question),
+                    ])
+                    return str(res.content)
+                except Exception as fb_exc:
+                    return f"Error: {fb_exc}"
+            logger.error("chat() failed: %s", exc)
             return f"Error: {exc}"
 
     # ── Private Helpers ───────────────────────────────────────────────────────
