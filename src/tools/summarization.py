@@ -126,6 +126,9 @@ Profit Growth YoY: {qr_profit_yoy}%
 ## Recent News (last {news_days} days)
 {news_summary}
 
+## US Deep-Dive Report (SEC Filings, XBRL, Jobs, Peers)
+{deepdive_report}
+
 ---
 Generate a JSON response with exactly this structure:
 {{
@@ -145,7 +148,8 @@ Generate a JSON response with exactly this structure:
 
 Risk score guide: 1=very low risk, 10=very high risk.
 Sentiment score guide: -1=very bearish, 0=neutral, +1=very bullish.
-Consider Indian market context: SEBI regulations, FII flows, sector cycles, promoter holding, etc.""",
+Consider market context: SEBI regulations (Indian), SEC filings (US), FII flows, sector cycles, promoter holding, etc.
+If a US Deep-Dive Report is provided, prioritize it for financial accuracy and long-term moat assessment.""",
         ),
     ]
 )
@@ -314,6 +318,7 @@ def summarize_asset(asset_data: dict[str, Any]) -> dict[str, Any]:
                 "qr_profit_yoy": qr.get("profit_yoy_pct", "N/A"),
                 "news_days": settings.news_lookback_days,
                 "news_summary": news_summary,
+                "deepdive_report": asset_data.get("deepdive_report") or "No deep-dive report available for this asset.",
             }
         )
         return result

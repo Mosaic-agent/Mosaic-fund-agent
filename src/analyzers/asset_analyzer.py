@@ -32,6 +32,7 @@ from src.tools.news_search import fetch_news_for_symbol
 from src.tools.summarization import summarize_asset
 from src.tools.yahoo_finance import fetch_price_history, fetch_yahoo_data
 from src.utils.symbol_mapper import get_company_name
+from src.deepdive.clickhouse import DeepDiveStore
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,12 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
       2. Yahoo Finance – 3-month price momentum
       3. NewsAPI – recent Indian financial news
       4. Screener.in / Yahoo – quarterly results
+      4b. iNAV for ETFs
+      4c. Deep-dive report from ClickHouse (US stocks only)
       5. LLM – investment insights, risk score, sentiment score
 
     Args:
         holding:         A Holding model from Zerodha Kite MCP.
-        use_llm_scoring: Use the LLM for scoring. False → rule-based fallback.
 
     Returns:
         AssetAnalysis with all enriched data and AI-generated scores.
@@ -105,6 +107,30 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
         if not result.get("error"):
             historic_inav_data = result
 
+    # ── Step 4d: Deep-dive report from ClickHouse (US stocks only) ─────────────
+    deepdive_report: str | None = None
+    if exchange.upper() in ("US", "NASDAQ", "NYSE"):
+        try:
+            ch_store = DeepDiveStore()
+            # Try to load the most recent report from ClickHouse
+            reports = ch_store.load_report(symbol, "")  # empty date gets latest from FINAL query in store
+            if not reports:
+                # If no date specified, load_report might fail if it expects a date.
+                # Let's check most recent report_date first.
+                r = ch_store._client.query(
+                    "SELECT max(report_date) FROM market_data.deepdive_reports WHERE ticker = {t:String}",
+                    parameters={"t": symbol}
+                )
+                if r.result_rows and r.result_rows[0][0]:
+                    max_date = str(r.result_rows[0][0])
+                    reports = ch_store.load_report(symbol, max_date)
+            
+            if reports and "__full__" in reports:
+                deepdive_report = reports["__full__"]
+                logger.info("Deep-dive report found in ClickHouse for %s", symbol)
+        except Exception as exc:
+            logger.warning("Failed to load deep-dive report for %s: %s", symbol, exc)
+
     # ── Step 5: LLM Analysis ──────────────────────────────────────────────────
     asset_payload: dict[str, Any] = {
         "symbol": symbol,
@@ -134,6 +160,7 @@ def analyze_holding(holding: Holding) -> AssetAnalysis:
             for n in news_items
         ],
         "quarterly_result": quarterly.model_dump() if quarterly else {},
+        "deepdive_report": deepdive_report,
     }
 
     llm_result = summarize_asset(asset_payload)

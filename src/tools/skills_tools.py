@@ -208,13 +208,14 @@ def query_clickhouse_db(sql_query: str) -> str:
     """
     Execute a read-only SQL query on the ClickHouse 'market_data' database.
     Use this to run custom SELECT, SHOW, DESCRIBE, or EXPLAIN queries to retrieve historical prices,
-    mutual fund holdings, flows, predictions, watermarks, or fx rates.
+    mutual fund holdings, flows, predictions, watermarks, fx rates, or US stock deep-dive data.
     
     Rules:
       - Always query tables using the 'FINAL' modifier to deduplicate rows (e.g. `market_data.mf_holdings FINAL`).
       - Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH queries are permitted.
-      - The database is 'market_data'. Tables include: daily_prices, mf_nav, mf_holdings,
-        fii_dii_flows, ml_predictions, signal_composite, inav_snapshots, fx_rates.
+      - The database is 'market_data'. Available tables include:
+        * Indian Markets: daily_prices, mf_nav, mf_holdings, fii_dii_flows, ml_predictions, signal_composite, inav_snapshots, fx_rates
+        * US Stocks Deep-Dive: deepdive_exec_comp, deepdive_filings, deepdive_financials, deepdive_headcount, deepdive_jobs, deepdive_prices, deepdive_reports, deepdive_segments, deepdive_valuation, deepdive_watermarks
     """
     clean_query = sql_query.strip()
     first_word = clean_query.split()[0].upper() if clean_query else ""
