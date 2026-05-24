@@ -46,7 +46,7 @@ from config.settings import settings
 
 app = typer.Typer(
     name="portfolio-insight",
-    help="🇮🇳 Zerodha Portfolio Intelligence Agent – powered by LangChain + Kite MCP",
+    help="🇮🇳 Mosaic-fund-agent – powered by LangChain + Kite MCP",
     add_completion=False,
 )
 console = Console()
@@ -124,7 +124,7 @@ def analyze(
 
     console.print(
         Panel(
-            "[bold]Zerodha Portfolio Intelligence Agent[/bold]\n"
+            "[bold]Mosaic-fund-agent[/bold]\n"
             "[dim]Indian Equity Market Analysis | NSE & BSE[/dim]",
             border_style="blue",
         )
@@ -176,7 +176,7 @@ def ask(
     question: str = typer.Argument(..., help="Natural language question about your portfolio."),
 ) -> None:
     """
-    Ask the portfolio agent a free-form question using ReAct reasoning.
+    Ask the Mosaic-fund-agent a free-form question using ReAct reasoning.
     (Note: This uses the most recently generated portfolio report context)
 
     Examples:
