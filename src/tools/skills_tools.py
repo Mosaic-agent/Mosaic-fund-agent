@@ -340,6 +340,34 @@ def run_fund_mom_returns(scheme_code: str | None = None, search_query: str | Non
     return _run_cmd(args)
 
 
+@tool
+def run_comex_analysis() -> str:
+    """
+    Run COMEX commodity pre-market signal analysis.
+    This fetches live spot prices from gold-api.com for Gold (XAU), Silver (XAG), Copper (HG),
+    compares against previous-day Yahoo Finance futures closes, and classifies signals.
+    Use this when asked for COMEX gold/silver/copper prices, COMEX signals, or commodity pre-market trends.
+    """
+    return _run_cmd(["src/main.py", "comex"])
+
+
+@tool
+def run_premium_alerts(lookback: int = 30, z_threshold: float = -1.5, symbols: str = "", min_snapshots: int = 5) -> str:
+    """
+    Scarcity Premium/Discount Alerts for international Indian ETFs (MAFANG, HNGSNGBEES, etc.).
+    Trades the premium created by RBI's overseas investment cap.
+    Args:
+        lookback: Days of iNAV history used to compute mean/std (default 30).
+        z_threshold: Z-score at or below which SCREAMING BUY fires (default -1.5).
+        symbols: Comma-separated NSE symbols to scan (e.g., 'MAFANG,HNGSNGBEES'). Default is all international ETFs.
+        min_snapshots: Minimum hourly snapshots required to compute a meaningful Z-score (default 5).
+    """
+    args = ["src/main.py", "premium-alerts", "--lookback", str(lookback), "--z-threshold", str(z_threshold), "--min-snapshots", str(min_snapshots)]
+    if symbols:
+        args.extend(["--symbols", symbols])
+    return _run_cmd(args)
+
+
 # Unified list of core skill tools
 SKILLS_TOOLS = [
     run_goldbees_pipeline,
@@ -353,4 +381,6 @@ SKILLS_TOOLS = [
     run_whale_tracker,
     run_dsp_multi_asset_comparison,
     run_fund_mom_returns,
+    run_comex_analysis,
+    run_premium_alerts,
 ]
