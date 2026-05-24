@@ -38,6 +38,7 @@ from src.tools.summarization import SUMMARIZATION_TOOLS
 from src.tools.yahoo_finance import YAHOO_TOOLS
 from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
 from src.tools.skills_tools import SKILLS_TOOLS
+from src.tools.newsapi_search import get_newsapi_stock_news
 from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.panel import Panel
@@ -46,7 +47,7 @@ from rich.markdown import Markdown
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS
+ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS
 
 
 class RichConsoleCallbackHandler(BaseCallbackHandler):
@@ -94,9 +95,12 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
 AGENT_SYSTEM_PROMPT = (
     "You are a Financial Portfolio Intelligence Agent for Indian equity markets (NSE/BSE). "
     "You have access to tools to fetch portfolio data, market information, news, financial results, "
-    "and run core platform scripts (like GOLDBEES pipeline reports, daily signal composite, macro scanner, "
-    "risk governor vol calculations, whale tracking of institutional multi-asset moves, DSP multi-asset comparisons, "
-    "and mutual fund MoM NAV returns). "
+    "and run core platform scripts. "
+    "Guidance on using specific tools/data sources:\n"
+    "  • Mutual Funds (MF): Use `query_clickhouse_db` to query `market_data.mf_holdings` and `market_data.mf_nav` directly, or use `run_fund_mom_returns` to fetch NAV returns.\n"
+    "  • Yahoo Finance: Use `get_yahoo_finance_data` and `get_price_momentum` to fetch live prices, PE/PB ratios, dividend yield, and 52-week ranges.\n"
+    "  • Screener.in / Quarterly Results: Use `get_quarterly_results` to fetch quarterly revenue, net profit, EPS, and YoY growth percentages.\n"
+    "  • News API / Google News: Use `get_stock_news` (Google News RSS) and `get_newsapi_stock_news` (NewsAPI.org) to fetch recent financial news and infer sentiment.\n"
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "
     "Always reason step by step and use the available tools to gather data before answering. "
     "When presenting structured data, weight shifts, signals, returns, or tabular results from any tool, "
