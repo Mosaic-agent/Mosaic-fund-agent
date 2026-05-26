@@ -22,26 +22,47 @@ import os
 import uuid
 from typing import Any
 
-# Enable readline history and in-line editing for input() on Linux/macOS.
-# After this import, ↑/↓ navigate history, ←/→ move cursor, Ctrl-R reverse-search.
-try:
-    import readline as _readline
-    _HISTORY_FILE = os.path.expanduser("~/.mosaic_chat_history")
-    try:
-        _readline.read_history_file(_HISTORY_FILE)
-    except FileNotFoundError:
-        pass
-    _readline.set_history_length(500)
-    import atexit as _atexit
-    _atexit.register(_readline.write_history_file, _HISTORY_FILE)
-except ImportError:
-    pass  # Windows — graceful no-op
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
 logger = logging.getLogger(__name__)
+
+
+# ── prompt_toolkit input session ──────────────────────────────────────────────
+
+def _build_prompt_session():
+    """
+    Build a prompt_toolkit PromptSession with:
+      • Persistent history (↑/↓ navigation across restarts)
+      • Bracketed-paste support — large pastes land as a single block, not
+        individual keystrokes, so multi-line pastes never trigger premature submit
+      • Alt+Enter  → insert newline (for deliberately typed multi-line questions)
+      • Enter      → submit (unchanged default)
+    Falls back to None when prompt_toolkit is unavailable (Windows CI, etc.).
+    """
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.key_binding import KeyBindings
+
+        kb = KeyBindings()
+
+        @kb.add("escape", "enter")   # Alt+Enter on macOS/Linux
+        @kb.add("c-o")               # Ctrl+O  — secondary shortcut
+        def _newline(event):
+            event.current_buffer.insert_text("\n")
+
+        return PromptSession(
+            history=FileHistory(os.path.expanduser("~/.mosaic_chat_history")),
+            key_bindings=kb,
+            multiline=False,         # Enter submits; newlines from paste are kept as-is
+            enable_open_in_editor=False,
+        )
+    except ImportError:
+        return None
+
 
 # ── Banner & help ──────────────────────────────────────────────────────────────
 
@@ -213,15 +234,22 @@ def run_chat_loop(console: Console | None = None) -> None:
     console.print(_BANNER)
 
     with console.status("[yellow]Loading agent…[/yellow]", spinner="dots"):
-        agent     = MosaicFundAgent(checkpointer=MemorySaver())
-        thread_id = str(uuid.uuid4())
+        agent        = MosaicFundAgent(checkpointer=MemorySaver())
+        thread_id    = str(uuid.uuid4())
+        _pt_session  = _build_prompt_session()
 
-    console.print("[dim]Agent ready.  Type your first question.[/dim]\n")
+    from config.settings import settings
+    _backend = "ollama" if "11434" in settings.llm_base_url else ("local" if settings.llm_base_url else settings.llm_provider)
+    _multiline_hint = "  [dim][Alt+↵ = newline  |  Ctrl+O = newline  |  ↑↓ = history][/dim]" if _pt_session else ""
+    console.print(f"[dim]Agent ready  [bold]{settings.llm_model}[/bold] @ {_backend}.  Type your first question.[/dim]{_multiline_hint}\n")
 
     while True:
         # ── Read input ─────────────────────────────────────────────────────
         try:
-            raw = input("You: ").strip()
+            if _pt_session is not None:
+                raw = _pt_session.prompt("You: ").strip()
+            else:
+                raw = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Goodbye.[/dim]")
             break
@@ -243,11 +271,35 @@ def run_chat_loop(console: Console | None = None) -> None:
         # ── Normal chat turn ───────────────────────────────────────────────
         try:
             import os
+            from config.settings import settings
+            from src.agents.sub_agents import route_intent
+
+            _intent = route_intent(raw)
+            _agent_label = {
+                "code":         "code agent",
+                "signal":       "signal agent",
+                "macro":        "macro agent",
+                "deepdive":     "deepdive agent",
+                "india_equity": "equity agent",
+                "main":         "main agent",
+            }.get(_intent, _intent)
+            _backend = "ollama" if "11434" in settings.llm_base_url else ("local" if settings.llm_base_url else settings.llm_provider)
+            if _intent == "code" and settings.code_llm_provider:
+                _model_tag  = settings.code_llm_model or settings.llm_model
+                _model_back = settings.code_llm_provider
+            else:
+                _model_tag  = settings.llm_model
+                _model_back = _backend
+            _status_msg = (
+                f"[yellow]Thinking…[/yellow]  "
+                f"[dim]{_model_tag} @ {_model_back}  →  {_agent_label}[/dim]"
+            )
+
             if os.getenv("VERBOSE") == "1":
                 # Skip spinner so callback handler can print tool calls live
                 answer = agent.chat(raw, thread_id=thread_id)
             else:
-                with console.status("[yellow]Thinking…[/yellow]", spinner="dots"):
+                with console.status(_status_msg, spinner="dots"):
                     answer = agent.chat(raw, thread_id=thread_id)
             console.print(Panel(Markdown(answer), border_style="green"))
         except KeyboardInterrupt:

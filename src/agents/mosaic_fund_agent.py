@@ -243,6 +243,59 @@ class MosaicFundAgent:
             max_tokens=cloud_budget,
         )
 
+    def _build_code_llm(self) -> Any:
+        """
+        Build a dedicated LLM for the CodeSubAgent.
+
+        Reads CODE_LLM_PROVIDER / CODE_LLM_MODEL / CODE_LLM_BASE_URL from settings.
+        Supported providers: openai | anthropic | google (Gemini).
+        Returns None when CODE_LLM_PROVIDER is blank — CodeSubAgent inherits the main LLM.
+        """
+        provider = settings.code_llm_provider.strip().lower()
+        if not provider:
+            return None
+
+        model  = settings.code_llm_model or settings.llm_model
+        ctx    = settings.code_llm_context_window or settings.llm_context_window
+        budget = max(1024, ctx // 4)
+        logger.info("Code LLM: provider=%s  model=%s  ctx=%d", provider, model, ctx)
+
+        if settings.code_llm_base_url:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=model,
+                base_url=settings.code_llm_base_url,
+                api_key=settings.openai_api_key or "local",
+                temperature=0,
+                max_tokens=budget,
+            )
+
+        if provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(
+                model=model,
+                api_key=settings.anthropic_api_key,
+                temperature=0,
+                max_tokens=budget,
+            )
+
+        if provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(
+                model=model,
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=budget,
+            )
+
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model,
+            api_key=settings.openai_api_key,
+            temperature=0,
+            max_tokens=budget,
+        )
+
     def _pick_llm(self, question: str) -> Any:
         """
         Return the appropriate LLM for this query.

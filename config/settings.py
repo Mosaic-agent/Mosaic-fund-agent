@@ -50,6 +50,28 @@ class Settings(BaseSettings):
     # Useful when you want to route all traffic through the cloud model (e.g. Claude Sonnet).
     llm_local_disabled: bool = Field(default=False, description="Disable local LLM; use cloud LLM for all requests")
 
+    # ── Code Agent LLM — dedicated model for CodeSubAgent ───────────────────────
+    # Leave CODE_LLM_PROVIDER blank to share the main LLM with the code agent.
+    # When set, CodeSubAgent uses this model regardless of the main LLM.
+    #
+    # Recommended: a large-context coding model such as:
+    #   anthropic  claude-sonnet-4-5         (200 k ctx, strong at Python)
+    #   google     gemini-2.0-flash          (1 M ctx, fast + cheap)
+    #   openai     gpt-4o                    (128 k ctx)
+    #   openai     gpt-4.1-mini              (1 M ctx, cost-efficient)
+    #
+    # [NON-SENSITIVE] Provider: "openai" | "anthropic" | "google" | "" (disabled)
+    code_llm_provider: str = Field(default="", description="Code agent LLM provider")
+    # [NON-SENSITIVE] Model name for the code agent
+    code_llm_model: str = Field(default="", description="Code agent LLM model name")
+    # [NON-SENSITIVE] Optional custom base URL (Ollama / LM Studio) for the code agent
+    code_llm_base_url: str = Field(default="", description="Code agent custom base URL")
+    # [NON-SENSITIVE] Context window for the code agent's LLM (0 = inherit from llm_context_window)
+    code_llm_context_window: int = Field(default=0, description="Code agent context window (0 = inherit)")
+
+    # [SENSITIVE] Google / Gemini API key — https://aistudio.google.com/app/apikey
+    google_api_key: str = Field(default="", description="Google Gemini API key")
+
     # ── Secondary (cloud) LLM — for long-context / reasoning-heavy queries ────
     # Leave llm_cloud_provider blank to disable cloud routing entirely.
     # When set, queries matching _CLOUD_NEEDED_RE automatically use this model.

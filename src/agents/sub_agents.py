@@ -9,15 +9,16 @@ appropriate sub-agent based on keyword intent detection.
 
 Sub-agents
 ----------
-DeepDiveSubAgent  — US stock SEC filings, XBRL financials, peer valuation
-SignalSubAgent    — ETF signals, GOLDBEES ML pipeline, risk governor
-MacroSubAgent     — COMEX, FII/DII flows, macro theme scanner
+DeepDiveSubAgent          — US stock SEC filings, XBRL financials, peer valuation
+SignalSubAgent            — ETF signals, GOLDBEES ML pipeline, risk governor
+MacroSubAgent             — COMEX, FII/DII flows, macro theme scanner
+CodeSubAgent              — Python code execution, script writing, ClickHouse ad-hoc queries
 
 Usage (internal)
 ----------------
     from src.agents.sub_agents import route_intent, get_subagent
 
-    intent = route_intent(question)          # 'deepdive' | 'signal' | 'macro' | 'main'
+    intent = route_intent(question)          # 'deepdive' | 'signal' | 'macro' | 'code' | 'main'
     if intent != 'main':
         answer = get_subagent(intent).run(question)
 """
@@ -45,6 +46,22 @@ _MACRO_RE = re.compile(
     r"\bcomex|macro theme|macro scan|fii flow|dii flow|institutional flow"
     r"|gold price|silver price|copper price|crude oil|fed rate|rbi rate"
     r"|usd.?inr|cot report|geopolit|war risk|tariff|trade war\b",
+    re.I,
+)
+_CODE_RE = re.compile(
+    r"write\s+(?:a\s+)?(?:python\s+)?(?:script|code|function|tool|fetcher)"
+    r"|create\s+(?:a\s+)?(?:new\s+)?(?:script|code|snippet|tool|fetcher)"
+    r"|(?:add|create)\s+(?:a\s+)?(?:new\s+)?(?:signal\s+source|fetcher|adapter|tool)"
+    r"|execute\s+(?:python|this\s+code|this\s+snippet)"
+    r"|run\s+(?:python\s+)?(?:code|snippet)"
+    r"|debug\s+(?:this|the)\s+(?:code|script|error|bug)"
+    r"|fix\s+(?:the\s+)?(?:code|script|bug|error)"
+    r"|custom\s+(?:query|script|analysis|sql)"
+    r"|backtest\s+(?:this|the|a)"
+    r"|plot\s+(?:the\s+)?(?:price|chart|data|returns)"
+    r"|(?:analyse?|analyze)\s+(?:\w+\s+)?(?:data|table|results)\s+(?:with\s+(?:code|python)|using\s+(?:code|python))?"
+    r"|python\s+snippet|ad.?hoc\s+(?:query|analysis)"
+    r"|show\s+me\s+the\s+code|list\s+(?:all\s+)?scripts",
     re.I,
 )
 # Broad research-intent phrases — used to detect "find info about X" style queries
@@ -81,10 +98,12 @@ def route_intent(question: str) -> str:
 
     Returns
     -------
-    'deepdive' | 'india_equity' | 'signal' | 'macro' | 'main'
+    'deepdive' | 'india_equity' | 'signal' | 'macro' | 'code' | 'main'
     """
     if _DEEPDIVE_RE.search(question):
         return "deepdive"
+    if _CODE_RE.search(question):
+        return "code"
     if _SIGNAL_RE.search(question):
         return "signal"
     if _MACRO_RE.search(question):
@@ -653,6 +672,79 @@ class MacroSubAgent(_SubAgent):
         return [run_macro_scanner, run_comex_analysis, query_clickhouse_db]
 
 
+# ── Code sub-agent ────────────────────────────────────────────────────────────
+
+class CodeSubAgent(_SubAgent):
+    """
+    Python code execution and project scripting agent.
+
+    Capabilities
+    ------------
+    - Execute ad-hoc Python snippets against live ClickHouse data
+    - Write new analysis scripts to src/scripts/
+    - Read existing project files for context
+    - Search the codebase for patterns / symbols
+    - Run any existing script by path
+
+    The agent is restricted from writing outside src/scripts/ and output/ to
+    prevent accidental modification of core agent/importer code.
+    """
+
+    SYSTEM_PROMPT = (
+        "You are the Mosaic Code Agent — a Python expert for Indian equity/commodity "
+        "quantitative analysis.  You can write, execute, and debug Python code against "
+        "the live Mosaic platform and its ClickHouse database.\n\n"
+        "## Workflow\n"
+        "1. To answer a data question: use `execute_python_snippet` — write pandas/numpy "
+        "code that queries ClickHouse via `query_df(sql)` and prints results.\n"
+        "2. To create a reusable script: use `write_project_file` (target: src/scripts/<domain>/<name>.py) "
+        "then `run_existing_script` to validate it.\n"
+        "3. To understand existing code: use `read_project_file` or `search_project_code`.\n"
+        "4. To run an existing script: use `run_existing_script`.\n\n"
+        "## ClickHouse rules\n"
+        "- Always add FINAL to ReplacingMergeTree tables:\n"
+        "  `SELECT ... FROM market_data.mf_holdings FINAL WHERE ...`\n"
+        "- Available tables: daily_prices, mf_holdings, mf_nav, fii_dii_flows, "
+        "signal_composite, ml_predictions, macro_indicators, fx_rates, inav_snapshots.\n"
+        "- `query_df(sql)` returns a pandas DataFrame; use `.to_markdown(index=False)` to print.\n\n"
+        "## Project conventions\n"
+        "- New signal sources go in src/agents/signal_sources.py — subclass SignalSource ABC.\n"
+        "- New fetcher adapters go in src/importer/fetchers/adapters.py — subclass Fetcher ABC.\n"
+        "- New standalone scripts go in src/scripts/<domain>/.\n"
+        "- Never modify src/agents/mosaic_fund_agent.py or src/importer/clickhouse.py directly.\n\n"
+        "## Output rules\n"
+        "- Never compute numbers in your text — always execute code and report printed output.\n"
+        "- Format all data as Markdown tables.\n"
+        "- If code fails, read the STDERR, diagnose the root cause, fix, and re-execute."
+    )
+
+    def _build(self, llm_override: Any = None) -> None:
+        """Use the code-specific LLM (CODE_LLM_PROVIDER) when configured."""
+        if llm_override is None:
+            try:
+                from src.agents.mosaic_fund_agent import MosaicFundAgent
+                tmp = object.__new__(MosaicFundAgent)
+                tmp._checkpointer = None
+                code_llm = tmp._build_code_llm()
+                if code_llm is not None:
+                    from config.settings import settings
+                    logger.info(
+                        "CodeSubAgent: using dedicated LLM  provider=%s  model=%s",
+                        settings.code_llm_provider, settings.code_llm_model,
+                    )
+                    llm_override = code_llm
+            except Exception as exc:
+                logger.warning("CodeSubAgent: could not build code LLM: %s", exc)
+        super()._build(llm_override=llm_override)
+
+    def _get_tools(self) -> list:
+        from src.tools.code_tools import CODE_TOOLS
+        from src.tools.skills_tools import query_clickhouse_db
+        # query_clickhouse_db is already in CODE_TOOLS via execute_python_snippet,
+        # but we include it explicitly so the agent can run ad-hoc SQL without writing code.
+        return CODE_TOOLS + [query_clickhouse_db]
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 _registry: dict[str, _SubAgent] = {}
@@ -666,6 +758,7 @@ def get_subagent(name: str) -> _SubAgent:
             "india_equity": IndianEquityResearchSubAgent,
             "signal":       SignalSubAgent,
             "macro":        MacroSubAgent,
+            "code":         CodeSubAgent,
         }
         cls = cls_map.get(name)
         if cls is None:

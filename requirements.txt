@@ -1,8 +1,12 @@
+# ── CLI / REPL ────────────────────────────────────────────────────────────────
+prompt-toolkit>=3.0.0            # Multi-line input, bracketed paste, key bindings for chat REPL
+
 # ── Core Agent Framework ──────────────────────────────────────────────────────
 langchain>=0.3.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0          # LLM provider (OpenAI GPT-4)
 langchain-anthropic>=0.2.0       # LLM provider (Anthropic Claude) – optional
+langchain-google-genai>=2.0.0   # LLM provider (Google Gemini) – used by CodeSubAgent
 langgraph>=0.2.0                 # Agent graph orchestration
 
 # ── MCP (Model Context Protocol) Client ───────────────────────────────────────

@@ -1,4 +1,53 @@
 services:
+
+  # ── Ollama — local LLM inference server ──────────────────────────────────────
+  # Serves gemma4 (and any other pulled models) on port 11434.
+  # Models are stored in the ollama-models named volume so they survive restarts.
+  #
+  # macOS note: Docker runs in a Linux VM — Metal/MPS is NOT available.
+  # Inference uses CPU only inside the container (~10-20 tok/s on M-series).
+  # For faster results on macOS, run Ollama on the host instead (see .env comments).
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    # Uncomment for NVIDIA GPU on Linux:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ── One-time model initialiser ───────────────────────────────────────────────
+  # Pulls gemma4:latest into the ollama service and creates the mosaic-gemma4
+  # variant from ollama/Modelfile (num_ctx=32768, temperature=0).
+  # FIRST RUN: downloads ~5-8 GB — runs once, then the volume cache is reused.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./ollama:/modelfiles:ro
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "ollama pull gemma4:latest &&
+       ollama create mosaic-gemma4 -f /modelfiles/Modelfile &&
+       echo 'mosaic-gemma4 ready'"
+    restart: "no"
+
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     ports:
@@ -46,6 +95,8 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
 
   mosaic:
     build: .
@@ -80,6 +131,8 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
 
     # ENTRYPOINT is fixed to `python src/main.py` in the Dockerfile.
     # Override the default CMD per call:
@@ -118,3 +171,4 @@ volumes:
   clickhouse-data:
   clickhouse-backups:
   mosaic-output:    # reports, ML model cache, LLM response cache
+  ollama-models:    # gemma4 weights — persists across restarts (~5-8 GB)

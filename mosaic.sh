@@ -22,9 +22,11 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# No arguments → start interactive chat (ensure ClickHouse is up first)
+# No arguments → start interactive chat (ensure ClickHouse + Ollama are up first)
 if [[ $# -eq 0 ]]; then
-    docker compose up -d clickhouse 2>/dev/null
+    echo "Starting services (first run pulls gemma4 ~5-8 GB — grab a coffee)..."
+    docker compose up -d clickhouse ollama 2>/dev/null
+    docker compose run --rm ollama-init 2>/dev/null || true   # no-op if already done
     docker compose run --rm -it mosaic chat
     exit 0
 fi

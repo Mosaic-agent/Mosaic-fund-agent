@@ -1,0 +1,22 @@
+FROM gemma4:latest
+
+# ── Context window ──────────────────────────────────────────────────────────
+# gemma4 supports up to 131 072 tokens.  32 768 is the practical sweet-spot:
+# enough for a multi-tool ReAct loop plus the CodeSubAgent snippets,
+# while staying within a typical 24 GB VRAM budget.
+# Must match LLM_CONTEXT_WINDOW in .env.
+PARAMETER num_ctx 32768
+
+# ── Sampling ────────────────────────────────────────────────────────────────
+# Temperature 0 = deterministic outputs; matches ChatOpenAI(temperature=0).
+# Greedy decoding is important for tool-call JSON reliability.
+PARAMETER temperature 0
+
+# ── System persona ──────────────────────────────────────────────────────────
+# Lightweight baseline; each sub-agent/main-agent overrides with its own
+# domain-specific system prompt at runtime.
+SYSTEM """
+You are Mosaic, a quantitative analyst assistant for Indian equity and commodity markets.
+You respond with precise, data-driven analysis.  Never invent numbers — only narrate
+outputs that come from tool calls or pre-computed code results.
+"""
