@@ -517,9 +517,10 @@ def plot_intl_etf_performance() -> str:
         price_wide, _ = load_data(get_pool())
         perf = compute_performance(price_wide)
 
-        symbols = perf.index.tolist()
-        returns = perf["total_return_pct"].tolist() if "total_return_pct" in perf.columns \
-                  else perf.iloc[:, 0].tolist()
+        ret_col = "total_return_pct" if "total_return_pct" in perf.columns else "3Y Ret %"
+        sym_col = "_sym" if "_sym" in perf.columns else "ETF"
+        symbols = perf[sym_col].tolist()
+        returns = perf[ret_col].tolist()
         labels = [f"{s}\n({v:+.0f}%)" for s, v in zip(symbols, returns)]
 
         plt = _plt()

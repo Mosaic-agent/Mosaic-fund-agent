@@ -30,6 +30,24 @@ from rich.panel import Panel
 
 logger = logging.getLogger(__name__)
 
+# @agent override map — short aliases accepted
+_AT_AGENT_MAP: dict[str, str] = {
+    "signal":    "signal",
+    "macro":     "macro",
+    "news":      "news",
+    "equity":    "india_equity",
+    "india":     "india_equity",
+    "intl_etf":  "intl_etf",
+    "intl":      "intl_etf",
+    "database":  "database",
+    "db":        "database",
+    "code":      "code",
+    "deepdive":  "deepdive",
+    "deep":      "deepdive",
+    "research":  "research",
+    "main":      "main",
+}
+
 # Follow-up phrases that should route to the same agent as the previous turn.
 _FOLLOWUP_RE = re.compile(
     r"^(?:compare(?:\s+with|\s+to)?|vs\.?|versus|against"
@@ -145,14 +163,14 @@ _INTENT_STEPS: dict[str, list[str]] = {
 # ── AI planner ────────────────────────────────────────────────────────────────
 
 _VALID_AGENTS = frozenset(
-    ["signal", "macro", "news", "equity", "database", "code", "deepdive", "main"]
+    ["signal", "macro", "news", "equity", "database", "code", "deepdive", "research", "main"]
 )
 
 _PLANNER_PROMPT = """\
 You are the Mosaic routing planner for an Indian equity & commodity intelligence platform.
 Analyse the user query and reply in EXACTLY this format — no other text:
 
-AGENT: <one of: signal | macro | news | equity | database | code | deepdive | main>
+AGENT: <one of: signal | macro | news | equity | database | code | deepdive | research | main>
 PLAN:
 1. <specific step tailored to THIS query>
 2. <specific step>
@@ -160,23 +178,158 @@ PLAN:
 4. <optional step>
 5. <optional step>
 
-Agent guide — read carefully before choosing:
-- macro     : ANY query involving a country/geopolitical event (Iran, Russia, China, Ukraine,
-              Israel, Gaza, Pakistan, OPEC), sanctions, war, conflict, crude oil, gold price,
-              COMEX, FII/DII institutional flows, RBI/Fed rate, USD/INR, COT reports.
-              USE macro for "iran news", "russia conflict", "oil price", "comex gold".
-- news      : ONLY for news about a specific Indian LISTED company or ETF
-              (e.g. "news on HDFC bank", "news about Reliance", "GOLDBEES news").
-              Do NOT use news for countries, geopolitical events, or general market news.
-- signal    : ETF signals, GOLDBEES ML pipeline, Kelly weights, iNAV premium
-- equity    : Indian stock research — price, P/E, quarterly results, MF holdings, cashflow
-- database  : SQL / ClickHouse queries — use when the user asks to query data directly.
-              MANDATORY when choosing database: step 3 MUST be the complete SQL query
-              starting with SELECT (no markdown fences, no explanation, just raw SQL).
-              Example step 3: SELECT trade_date, fii_net_cr FROM market_data.fii_dii_flows FINAL ORDER BY trade_date DESC LIMIT 7
-- code      : Python scripts, data analysis, debugging, new tools/fetchers
-- deepdive  : US stock SEC 10-K/10-Q filings (AAPL, MSFT, NVDA, ADSK…) — NOT for Indian stocks
-- main      : Portfolio analysis, Zerodha holdings, general questions
+═══════════════════════════════════════════════
+AGENT GUIDE — read every entry before choosing
+═══════════════════════════════════════════════
+
+── signal ──────────────────────────────────────
+When: ETF composite scores, GOLDBEES ML pipeline, Kelly / blended position weights,
+      GARCH risk governor, iNAV premium alerts, ETF category news sentiment.
+Key tools: run_goldbees_pipeline · run_daily_signal_composite · run_risk_governor_analysis ·
+           run_etf_news_sentiment · run_premium_alerts · plot_signal_scores ·
+           plot_signal_breakdown · plot_weight_recommendations · plot_garch_volatility_chart
+Examples:
+  "GOLDBEES signal today"        → 1. run_goldbees_pipeline() — report prob_up, regime_signal, blended_50
+  "composite scores all ETFs"    → 1. run_daily_signal_composite()  2. plot_signal_scores()
+  "GOLDBEES position size"       → 1. run_risk_governor_analysis()  2. plot_garch_volatility_chart("GOLDBEES")
+  "iNAV premium alerts"          → 1. run_premium_alerts()
+  "ETF news sentiment"           → 1. run_etf_news_sentiment()
+
+── macro ────────────────────────────────────────
+When: ANY geopolitical event (Iran, Russia, China, Ukraine, Israel, Gaza, Pakistan, OPEC),
+      sanctions, war, conflict, crude oil/energy, gold/silver price drivers, COMEX pre-market,
+      FII/DII institutional flows, RBI/Fed rate decisions, USD/INR, COT reports.
+Key tools: run_macro_scanner · run_comex_analysis · query_clickhouse_db (fii_dii_flows / cot_gold) ·
+           plot_fii_dii_chart
+Examples:
+  "comex gold signal"            → 1. run_comex_analysis()
+  "iran sanctions oil impact"    → 1. run_macro_scanner()
+  "FII DII flows last 30 days"   → 1. query_clickhouse_db("SELECT trade_date, fii_net_cr, dii_net_cr FROM market_data.fii_dii_flows FINAL ORDER BY trade_date DESC LIMIT 30")  2. plot_fii_dii_chart(30)
+  "COT gold positioning"         → 1. query_clickhouse_db("SELECT report_date, mm_long, mm_short, mm_net FROM market_data.cot_gold FINAL ORDER BY report_date DESC LIMIT 10")
+
+── news ─────────────────────────────────────────
+When: Latest news for a SPECIFIC Indian listed company or ETF symbol.
+      NEVER use news for countries, commodities, or broad market topics — those are macro.
+Key tools: resolve_company · get_stock_news · get_newsapi_stock_news · search_financial_news ·
+           get_db_news · run_etf_news_sentiment
+Examples:
+  "news on HDFC Bank"            → 1. resolve_company("HDFC Bank")  2. get_stock_news("HDFCBANK|HDFC Bank") + get_newsapi_stock_news("HDFCBANK|HDFC Bank")
+  "GOLDBEES latest news"         → 1. get_stock_news("GOLDBEES|Goldbees ETF")  2. get_newsapi_stock_news("GOLDBEES|Goldbees ETF")
+  "gold ETF news sentiment"      → 1. run_etf_news_sentiment()
+  "saved news bearish"           → 1. get_db_news(category="gold", sentiment="bearish")
+
+── equity ───────────────────────────────────────
+When: Research on a specific Indian NSE/BSE listed stock — price, valuation, earnings,
+      cash flow, MF holding pattern, institutional ownership. NOT for US stocks (→ deepdive).
+Key tools: resolve_company · get_yahoo_finance_data · get_price_momentum · get_quarterly_results ·
+           get_stock_cashflow · get_mf_holdings_for_stock · get_fii_dii_summary · get_stock_news ·
+           plot_price_chart · plot_fund_holdings_chart
+Examples:
+  "RELIANCE fundamentals"        → 1. resolve_company("RELIANCE")  2. get_yahoo_finance_data("RELIANCE:NSE")  3. get_quarterly_results("RELIANCE:NSE")  4. get_mf_holdings_for_stock("Reliance")
+  "HDFC Bank cashflow"           → 1. resolve_company("HDFC Bank")  2. get_stock_cashflow("HDFCBANK:NSE")
+  "TCS MF holdings trend"        → 1. get_mf_holdings_for_stock("TCS")  2. plot_fund_holdings_chart("DSP Top 100", 10)
+  "TATASTEEL price momentum"     → 1. resolve_company("TATASTEEL")  2. get_price_momentum("TATASTEEL:NSE")  3. plot_price_chart("TATASTEEL", 90)
+
+── intl_etf ─────────────────────────────────────
+When: Analysis of the 6 NSE-listed overseas ETFs — NEVER for importing their data.
+      Symbols: MAFANG (NYSE FANG+ / Mirae) · HNGSNGBEES (Hang Seng / Nippon) ·
+               MON100 (Nasdaq 100 / Motilal) · MASPTOP50 (S&P 500 Top 50 / Mirae) ·
+               MAHKTECH (HK Tech / Mirae) · MONQ50 (Nasdaq 50 / Motilal)
+Key tools: get_intl_etf_performance · get_intl_etf_premium · get_intl_etf_regimes ·
+           get_intl_etf_seasonality · get_intl_etf_correlation · get_intl_etf_drawdowns ·
+           get_intl_etf_lgbm · plot_intl_etf_performance · plot_intl_etf_premium · plot_price_chart
+Examples:
+  "HNGSNGBEES scarcity premium"  → 1. get_intl_etf_premium("HNGSNGBEES")  2. plot_intl_etf_premium("HNGSNGBEES")
+  "compare international ETFs"   → 1. get_intl_etf_performance()  2. plot_intl_etf_performance()  3. get_intl_etf_regimes()
+  "MAFANG vs MON100 correlation" → 1. get_intl_etf_correlation()  2. get_intl_etf_performance()
+  "best month to buy MON100"     → 1. get_intl_etf_seasonality()
+  "MON100 drawdown history"      → 1. get_intl_etf_drawdowns()
+  "intl ETF ML features"         → 1. get_intl_etf_lgbm()
+
+── database ─────────────────────────────────────
+When: User explicitly asks to query/inspect ClickHouse data — "show me", "query", "how many rows",
+      "SELECT", "describe table", "last watermark", "schema".
+      NEVER for import/refresh/sync/backfill/update — those go to main.
+      MANDATORY: step 3 must be the raw SQL starting with SELECT (no markdown, no explanation).
+Key tools: execute_db_query · describe_db_table · list_db_tables · sample_db_table ·
+           get_db_watermarks · plot_price_chart · plot_fii_dii_chart
+Examples:
+  "show fii flows last 7 days"   → 1. Identify table  2. Confirm schema  3. SELECT trade_date, fii_net_cr, dii_net_cr FROM market_data.fii_dii_flows FINAL ORDER BY trade_date DESC LIMIT 7
+  "how many rows in daily_prices"→ 1. SELECT count() FROM market_data.daily_prices FINAL
+  "last import watermarks"       → 1. SELECT source, symbol, last_date FROM market_data.import_watermarks FINAL ORDER BY updated_at DESC LIMIT 20
+  "describe mf_holdings table"   → 1. describe_db_table("mf_holdings")
+
+── code ─────────────────────────────────────────
+When: Writing/running Python scripts, debugging errors, building new tools/fetchers/signal sources,
+      ad-hoc data analysis with code, running existing scripts.
+Key tools: execute_python_snippet · write_project_file · read_project_file · run_existing_script ·
+           search_project_code · list_project_scripts · query_clickhouse_db
+Examples:
+  "write script to calc rolling vol" → 1. write_project_file("src/scripts/market/rolling_vol.py", ...)  2. run_existing_script("src/scripts/market/rolling_vol.py")
+  "run the goldbees backtest"        → 1. list_project_scripts()  2. run_existing_script("src/scripts/ml/...")
+  "debug the import error"           → 1. read_project_file("src/importer/...")  2. execute_python_snippet(...)
+  "add new signal source"            → 1. read_project_file("src/agents/signal_sources.py")  2. write_project_file(...)
+
+── deepdive ─────────────────────────────────────
+When: SEC 10-K / 10-Q filings, EDGAR data, annual reports for US-listed stocks.
+      Symbols: AAPL, MSFT, NVDA, ADSK, TSLA, GOOG, AMZN, META, etc.
+      NEVER for Indian stocks — use equity for those.
+Key tools: resolve_company · run_deepdive_analysis · get_yahoo_finance_data · query_clickhouse_db
+Examples:
+  "NVIDIA 10-K analysis"         → 1. resolve_company("NVIDIA")  2. run_deepdive_analysis("NVDA")
+  "MSFT vs AAPL valuation"       → 1. run_deepdive_analysis("MSFT")  2. run_deepdive_analysis("AAPL")
+  "ADSK free cash flow trend"    → 1. run_deepdive_analysis("ADSK")
+
+── research ─────────────────────────────────────
+When: Multi-domain autonomous investigation — use when the query crosses two or more of:
+      fundamentals + macro + signals + news + MF holdings + ML + correlation.
+      Trigger phrases: "deep research", "comprehensive analysis", "investigate X",
+      "full analysis of X", "why is X moving/rising/falling", "MF holding pattern for X",
+      "predict price using ML", "full thesis on X".
+      NOT for single-domain queries (e.g. "GOLDBEES signal" → signal, "news on TCS" → news).
+Key tools: All tools + check_and_refresh_symbol_data · delegate_to_signal_agent ·
+           delegate_to_macro_agent · delegate_to_intl_etf_agent · delegate_to_news_agent ·
+           delegate_to_india_equity_agent · execute_python_snippet
+Examples:
+  "deep research on HDFC Bank"    → 1. check_and_refresh_symbol_data("HDFCBANK")  2. resolve_company + fundamentals  3. get_mf_holdings_for_stock  4. delegate_to_macro_agent  5. delegate_to_news_agent
+  "why is GOLDBEES rising"        → 1. check_and_refresh_symbol_data("GOLDBEES")  2. get_price_momentum  3. delegate_to_signal_agent  4. delegate_to_macro_agent  5. synthesise thesis
+  "MF holding pattern for TCS"    → 1. get_mf_holdings_for_stock("TCS")  2. query_clickhouse_db(mf_holdings trend)  3. get_fii_dii_summary  4. delegate_to_news_agent
+  "predict NIFTYBEES price ML"    → 1. check_and_refresh_symbol_data("NIFTYBEES")  2. execute_python_snippet(LightGBM features)  3. delegate_to_signal_agent
+
+── main ─────────────────────────────────────────
+When: Zerodha portfolio / holdings, general questions, AND ALL data import/refresh operations.
+      Import trigger words: import, refresh, sync, update, backfill + any data category.
+      Valid import categories: etfs · stocks · mf · fii_dii · cot · fx_rates · inav
+Key tools: fetch_portfolio_holdings · run_data_engineering_importer · run_goldbees_pipeline ·
+           analyze_portfolio_with_llm
+Examples:
+  "import --category etfs"       → 1. Import ETF daily prices → run_data_engineering_importer(category="etfs")
+  "import --category fii_dii"    → 1. Import FII/DII flows → run_data_engineering_importer(category="fii_dii")
+  "import --category mf"         → 1. Import MF NAV data → run_data_engineering_importer(category="mf")
+  "import --category cot"        → 1. Import COMEX COT positioning → run_data_engineering_importer(category="cot")
+  "import --full"                → 1. Full backfill → run_data_engineering_importer(category="etfs,stocks,mf,fii_dii,cot,fx_rates", full=True)
+  "refresh nav data"             → 1. run_data_engineering_importer(category="etfs")
+  "sync fii dii"                 → 1. run_data_engineering_importer(category="fii_dii")
+  "import all data"              → 1. run_data_engineering_importer(category="etfs,stocks,mf,fii_dii,cot,fx_rates")
+  "import HNGSNGBEES 1 year"     → 1. Symbol-specific import → import_symbol_data(symbol="HNGSNGBEES", days=365)
+  "import GOLDBEES 6 months"     → 1. Symbol-specific import → import_symbol_data(symbol="GOLDBEES", days=180)
+  "import RELIANCE 2 years"      → 1. Symbol-specific import → import_symbol_data(symbol="RELIANCE", days=730)
+NOTE: ONE symbol + custom range → import_symbol_data(symbol, days) | bulk category → run_data_engineering_importer(category)
+  "show my portfolio"            → 1. fetch_portfolio_holdings()  2. analyze_portfolio_with_llm(...)
+
+═══════════════════════════════════════════════
+DISAMBIGUATION RULES — apply when in doubt
+═══════════════════════════════════════════════
+• "import / refresh / sync / update / backfill" + any data word → ALWAYS main (never database)
+• Country / commodity / rate event → macro  (not news, not equity)
+• Specific Indian company news → news  (not equity, not macro)
+• GOLDBEES / ETF signal / Kelly / GARCH → signal  (not database, not research)
+• MAFANG / HNGSNGBEES / MON100 / MASPTOP50 / MAHKTECH / MONQ50 analysis → intl_etf  (not equity)
+• US ticker (AAPL, MSFT, NVDA, TSLA…) → deepdive  (not equity)
+• "SELECT … FROM" or "query the db" → database  (not code)
+• Write/run/debug Python code → code  (not database)
+• Single-domain question → use the specialist agent, not research
+• Multi-domain or "why is X" or "full analysis" → research
 
 ClickHouse schema (database = market_data, all tables use ReplacingMergeTree — always add FINAL):
   daily_prices        : symbol(String), category(String), trade_date(Date), open, high, low, close(Float64), volume
@@ -213,9 +366,11 @@ Chart tools available (use when the query involves price, trend, pattern, compar
   plot_fund_holdings_chart(fund, top_n)      — horizontal bar: holdings by pct_of_nav
   plot_weight_recommendations(method)        — horizontal bar: position weights
   plot_nav_chart(symbol_or_scheme, days)     — line chart: MF/ETF NAV trend (pass NSE symbol e.g. 'GOLDBEES' or numeric scheme code)
+  plot_intl_etf_performance()                — bar chart: 3-year total return % for all 6 intl ETFs (intl_etf agent)
+  plot_intl_etf_premium(symbol, days)        — line chart: scarcity premium/discount trend for one intl ETF (intl_etf agent)
 
-IMPORTANT: If a chart is relevant, include it as an explicit numbered step in the plan.
-Example of a chart step: "5. Plot 30-day price chart → plot_price_chart('GOLDBEES', 30)"
+IMPORTANT: Always include chart tools as explicit numbered plan steps when visualisation adds value.
+Example: "5. Plot 90-day price trend → plot_price_chart('GOLDBEES', 90)"
 
 User query: \"{query}\"\
 """
@@ -950,14 +1105,48 @@ def run_chat_loop(console: Console | None = None) -> None:
                 console.print(Panel(Markdown(answer), border_style="cyan"))
             continue
 
+        # ── @agent override ────────────────────────────────────────────────
+        # Syntax: @signal <question>  |  @macro <question>  |  @db <question>  etc.
+        # Strips the @tag, forces the named agent, locks the AI planner.
+        _at_intent: str | None = None
+        _at_tag: str | None = None
+        if raw.startswith("@"):
+            _parts = raw.split(None, 1)
+            _tag = _parts[0][1:].lower()
+            if _tag in _AT_AGENT_MAP:
+                _at_intent = _AT_AGENT_MAP[_tag]
+                _at_tag = _tag
+                raw = _parts[1].strip() if len(_parts) > 1 else ""
+                if not raw:
+                    _valid = " | ".join(
+                        f"@{k}" for k in sorted(_AT_AGENT_MAP)
+                    )
+                    console.print(
+                        f"[yellow]Usage: @{_tag} <your question>[/yellow]\n"
+                        f"[dim]Valid agents: {_valid}[/dim]"
+                    )
+                    continue
+            else:
+                _valid = " | ".join(f"@{k}" for k in sorted(_AT_AGENT_MAP))
+                console.print(
+                    f"[yellow]Unknown agent '@{_tag}'.[/yellow]\n"
+                    f"[dim]Valid: {_valid}[/dim]"
+                )
+                continue
+
         # ── Normal chat turn ───────────────────────────────────────────────
         try:
             import os
             from config.settings import settings
             from src.agents.sub_agents import route_intent
 
-            _intent = route_intent(raw)
-            _agent_label = {
+            # @agent override bypasses route_intent entirely and locks the planner
+            if _at_intent:
+                _intent = _at_intent
+            else:
+                _intent = route_intent(raw)
+
+            _LABEL_MAP = {
                 "intl_etf":     "intl ETF agent",
                 "news":         "news agent",
                 "database":     "database agent",
@@ -965,9 +1154,14 @@ def run_chat_loop(console: Console | None = None) -> None:
                 "signal":       "signal agent",
                 "macro":        "macro agent",
                 "deepdive":     "deepdive agent",
+                "research":     "research agent",
                 "india_equity": "equity agent",
                 "main":         "main agent",
-            }.get(_intent, _intent)
+            }
+            _agent_label = _LABEL_MAP.get(_intent, _intent)
+            if _at_tag:
+                _agent_label += f" (@{_at_tag})"
+
             _backend = "ollama" if "11434" in settings.llm_base_url else ("local" if settings.llm_base_url else settings.llm_provider)
             if _intent == "code" and settings.code_llm_provider:
                 _model_tag  = settings.code_llm_model or settings.llm_model
@@ -976,10 +1170,12 @@ def run_chat_loop(console: Console | None = None) -> None:
                 _model_tag  = settings.llm_model
                 _model_back = _backend
 
-            # Ask the LLM to generate a specific plan and confirm the agent.
-            # Regex routing for macro and deepdive is high-confidence — lock those in
-            # so the AI planner cannot accidentally downgrade them to news/equity.
-            _locked = _intent in ("macro", "deepdive", "intl_etf")
+            # @agent override is always locked — planner generates a plan but cannot change the agent.
+            # Regex routing for macro/deepdive/intl_etf/research is also locked.
+            from src.agents.sub_agents import _IMPORT_RE
+            _locked = bool(_at_intent) or _intent in ("macro", "deepdive", "intl_etf", "research") or (
+                _intent == "main" and bool(_IMPORT_RE.search(raw))
+            )
             _ai_intent, _plan_text, _sql_hint = _build_ai_plan(raw, _intent, locked=_locked)
             if _ai_intent != _intent:
                 logger.info(
@@ -993,6 +1189,7 @@ def run_chat_loop(console: Console | None = None) -> None:
                     "signal":       "signal agent",
                     "macro":        "macro agent",
                     "deepdive":     "deepdive agent",
+                    "research":     "research agent",
                     "india_equity": "equity agent",
                     "main":         "main agent",
                 }.get(_intent, _intent)
@@ -1025,6 +1222,7 @@ def run_chat_loop(console: Console | None = None) -> None:
                             "signal":       "signal agent",
                             "macro":        "macro agent",
                             "deepdive":     "deepdive agent",
+                            "research":     "research agent",
                             "india_equity": "equity agent",
                             "main":         "main agent",
                         }.get(_intent, _intent)

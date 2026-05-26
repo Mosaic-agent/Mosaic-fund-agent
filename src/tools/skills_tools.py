@@ -58,7 +58,7 @@ def _run_cmd(args: list[str]) -> str:
     """Helper to run a command via subprocess from the project root with the correct Python interpreter."""
     env = os.environ.copy()
     env["ALLOW_LOCAL_RUN"] = "1"
-    
+
     # Ensure project root is in PYTHONPATH
     if "PYTHONPATH" in env:
         env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env["PYTHONPATH"]
@@ -81,6 +81,59 @@ def _run_cmd(args: list[str]) -> str:
         return _clean_terminal_output(output)
     except Exception as e:
         return f"Error executing command {' '.join(cmd)}: {e}"
+
+
+# Pre-compiled ANSI escape code stripper used by streaming output
+import re as _re
+_ANSI_STRIP_RE = _re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[()][A-Z0-9=><]|\x1b[ABCDEF78]")
+
+
+def _run_cmd_streaming(args: list[str]) -> str:
+    """
+    Like _run_cmd but prints each output line to the terminal as the subprocess
+    runs, giving live progress. Used for long-running operations like data import.
+    Returns the full collected output as a string when done.
+    """
+    env = os.environ.copy()
+    env["ALLOW_LOCAL_RUN"] = "1"
+    env["NO_COLOR"] = "1"       # tell Rich / Typer inside subprocess to skip ANSI codes
+    env["TERM"] = "dumb"        # further signal: no colour support
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env["PYTHONPATH"]
+    else:
+        env["PYTHONPATH"] = PROJECT_ROOT
+
+    cmd = [sys.executable] + args
+    collected: list[str] = []
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            bufsize=1,          # line-buffered
+        )
+        for raw_line in iter(proc.stdout.readline, ""):
+            # Strip ANSI codes left over despite NO_COLOR
+            stripped = _ANSI_STRIP_RE.sub("", raw_line).rstrip()
+            # Apply box-drawing cleanup (shared with _run_cmd)
+            cleaned = _clean_terminal_output(stripped)
+            if cleaned:
+                sys.stdout.write(f"  {cleaned}\n")
+                sys.stdout.flush()
+                collected.append(cleaned)
+        proc.wait()
+        rc = proc.returncode
+    except Exception as exc:
+        return f"Import error: {exc}\n" + "\n".join(collected)
+
+    result = "\n".join(collected) if collected else "Import completed (no output)."
+    if rc != 0:
+        result += f"\n[Process exited with code {rc}]"
+    return result
 
 
 @tool
@@ -141,6 +194,7 @@ def run_dsp_multi_asset_importer() -> str:
 def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates", full: bool = False) -> str:
     """
     Trigger the historical ClickHouse data engineering pipeline to import and sync data from external APIs.
+    Streams live progress to the terminal as each symbol is fetched and inserted.
     Use this when asked to sync/import/refresh general market data or specific categories.
     Args:
         category: Comma-separated list of categories to import (etfs, stocks, mf, fii_dii, cot, fx_rates).
@@ -151,7 +205,96 @@ def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx
         args.append("--full")
     else:
         args.extend(["--category", category])
-    return _run_cmd(args)
+    return _run_cmd_streaming(args)
+
+
+@tool
+def import_symbol_data(symbol: str, days: int = 365) -> str:
+    """
+    Import price history for a specific NSE symbol over a custom date range.
+    Use when the user wants to import/refresh ONE specific symbol — e.g.
+    "import HNGSNGBEES 1 year", "import GOLDBEES last 6 months", "import RELIANCE 2 years".
+    For bulk category imports (all ETFs, all stocks), use run_data_engineering_importer instead.
+
+    Args:
+        symbol: NSE symbol to import (e.g. "HNGSNGBEES", "GOLDBEES", "RELIANCE", "NIFTY50").
+                Uppercased automatically. Covers ETFs, stocks, commodities, and indices.
+        days:   Calendar days of history back from today.
+                365=1 year · 730=2 years · 180=6 months · 90=3 months · 30=1 month
+    """
+    from datetime import date, timedelta
+
+    sym = symbol.strip().upper()
+    to_date = date.today()
+    from_date = to_date - timedelta(days=max(days, 1))
+
+    # Build lookup: nse_symbol → (yahoo_ticker, category)
+    try:
+        from src.importer.registry import ETFS, STOCKS, COMMODITIES, INDICES
+        _lookup: dict[str, tuple[str, str]] = {}
+        for nse, yahoo in ETFS:
+            _lookup[nse] = (yahoo, "etfs")
+        for nse, yahoo in STOCKS:
+            _lookup[nse] = (yahoo, "stocks")
+        for nse, yahoo in COMMODITIES:
+            _lookup[nse] = (yahoo, "commodities")
+        for nse, yahoo in INDICES:
+            _lookup[nse] = (yahoo, "indices")
+    except Exception as exc:
+        return f"Registry load error: {exc}"
+
+    if sym not in _lookup:
+        known_etfs = ", ".join(nse for nse, _ in ETFS[:8]) + "…"
+        return (
+            f"UNKNOWN_SYMBOL: {sym} — not found in ETF, stock, commodity, or index registry.\n"
+            f"Known ETFs: {known_etfs}\n"
+            f"For a full category refresh: run_data_engineering_importer(category='etfs')"
+        )
+
+    yahoo_ticker, category = _lookup[sym]
+
+    sys.stdout.write(
+        f"  Importing {sym} ({yahoo_ticker}) | {from_date} → {to_date} ({days} days)\n"
+    )
+    sys.stdout.flush()
+
+    try:
+        from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
+        rows = fetch_ohlcv([(sym, yahoo_ticker)], category, from_date, to_date)
+    except Exception as exc:
+        return f"Fetch error for {sym}: {exc}"
+
+    if not rows:
+        return (
+            f"No data returned for {sym} ({yahoo_ticker}) over {from_date} → {to_date}.\n"
+            f"Yahoo Finance may not have data for this range, or the symbol is delisted."
+        )
+
+    sys.stdout.write(f"  Fetched {len(rows)} rows — inserting into ClickHouse...\n")
+    sys.stdout.flush()
+
+    try:
+        from config.settings import settings
+        from src.importer.clickhouse import ClickHouseImporter
+
+        ch = ClickHouseImporter(
+            host=settings.clickhouse_host,
+            port=settings.clickhouse_port,
+            database=settings.clickhouse_database,
+            username=settings.clickhouse_user,
+            password=settings.clickhouse_password,
+        )
+        try:
+            n = ch.insert_prices(rows)
+            max_date = max(r["trade_date"] for r in rows)
+            ch.set_watermark("yfinance", sym, max_date)
+            sys.stdout.write(f"  ✓ {n} rows inserted. Last trade_date: {max_date}\n")
+            sys.stdout.flush()
+            return f"Imported {sym}: {n} rows inserted, {from_date} → {max_date}."
+        finally:
+            ch.close()
+    except Exception as exc:
+        return f"ClickHouse insert error for {sym}: {exc}"
 
 
 @tool
@@ -406,6 +549,7 @@ SKILLS_TOOLS = [
     run_etf_news_sentiment,
     run_dsp_multi_asset_importer,
     run_data_engineering_importer,
+    import_symbol_data,
     run_risk_governor_analysis,
     query_clickhouse_db,
     run_whale_tracker,
@@ -479,6 +623,7 @@ SKILLS_TOOLS = [
     run_etf_news_sentiment,
     run_dsp_multi_asset_importer,
     run_data_engineering_importer,
+    import_symbol_data,
     run_risk_governor_analysis,
     query_clickhouse_db,
     run_whale_tracker,
