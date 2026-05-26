@@ -48,7 +48,10 @@ _SIGNAL_RE = re.compile(
     # Pipeline / ML explicit triggers (require the word pipeline, ml, or prediction)
     r"|goldbees\s+(?:pipeline|ml|prediction|recommendation)"
     r"|run\s+goldbees|run\s+pipeline"
-    r"|today.?s\s+(?:gold|etf|composite)\s+signal",
+    r"|today.?s\s+(?:gold|etf|composite)\s+signal"
+    # Plot/chart triggers to direct them to the specialized chart tools in the signal/research agent
+    r"|plot\s+(?:the\s+)?(?:price|chart|data|returns|volatility|garch)"
+    r"|price\s+chart|returns\s+chart|garch\s+chart|volatility\s+trend",
     re.I,
 )
 _MACRO_RE = re.compile(
@@ -127,7 +130,6 @@ _CODE_RE = re.compile(
     r"|fix\s+(?:the\s+)?(?:code|script|bug|error)"
     r"|custom\s+(?:query|script|analysis|sql)"
     r"|backtest\s+(?:this|the|a)"
-    r"|plot\s+(?:the\s+)?(?:price|chart|data|returns)"
     r"|(?:analyse?|analyze)\s+(?:\w+\s+)?(?:data|table|results)\s+(?:with\s+(?:code|python)|using\s+(?:code|python))?"
     r"|python\s+snippet|ad.?hoc\s+(?:query|analysis)"
     r"|show\s+me\s+the\s+code|list\s+(?:all\s+)?scripts",
@@ -194,6 +196,10 @@ def route_intent(question: str) -> str:
         return "database"
     if _CODE_RE.search(question):
         return "code"
+    if any(k in question.lower() for k in ("plot", "chart", "visualise", "visualize")):
+        if _INTL_ETF_RE.search(question):
+            return "intl_etf"
+        return "signal"
     if _SIGNAL_RE.search(question):
         return "signal"
     if _INTL_ETF_RE.search(question):
