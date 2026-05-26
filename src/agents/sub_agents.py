@@ -281,21 +281,26 @@ class _SubAgent:
             self._llm = tmp._build_llm()
 
         from config.settings import settings
-        effective_window = getattr(self._llm, "_context_window", None) or settings.llm_context_window
-        if llm_override is None and settings.llm_context_window < 12000:
-            # Local model context too small for a ReAct loop — try cloud LLM instead.
+        if self._llm is None or (llm_override is None and settings.llm_context_window < 12000):
+            # Local model disabled or context too small for a ReAct loop — try cloud LLM instead.
             cloud_llm = tmp._build_cloud_llm()
             if cloud_llm is not None:
-                logger.info(
-                    "%s: local context_window=%d < 12000 — upgrading to cloud LLM",
-                    self.__class__.__name__, settings.llm_context_window,
-                )
+                if self._llm is None:
+                    logger.info("%s: local LLM disabled — upgrading to cloud LLM", self.__class__.__name__)
+                else:
+                    logger.info(
+                        "%s: local context_window=%d < 12000 — upgrading to cloud LLM",
+                        self.__class__.__name__, settings.llm_context_window,
+                    )
                 self._llm = cloud_llm
             else:
-                logger.info(
-                    "%s: local context_window=%d < 12000 and no cloud LLM configured — falling back",
-                    self.__class__.__name__, settings.llm_context_window,
-                )
+                if self._llm is None:
+                    logger.warning("%s: local LLM disabled and no cloud LLM configured — falling back", self.__class__.__name__)
+                else:
+                    logger.info(
+                        "%s: local context_window=%d < 12000 and no cloud LLM configured — falling back",
+                        self.__class__.__name__, settings.llm_context_window,
+                    )
                 return  # leave self._agent = None → _confirm_fallback() path
 
         try:
