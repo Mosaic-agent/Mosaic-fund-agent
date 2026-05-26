@@ -232,6 +232,20 @@ def route_intent(question: str) -> str:
     return "main"
 
 
+def _get_message_text(content: Any) -> str:
+    """Extract string content from LangChain message content, which could be a list of blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        return "\n".join(texts)
+    return str(content) if content else ""
+
+
 # ── Base sub-agent ─────────────────────────────────────────────────────────────
 
 class _SubAgent:
@@ -342,7 +356,9 @@ class _SubAgent:
             return self._confirm_fallback(question)
 
         from langchain_core.messages import HumanMessage, ToolMessage
-        config: dict = {"recursion_limit": 8}
+        from config.settings import settings
+        is_local = (bool(settings.llm_base_url) and not settings.llm_local_disabled)
+        config: dict = {"recursion_limit": 8 if is_local else 25}
         if callbacks:
             config["callbacks"] = callbacks
         try:
@@ -369,15 +385,15 @@ class _SubAgent:
                 # produced a synthesis — prefer that over raw tool concatenation.
                 from langchain_core.messages import AIMessage
                 last_ai = next(
-                    (m for m in reversed(msgs) if isinstance(m, AIMessage) and str(m.content).strip()),
+                    (m for m in reversed(msgs) if isinstance(m, AIMessage) and _get_message_text(m.content).strip()),
                     None,
                 )
                 if last_ai:
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
-                        self.__class__.__name__, len(str(last_ai.content)),
+                        self.__class__.__name__, len(_get_message_text(last_ai.content)),
                     )
-                    return str(last_ai.content)
+                    return _get_message_text(last_ai.content)
 
                 logger.info(
                     "%s: merged %d tool outputs programmatically",
@@ -386,7 +402,7 @@ class _SubAgent:
                 return "\n\n---\n\n".join(tool_sections)
 
             # No tool calls — return the last AI message directly.
-            return msgs[-1].content if msgs else "No response from sub-agent."
+            return _get_message_text(msgs[-1].content) if msgs else "No response from sub-agent."
         except Exception as exc:
             err = str(exc).lower()
             if any(k in err for k in ("tool", "400", "invalid_request", "function", "tool_calls", "not support")):

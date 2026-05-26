@@ -136,6 +136,20 @@ AGENT_SYSTEM_PROMPT_COMPACT = (
 )
 
 
+def _get_message_text(content: Any) -> str:
+    """Extract string content from LangChain message content, which could be a list of blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        return "\n".join(texts)
+    return str(content) if content else ""
+
+
 # ── Mosaic Fund Agent ──────────────────────────────────────────────────────────
 
 class MosaicFundAgent:
@@ -679,7 +693,7 @@ class MosaicFundAgent:
                 config=config,
             )
             msgs = result.get("messages", [])
-            return msgs[-1].content if msgs else "No answer generated."
+            return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
             if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:

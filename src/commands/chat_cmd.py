@@ -786,7 +786,7 @@ def _starter_suggestions(n: int = 3) -> list[str]:
 _CHART_CHARS = ("┤", "┼", "─", "└", "┐", "┘", "┌", "├", "┬", "┴", "╮", "╰", "╭")
 
 
-def _print_answer(console: "Console", answer: str) -> None:
+def _print_answer(console: "Console", answer: Any) -> None:
     """
     Render the agent's final answer.
 
@@ -796,6 +796,18 @@ def _print_answer(console: "Console", answer: str) -> None:
     Panel border.
     """
     from rich.text import Text
+
+    if isinstance(answer, list):
+        texts = []
+        for block in answer:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        answer = "\n".join(texts)
+    elif not isinstance(answer, str):
+        answer = str(answer) if answer is not None else ""
 
     # Detect a chart block: 3+ consecutive lines that start with box chars or spaces+box.
     lines = answer.splitlines()

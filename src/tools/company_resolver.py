@@ -51,7 +51,7 @@ def _get_resolver_llm() -> "Any":
     try:
         from config.settings import settings
         kwargs = dict(temperature=0, max_tokens=20)
-        if settings.llm_base_url:
+        if settings.llm_base_url and not settings.llm_local_disabled:
             from langchain_openai import ChatOpenAI
             _resolver_llm = ChatOpenAI(
                 model=settings.llm_model,
@@ -59,28 +59,31 @@ def _get_resolver_llm() -> "Any":
                 api_key=settings.openai_api_key or "local",
                 **kwargs,
             )
-        elif settings.llm_provider == "anthropic":
-            from langchain_anthropic import ChatAnthropic
-            _resolver_llm = ChatAnthropic(
-                model=settings.llm_model,
-                api_key=settings.anthropic_api_key,
-                **kwargs,
-            )
-        elif settings.llm_provider == "google":
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            _resolver_llm = ChatGoogleGenerativeAI(
-                model=settings.llm_model,
-                google_api_key=settings.google_api_key,
-                temperature=0,
-                max_output_tokens=20,
-            )
         else:
-            from langchain_openai import ChatOpenAI
-            _resolver_llm = ChatOpenAI(
-                model=settings.llm_model,
-                api_key=settings.openai_api_key,
-                **kwargs,
-            )
+            provider = (settings.llm_cloud_provider if settings.llm_local_disabled else settings.llm_provider).strip().lower()
+            model = settings.llm_cloud_model if settings.llm_local_disabled else settings.llm_model
+            if provider == "anthropic":
+                from langchain_anthropic import ChatAnthropic
+                _resolver_llm = ChatAnthropic(
+                    model=model,
+                    api_key=settings.anthropic_api_key,
+                    **kwargs,
+                )
+            elif provider == "google":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                _resolver_llm = ChatGoogleGenerativeAI(
+                    model=model,
+                    google_api_key=settings.google_api_key,
+                    temperature=0,
+                    max_output_tokens=20,
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                _resolver_llm = ChatOpenAI(
+                    model=model,
+                    api_key=settings.openai_api_key,
+                    **kwargs,
+                )
     except Exception as exc:
         log.warning("_get_resolver_llm: could not build LLM: %s", exc)
     return _resolver_llm
