@@ -13,12 +13,16 @@ import sys
 # Constants for anomaly detection
 MAX_YOY_RETURN_SAFE_ASSET = 0.80  # 80% (e.g., Gold, Nifty 50 in bull markets)
 MAX_DAILY_RETURN = 0.20          # 20% (standard NSE circuit limit)
+MAX_DAILY_RETURN_HIGH_VOL = 0.65 # 65% (for highly volatile commodities like Natural Gas)
 
 # Assets considered "safe/stable" for lower thresholds
 SAFE_ASSETS = ["GOLDBEES", "NIFTYBEES", "BANKBEES", "LIQUIDBEES", "MON100"]
 
 # FX rate symbols — excluded from YoY return anomaly checks (non-equity price range)
 RATE_SYMBOLS = ["USDINR", "USDCNY", "USDAED", "USDSAR", "USDKWD"]
+
+# Highly volatile commodities with wider circuit thresholds
+HIGH_VOL_COMMODITIES = ["NGAS"]
 
 def detect_yoy_anomalies(client: Any, symbols: List[str] = None) -> List[Dict[str, Any]]:
     """

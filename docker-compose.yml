@@ -95,8 +95,6 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
 
   mosaic:
     build: .
@@ -131,8 +129,6 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
 
     # ENTRYPOINT is fixed to `python src/main.py` in the Dockerfile.
     # Override the default CMD per call:
