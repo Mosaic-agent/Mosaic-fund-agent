@@ -479,6 +479,82 @@ def test_comex_signals():
     print("  ✓ COMEX Pre-Market Signals — ALL CHECKS PASSED")
 
 
+
+def test_silvercase_glitch_correction():
+    print("\n" + "="*60)
+    print("TEST 12: SILVERCASE iNAV Glitch Correction (Mocked)")
+    print("="*60)
+
+    from unittest.mock import patch, MagicMock
+    import src.tools.inav_fetcher as f
+
+    # Reset caching state
+    f._NSE_CACHE_LOADED = False
+    f._NSE_ETF_CACHE = []
+
+    # Mock response data representing the NSE duplication glitch
+    mock_data = {
+        "data": [
+            {"symbol": "GOLDCASE", "nav": "24.7841", "ltP": "24.86"},
+            {"symbol": "SILVERCASE", "nav": "24.7841", "ltP": "26.58"},
+            {"symbol": "SILVERBEES", "nav": "253.7252", "ltP": "250.37"}
+        ]
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = mock_data
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("httpx.Client.get", return_value=mock_resp), \
+         patch("time.sleep"):
+        # This will trigger _nse_etf_symbols and populate/correct the cache
+        result = f.get_etf_inav("SILVERCASE")
+
+    # Assertions: SILVERBEES NAV (253.7252) scaled by 0.106127 is 26.9271
+    expected_corrected_inav = round(253.7252 * 0.106127, 4)
+    assert result["inav"] == expected_corrected_inav, f"Expected corrected iNAV to be {expected_corrected_inav}, got {result['inav']}"
+    assert result["premium_discount_pct"] < 0, f"Expected negative premium discount pct, got {result['premium_discount_pct']}"
+    assert result["premium_discount_label"] == "DISCOUNT", f"Expected DISCOUNT label, got {result['premium_discount_label']}"
+
+    print("  ✓ SILVERCASE iNAV successfully corrected from 24.7841 to 26.9271 in unit test")
+    print("  ✓ SILVERCASE iNAV glitch correction — ALL CHECKS PASSED")
+
+
+def test_nse_inav_fetcher_importer_correction():
+    print("\n" + "="*60)
+    print("TEST 13: Importer fetch_inav_snapshots SILVERCASE Correction")
+    print("="*60)
+
+    from unittest.mock import patch, MagicMock
+    from src.importer.fetchers.nse_inav_fetcher import fetch_inav_snapshots
+
+    # Mock response data representing the NSE duplication glitch
+    mock_data = {
+        "data": [
+            {"symbol": "GOLDCASE", "nav": "24.7841", "ltP": "24.86"},
+            {"symbol": "SILVERCASE", "nav": "24.7841", "ltP": "26.58"},
+            {"symbol": "SILVERBEES", "nav": "253.7252", "ltP": "250.37"}
+        ]
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = mock_data
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("httpx.Client.get", return_value=mock_resp), \
+         patch("time.sleep"):
+        rows = fetch_inav_snapshots(["SILVERCASE"])
+
+    # Assertions
+    assert len(rows) == 1
+    row = rows[0]
+    expected_corrected_inav = round(253.7252 * 0.106127, 4)
+    assert row["inav"] == expected_corrected_inav, f"Expected corrected importer iNAV to be {expected_corrected_inav}, got {row['inav']}"
+    assert row["premium_discount_pct"] < 0, f"Expected negative premium discount pct, got {row['premium_discount_pct']}"
+    print("  ✓ Importer fetcher successfully corrected SILVERCASE iNAV in unit test")
+    print("  ✓ Importer fetcher glitch correction — ALL CHECKS PASSED")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -492,6 +568,8 @@ if __name__ == "__main__":
         test_inav_premium_discount,
         test_historic_inav,
         test_comex_signals,
+        test_silvercase_glitch_correction,
+        test_nse_inav_fetcher_importer_correction,
     ]
     passed = 0
     failed = 0

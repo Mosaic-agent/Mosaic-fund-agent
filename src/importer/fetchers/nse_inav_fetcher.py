@@ -101,6 +101,25 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
         market_price = _safe(raw_ltp) if raw_ltp is not None else inav
         prem_disc    = ((market_price - inav) / inav * 100) if inav else 0.0
 
+        if sym == "SILVERCASE":
+            # Verify and correct duplicate GOLDCASE iNAV glitch
+            goldcase_entry = next((e for e in etf_list if str(e.get("symbol", "")).upper() == "GOLDCASE"), None)
+            silverbees_entry = next((e for e in etf_list if str(e.get("symbol", "")).upper() == "SILVERBEES"), None)
+            if goldcase_entry and silverbees_entry:
+                raw_gold_nav = goldcase_entry.get("nav") or goldcase_entry.get("iNav")
+                raw_silverbees_nav = silverbees_entry.get("nav") or silverbees_entry.get("iNav")
+                if raw_gold_nav and raw_silverbees_nav:
+                    gold_inav = _safe(raw_gold_nav)
+                    silverbees_inav = _safe(raw_silverbees_nav)
+                    if abs(inav - gold_inav) < 1e-6 and silverbees_inav > 0:
+                        corrected_inav = round(silverbees_inav * 0.106127, 4)
+                        logger.info(
+                            "Correcting SILVERCASE iNAV from %s to %s (ratio-scaled from SILVERBEES: %s)",
+                            inav, corrected_inav, silverbees_inav
+                        )
+                        inav = corrected_inav
+                        prem_disc = ((market_price - inav) / inav * 100) if inav else 0.0
+
         rows.append({
             "symbol":               sym,
             "snapshot_at":          snapshot_at,
