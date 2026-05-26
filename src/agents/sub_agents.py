@@ -38,14 +38,70 @@ _DEEPDIVE_RE = re.compile(
     re.I,
 )
 _SIGNAL_RE = re.compile(
-    r"\bsignal|goldbees|kelly weight|composite score|inav premium|inav discount"
-    r"|etf recommendation|buy signal|sell signal|risk governor|blended weight\b",
+    # Explicit signal-intent keywords only — bare ETF names (goldbees, gold bees, etc.)
+    # are intentionally excluded here so they resolve via the equity path (stock info,
+    # price, news) unless the user adds an explicit signal keyword.
+    r"\bsignal\b"
+    r"|kelly\s+weight|composite\s+score|inav\s+premium|inav\s+discount"
+    r"|etf\s+recommendation|buy\s+signal|sell\s+signal|risk\s+governor|blended\s+weight"
+    r"|\bgarch\b|volatility\s+chart|vol\s+chart|ml\s+prediction|regime\s+signal"
+    # Pipeline / ML explicit triggers (require the word pipeline, ml, or prediction)
+    r"|goldbees\s+(?:pipeline|ml|prediction|recommendation)"
+    r"|run\s+goldbees|run\s+pipeline"
+    r"|today.?s\s+(?:gold|etf|composite)\s+signal",
     re.I,
 )
 _MACRO_RE = re.compile(
     r"\bcomex|macro theme|macro scan|fii flow|dii flow|institutional flow"
     r"|gold price|silver price|copper price|crude oil|fed rate|rbi rate"
-    r"|usd.?inr|cot report|geopolit|war risk|tariff|trade war\b",
+    r"|usd.?inr|cot report|geopolit|war risk|tariff|trade war"
+    # Geopolitical countries / blocs whose events move Indian markets
+    r"|\b(?:iran|russia|ukraine|taiwan|israel|gaza|pakistan|opec|china)\b"
+    # Broad macro/geopolitical news intent
+    r"|financial\s+news|global\s+(?:news|market)|macro\s+news"
+    r"|\bsanctions?\b|\b(?:war|conflict|crisis)\b",
+    re.I,
+)
+_NEWS_RE = re.compile(
+    # Explicit news-intent phrases — macro agent is checked first so geopolitical
+    # country names (iran, russia, etc.) never reach here.
+    r"\bnews\s+(?:on|for|about|of)\s+\w"   # "news on X", "news for X"
+    r"|\blatest\s+news\b"
+    r"|\bmarket\s+(?:news|headlines)\b"
+    r"|\betf\s+news\b"
+    r"|\bearnings\s+news\b"
+    r"|\bbreaking\s+news\b"
+    r"|\bnews\s+today\b"
+    r"|\bheadlines\b"
+    r"|\bwhat.?s\s+happening\s+(?:with|in)\b"
+    r"|\bnews\s+sentiment\b"
+    r"|\bsaved\s+news\b",
+    re.I,
+)
+_INTL_ETF_RE = re.compile(
+    r"\b(?:international|intl|global)\s+etf"
+    r"|\b(?:mafang|hngsngbees|mon100|masptop50|mahktech|monq50)\b"
+    r"|\bhang\s+seng(?:\s+etf)?|nasdaq\s+etf|s&p\s+500\s+etf|china\s+tech\s+etf"
+    r"|\bscarcity\s+premium"
+    r"|intl\s+etf\s+(?:chart|pattern|regime|season|premium|performance|correlation|drawdown|lgbm|ml)"
+    r"|\boverseas\s+etf|foreign\s+etf"
+    r"|international\s+etf\s+(?:regime|season|drawdown|correlation|performance|premium|lgbm)",
+    re.I,
+)
+_DB_RE = re.compile(
+    r"\bquery\s+(?:the\s+)?(?:database|db|clickhouse)\b"
+    r"|\bsql\s+query\b"
+    r"|\bclickhouse\b"
+    r"|\bshow\s+(?:me\s+)?(?:all\s+)?tables\b"
+    r"|\bdescribe\s+(?:table|the\s+table)\b"
+    r"|\blist\s+(?:db\s+|database\s+)?tables\b"
+    r"|\bhow\s+many\s+(?:rows|records)\b"
+    r"|\blast\s+(?:import|watermark|sync)\b"
+    r"|\bwatermarks?\b"
+    r"|\bshow\s+(?:me\s+)?(?:the\s+)?schema\b"
+    r"|\braw\s+(?:db\s+|database\s+)?data\b"
+    r"|\bdb\s+query\b"
+    r"|\bselect\b.{1,80}\bfrom\b",
     re.I,
 )
 _CODE_RE = re.compile(
@@ -102,12 +158,18 @@ def route_intent(question: str) -> str:
     """
     if _DEEPDIVE_RE.search(question):
         return "deepdive"
+    if _DB_RE.search(question):
+        return "database"
     if _CODE_RE.search(question):
         return "code"
     if _SIGNAL_RE.search(question):
         return "signal"
+    if _INTL_ETF_RE.search(question):
+        return "intl_etf"
     if _MACRO_RE.search(question):
         return "macro"
+    if _NEWS_RE.search(question):
+        return "news"
     # General research intent — resolve company locally (no network) to avoid slowdown
     m = _GENERAL_RESEARCH_RE.search(question)
     if m:
@@ -623,7 +685,14 @@ class SignalSubAgent(_SubAgent):
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
-        "Format all signal tables in clean Markdown."
+        "Format all signal tables in clean Markdown.\n\n"
+        "## Charts\n"
+        "Call chart tools when the user asks to visualise signals or weights:\n"
+        "- `plot_signal_scores()` — overall composite scores for all ETFs\n"
+        "- `plot_signal_breakdown('SYM1,SYM2')` — weighted pillar breakdown (macro/sentiment/valuation/flow/ML)\n"
+        "- `plot_weight_recommendations('blended_50')` — recommended position weights\n"
+        "- `plot_garch_volatility_chart(symbol)` — GARCH vol trend vs vol-target line\n"
+        "- `plot_price_chart(symbol)` — price trend for a specific ETF"
     )
 
     def _get_tools(self) -> list:
@@ -634,12 +703,23 @@ class SignalSubAgent(_SubAgent):
             run_risk_governor_analysis,
             query_clickhouse_db,
         )
+        from src.tools.chart_tools import (
+            plot_price_chart, plot_signal_scores, plot_multi_price_chart,
+            plot_signal_breakdown, plot_weight_recommendations,
+            plot_garch_volatility_chart,
+        )
         return [
             run_daily_signal_composite,
             run_goldbees_pipeline,
             run_etf_news_sentiment,
             run_risk_governor_analysis,
             query_clickhouse_db,
+            plot_price_chart,
+            plot_signal_scores,
+            plot_signal_breakdown,
+            plot_weight_recommendations,
+            plot_garch_volatility_chart,
+            plot_multi_price_chart,
         ]
 
 
@@ -652,13 +732,21 @@ class MacroSubAgent(_SubAgent):
 
     SYSTEM_PROMPT = (
         "You are a macro analyst covering Indian and global commodity markets. "
+        "You handle both quantitative macro signals AND news on geopolitical topics.\n\n"
+        "## Macro signals\n"
         "Use `run_macro_scanner` to scan live macro/geopolitical events and map "
         "their directional impact to ETFs. "
         "Use `run_comex_analysis` for COMEX gold/silver/copper pre-market price signals. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL` and "
         "`market_data.cot_gold FINAL` for institutional positioning data. "
         "Score interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
-        "| ≤−16 = strong bearish. "
+        "| ≤−16 = strong bearish.\n\n"
+        "## Geopolitical / country news\n"
+        "When the query is about a country or geopolitical event (Iran, Russia, crude oil, "
+        "sanctions, war, etc.), call `search_financial_news` with a focused query such as "
+        "'Iran oil sanctions Indian market impact' to fetch live news articles. "
+        "Then call `run_macro_scanner` to get the ETF impact scores. "
+        "Present both: news table first, then ETF impact scores.\n\n"
         "CRITICAL: Only cite prices and flows from live tool output — never from "
         "training-time knowledge. Gold, FII, USDINR change daily."
     )
@@ -669,7 +757,212 @@ class MacroSubAgent(_SubAgent):
             run_comex_analysis,
             query_clickhouse_db,
         )
-        return [run_macro_scanner, run_comex_analysis, query_clickhouse_db]
+        from src.tools.news_search import search_financial_news, get_db_news
+        return [
+            run_macro_scanner,
+            run_comex_analysis,
+            query_clickhouse_db,
+            search_financial_news,
+            get_db_news,
+        ]
+
+
+# ── International ETF sub-agent ───────────────────────────────────────────────
+
+class IntlETFSubAgent(_SubAgent):
+    """
+    International ETF Pattern Analysis agent.
+
+    Symbols: MAFANG · HNGSNGBEES · MON100 · MASPTOP50 · MAHKTECH · MONQ50
+
+    7 analytical lenses
+    -------------------
+    Performance  — 3-year return, volatility, Sharpe ratio
+    Premium      — scarcity premium/discount (RBI overseas cap creates arbitrage)
+    Regimes      — KMeans Bull/Sideways/Bear detection
+    Correlation  — return correlations + USDINR sensitivity
+    Seasonality  — best/worst months per ETF
+    LightGBM     — feature importance for 5-day return prediction
+    Drawdowns    — major episodes > 10% from peak
+    """
+
+    SYSTEM_PROMPT = (
+        "You are an International ETF analyst covering NSE-listed overseas ETFs:\n"
+        "MAFANG (China Tech), HNGSNGBEES (Hang Seng), MON100 (Nasdaq 100), "
+        "MASPTOP50 (S&P 500), MAHKTECH (HK Tech), MONQ50 (Nasdaq 50).\n\n"
+        "## Workflow\n"
+        "Use the appropriate tool for the user's intent:\n"
+        "- Performance comparison → `get_intl_etf_performance` + `plot_intl_etf_performance`\n"
+        "- Premium/discount analysis → `get_intl_etf_premium(symbol)` + `plot_intl_etf_premium(symbol)`\n"
+        "- Market regime → `get_intl_etf_regimes`\n"
+        "- Monthly seasonality → `get_intl_etf_seasonality`\n"
+        "- Return correlations → `get_intl_etf_correlation`\n"
+        "- Major drawdowns → `get_intl_etf_drawdowns`\n"
+        "- ML feature importance → `get_intl_etf_lgbm`\n\n"
+        "## Key insight: Scarcity Premium\n"
+        "RBI's overseas investment cap means when the industry limit is full, "
+        "international ETFs trade at a PREMIUM to NAV. When the premium is "
+        "negative (discount), it is often a buying opportunity.\n\n"
+        "## Rules\n"
+        "- Always call the chart tool after the data tool when visualisation is helpful.\n"
+        "- Report regime, premium, and trend together for a complete picture.\n"
+        "- Never invent numbers — use only tool output."
+    )
+
+    def _get_tools(self) -> list:
+        from src.tools.intl_etf_tools import INTL_ETF_TOOLS
+        from src.tools.chart_tools import plot_intl_etf_performance, plot_intl_etf_premium, plot_price_chart
+        return INTL_ETF_TOOLS + [plot_intl_etf_performance, plot_intl_etf_premium, plot_price_chart]
+
+
+# ── News sub-agent ────────────────────────────────────────────────────────────
+
+class NewsSubAgent(_SubAgent):
+    """
+    Financial news aggregation and sentiment agent.
+
+    Sources
+    -------
+    • Google News (GNews)   — free, no quota, good for Indian market news
+    • NewsAPI.org           — richer metadata, 100 req/day free tier
+    • ClickHouse            — saved ETF news from previous `etf-news` runs
+    • ETF news sentinel     — run_etf_news_sentiment for category-level news
+
+    Workflow
+    --------
+    1. Company query → resolve symbol → get_stock_news + get_newsapi_stock_news (parallel)
+    2. General query → search_financial_news (free-text GNews)
+    3. Historical/saved → get_db_news (ClickHouse news_articles table)
+    4. ETF category → run_etf_news_sentiment
+    Synthesise: Markdown table + 2-3 sentence sentiment summary.
+    """
+
+    SYSTEM_PROMPT = (
+        "You are the Mosaic News Agent — an Indian financial news aggregator.\n\n"
+        "## Workflow\n"
+        "**Company/ETF news** (e.g. 'news on HDFC', 'news for gold bees'):\n"
+        "  1. Call `resolve_company` to get the NSE symbol.\n"
+        "  2. Call `get_stock_news` AND `get_newsapi_stock_news` in parallel using \"SYMBOL|Company Name\".\n"
+        "  3. Merge results, deduplicate by title, sort by date.\n\n"
+        "**Broad queries** ('market news today', 'etf news', 'earnings news'):\n"
+        "  1. Call `search_financial_news(query)` with a focused search string.\n\n"
+        "**Saved ETF news** ('saved news', 'news sentiment for gold'):\n"
+        "  1. Call `get_db_news(category='gold', sentiment='')` to query ClickHouse.\n\n"
+        "**ETF category scan** ('latest etf news', 'etf news sentiment'):\n"
+        "  1. Call `run_etf_news_sentiment` for a full multi-category scan.\n\n"
+        "## Output format\n"
+        "Always present results as a Markdown table:\n"
+        "| Title | Source | Date | Sentiment |\n\n"
+        "After the table, write 2-3 sentences summarising:\n"
+        "- Dominant sentiment (bullish / bearish / mixed)\n"
+        "- Key themes or events driving the news\n"
+        "- Any actionable observation (e.g. 'FII selling pressure visible in 3 of 5 articles')\n\n"
+        "## Rules\n"
+        "- Never invent headlines — only report what the tools return.\n"
+        "- If both GNews and NewsAPI return results, merge and deduplicate by title similarity.\n"
+        "- Truncate long titles to 80 characters in the table."
+    )
+
+    def _get_tools(self) -> list:
+        from src.tools.company_resolver import resolve_company
+        from src.tools.news_search import get_stock_news, search_financial_news, get_db_news
+        from src.tools.newsapi_search import get_newsapi_stock_news
+        from src.tools.skills_tools import run_etf_news_sentiment
+        return [
+            resolve_company,
+            get_stock_news,
+            get_newsapi_stock_news,
+            search_financial_news,
+            get_db_news,
+            run_etf_news_sentiment,
+        ]
+
+
+# ── Database sub-agent ────────────────────────────────────────────────────────
+
+class DatabaseSubAgent(_SubAgent):
+    """
+    Natural-language → SQL agent for the market_data ClickHouse database.
+
+    Workflow
+    --------
+    1. list_db_tables()          — discover available tables
+    2. describe_db_table(name)   — confirm column names before querying
+    3. execute_db_query(sql)     — run SELECT and return markdown results
+    4. sample_db_table(name)     — inspect raw data shape
+    5. get_db_watermarks()       — check data freshness
+
+    Always adds FINAL to every ReplacingMergeTree table.
+    Never modifies data — read-only queries only.
+    """
+
+    SYSTEM_PROMPT = (
+        "You are the Mosaic Database Agent — an expert in querying the market_data "
+        "ClickHouse database for the Mosaic fund platform.\n\n"
+
+        "## Workflow\n"
+        "1. If you don't know the table structure, call `describe_db_table` first.\n"
+        "2. Write a precise SQL query and call `execute_db_query`.\n"
+        "3. Present results as Markdown tables. Explain key findings in 2-3 sentences.\n"
+        "4. For freshness checks, call `get_db_watermarks`.\n\n"
+
+        "## ClickHouse rules (CRITICAL)\n"
+        "- Always add `FINAL` to every table — tables use ReplacingMergeTree:\n"
+        "    SELECT ... FROM market_data.mf_holdings FINAL WHERE ...\n"
+        "- Date literals: `toDate('2026-01-15')` not '2026-01-15'\n"
+        "- Last N days: `trade_date >= today() - 30`\n"
+        "- String comparison is case-sensitive: use exact values\n"
+        "- Only SELECT/SHOW/DESCRIBE/EXPLAIN/WITH — no INSERT/UPDATE/DELETE\n\n"
+
+        "## Key tables and columns\n"
+        "| table | key columns |\n|---|---|\n"
+        "| daily_prices | symbol, category('etfs'/'stocks'), trade_date, close |\n"
+        "| mf_holdings | scheme_code, fund_name, as_of_month, security_name, pct_of_nav, market_value_cr |\n"
+        "| mf_nav | scheme_code, nav_date, nav |\n"
+        "| fii_dii_flows | trade_date, fii_net_cr, dii_net_cr |\n"
+        "| fii_dii_fno_daily | trade_date, fii_fut_net_oi, fii_opt_call_net_oi, fii_opt_put_net_oi |\n"
+        "| signal_composite | as_of, etf_symbol, composite_score, action |\n"
+        "| ml_predictions | as_of, expected_return_pct, regime_signal, cv_r2_mean |\n"
+        "| weight_checkpoints | as_of, symbol, method, recommended_weight, garch_vol_pct |\n"
+        "| inav_snapshots | symbol, snapshot_at, inav, market_price, premium_discount_pct |\n"
+        "| cot_gold | report_date, mm_long, mm_short, mm_net, open_interest |\n"
+        "| fx_rates | trade_date, symbol('USDINR=X' etc.), close |\n"
+        "| macro_indicators | ref_year, country_code, indicator_code, value |\n"
+        "| news_articles | fetched_at, category, sentiment, impact_tier, title |\n"
+        "| import_watermarks | source, symbol, last_date |\n"
+        "| deepdive_financials | ticker, report_date, revenue_usd_m, net_income_usd_m, free_cash_flow_usd_m |\n"
+        "| deepdive_valuation | ticker, report_date, pe_trailing, ev_ebitda, fcf_yield_pct |\n\n"
+
+        "## Common patterns\n"
+        "```sql\n"
+        "-- Latest GOLDBEES price\n"
+        "SELECT trade_date, close FROM market_data.daily_prices FINAL\n"
+        "WHERE symbol='GOLDBEES' AND category='etfs' ORDER BY trade_date DESC LIMIT 5\n\n"
+        "-- DSP fund holdings for a stock\n"
+        "SELECT fund_name, as_of_month, pct_of_nav, market_value_cr\n"
+        "FROM market_data.mf_holdings FINAL\n"
+        "WHERE security_name ILIKE '%Reliance%' ORDER BY as_of_month DESC LIMIT 10\n\n"
+        "-- FII net flows last 10 days\n"
+        "SELECT trade_date, fii_net_cr, dii_net_cr\n"
+        "FROM market_data.fii_dii_flows FINAL\n"
+        "ORDER BY trade_date DESC LIMIT 10\n"
+        "```\n\n"
+        "Never invent numbers — always run the query and report the output.\n\n"
+        "## Charts\n"
+        "After returning query results, offer to visualise the data:\n"
+        "- Time-series price data → `plot_price_chart(symbol, days)`\n"
+        "- Multi-symbol comparison → `plot_multi_price_chart('SYM1,SYM2', days)`\n"
+        "- FII/DII flows → `plot_fii_dii_chart(days)`\n"
+        "- Signal scores → `plot_signal_scores()`\n"
+        "- MF NAV trend → `plot_nav_chart(scheme_code, days)`\n"
+        "Always call the chart tool when the user asks to 'plot', 'chart', 'show trend', "
+        "or 'visualise' data."
+    )
+
+    def _get_tools(self) -> list:
+        from src.tools.db_tools import DB_TOOLS
+        from src.tools.chart_tools import CHART_TOOLS
+        return DB_TOOLS + CHART_TOOLS
 
 
 # ── Code sub-agent ────────────────────────────────────────────────────────────
@@ -740,9 +1033,8 @@ class CodeSubAgent(_SubAgent):
     def _get_tools(self) -> list:
         from src.tools.code_tools import CODE_TOOLS
         from src.tools.skills_tools import query_clickhouse_db
-        # query_clickhouse_db is already in CODE_TOOLS via execute_python_snippet,
-        # but we include it explicitly so the agent can run ad-hoc SQL without writing code.
-        return CODE_TOOLS + [query_clickhouse_db]
+        from src.tools.chart_tools import CHART_TOOLS
+        return CODE_TOOLS + [query_clickhouse_db] + CHART_TOOLS
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -758,7 +1050,10 @@ def get_subagent(name: str) -> _SubAgent:
             "india_equity": IndianEquityResearchSubAgent,
             "signal":       SignalSubAgent,
             "macro":        MacroSubAgent,
+            "intl_etf":     IntlETFSubAgent,
+            "news":         NewsSubAgent,
             "code":         CodeSubAgent,
+            "database":     DatabaseSubAgent,
         }
         cls = cls_map.get(name)
         if cls is None:

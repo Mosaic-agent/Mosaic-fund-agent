@@ -36,6 +36,99 @@ from src.utils.symbol_mapper import SYMBOL_TO_COMPANY
 log = logging.getLogger(__name__)
 
 _YAHOO_SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
+
+# ── LLM-powered symbol resolver ───────────────────────────────────────────────
+
+_resolver_llm: "Any" = None          # lazy singleton — built on first use
+_llm_symbol_cache: dict[str, str | None] = {}   # session-level cache
+
+
+def _get_resolver_llm() -> "Any":
+    """Return (building once) a minimal LLM for single-token symbol lookups."""
+    global _resolver_llm
+    if _resolver_llm is not None:
+        return _resolver_llm
+    try:
+        from config.settings import settings
+        kwargs = dict(temperature=0, max_tokens=20)
+        if settings.llm_base_url:
+            from langchain_openai import ChatOpenAI
+            _resolver_llm = ChatOpenAI(
+                model=settings.llm_model,
+                base_url=settings.llm_base_url,
+                api_key=settings.openai_api_key or "local",
+                **kwargs,
+            )
+        elif settings.llm_provider == "anthropic":
+            from langchain_anthropic import ChatAnthropic
+            _resolver_llm = ChatAnthropic(
+                model=settings.llm_model,
+                api_key=settings.anthropic_api_key,
+                **kwargs,
+            )
+        elif settings.llm_provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            _resolver_llm = ChatGoogleGenerativeAI(
+                model=settings.llm_model,
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=20,
+            )
+        else:
+            from langchain_openai import ChatOpenAI
+            _resolver_llm = ChatOpenAI(
+                model=settings.llm_model,
+                api_key=settings.openai_api_key,
+                **kwargs,
+            )
+    except Exception as exc:
+        log.warning("_get_resolver_llm: could not build LLM: %s", exc)
+    return _resolver_llm
+
+
+def _llm_resolve(query: str) -> str | None:
+    """
+    Ask the LLM for the canonical NSE/NYSE ticker of *query*.
+
+    Returns the raw symbol string (e.g. "ASIANPAINT", "AAPL") or None.
+    Results are cached in ``_llm_symbol_cache`` for the session lifetime so
+    repeated lookups for the same query never hit the LLM twice.
+    """
+    key = query.strip().lower()
+    if key in _llm_symbol_cache:
+        return _llm_symbol_cache[key]
+
+    llm = _get_resolver_llm()
+    if llm is None:
+        _llm_symbol_cache[key] = None
+        return None
+
+    try:
+        from langchain_core.messages import HumanMessage
+        prompt = (
+            "You are a stock market expert covering Indian (NSE/BSE) and US markets.\n"
+            f"What is the exact exchange ticker symbol for: \"{query}\"?\n"
+            "Rules:\n"
+            "- For Indian stocks reply with the NSE symbol in UPPERCASE (e.g. RELIANCE, INFY, ASIANPAINT).\n"
+            "- For US stocks reply with the NYSE/NASDAQ symbol (e.g. AAPL, MSFT).\n"
+            "- Reply with ONLY the ticker symbol — no explanation, no punctuation.\n"
+            "- If you are not sure, reply UNKNOWN."
+        )
+        raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+        # Take the first token, strip non-alphanumeric (except & for some Indian symbols)
+        first = raw.split()[0] if raw.split() else ""
+        sym = re.sub(r"[^A-Z0-9&]", "", first.upper())
+        result = sym if sym and sym != "UNKNOWN" and 1 < len(sym) <= 20 else None
+        _llm_symbol_cache[key] = result
+        if result:
+            log.info("_llm_resolve: %r → %s (LLM memory)", query, result)
+        else:
+            log.info("_llm_resolve: %r → unresolved (LLM returned %r)", query, raw[:40])
+        return result
+    except Exception as exc:
+        log.warning("_llm_resolve: LLM call failed for %r: %s", query, exc)
+        _llm_symbol_cache[key] = None
+        return None
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
     "Accept": "application/json",
@@ -203,10 +296,26 @@ _ALIAS: dict[str, str] = {
     # Telecom
     "bharti airtel": "BHARTIARTL",
     "airtel": "BHARTIARTL",
-    # ETFs
+    # Nippon India ETF "BeES" family — both concatenated and spaced forms
     "goldbees": "GOLDBEES",
+    "gold bees": "GOLDBEES",
+    "gold bee": "GOLDBEES",
+    "nippon gold": "GOLDBEES",
+    "nippon india gold": "GOLDBEES",
     "niftybees": "NIFTYBEES",
+    "nifty bees": "NIFTYBEES",
+    "nifty50bees": "NIFTYBEES",
+    "nifty 50 bees": "NIFTYBEES",
     "bankbees": "BANKBEES",
+    "bank bees": "BANKBEES",
+    "silverbees": "SILVERBEES",
+    "silver bees": "SILVERBEES",
+    "silver bee": "SILVERBEES",
+    "nippon silver": "SILVERBEES",
+    "juniorbees": "JUNIORBEES",
+    "junior bees": "JUNIORBEES",
+    "liquidbees": "LIQUIDBEES",
+    "liquid bees": "LIQUIDBEES",
     # Garware group — two distinct listed companies
     "garware hi-tech films": "GRWRHITECH",
     "garware hi tech films": "GRWRHITECH",
@@ -287,11 +396,35 @@ def resolve_company_info(query: str) -> dict:
             "source":       "local_map",
         }
 
+    # ── 1b. LLM memory lookup ─────────────────────────────────────────────
+    # Ask the LLM for the ticker from its training knowledge, then:
+    #   a) if the symbol is already in the local map → return immediately
+    #   b) otherwise use it as the Yahoo Finance search query (more precise than raw input)
+    llm_sym = _llm_resolve(query)
+    if llm_sym:
+        local_from_llm = _local_indian_lookup(llm_sym)
+        if local_from_llm:
+            name = SYMBOL_TO_COMPANY.get(local_from_llm, local_from_llm)
+            return {
+                "symbol":       local_from_llm,
+                "nse_symbol":   local_from_llm,
+                "yf_symbol":    f"{local_from_llm}.NS",
+                "exchange":     "NSE",
+                "market":       "India",
+                "company_name": name,
+                "currency":     "INR",
+                "source":       "llm_memory",
+            }
+        # LLM gave a symbol not in local map — use it for a tighter Yahoo search
+        log.info("resolve_company: LLM suggested %r for %r — querying Yahoo", llm_sym, query)
+
     # ── 2. Yahoo Finance search ────────────────────────────────────────────
+    # Use LLM-suggested symbol when available (more precise than free text)
+    _yahoo_query = llm_sym or query
     try:
         resp = requests.get(
             _YAHOO_SEARCH_URL,
-            params={"q": query, "lang": "en-US", "region": "US", "quotesCount": 6},
+            params={"q": _yahoo_query, "lang": "en-US", "region": "US", "quotesCount": 6},
             headers=_HEADERS,
             timeout=_TIMEOUT,
         )

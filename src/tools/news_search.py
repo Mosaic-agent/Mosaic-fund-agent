@@ -209,5 +209,81 @@ def get_stock_news(input_str: str) -> dict[str, Any]:
     }
 
 
+@tool
+def search_financial_news(query: str, max_results: int = 10) -> str:
+    """
+    Free-text financial news search via Google News (GNews).
+
+    Use for broad queries that are not tied to a single stock symbol:
+      - "Indian market news today"
+      - "ETF news India"
+      - "Nifty earnings results"
+      - "RBI rate decision"
+      - "budget 2026 India"
+
+    Returns a Markdown table: Title | Source | Date | Sentiment
+    """
+    try:
+        from gnews import GNews
+        client = GNews(
+            language="en",
+            country="IN",
+            max_results=min(max_results, 15),
+            period=f"{settings.news_lookback_days}d",
+        )
+        articles = client.get_news(query)
+        if not articles:
+            return f"No news found for query: '{query}'"
+
+        lines = ["| Title | Source | Date | Sentiment |", "|---|---|---|---|"]
+        for a in articles:
+            title = (a.get("title") or "")[:90]
+            pub   = a.get("publisher", {})
+            src   = pub.get("title", "—") if isinstance(pub, dict) else str(pub)
+            date  = str(a.get("published date", ""))[:16]
+            desc  = a.get("description") or ""
+            sent  = _infer_sentiment(f"{title} {desc}").value
+            lines.append(f"| {title} | {src} | {date} | {sent} |")
+
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Error fetching news for '{query}': {exc}"
+
+
+@tool
+def get_db_news(category: str = "", sentiment: str = "", limit: int = 20) -> str:
+    """
+    Query saved news articles from the ClickHouse news_articles table.
+
+    Args:
+        category:  ETF category filter (e.g. 'gold', 'silver', 'nifty', 'banking') — blank = all
+        sentiment: Filter by 'positive', 'negative', 'neutral' — blank = all
+        limit:     Max rows to return (default 20)
+
+    Returns a Markdown table of recent saved articles.
+    """
+    conditions = ["1=1"]
+    if category:
+        conditions.append(f"lower(category) LIKE '%{category.lower()}%'")
+    if sentiment:
+        conditions.append(f"lower(sentiment) = '{sentiment.lower()}'")
+    where = " AND ".join(conditions)
+    sql = (
+        f"SELECT fetched_at, category, sentiment, impact_tier, title, source "
+        f"FROM market_data.news_articles FINAL "
+        f"WHERE {where} "
+        f"ORDER BY fetched_at DESC "
+        f"LIMIT {min(limit, 100)}"
+    )
+    try:
+        from src.db.pool import query_df
+        df = query_df(sql)
+        if df.empty:
+            return "No saved news found matching the filters."
+        return df.to_markdown(index=False)
+    except Exception as exc:
+        return f"DB news query error: {exc}"
+
+
 # Convenience list of news tools
 NEWS_TOOLS = [get_stock_news]

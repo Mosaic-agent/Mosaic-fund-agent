@@ -1,5 +1,6 @@
 # ── CLI / REPL ────────────────────────────────────────────────────────────────
 prompt-toolkit>=3.0.0            # Multi-line input, bracketed paste, key bindings for chat REPL
+plotext>=5.2.0                   # ASCII/Unicode charts rendered directly in the terminal
 
 # ── Core Agent Framework ──────────────────────────────────────────────────────
 langchain>=0.3.0

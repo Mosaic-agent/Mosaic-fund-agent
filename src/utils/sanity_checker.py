@@ -17,6 +17,9 @@ MAX_DAILY_RETURN = 0.20          # 20% (standard NSE circuit limit)
 # Assets considered "safe/stable" for lower thresholds
 SAFE_ASSETS = ["GOLDBEES", "NIFTYBEES", "BANKBEES", "LIQUIDBEES", "MON100"]
 
+# FX rate symbols — excluded from YoY return anomaly checks (non-equity price range)
+RATE_SYMBOLS = ["USDINR", "USDCNY", "USDAED", "USDSAR", "USDKWD"]
+
 def detect_yoy_anomalies(client: Any, symbols: List[str] = None) -> List[Dict[str, Any]]:
     """
     Scans ClickHouse for symbols where YoY returns exceed economic reality.

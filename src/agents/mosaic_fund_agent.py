@@ -69,12 +69,27 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
         ))
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        from rich.text import Text
         if hasattr(output, "content"):
             output_str = str(output.content).strip()
         else:
             output_str = str(output).strip()
-        # Check if output is a markdown table or has markdown elements
-        if "|" in output_str and "-" in output_str:
+
+        # Detect ASCII chart output — contains box-drawing chars from plotext.
+        # Render with Text.from_ansi + no_wrap so lines stay intact.
+        _CHART_CHARS = ("┤", "┼", "─", "└", "┐", "┘", "┌", "├", "┬", "┴", "╮", "╰", "╭")
+        is_chart = any(c in output_str for c in _CHART_CHARS)
+
+        if is_chart:
+            _text = Text.from_ansi(output_str)
+            _text.no_wrap = True
+            self.console.print(Panel(
+                _text,
+                border_style="green",
+                title="Tool Output",
+                expand=False,
+            ))
+        elif "|" in output_str and "-" in output_str:
             self.console.print(Panel(
                 Markdown(output_str),
                 border_style="green",
@@ -578,7 +593,7 @@ class MosaicFundAgent:
             logger.error("Agent query failed: %s", exc)
             return f"Error: {exc}"
 
-    def chat(self, question: str, thread_id: str = "default") -> str:
+    def chat(self, question: str, thread_id: str = "default", forced_intent: str | None = None) -> str:
         """
         Single turn in an ongoing multi-turn conversation.
 
@@ -629,8 +644,8 @@ class MosaicFundAgent:
                 except Exception as exc:
                     logger.error("Deep-dive heuristic failed: %s", exc)
 
-        # Intent-based routing to sub-agents
-        intent = route_intent(question)
+        # Intent-based routing — use AI-planner override when provided
+        intent = forced_intent if forced_intent else route_intent(question)
         if intent != "main":
             logger.info("chat: routing to %s sub-agent", intent)
             from src.agents.sub_agents import run_subagent_for

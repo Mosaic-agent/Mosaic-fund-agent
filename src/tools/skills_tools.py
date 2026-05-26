@@ -73,7 +73,7 @@ def _run_cmd(args: list[str]) -> str:
             capture_output=True,
             text=True,
             env=env,
-            timeout=60,
+            timeout=300,
         )
         output = res.stdout
         if res.stderr:
@@ -221,24 +221,53 @@ def query_clickhouse_db(sql_query: str) -> str:
     first_word = clean_query.split()[0].upper() if clean_query else ""
     if first_word not in ("SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "WITH"):
         return "Error: Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH) are permitted."
-         
+
+    # Auto-fix common SQLite/PostgreSQL patterns before hitting ClickHouse
+    try:
+        from src.tools.db_tools import _auto_fix_sql
+        clean_query, _changes = _auto_fix_sql(clean_query)
+    except Exception:
+        pass
+
     try:
         from src.db.pool import query_df
         df = query_df(clean_query)
         if df.empty:
             return "Query executed successfully, but returned 0 rows."
-        
+
         max_rows = 100
         truncated = len(df) > max_rows
         df_subset = df.head(max_rows)
-        
-        # Convert to markdown string output for easy reading
+
+        # Stale-data detection — set flag for chat loop
+        try:
+            from src.tools.db_tools import _stale_flag, _check_table_freshness, STALE_THRESHOLD_DAYS
+            import pandas as pd
+            date_cols = [c for c in df.columns
+                         if any(k in c.lower() for k in ("date", "as_of", "snapshot", "fetched"))]
+            if date_cols:
+                latest = pd.to_datetime(df[date_cols[0]]).max()
+                days_old = (pd.Timestamp.now() - latest).days
+                if days_old > STALE_THRESHOLD_DAYS:
+                    hint = _check_table_freshness(clean_query)
+                    if hint:
+                        _stale_flag.hint = {**hint, "days_ago": days_old,
+                                             "last_date": str(latest)[:10]}
+        except Exception:
+            pass
+
         result_str = df_subset.to_markdown(index=False)
         if truncated:
             result_str += f"\n\n[Warning: Output truncated to {max_rows} rows from total of {len(df)} rows]"
         return result_str
     except Exception as e:
-        return f"Error executing ClickHouse query: {e}"
+        hint = (
+            "\n\nClickHouse column names: trade_date (daily_prices), nav_date (mf_nav), "
+            "as_of_month (mf_holdings), as_of (signal_composite/ml_predictions).\n"
+            "Date functions: today(), today()-30, toStartOfMonth(today()).\n"
+            f"SQL attempted:\n```sql\n{clean_query}\n```"
+        )
+        return f"Error executing ClickHouse query: {e}{hint}"
 
 
 def _summarize_whale_tracker_output(output: str) -> str:
