@@ -342,11 +342,11 @@ class _SubAgent:
             return self._confirm_fallback(question)
 
         from langchain_core.messages import HumanMessage, ToolMessage
-        config: dict = {}
+        config: dict = {"recursion_limit": 8}
         if callbacks:
             config["callbacks"] = callbacks
         try:
-            result = self._agent.invoke({"messages": [HumanMessage(content=question)]}, config=config or None)
+            result = self._agent.invoke({"messages": [HumanMessage(content=question)]}, config=config)
             msgs = result.get("messages", [])
 
             # Collect tool outputs; skip pure-plumbing calls (e.g. resolve_company
