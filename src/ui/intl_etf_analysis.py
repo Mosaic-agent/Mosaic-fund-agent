@@ -335,7 +335,8 @@ def compute_correlation(price_wide: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
     # USDINR rolling correlation (last 180 days)
     usdinr_rows = []
     if "USDINR" in ret.columns:
-        recent = ret.last("180D")
+        cutoff = ret.index[-1] - pd.Timedelta(days=180)
+        recent = ret.loc[ret.index >= cutoff]
         for sym in etfs:
             if sym in recent.columns:
                 usdinr_rows.append({
