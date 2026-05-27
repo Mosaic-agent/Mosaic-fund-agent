@@ -90,14 +90,20 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
         if sym not in clean:
             continue
 
-        raw_inav = entry.get("nav") or entry.get("iNav")
+        # NSE's "nav" field is the PREVIOUS DAY's declared NAV (navDate in response header),
+        # not a live intraday iNAV. NSE does not expose real-time iNAV through public APIs.
+        # For international ETFs (HNGSNGBEES, MAFANG…) this is the correct reference
+        # since the overseas market is closed during Indian hours.
+        # For domestic commodity ETFs (GOLDBEES, SILVERBEES…) the true live iNAV would
+        # require computing from current MCX/COMEX prices.
+        raw_nav  = entry.get("nav") or entry.get("iNav")
         raw_ltp  = entry.get("ltP") or entry.get("lastPrice")
 
-        if raw_inav is None:
-            logger.debug("No iNAV value for %s in NSE response", sym)
+        if raw_nav is None:
+            logger.debug("No NAV value for %s in NSE response", sym)
             continue
 
-        inav         = _safe(raw_inav)
+        inav         = _safe(raw_nav)        # prev-day declared NAV used as reference
         market_price = _safe(raw_ltp) if raw_ltp is not None else inav
         prem_disc    = ((market_price - inav) / inav * 100) if inav else 0.0
 
@@ -129,5 +135,160 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
             "source":               "NSE",
         })
 
-    logger.info("NSE iNAV: captured %d snapshot(s) at %s UTC", len(rows), snapshot_at)
+    from src.utils.ist import utc_to_ist
+    _snap_ist = utc_to_ist(snapshot_at).strftime("%Y-%m-%d %H:%M:%S IST")
+    logger.info("NSE iNAV: captured %d snapshot(s) at %s", len(rows), _snap_ist)
     return rows
+
+
+def _is_market_open() -> bool:
+    """Return True if NSE is currently in its normal trading session (IST 09:15–15:30)."""
+    from datetime import datetime, timezone, timedelta
+    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    if ist.weekday() >= 5:          # Saturday / Sunday
+        return False
+    open_t  = ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+    close_t = ist.replace(hour=15, minute=30, second=0, microsecond=0)
+    return open_t <= ist <= close_t
+
+
+def get_latest_inav(
+    symbol: str,
+    max_age_days: int = 4,
+    max_age_minutes: int | None = None,
+    store_to_db: bool = True,
+) -> dict[str, Any] | None:
+    """
+    Return the latest iNAV snapshot for *symbol*.
+
+    During market hours (IST 09:15–15:30) freshness is evaluated against
+    *max_age_minutes* (default 10 min) — iNAV updates every ~15 s, so data
+    older than that is treated as stale and triggers a live NSE API call.
+    Outside market hours the coarser *max_age_days* threshold applies.
+
+    Resolution order:
+      1. ClickHouse ``inav_snapshots`` — if row is fresh enough
+      2. NSE API live fetch            — if DB is stale/empty
+         Stores the fresh snapshot to DB when ``store_to_db=True``.
+
+    Returns a dict with keys:
+        symbol, premium_discount_pct, inav, market_price, snapshot_at, source
+    or None if both DB and NSE API return nothing.
+    """
+    sym = symbol.strip().upper().replace(".NS", "")
+
+    # During market hours use a tight minute-level window; otherwise use days.
+    if max_age_minutes is None:
+        max_age_minutes = 2       # default: 2 min — iNAV updates every 15s, keep data fresh
+    if _is_market_open():
+        age_clause = f"snapshot_at >= now() - INTERVAL {max_age_minutes} MINUTE"
+        threshold_desc = f"{max_age_minutes} min"
+    else:
+        age_clause = f"snapshot_at >= now() - INTERVAL {max_age_days} DAY"
+        threshold_desc = f"{max_age_days} days"
+
+    # ── 1. Try ClickHouse ─────────────────────────────────────────────────
+    try:
+        from src.db.pool import get_pool
+        pool = get_pool()
+        rows_db = pool.query_df(
+            f"""
+            SELECT premium_discount_pct, inav, market_price, snapshot_at
+            FROM market_data.inav_snapshots FINAL
+            WHERE symbol = '{sym}'
+              AND {age_clause}
+            ORDER BY snapshot_at DESC
+            LIMIT 1
+            """
+        )
+        if not rows_db.empty:
+            r = rows_db.iloc[0]
+            logger.debug("get_latest_inav: %s found in DB (within %s)", sym, threshold_desc)
+            return {
+                "symbol":               sym,
+                "premium_discount_pct": float(r["premium_discount_pct"]),
+                "inav":                 float(r["inav"]),
+                "market_price":         float(r["market_price"]),
+                "snapshot_at":          r["snapshot_at"],
+                "source":               "db",
+            }
+        logger.info(
+            "get_latest_inav: %s DB snapshot older than %s — fetching live",
+            sym, threshold_desc,
+        )
+    except Exception as exc:
+        logger.warning("get_latest_inav: DB lookup failed for %s: %s", sym, exc)
+
+    # ── 2. Kite iNAV instrument (true live iNAV when Kite is configured) ─
+    # Kite exposes iNAV as non-tradeable NSE instruments (GOLDBEINAV, SILVERINAV…)
+    # These are the real AMC-published intraday iNAV values, updated every ~15s.
+    try:
+        from src.importer.fetchers.kite_inav_fetcher import fetch_inav_kite
+        kite_rows = fetch_inav_kite([sym])
+        if kite_rows:
+            row = kite_rows[0]
+            if store_to_db:
+                try:
+                    from config.settings import settings
+                    from src.importer.clickhouse import ClickHouseImporter
+                    ch = ClickHouseImporter(
+                        host=settings.clickhouse_host, port=settings.clickhouse_port,
+                        database=settings.clickhouse_database,
+                        username=settings.clickhouse_user, password=settings.clickhouse_password,
+                    )
+                    try:
+                        ch.insert_inav_snapshots([row])
+                    finally:
+                        ch.close()
+                except Exception:
+                    pass
+            return {
+                "symbol":               sym,
+                "premium_discount_pct": row["premium_discount_pct"],
+                "inav":                 row["inav"],
+                "market_price":         row["market_price"],
+                "snapshot_at":          row["snapshot_at"],
+                "source":               "kite_live",
+            }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Kite iNAV unavailable for %s: %s", sym, exc)
+
+    # ── 3. Fallback: NSE /api/etf (returns PREVIOUS DAY's declared NAV) ──
+    # Note: NSE's public ETF API only exposes the prior day's AMC-declared NAV.
+    # The /api/quote-equity endpoint (true live iNAV) is Akamai-protected.
+    logger.info("get_latest_inav: %s not in DB or stale — calling NSE API (prev-day NAV)", sym)
+    live_rows = fetch_inav_snapshots([sym])
+    if not live_rows:
+        logger.warning("get_latest_inav: NSE API returned nothing for %s", sym)
+        return None
+
+    row = live_rows[0]
+
+    # ── 3. Persist snapshot so next caller finds it in DB ─────────────────
+    if store_to_db:
+        try:
+            from config.settings import settings
+            from src.importer.clickhouse import ClickHouseImporter
+            ch = ClickHouseImporter(
+                host=settings.clickhouse_host,
+                port=settings.clickhouse_port,
+                database=settings.clickhouse_database,
+                username=settings.clickhouse_user,
+                password=settings.clickhouse_password,
+            )
+            try:
+                ch.insert_inav_snapshots([row])
+                logger.info("get_latest_inav: stored fresh snapshot for %s", sym)
+            finally:
+                ch.close()
+        except Exception as exc:
+            logger.warning("get_latest_inav: failed to store snapshot for %s: %s", sym, exc)
+
+    return {
+        "symbol":               sym,
+        "premium_discount_pct": row["premium_discount_pct"],
+        "inav":                 row["inav"],
+        "market_price":         row["market_price"],
+        "snapshot_at":          row["snapshot_at"],
+        "source":               "nse_api_live",
+    }

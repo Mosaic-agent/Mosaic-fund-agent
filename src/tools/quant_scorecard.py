@@ -369,24 +369,21 @@ def compute_gold_scorecard(
 
         # ── Valuation: latest iNAV premium/discount ───────────────────────────
         try:
-            inav_row = client.query(f"""
-                SELECT premium_discount_pct, toDate(snapshot_at) AS snap_date
-                FROM market_data.inav_snapshots
-                WHERE symbol = 'GOLDBEES'
-                  AND snapshot_at >= now() - INTERVAL {_INAV_MAX_AGE_DAYS} DAY
-                ORDER BY snapshot_at DESC
-                LIMIT 1
-            """).result_rows
-            if inav_row:
-                disc_pct = float(inav_row[0][0])
+            from src.importer.fetchers.nse_inav_fetcher import get_latest_inav
+            inav_data = get_latest_inav("GOLDBEES", max_age_days=_INAV_MAX_AGE_DAYS)
+            if inav_data:
+                disc_pct = inav_data["premium_discount_pct"]
                 signals["inav_disc_pct"] = round(disc_pct, 3)
+                signals["inav_source"]   = inav_data["source"]
                 valuation_score = _score_valuation(disc_pct)
-                if as_of is None and inav_row[0][1]:
-                    as_of = inav_row[0][1]
+                if as_of is None:
+                    snap_dt = inav_data.get("snapshot_at")
+                    if snap_dt is not None:
+                        import pandas as _pd
+                        as_of = _pd.Timestamp(snap_dt).date()
             else:
                 errors.append(
-                    f"iNAV data is stale (no row within {_INAV_MAX_AGE_DAYS}d) "
-                    "— valuation pillar unavailable"
+                    f"iNAV data unavailable — DB stale and NSE API unreachable"
                 )
         except Exception as exc:
             errors.append(f"iNAV query failed: {exc}")
@@ -721,24 +718,21 @@ def compute_silver_scorecard(
 
         # Valuation: SILVERBEES iNAV premium/discount
         try:
-            inav_row = client.query(f"""
-                SELECT premium_discount_pct, toDate(snapshot_at) AS snap_date
-                FROM market_data.inav_snapshots
-                WHERE symbol = 'SILVERBEES'
-                  AND snapshot_at >= now() - INTERVAL {_INAV_MAX_AGE_DAYS} DAY
-                ORDER BY snapshot_at DESC
-                LIMIT 1
-            """).result_rows
-            if inav_row:
-                disc_pct = float(inav_row[0][0])
+            from src.importer.fetchers.nse_inav_fetcher import get_latest_inav
+            inav_data = get_latest_inav("SILVERBEES", max_age_days=_INAV_MAX_AGE_DAYS)
+            if inav_data:
+                disc_pct = inav_data["premium_discount_pct"]
                 signals["inav_disc_pct"] = round(disc_pct, 3)
+                signals["inav_source"]   = inav_data["source"]
                 valuation_score = _score_valuation(disc_pct)
-                if as_of is None and inav_row[0][1]:
-                    as_of = inav_row[0][1]
+                if as_of is None:
+                    snap_dt = inav_data.get("snapshot_at")
+                    if snap_dt is not None:
+                        import pandas as _pd
+                        as_of = _pd.Timestamp(snap_dt).date()
             else:
                 errors.append(
-                    f"SILVERBEES iNAV data is stale (no row within {_INAV_MAX_AGE_DAYS}d) "
-                    "— valuation unavailable"
+                    "SILVERBEES iNAV unavailable — DB stale and NSE API unreachable"
                 )
         except Exception as exc:
             errors.append(f"SILVERBEES iNAV query failed: {exc}")
