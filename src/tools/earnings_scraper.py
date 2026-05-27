@@ -69,33 +69,42 @@ def fetch_from_screener(symbol: str) -> QuarterlyResult | None:
     url = f"{SCREENER_BASE}/company/{symbol}/consolidated/"
     logger.info("Scraping Screener.in for %s: %s", symbol, url)
 
+    def _fetch_and_parse(page_url: str):
+        """Fetch a Screener.in URL and return (soup, rows) or (None, None)."""
+        try:
+            r = requests.get(page_url, headers=HEADERS, timeout=15)
+        except Exception as exc:
+            logger.warning("Screener.in request failed for %s: %s", page_url, exc)
+            return None, None
+        if r.status_code != 200:
+            return None, None
+        s = BeautifulSoup(r.text, "lxml")
+        qs = s.find("section", {"id": "quarters"})
+        if not qs:
+            return None, None
+        t = qs.find("table")
+        if not t:
+            return None, None
+        tr = t.find_all("tr")
+        # Guard: a valid table has data cells (>1 cell per row).
+        # Consolidated pages sometimes return 200 but contain only label
+        # cells with no data — treat that as a miss and fall through.
+        data_rows = [r for r in tr[1:] if len(r.find_all(["th", "td"])) > 1]
+        if not data_rows:
+            return None, None
+        return s, tr
+
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        soup, rows = _fetch_and_parse(url)
 
-        # Try standalone (non-consolidated) if consolidated not found
-        if resp.status_code == 404:
+        # Fall through to standalone URL if consolidated had no data
+        if rows is None:
             url = f"{SCREENER_BASE}/company/{symbol}/"
-            resp = requests.get(url, headers=HEADERS, timeout=15)
+            logger.info("Screener.in: consolidated empty for %s — trying standalone", symbol)
+            soup, rows = _fetch_and_parse(url)
 
-        if resp.status_code != 200:
-            logger.warning("Screener.in returned %d for %s", resp.status_code, symbol)
-            return None
-
-        soup = BeautifulSoup(resp.text, "lxml")
-
-        # ── Find quarterly results table ──────────────────────────────────────
-        # Screener uses a section with id="quarters"
-        quarters_section = soup.find("section", {"id": "quarters"})
-        if not quarters_section:
-            logger.warning("No quarterly section found on Screener.in for %s", symbol)
-            return None
-
-        table = quarters_section.find("table")
-        if not table:
-            return None
-
-        rows = table.find_all("tr")
-        if len(rows) < 2:
+        if rows is None:
+            logger.warning("No quarterly data found on Screener.in for %s", symbol)
             return None
 
         # Header row: Mar 2024, Jun 2024, Sep 2024, Dec 2024 ...
@@ -290,5 +299,94 @@ def get_quarterly_results(input_str: str) -> dict[str, Any]:
     }
 
 
+@tool
+def get_shareholding_pattern(symbol: str) -> dict:
+    """
+    Fetch the latest quarterly shareholding pattern for an Indian NSE/BSE stock
+    from Screener.in. Returns Promoter, FII, DII, Government, and Public/Retail
+    holding percentages plus QoQ change for each category.
+
+    Args:
+        symbol: NSE symbol — e.g. "HDFCBANK", "RELIANCE", "LICI"
+
+    Returns:
+        Dict with latest_quarter, promoter_pct, fii_pct, dii_pct,
+        government_pct, public_pct, num_shareholders, and QoQ deltas.
+    """
+    sym = symbol.strip().upper()
+    for path in (f"/company/{sym}/consolidated/", f"/company/{sym}/"):
+        try:
+            resp = requests.get(
+                f"{SCREENER_BASE}{path}",
+                headers=HEADERS,
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                continue
+
+            soup = BeautifulSoup(resp.text, "lxml")
+            sh_section = soup.find("section", {"id": "shareholding"})
+            if not sh_section:
+                continue
+
+            div = sh_section.find("div", {"id": "quarterly-shp"})
+            if not div:
+                continue
+
+            table = div.find("table")
+            if not table:
+                continue
+
+            rows = table.find_all("tr")
+            if len(rows) < 2:
+                continue
+
+            headers = [th.get_text(strip=True) for th in rows[0].find_all(["th", "td"])]
+            latest_quarter = headers[-1] if headers else ""
+
+            def _pct(text: str) -> float:
+                cleaned = text.replace("%", "").strip()
+                try:
+                    return round(float(cleaned), 2)
+                except ValueError:
+                    return 0.0
+
+            result: dict = {"symbol": sym, "latest_quarter": latest_quarter, "source": f"{SCREENER_BASE}{path}"}
+            label_map = {
+                "promoters":     "promoter_pct",
+                "fiis":          "fii_pct",
+                "diis":          "dii_pct",
+                "government":    "government_pct",
+                "public":        "public_pct",
+            }
+            for row in rows[1:]:
+                cells = row.find_all(["th", "td"])
+                if len(cells) < 2:
+                    continue
+                raw_label = cells[0].get_text(strip=True).lower().replace("+", "").strip()
+                # Number of shareholders — store separately
+                if "shareholders" in raw_label or "no. of" in raw_label:
+                    result["num_shareholders"] = cells[-1].get_text(strip=True)
+                    continue
+                for key, field in label_map.items():
+                    if key in raw_label:
+                        latest_val = _pct(cells[-1].get_text(strip=True))
+                        prev_val   = _pct(cells[-2].get_text(strip=True)) if len(cells) > 2 else 0.0
+                        result[field]               = latest_val
+                        result[f"{field}_prev"]     = prev_val
+                        result[f"{field}_qoq_delta"] = round(latest_val - prev_val, 2)
+                        break
+
+            if any(k in result for k in ("fii_pct", "dii_pct", "public_pct")):
+                logger.info("Shareholding fetched for %s: FII=%.2f%% DII=%.2f%% Public=%.2f%%",
+                            sym, result.get("fii_pct", 0), result.get("dii_pct", 0), result.get("public_pct", 0))
+                return result
+
+        except Exception as exc:
+            logger.warning("Shareholding scrape failed for %s at %s: %s", sym, path, exc)
+
+    return {"symbol": sym, "error": "Shareholding data not found on Screener.in"}
+
+
 # Convenience list
-EARNINGS_TOOLS = [get_quarterly_results]
+EARNINGS_TOOLS = [get_quarterly_results, get_shareholding_pattern]

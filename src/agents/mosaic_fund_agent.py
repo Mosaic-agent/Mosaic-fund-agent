@@ -201,6 +201,7 @@ class MosaicFundAgent:
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
+                extra_body={"options": {"num_ctx": settings.llm_context_window}},
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────
@@ -283,6 +284,7 @@ class MosaicFundAgent:
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=budget,
+                extra_body={"options": {"num_ctx": ctx}},
             )
 
         if provider == "anthropic":

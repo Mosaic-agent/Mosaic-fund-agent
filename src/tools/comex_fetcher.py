@@ -186,7 +186,8 @@ def _safe_timestamp(value: object) -> Optional[str]:
         if dt_str.endswith("Z"):
             dt_str = dt_str[:-1] + "+00:00"
         dt = datetime.fromisoformat(dt_str)
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        from src.utils.ist import utc_to_ist
+        return utc_to_ist(dt).strftime("%Y-%m-%d %H:%M:%S IST")
     except (TypeError, ValueError) as exc:
         logger.debug("[SECURITY] Invalid timestamp %r: %s", value, exc)
         return None

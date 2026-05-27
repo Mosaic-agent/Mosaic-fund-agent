@@ -20,9 +20,12 @@ yfinance>=0.2.40                 # Yahoo Finance – free EOD/historical data (.
 pandas>=2.2.0                    # Data manipulation for financial time series
 numpy>=1.26.0                    # Numerical computations
 
-# ── Web Scraping (Quarterly Results) ──────────────────────────────────────────
-beautifulsoup4>=4.12.0           # HTML parsing for Screener.in / BSE / NSE
-requests>=2.32.0                 # HTTP requests for scraping
+# ── Web Scraping & Indian Market Data ─────────────────────────────────────────
+# Screener.in used via direct HTTP (no PyPI package):
+#   /company/{SYMBOL}/         — quarterly results, cashflow + symbol validation
+#   (search API blocked outside browser; only /company/ direct URLs accessible)
+beautifulsoup4>=4.12.0           # HTML parsing for Screener.in / BSE / NSE earnings
+requests>=2.32.0                 # HTTP — Screener.in, Yahoo Finance, BSE/NSE, COMEX
 lxml>=5.2.0                      # Faster HTML parser backend for BeautifulSoup
 fake-useragent>=1.5.0            # Rotate user-agents to avoid scraping blocks
 

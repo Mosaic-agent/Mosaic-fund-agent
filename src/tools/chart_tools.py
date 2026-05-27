@@ -58,31 +58,33 @@ def _build(plt: Any) -> str:
 
 
 @tool
-def plot_price_chart(symbol: str, days: int = 60, category: str = "etfs") -> str:
+def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
     """
     Plot a price (close) trend chart for any NSE symbol from ClickHouse.
     Renders as an ASCII line chart directly in the terminal.
 
     Args:
-        symbol:   NSE symbol — e.g. GOLDBEES, NIFTYBEES, RELIANCE
+        symbol:   NSE symbol — e.g. GOLDBEES, NIFTYBEES, RELIANCE, LICI
         days:     Number of trading days to show (default 60)
-        category: 'etfs' or 'stocks' (default 'etfs')
+        category: 'etfs', 'stocks', 'indices', 'commodities' — leave blank to
+                  auto-detect from the database (recommended)
 
     Example: plot_price_chart("GOLDBEES", days=90)
     """
     try:
         from src.db.pool import query_df
+        cat_filter = f"AND category = '{category}'" if category else ""
         df = query_df(f"""
             SELECT trade_date,
                    toFloat64(argMax(close, imported_at)) AS close
             FROM market_data.daily_prices FINAL
-            WHERE symbol = '{symbol.upper()}' AND category = '{category}'
+            WHERE symbol = '{symbol.upper()}' {cat_filter}
               AND trade_date >= today() - {days}
             GROUP BY trade_date
             ORDER BY trade_date ASC
         """)
         if df.empty:
-            return f"No price data found for {symbol} (category={category})."
+            return f"No price data found for {symbol}. Call check_and_refresh_symbol_data('{symbol.upper()}') to import it first."
 
         dates  = df["trade_date"].astype(str).tolist()
         prices = df["close"].tolist()

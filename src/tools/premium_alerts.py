@@ -114,23 +114,17 @@ def check_premium_alerts(
         }
 
         try:
-            # ── Latest premium: absolute latest row in DB (no date filter) ────
-            latest_rows = ch_client.query(
-                """
-                SELECT argMax(premium_discount_pct, snapshot_at) AS premium
-                FROM market_data.inav_snapshots
-                WHERE symbol = {sym:String}
-                """,
-                parameters={"sym": sym},
-            ).result_rows
-
-            if not latest_rows or latest_rows[0][0] is None:
-                result["error"] = "No snapshot found"
+            # ── Latest premium: DB first, NSE API fallback ─────────────────
+            from src.importer.fetchers.nse_inav_fetcher import get_latest_inav
+            live = get_latest_inav(sym, max_age_days=7, store_to_db=True)
+            if live is None:
+                result["error"] = "No snapshot found in DB or NSE API"
                 results.append(result)
                 continue
 
-            latest_prem = float(latest_rows[0][0])
+            latest_prem = live["premium_discount_pct"]
             result["latest_premium"] = round(latest_prem, 4)
+            result["inav_source"]    = live["source"]  # "db" or "nse_api_live"
 
             # ── Historical premium: deduplicated into hourly buckets ───────────
             hist_rows = ch_client.query(

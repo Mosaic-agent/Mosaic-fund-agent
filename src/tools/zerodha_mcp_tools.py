@@ -180,10 +180,145 @@ def initiate_kite_login(_: str = "") -> str:
     return f"Please open this URL in your browser to authenticate with Kite:\n{url}"
 
 
+@tool
+def kite_get_ltp(instruments: str) -> dict[str, Any]:
+    """
+    Get the latest traded price (LTP) for one or more instruments from Zerodha Kite.
+
+    Args:
+        instruments: Comma-separated list of instrument identifiers in EXCHANGE:SYMBOL format.
+                     Examples: "NSE:RELIANCE", "NSE:GOLDBEES,NSE:NIFTYBEES,BSE:SENSEX"
+    """
+    async def _fetch() -> dict:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_ltp", {
+                "instruments": [i.strip() for i in instruments.split(",")]
+            })
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_get_quotes(instruments: str) -> dict[str, Any]:
+    """
+    Get full market data quotes (LTP, OHLC, depth, volume) for instruments from Kite.
+
+    Args:
+        instruments: Comma-separated instrument identifiers, e.g. "NSE:RELIANCE,NSE:TCS"
+    """
+    async def _fetch() -> dict:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_quotes", {
+                "instruments": [i.strip() for i in instruments.split(",")]
+            })
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_get_historical_data(
+    instrument: str,
+    from_date: str,
+    to_date: str,
+    interval: str = "day",
+) -> list[dict]:
+    """
+    Get historical OHLCV price data for an instrument from Zerodha Kite.
+
+    Args:
+        instrument: Instrument in EXCHANGE:SYMBOL format, e.g. "NSE:GOLDBEES"
+        from_date:  Start date in YYYY-MM-DD format
+        to_date:    End date in YYYY-MM-DD format
+        interval:   Candle interval — minute, 3minute, 5minute, 10minute, 15minute,
+                    30minute, 60minute, day, week, month (default: day)
+    """
+    async def _fetch() -> list:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_historical_data", {
+                "instrument": instrument,
+                "from_date": from_date,
+                "to_date": to_date,
+                "interval": interval,
+            })
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_get_mf_holdings(_: str = "") -> dict[str, Any]:
+    """
+    Get all mutual fund holdings from Zerodha Kite (Coin MF portfolio).
+    Returns scheme name, folio, units, average NAV, current value, P&L.
+    """
+    async def _fetch() -> dict:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_mf_holdings", {})
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_search_instruments(query: str, exchange: str = "NSE") -> list[dict]:
+    """
+    Search for tradeable instruments on Zerodha Kite by name or symbol.
+    Use this to find the correct instrument identifier before fetching quotes or history.
+
+    Args:
+        query:    Search string — company name, ETF name, or partial symbol
+        exchange: Exchange to search — NSE, BSE, MCX (default: NSE)
+    """
+    async def _fetch() -> list:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("search_instruments", {
+                "query": query, "exchange": exchange
+            })
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_get_orders(_: str = "") -> dict[str, Any]:
+    """
+    Get all orders placed today from Zerodha Kite.
+    Returns order status, instrument, quantity, price, product type, and timestamps.
+    """
+    async def _fetch() -> dict:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_orders", {})
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_get_trades(_: str = "") -> dict[str, Any]:
+    """
+    Get trading history (executed trades) from Zerodha Kite.
+    Returns fill price, quantity, instrument, and trade timestamp.
+    """
+    async def _fetch() -> dict:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_trades", {})
+    return asyncio.run(_fetch())
+
+
+@tool
+def kite_get_margins(_: str = "") -> dict[str, Any]:
+    """
+    Get account margins and available funds from Zerodha Kite.
+    Returns equity and commodity margins: available cash, used margin, net value.
+    """
+    async def _fetch() -> dict:
+        async with KiteMCPClient() as client:
+            return await client._call_tool("get_margins", {})
+    return asyncio.run(_fetch())
+
+
 # Convenience list of all Zerodha tools for the agent
 ZERODHA_TOOLS = [
     initiate_kite_login,
     fetch_account_profile,
     fetch_portfolio_holdings,
     fetch_open_positions,
+    kite_get_ltp,
+    kite_get_quotes,
+    kite_get_historical_data,
+    kite_get_mf_holdings,
+    kite_search_instruments,
+    kite_get_orders,
+    kite_get_trades,
+    kite_get_margins,
 ]

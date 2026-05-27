@@ -9,6 +9,7 @@ ETF news sentiment, DSP Multi-Asset imports, and risk governor calculations.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import subprocess
 from typing import Any
@@ -191,14 +192,16 @@ def run_dsp_multi_asset_importer() -> str:
 
 
 @tool
-def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates", full: bool = False) -> str:
+def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates,inav", full: bool = False) -> str:
     """
     Trigger the historical ClickHouse data engineering pipeline to import and sync data from external APIs.
     Streams live progress to the terminal as each symbol is fetched and inserted.
     Use this when asked to sync/import/refresh general market data or specific categories.
     Args:
-        category: Comma-separated list of categories to import (etfs, stocks, mf, fii_dii, cot, fx_rates).
-        full: If True, performs a full backfill ignoring watermarks.
+        category: Comma-separated list of categories to import.
+                  Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav.
+                  inav = live NSE iNAV snapshot for all tracked ETFs (updates every ~15s during market hours).
+        full: If True, performs a full backfill ignoring watermarks (not applicable for inav).
     """
     args = ["src/main.py", "import"]
     if full:
@@ -244,14 +247,43 @@ def import_symbol_data(symbol: str, days: int = 365) -> str:
         return f"Registry load error: {exc}"
 
     if sym not in _lookup:
-        known_etfs = ", ".join(nse for nse, _ in ETFS[:8]) + "…"
-        return (
-            f"UNKNOWN_SYMBOL: {sym} — not found in ETF, stock, commodity, or index registry.\n"
-            f"Known ETFs: {known_etfs}\n"
-            f"For a full category refresh: run_data_engineering_importer(category='etfs')"
-        )
-
-    yahoo_ticker, category = _lookup[sym]
+        # Fall back to Yahoo Finance search via resolve_company_info
+        sys.stdout.write(f"  {sym} not in static registry — searching Yahoo Finance...\n")
+        sys.stdout.flush()
+        try:
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(sym)
+            yf_sym = info.get("yf_symbol", "")
+            market = info.get("market", "")
+            source = info.get("source", "")
+            if yf_sym and market == "India" and source != "fallback_unverified":
+                yahoo_ticker = yf_sym
+                category = "stocks"
+                nse_sym = info.get("nse_symbol") or re.sub(r"\.(NS|BO)$", "", yf_sym, flags=re.I)
+                sym = nse_sym  # use the resolved NSE symbol going forward
+                sys.stdout.write(
+                    f"  Resolved → {sym} ({yahoo_ticker}) on {info.get('exchange', 'NSE')}\n"
+                )
+                sys.stdout.flush()
+            elif source == "fallback_unverified":
+                return (
+                    f"SYMBOL_NOT_FOUND: '{sym}' could not be verified on Yahoo Finance. "
+                    f"Possible causes: typo, delisted stock, or symbol not yet on NSE. "
+                    f"Try the exact NSE symbol (e.g. 'GODIGIT' for Go Digit, 'LICI' for LIC)."
+                )
+            else:
+                cname = info.get("company_name", "unknown")
+                return (
+                    f"UNKNOWN_SYMBOL: Yahoo search found '{cname}' ({market}) for '{sym}', "
+                    f"not an Indian listing. Try the exact NSE symbol (e.g. LICICORP, HNGSNGBEES)."
+                )
+        except Exception as exc:
+            return (
+                f"UNKNOWN_SYMBOL: '{sym}' not in registry and Yahoo search failed: {exc}.\n"
+                f"Try the exact NSE symbol directly."
+            )
+    else:
+        yahoo_ticker, category = _lookup[sym]
 
     sys.stdout.write(
         f"  Importing {sym} ({yahoo_ticker}) | {from_date} → {to_date} ({days} days)\n"
@@ -525,10 +557,104 @@ def run_comex_analysis() -> str:
 
 
 @tool
+def get_live_inav(symbol: str) -> str:
+    """
+    Get the previous-day declared NAV, current last traded price, and the
+    price-vs-NAV spread for any NSE-listed ETF.
+
+    IMPORTANT — what "NAV" means here:
+      NSE's public ETF API only exposes the PREVIOUS DAY's declared NAV (the value
+      AMC computes at end-of-day). The true real-time iNAV (updated every 15 seconds)
+      is only accessible through NSE's Akamai-protected /api/quote-equity endpoint
+      which requires a real browser session and is not available programmatically.
+
+      For INTERNATIONAL ETFs (HNGSNGBEES, MAFANG, MON100…): prev-day NAV IS the
+      correct reference since the overseas market is closed during Indian trading hours.
+
+      For DOMESTIC COMMODITY ETFs (GOLDBEES, SILVERBEES…): the true live iNAV tracks
+      MCX gold/silver prices (which include ~8–9% import duty + GST premium over COMEX).
+      The prev-day NAV is a reasonable reference but may differ from the true intraday
+      iNAV by 1–2% when commodity prices move significantly during the session.
+
+      For DOMESTIC EQUITY ETFs (NIFTYBEES, BANKBEES…): the true live iNAV tracks the
+      current index level; prev-day NAV is a close approximation.
+
+    Use this tool (NOT query_clickhouse_db) whenever a user asks:
+      "what is the NAV of GOLDBEES / SILVERBEES / HNGSNGBEES"
+      "current NAV", "ETF premium vs NAV", "is it trading at discount"
+
+    Args:
+        symbol: NSE ETF symbol — e.g. "GOLDBEES", "SILVERBEES", "HNGSNGBEES", "NIFTYBEES"
+
+    Returns:
+        Formatted string with: prev-day declared NAV, current LTP, spread %, snapshot time,
+        and data source.
+    """
+    from src.importer.fetchers.nse_inav_fetcher import get_latest_inav
+    from src.utils.ist import fmt_ist
+    data = get_latest_inav(symbol.strip().upper(), store_to_db=True)
+    if data is None:
+        return (
+            f"No iNAV data available for {symbol.upper()}. "
+            f"NSE API may be unreachable (check market hours: IST 09:15–15:30)."
+        )
+    from datetime import datetime, timezone, timedelta
+    prem = data["premium_discount_pct"]
+    direction = "PREMIUM" if prem > 0 else "DISCOUNT"
+
+    # Compute age of snapshot in seconds
+    snap_dt = data.get("snapshot_at")
+    age_str = ""
+    if snap_dt is not None:
+        try:
+            snap_utc = snap_dt if snap_dt.tzinfo else snap_dt.replace(tzinfo=timezone.utc)
+            age_sec = int((datetime.now(timezone.utc) - snap_utc).total_seconds())
+            if age_sec < 60:
+                age_str = f", {age_sec}s ago"
+            else:
+                age_str = f", {age_sec // 60}m {age_sec % 60}s ago"
+        except Exception:
+            pass
+
+    src_map = {
+        "kite_live":    "live iNAV via Kite",
+        "nse_api_live": "live from NSE (prev-day NAV)",
+        "db":           f"cached (DB{age_str})",
+    }
+    src_label = src_map.get(data["source"], data["source"])
+    snap_ist = fmt_ist(snap_dt)
+    nav_note = (
+        "⚠ NSE API only publishes the previous day's declared NAV — "
+        "not a real-time intraday iNAV. For domestic commodity ETFs (GOLDBEES, SILVERBEES) "
+        "the true live iNAV tracks current MCX/COMEX prices. "
+        "For international ETFs (HNGSNGBEES, MAFANG etc.) prev-day NAV is correct "
+        "since the overseas market is closed during Indian hours."
+    )
+    is_live_inav = data["source"] == "kite_live"
+    nav_label = "iNAV (live)" if is_live_inav else "Prev-Day Declared NAV"
+    note = "" if is_live_inav else f"\n\n_{nav_note}_"
+    return (
+        f"**{data['symbol']} iNAV Snapshot** ({src_label}, {snap_ist})\n"
+        f"- {nav_label}: ₹{data['inav']}\n"
+        f"- Market Price (LTP): ₹{data['market_price']}\n"
+        f"- {direction}: {prem:+.4f}%\n"
+        f"  {'→ ETF trades above iNAV (expensive)' if prem > 0 else '→ ETF trades below iNAV (discount)'}"
+        f"{note}"
+    )
+
+
+@tool
 def run_premium_alerts(lookback: int = 30, z_threshold: float = -1.5, symbols: str = "", min_snapshots: int = 5) -> str:
     """
     Scarcity Premium/Discount Alerts for international Indian ETFs (MAFANG, HNGSNGBEES, etc.).
     Trades the premium created by RBI's overseas investment cap.
+
+    iNAV data freshness:
+      - During market hours (IST 09:15–15:30): DB snapshot must be ≤ 10 min old.
+        If stale, the NSE API is called live and the fresh snapshot is stored to DB.
+      - Outside market hours: last available DB snapshot (up to 4 days old) is used.
+    The 'inav_source' field in results indicates "db" (cached) or "nse_api_live".
+
     Args:
         lookback: Days of iNAV history used to compute mean/std (default 30).
         z_threshold: Z-score at or below which SCREAMING BUY fires (default -1.5).
@@ -624,6 +750,7 @@ SKILLS_TOOLS = [
     run_dsp_multi_asset_importer,
     run_data_engineering_importer,
     import_symbol_data,
+    get_live_inav,
     run_risk_governor_analysis,
     query_clickhouse_db,
     run_whale_tracker,

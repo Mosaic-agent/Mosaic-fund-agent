@@ -184,15 +184,18 @@ AGENT GUIDE — read every entry before choosing
 
 ── signal ──────────────────────────────────────
 When: ETF composite scores, GOLDBEES ML pipeline, Kelly / blended position weights,
-      GARCH risk governor, iNAV premium alerts, ETF category news sentiment.
+      GARCH risk governor, live iNAV / NAV queries, premium alerts, ETF category news sentiment.
 Key tools: run_goldbees_pipeline · run_daily_signal_composite · run_risk_governor_analysis ·
-           run_etf_news_sentiment · run_premium_alerts · plot_signal_scores ·
+           get_live_inav(symbol) · run_etf_news_sentiment · run_premium_alerts · plot_signal_scores ·
            plot_signal_breakdown · plot_weight_recommendations · plot_garch_volatility_chart
 Examples:
   "GOLDBEES signal today"        → 1. run_goldbees_pipeline() — report prob_up, regime_signal, blended_50
   "composite scores all ETFs"    → 1. run_daily_signal_composite()  2. plot_signal_scores()
   "GOLDBEES position size"       → 1. run_risk_governor_analysis()  2. plot_garch_volatility_chart("GOLDBEES")
   "iNAV premium alerts"          → 1. run_premium_alerts()
+  "what is iNAV of SILVERBEES"   → 1. get_live_inav("SILVERBEES")
+  "GOLDBEES current NAV"         → 1. get_live_inav("GOLDBEES")
+  "is HNGSNGBEES at premium"     → 1. get_live_inav("HNGSNGBEES")
   "ETF news sentiment"           → 1. run_etf_news_sentiment()
 
 ── macro ────────────────────────────────────────
@@ -307,7 +310,8 @@ Examples:
   "import --category fii_dii"    → 1. Import FII/DII flows → run_data_engineering_importer(category="fii_dii")
   "import --category mf"         → 1. Import MF NAV data → run_data_engineering_importer(category="mf")
   "import --category cot"        → 1. Import COMEX COT positioning → run_data_engineering_importer(category="cot")
-  "import --full"                → 1. Full backfill → run_data_engineering_importer(category="etfs,stocks,mf,fii_dii,cot,fx_rates", full=True)
+  "import --full"                → 1. Full backfill → run_data_engineering_importer(category="etfs,stocks,mf,fii_dii,cot,fx_rates,inav", full=True)
+  "import inav"                  → 1. Live NSE iNAV snapshot → run_data_engineering_importer(category="inav")
   "refresh nav data"             → 1. run_data_engineering_importer(category="etfs")
   "sync fii dii"                 → 1. run_data_engineering_importer(category="fii_dii")
   "import all data"              → 1. run_data_engineering_importer(category="etfs,stocks,mf,fii_dii,cot,fx_rates")
@@ -340,7 +344,8 @@ ClickHouse schema (database = market_data, all tables use ReplacingMergeTree —
   signal_composite    : as_of(Date), etf_symbol, composite_score(Float32), action, macro_score, ml_score
   ml_predictions      : as_of(Date), expected_return_pct, regime_signal, cv_r2_mean, goldbees_close
   weight_checkpoints  : as_of(Date), symbol, method, recommended_weight, garch_vol_pct, regime
-  inav_snapshots      : symbol, snapshot_at(DateTime), inav, market_price, premium_discount_pct
+  inav_snapshots      : symbol, snapshot_at(DateTime), inav(Float64), market_price(Float64), premium_discount_pct(Float64), source(String)
+  -- NOTE: for current iNAV use get_live_inav(symbol) NOT raw SQL — it auto-refreshes from NSE if DB is stale
   cot_gold            : report_date(Date), mm_long, mm_short, mm_net, open_interest
   fx_rates            : trade_date(Date), symbol, close(Float64)
   macro_indicators    : ref_year, country_code, indicator_code, indicator_name, value
