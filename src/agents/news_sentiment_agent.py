@@ -257,6 +257,7 @@ class NewsSentimentAgent:
                 api_key=settings.openai_api_key or "local",
                 temperature=0.1,
                 max_tokens=settings.llm_token_budget,
+                extra_body={"options": {"num_ctx": settings.llm_context_window}},
             )
 
         if settings.llm_provider.lower() == "anthropic":
