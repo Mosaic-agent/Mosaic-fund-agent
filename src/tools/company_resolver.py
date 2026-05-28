@@ -361,6 +361,10 @@ _ALIAS: dict[str, str] = {
     "garware fibres": "GARFIBRES",
     "garware fiber": "GARFIBRES",
     "garfibres": "GARFIBRES",
+    "mrs bectors food": "BECTORFOOD",
+    "mrs bectors": "BECTORFOOD",
+    "mrs bectors food specialities": "BECTORFOOD",
+    "bectorfood": "BECTORFOOD",
 }
 
 
@@ -459,21 +463,30 @@ def resolve_company_info(query: str) -> dict:
 
     # ── 2. Yahoo Finance search ────────────────────────────────────────────
     # Use LLM-suggested symbol when available (more precise than free text)
-    _yahoo_query = llm_sym or query
-    try:
-        resp = requests.get(
-            _YAHOO_SEARCH_URL,
-            params={"q": _yahoo_query, "lang": "en-US", "region": "US", "quotesCount": 6},
-            headers=_HEADERS,
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
-        quotes = [
-            q for q in resp.json().get("quotes", [])
-            if q.get("quoteType") in ("EQUITY", "STOCK")
-            and not q.get("symbol", "").startswith("^")
-        ]
+    # Failsafe: retry with the original query if the LLM suggested symbol returns no quotes
+    quotes = []
+    yahoo_search_queries = [llm_sym, query] if (llm_sym and llm_sym != query) else [query]
+    for yq in yahoo_search_queries:
+        try:
+            resp = requests.get(
+                _YAHOO_SEARCH_URL,
+                params={"q": yq, "lang": "en-US", "region": "US", "quotesCount": 6},
+                headers=_HEADERS,
+                timeout=_TIMEOUT,
+            )
+            resp.raise_for_status()
+            quotes = [
+                q for q in resp.json().get("quotes", [])
+                if q.get("quoteType") in ("EQUITY", "STOCK")
+                and not q.get("symbol", "").startswith("^")
+            ]
+            if quotes:
+                log.info("resolve_company: Yahoo search found %d quotes for query %r", len(quotes), yq)
+                break
+        except Exception as exc:
+            log.warning("Yahoo Finance search failed for %r: %s", yq, exc)
 
+    if quotes:
         # Separate Indian vs US results and always prefer Indian first.
         # This prevents a US OTC ticker (e.g. LICT) from shadowing an NSE
         # listing (e.g. LICICORP.NS) just because Yahoo returns it earlier.
@@ -524,82 +537,108 @@ def resolve_company_info(query: str) -> dict:
                     "currency":     "USD",
                     "source":       "yahoo_search",
                 }
-    except Exception as exc:
-        log.warning("Yahoo Finance search failed for %r: %s", query, exc)
 
     # ── 3. Yahoo Finance (India-focused re-query) ──────────────────────────
     # Re-query with region=IN to surface Indian listings the US-region
     # search may have missed. Only Screener.in's /company/{SYMBOL}/ URL
     # pattern works (search API is blocked); symbol validation uses that.
-    try:
-        resp_in = requests.get(
-            _YAHOO_SEARCH_URL,
-            params={"q": _yahoo_query, "lang": "en-IN", "region": "IN", "quotesCount": 6},
-            headers=_HEADERS,
-            timeout=_TIMEOUT,
-        )
-        resp_in.raise_for_status()
-        for q_item in resp_in.json().get("quotes", []):
-            s = q_item.get("symbol", "")
-            e = q_item.get("exchange", "")
-            if (e in _INDIAN_CODES or s.endswith(".NS") or s.endswith(".BO")) \
-                    and q_item.get("quoteType") in ("EQUITY", "STOCK"):
-                clean = re.sub(r"\.(NS|BO)$", "", s, flags=re.I)
-                yf_sym = s if s.endswith((".NS", ".BO")) else f"{clean}.NS"
-                display = q_item.get("shortname") or q_item.get("longname") or clean
-                log.info("resolve_company: Yahoo-IN found %r → %s (%s)", query, clean, display)
-                return {
-                    "symbol":       clean,
-                    "nse_symbol":   clean,
-                    "yf_symbol":    yf_sym,
-                    "exchange":     "BSE" if s.endswith(".BO") else "NSE",
-                    "market":       "India",
-                    "company_name": display,
-                    "currency":     "INR",
-                    "source":       "yahoo_search_in",
-                }
-    except Exception as exc:
-        log.warning("Yahoo Finance (IN) search failed for %r: %s", query, exc)
+    for yq in yahoo_search_queries:
+        try:
+            resp_in = requests.get(
+                _YAHOO_SEARCH_URL,
+                params={"q": yq, "lang": "en-IN", "region": "IN", "quotesCount": 6},
+                headers=_HEADERS,
+                timeout=_TIMEOUT,
+            )
+            resp_in.raise_for_status()
+            quotes_in = [
+                q for q in resp_in.json().get("quotes", [])
+                if q.get("quoteType") in ("EQUITY", "STOCK")
+                and not q.get("symbol", "").startswith("^")
+            ]
+            for q_item in quotes_in:
+                s = q_item.get("symbol", "")
+                e = q_item.get("exchange", "")
+                if (e in _INDIAN_CODES or s.endswith(".NS") or s.endswith(".BO")):
+                    clean = re.sub(r"\.(NS|BO)$", "", s, flags=re.I)
+                    yf_sym = s if s.endswith((".NS", ".BO")) else f"{clean}.NS"
+                    display = q_item.get("shortname") or q_item.get("longname") or clean
+                    log.info("resolve_company: Yahoo-IN found %r → %s (%s)", yq, clean, display)
+                    return {
+                        "symbol":       clean,
+                        "nse_symbol":   clean,
+                        "yf_symbol":    yf_sym,
+                        "exchange":     "BSE" if s.endswith(".BO") else "NSE",
+                        "market":       "India",
+                        "company_name": display,
+                        "currency":     "INR",
+                        "source":       "yahoo_search_in",
+                    }
+        except Exception as exc:
+            log.warning("Yahoo Finance (IN) search failed for %r: %s", yq, exc)
 
     # ── 4. Fallback — treat as NSE symbol, validate via Screener.in URL ────
     # Only /company/{SYMBOL}/ works (search API is blocked in Docker).
     # A 200 response confirms the symbol is a real NSE listing.
-    upper = query.strip().upper().split()[0]    # first word as ticker
-    log.info("resolve_company: falling back to NSE for %r → %s", query, upper)
-    try:
-        verify_url = f"{_SCREENER_BASE}/company/{upper}/"
-        resp = requests.get(verify_url, headers=_HEADERS, timeout=_TIMEOUT)
-        if resp.status_code == 200:
-            # Extract company name from page title: "Name | ... - Screener"
-            from bs4 import BeautifulSoup as _BS
-            soup = _BS(resp.text, "lxml")
-            title_tag = soup.find("title")
-            title_text = title_tag.get_text(strip=True) if title_tag else upper
-            # Title format: "Company Name share price | ... - Screener"
-            company_name = title_text.split(" share price")[0].split("|")[0].strip() or upper
-            log.info("resolve_company: Screener.in validated %r → %s (%s)", upper, upper, company_name)
-            return {
-                "symbol":       upper,
-                "nse_symbol":   upper,
-                "yf_symbol":    f"{upper}.NS",
-                "exchange":     "NSE",
-                "market":       "India",
-                "company_name": company_name,
-                "currency":     "INR",
-                "source":       "fallback",
-            }
-    except Exception:
-        pass
-    # Ticker not validated — still return best guess but flag it
+    words = query.strip().split()
+    # Filter out common prefixes
+    if words and words[0].lower() in ("mrs", "mr", "dr", "the", "ms", "prof"):
+        words = words[1:]
+
+    upper = words[0].upper() if words else ""
+    upper = re.sub(r"[^A-Z0-9&]", "", upper) # Keep only alphanumeric and &
+
+    if upper:
+        log.info("resolve_company: falling back to NSE for %r → %s", query, upper)
+        try:
+            verify_url = f"{_SCREENER_BASE}/company/{upper}/"
+            resp = requests.get(verify_url, headers=_HEADERS, timeout=_TIMEOUT)
+            if resp.status_code == 200:
+                # Extract company name from page title: "Name | ... - Screener"
+                from bs4 import BeautifulSoup as _BS
+                soup = _BS(resp.text, "lxml")
+                title_tag = soup.find("title")
+                title_text = title_tag.get_text(strip=True) if title_tag else upper
+                # Title format: "Company Name share price | ... - Screener"
+                company_name = title_text.split(" share price")[0].split("|")[0].strip() or upper
+                log.info("resolve_company: Screener.in validated %r → %s (%s)", upper, upper, company_name)
+                return {
+                    "symbol":       upper,
+                    "nse_symbol":   upper,
+                    "yf_symbol":    f"{upper}.NS",
+                    "exchange":     "NSE",
+                    "market":       "India",
+                    "company_name": company_name,
+                    "currency":     "INR",
+                    "source":       "fallback",
+                }
+        except Exception:
+            pass
+
+    # Only treat as a last-resort fallback_unverified if the user query was a single word
+    is_single_word = len(query.strip().split()) == 1
+    if upper and is_single_word:
+        return {
+            "symbol":       upper,
+            "nse_symbol":   upper,
+            "yf_symbol":    f"{upper}.NS",
+            "exchange":     "NSE",
+            "market":       "India",
+            "company_name": upper,
+            "currency":     "INR",
+            "source":       "fallback_unverified",
+        }
+
     return {
-        "symbol":       upper,
-        "nse_symbol":   upper,
-        "yf_symbol":    f"{upper}.NS",
-        "exchange":     "NSE",
-        "market":       "India",
-        "company_name": upper,
-        "currency":     "INR",
-        "source":       "fallback_unverified",
+        "error": f"Could not resolve symbol/company for query: {query}",
+        "symbol": None,
+        "nse_symbol": None,
+        "yf_symbol": None,
+        "exchange": None,
+        "market": None,
+        "company_name": None,
+        "currency": None,
+        "source": "failed",
     }
 
 
