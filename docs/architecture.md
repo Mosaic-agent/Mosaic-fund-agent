@@ -372,27 +372,39 @@ Mosaic is optimized for both cloud (OpenAI/Anthropic) and **Local LLM** executio
 *   **Structured Table Injection:** Instead of relying on the LLM to "query" the database via tools, the orchestrator pre-fetches relevant tables and injects them into the prompt, allowing models like Gemma to focus on analysis rather than orchestration.
 *   **Tool-Calling-Free Path:** For smaller models that struggle with complex JSON-RPC tool schemas, the orchestrator provides a flattened data path that reduces "hallucination risk" in function selection.
 
-### 5. Strategy Pattern (`src/agents/signal_sources.py`)
+### 5. Terminal Charting & Visual Intelligence
+The platform features a native **Terminal Charting** engine (in `src/tools/chart_tools.py`) that enables the agent to provide visual context directly in the CLI.
+
+*   **Plotext Integration:** Uses `plotext` to render high-resolution ASCII/Unicode charts (line, bar, grouped bar) within the terminal. These are rendered inside Rich panels with preserved ANSI color codes.
+*   **Dynamic Scaling:** Charts are automatically sized based on the user's terminal width and height, ensuring a clean responsive layout in any console.
+*   **Specialized Quant Visuals:** Includes tools for plotting:
+    *   **Price & NAV Trends:** Historical price action with normalized indexing for multi-symbol comparison.
+    *   **Pillar Breakdowns:** Grouped bar charts showing the contribution of individual pillars (Macro, Flows, etc.) to an ETF's composite score.
+    *   **Whale Tracking:** Bar charts of FII/DII daily net flows and fund portfolio weights.
+*   **Unicode Sparklines:** Uses compact Unicode sparklines (`▁▂▃▄▅▆▇█`) to embed 10–20 days of trend history directly into text summaries and table headers, providing instant visual momentum context without full-sized charts.
+
+### 6. Strategy Pattern (`src/agents/signal_sources.py`)
 `SignalSource` ABC defines `collect(repo) -> dict[etf, float]`. Each signal pillar is a subclass. The aggregator holds a `score_sources: list[SignalSource]` — adding a new pillar = one class + one list append. All sources run in parallel via `ThreadPoolExecutor`.
 
-### 6. Adapter Pattern (`src/importer/base_fetcher.py`)
+### 7. Adapter Pattern (`src/importer/base_fetcher.py`)
 `Fetcher` ABC defines `fetch() / validate() / insert() / max_date()`. Each external data source is a concrete subclass registered in `FETCHER_REGISTRY`. `repo.run_fetcher(fetcher)` handles watermarks, dry-run, and event publishing — the fetcher only knows its data.
 
-### 7. Observer Pattern (`src/events/`)
+### 8. Observer Pattern (`src/events/`)
 `EventBus` fires `DataImportedEvent` after every live `run_fetcher()` insert. Observers subscribe once; the import pipeline has zero knowledge of ML retraining or signal refresh. Built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async, daemon threads).
 
-### 8. Graceful Pillar Degradation
+### 9. Graceful Pillar Degradation
 Every signal pillar degrades to neutral 50 (not 0) when its data source is unavailable. The composite score remains valid across all 18 ETFs — missing data does not penalise the composite.
 
-### 9. LLM-Required Scoring
+### 10. LLM-Required Scoring
 All agent scoring paths require a configured LLM. LLM provider (OpenAI / Anthropic / local via OpenAI-compatible endpoint) is selected at runtime via `llm_provider` setting. Set `LLM_BASE_URL` for local inference with Ollama or LM Studio.
 
-### 10. Tool Loop Protection
+### 11. Tool Loop Protection
 - ComexAgent uses a direct function call for local LLMs (avoids ReAct loop overhead)
 - NewsSentimentAgent uses a single `collate_news_sentiment()` call (not a tool loop)
 - LangGraph agents have explicit loop guards (`max_iterations=2`)
 
-### 11. iNAV Arbitrage Detection
+### 12. iNAV Arbitrage Detection
+NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_discount_pct > +0.5%` triggers a premium alert; `< −0.25%` flags a discount opportunity. The SILVERBEES / GOLDBEES premium spread is a direct input to the quant scorecard valuation pillar.
 NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_discount_pct > +0.5%` triggers a premium alert; `< −0.25%` flags a discount opportunity. The SILVERBEES / GOLDBEES premium spread is a direct input to the quant scorecard valuation pillar.
 
 ---

@@ -52,6 +52,8 @@ For 18+ core ETFs, the platform runs a parallelized LangGraph/Strategy-pattern o
 
 - **Portfolio analysis** — per-holding risk scores, news sentiment, quarterly results, sector breakdown
 - **ETF premium/discount** — live iNAV vs market price for every ETF holding
+- **Terminal Charting** — high-resolution ASCII/Unicode line and bar charts (Price, NAV, FII/DII flows, Signal Pillars) directly in the CLI
+- **Visual Intelligence** — Unicode sparklines (`▁▂▃▄▅▆▇█`) for instant 20-day trend context in summaries
 - **COMEX pre-market signals** — Gold, Silver, Copper, Platinum, Palladium vs previous close
 - **Who Is Selling?** — institutional sell-off attribution (retail panic / institutional exit / speculator crowding)
 - **LightGBM 5-day forecast** — walk-forward predictor with 25 alpha features + quantile regression 80% CI
