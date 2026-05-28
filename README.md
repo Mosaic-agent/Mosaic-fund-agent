@@ -140,7 +140,6 @@ python src/main.py config   # verify connection
 python src/main.py analyze               # live portfolio
 python src/main.py analyze --max 3       # test with 3 holdings
 ```
-
 ### Ask a question
 
 ```bash
@@ -149,16 +148,42 @@ python src/main.py ask "am I overexposed to IT sector?"
 python src/main.py ask "which ETFs are trading at a premium?"
 ```
 
-### Other commands
+### Full Command Reference
 
-```bash
-python src/main.py comex                 # COMEX pre-market signals
-python src/main.py news GOLDBEES         # news for a single symbol
-python src/main.py config               # show current settings (masked)
-```
+| Command | Description |
+|---|---|
+| `analyze` | Full Zerodha portfolio analysis + JSON/HTML reports |
+| `ask "..."` | Free-form ReAct agent Q&A (Auto-routes to 5 sub-agents) |
+| `signals` | Composite ETF signal aggregator (0–100 scores) |
+| `macro` | Geopolitical & Macro theme scanner |
+| `etf-news` | Category-tagged ETF news sentiment |
+| `risk` | GARCH-based position sizing & Risk Governor blend |
+| `premium-alerts` | Live iNAV premium/discount threshold alerts |
+| `comex` | COMEX pre-market signals (XAU, XAG, XPT, XPD, HG) |
+| `who-is-selling` | FII/DII/Retail flow attribution |
+| `import` | Sync market data to ClickHouse (delta or full) |
+| `news SYMBOL` | Multi-source sentiment for a specific ticker |
+| `config` | Show current settings (API keys masked) |
 
-### Zerodha Account Backup (to ClickHouse)
+---
 
+## Local LLM & Gemma (Ollama)
+
+Mosaic-agent is optimized for local execution using **Ollama**.
+
+1.  **Pull Gemma 4:** `ollama pull gemma4:latest`
+2.  **Create Mosaic Model:** `ollama create mosaic-gemma4 -f ollama/Modelfile`
+3.  **Configure `.env`:**
+    ```env
+    LLM_PROVIDER=openai
+    LLM_MODEL=mosaic-gemma4
+    LLM_BASE_URL=http://localhost:11434/v1
+    ```
+The orchestrator automatically detects low-context local models and switches to **high-density compact prompts** or **direct-data-injection** paths to maintain accuracy without cloud dependencies.
+
+---
+
+## Data Hub & Streamlit UI
 ```bash
 python scripts/save_portfolio_holdings.py  # backup CNC holdings
 python scripts/backup_zerodha_account.py  # backup profile, margins, and orders
@@ -182,15 +207,26 @@ Open **http://localhost:8501**.
 python src/main.py import --category commodities
 python src/main.py import --category etfs --category mf
 python src/main.py import --category fii_dii    # FII/DII flows
-
-# Full backfill (ignores watermarks)
-python src/main.py import --category stocks --full
-
-# Preview without writing
-python src/main.py import --category etfs --dry-run
 ```
 
-Subsequent runs are **delta-synced** — only new data is fetched.
+> [!IMPORTANT]  
+> **Mandatory Data Freshness:** Quantitative signals (Macro, ML, Composite) rely on cross-asset correlations (e.g., Gold vs USDINR vs US10Y). If any category is stale, the signals are mathematically invalid. **Always run an import at the start of your session.**
+
+### Institutional Whale Tracking (AMC Disclosures)
+
+Mosaic features specialized data engineering to backfill and track high-conviction institutional disclosures:
+
+- **DSP Smart Money:** 31-month history for 60+ DSP funds; reverse-engineered tactical pivot signals.
+- **Nippon India:** Dynamic URL discovery for multi-asset and equity holdings (2024–present).
+- **ICICI Prudential:** Direct integration for multi-asset and index fund portfolio tracking.
+
+```bash
+# Import all DSP history (Sep 2023–Mar 2026)
+python scripts/import_dsp_history.py
+
+# Run Whale Tracker (detects FII/DII flow patterns across 7 multi-asset funds)
+python src/scripts/market/whale_tracker.py
+```
 
 ### DSP Multi Asset historical backfill
 
