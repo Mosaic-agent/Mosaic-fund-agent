@@ -21,12 +21,15 @@ import logging
 import os
 import re
 import uuid
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 from typing import Any
 
 
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
+from src.utils.markdown_renderer import render_markdown_to_group
 
 logger = logging.getLogger(__name__)
 
@@ -405,6 +408,7 @@ def _get_plan_llm() -> "Any":
             _plan_llm = ChatAnthropic(
                 model=settings.llm_model,
                 api_key=settings.anthropic_api_key,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
                 **kw,
             )
         elif settings.llm_provider == "google":
@@ -791,7 +795,7 @@ def _starter_suggestions(n: int = 3) -> list[str]:
 _CHART_CHARS = ("┤", "┼", "─", "└", "┐", "┘", "┌", "├", "┬", "┴", "╮", "╰", "╭")
 
 
-def _print_answer(console: "Console", answer: str) -> None:
+def _print_answer(console: "Console", answer: Any) -> None:
     """
     Render the agent's final answer.
 
@@ -801,6 +805,18 @@ def _print_answer(console: "Console", answer: str) -> None:
     Panel border.
     """
     from rich.text import Text
+
+    if isinstance(answer, list):
+        texts = []
+        for block in answer:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        answer = "\n".join(texts)
+    elif not isinstance(answer, str):
+        answer = str(answer) if answer is not None else ""
 
     # Detect a chart block: 3+ consecutive lines that start with box chars or spaces+box.
     lines = answer.splitlines()
@@ -818,14 +834,14 @@ def _print_answer(console: "Console", answer: str) -> None:
         text_after   = "\n".join(lines[last + 1:]).strip()
 
         if text_before:
-            console.print(Panel(Markdown(text_before), border_style="green"))
+            console.print(Panel(render_markdown_to_group(text_before), border_style="green"))
         _t = Text.from_ansi(chart_block)
         _t.no_wrap = True
         console.print(Panel(_t, border_style="blue", title="Chart", expand=False))
         if text_after:
-            console.print(Panel(Markdown(text_after), border_style="green"))
+            console.print(Panel(render_markdown_to_group(text_after), border_style="green"))
     else:
-        console.print(Panel(Markdown(answer), border_style="green"))
+        console.print(Panel(render_markdown_to_group(answer), border_style="green"))
 
 
 # ── Banner & help ──────────────────────────────────────────────────────────────
@@ -1107,7 +1123,7 @@ def run_chat_loop(console: Console | None = None) -> None:
         if raw.startswith("/"):
             answer, thread_id = _dispatch_slash(raw, console, agent, thread_id, _conv_history)
             if answer:
-                console.print(Panel(Markdown(answer), border_style="cyan"))
+                console.print(Panel(render_markdown_to_group(answer), border_style="cyan"))
             continue
 
         # ── @agent override ────────────────────────────────────────────────

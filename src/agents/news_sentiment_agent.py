@@ -267,6 +267,7 @@ class NewsSentimentAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0.1,
                 max_tokens=settings.llm_token_budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         from langchain_openai import ChatOpenAI

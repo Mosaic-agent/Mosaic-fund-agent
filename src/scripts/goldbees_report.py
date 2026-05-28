@@ -5,6 +5,8 @@ Output: formatted recommendation block, ~20 lines.
 """
 import sys
 import os
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(_ROOT, "src"))
 sys.path.insert(0, _ROOT)
@@ -26,6 +28,95 @@ if not os.environ.get('RUNNING_IN_DOCKER') and not os.path.exists('/.dockerenv')
 
 from db.pool import query_df, get_pool
 from db.repository import MarketDataRepository
+
+
+def get_llm_recommendation(
+    regime: str, garch_vol: float, price: float, ema50: float, ema_dir: str,
+    inav_prem: float | None, anomaly: str, prob_up: float, expected_return: float,
+    auc: float, skill: float, regime_signal: str, rg_w: float, kel_w: float,
+    bl50_w: float, bl30_w: float, composite_score: float, action: str
+) -> str:
+    """Generate an intelligent recommendation using the configured LLM."""
+    try:
+        from config.settings import settings
+        from langchain_core.messages import SystemMessage, HumanMessage
+
+        # Build LLM
+        llm = None
+        if not settings.llm_local_disabled:
+            provider = settings.llm_provider.lower()
+            if settings.llm_base_url:
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(
+                    model=settings.llm_model,
+                    base_url=settings.llm_base_url,
+                    api_key=settings.openai_api_key or "local",
+                    temperature=0.2,
+                    max_tokens=256,
+                )
+            elif provider == "anthropic":
+                from langchain_anthropic import ChatAnthropic
+                llm = ChatAnthropic(
+                    model=settings.llm_model,
+                    api_key=settings.anthropic_api_key,
+                    temperature=0.2,
+                    max_tokens=256,
+                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(
+                    model=settings.llm_model,
+                    api_key=settings.openai_api_key,
+                    temperature=0.2,
+                    max_tokens=256,
+                )
+
+        if llm is None and settings.llm_cloud_provider:
+            provider = settings.llm_cloud_provider.strip().lower()
+            if provider == "anthropic":
+                from langchain_anthropic import ChatAnthropic
+                llm = ChatAnthropic(
+                    model=settings.llm_cloud_model,
+                    api_key=settings.anthropic_api_key,
+                    temperature=0.2,
+                    max_tokens=256,
+                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(
+                    model=settings.llm_cloud_model,
+                    api_key=settings.openai_api_key,
+                    temperature=0.2,
+                    max_tokens=256,
+                )
+
+        if llm is None:
+            return f"LLM not configured. Recommended weight: {bl50_w*100:.1f}% based on {action} composite action."
+
+        inav_desc = f"{inav_prem:+.2f}%" if inav_prem is not None else "N/A"
+        prompt = (
+            f"Write a concise, 1-2 sentence actionable investment recommendation for GOLDBEES ETF based on these quant inputs:\n"
+            f"- Market Regime: {regime}\n"
+            f"- GARCH Volatility: {garch_vol:.1f}%\n"
+            f"- Price vs EMA50: ₹{price:.2f} vs ₹{ema50:.2f} ({ema_dir} EMA50)\n"
+            f"- iNAV Premium: {inav_desc}\n"
+            f"- Anomaly Flag: {anomaly}\n"
+            f"- ML Predictor: Prob Up={prob_up:.4f}, Expected 5-Day Return={expected_return:+.2f}%, AUC={auc:.3f} (Skill={skill:+.3f}), Signal={regime_signal}\n"
+            f"- Sizing Weights: Risk Governor={rg_w*100:.1f}%, Kelly Only={kel_w*100:.1f}%, Recommended Blended (50/50)={bl50_w*100:.1f}%, Conservative (70/30)={bl30_w*100:.1f}%\n"
+            f"- Composite Score: {composite_score:.0f}/100, Action={action}\n\n"
+            f"Synthesise this data into a clear investment action (e.g. BUY, ACCUMULATE, HOLD, TRIM, or AVOID) with rationale, mentioning the recommended weight size ({bl50_w*100:.1f}%). "
+            f"Never invent numbers. Do not output any markdown formatting (no bold/italics), just a plain text sentence."
+        )
+
+        res = llm.invoke([
+            SystemMessage(content="You are a professional quantitative strategist for Indian ETF markets."),
+            HumanMessage(content=prompt),
+        ])
+        return str(res.content).strip()
+    except Exception as exc:
+        return f"Error generating recommendation: {exc}"
 
 
 def main():
@@ -80,6 +171,27 @@ def main():
     inav_str = f"{inav_prem:+.2f}%" if inav_prem is not None else "N/A"
     inav_alert = "  ⚠️  PREMIUM > +5% — do not enter" if (inav_prem or 0) > 5 else "  ✅ No premium alert"
 
+    rec = get_llm_recommendation(
+        regime=regime,
+        garch_vol=garch_vol,
+        price=price,
+        ema50=ema50,
+        ema_dir=ema_dir,
+        inav_prem=inav_prem,
+        anomaly=sig['anomaly_flag'],
+        prob_up=float(ml['prob_up']),
+        expected_return=float(ml['expected_return_pct']),
+        auc=float(ml['cv_auc_mean']),
+        skill=skill,
+        regime_signal=ml['regime_signal'],
+        rg_w=rg_w,
+        kel_w=kel_w,
+        bl50_w=bl50_w,
+        bl30_w=bl30_w,
+        composite_score=float(sig['composite_score']),
+        action=sig['action']
+    )
+
     print(f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   GOLDBEES  |  {ml['as_of']}
@@ -105,6 +217,8 @@ def main():
   Blended 70/30    : {bl30_w*100:.1f}%
 
   Composite score  : {float(sig['composite_score']):.0f}/100  →  {sig['action']}
+
+  Recommendation: {rec}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━""")
 
 

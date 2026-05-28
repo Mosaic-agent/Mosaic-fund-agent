@@ -111,6 +111,7 @@ SYMBOL_TO_COMPANY: dict[str, str] = {
     "ASHOKLEY": "Ashok Leyland",
     "MRF": "MRF",
     "APOLLOTYRE": "Apollo Tyres",
+    "BECTORFOOD": "Mrs Bectors Food Specialities",
     # Infrastructure / Energy
     "GAIL": "GAIL India",
     "PETRONET": "Petronet LNG",

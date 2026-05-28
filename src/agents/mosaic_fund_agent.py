@@ -136,6 +136,20 @@ AGENT_SYSTEM_PROMPT_COMPACT = (
 )
 
 
+def _get_message_text(content: Any) -> str:
+    """Extract string content from LangChain message content, which could be a list of blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        return "\n".join(texts)
+    return str(content) if content else ""
+
+
 # ── Mosaic Fund Agent ──────────────────────────────────────────────────────────
 
 class MosaicFundAgent:
@@ -213,6 +227,7 @@ class MosaicFundAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         # ── OpenAI cloud (default) ─────────────────────────────────────────────
@@ -249,6 +264,7 @@ class MosaicFundAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
                 max_tokens=cloud_budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         from langchain_openai import ChatOpenAI
@@ -294,6 +310,7 @@ class MosaicFundAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
                 max_tokens=budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         if provider == "google":
@@ -679,7 +696,7 @@ class MosaicFundAgent:
                 config=config,
             )
             msgs = result.get("messages", [])
-            return msgs[-1].content if msgs else "No answer generated."
+            return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
             if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:

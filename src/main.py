@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 import typer
 from rich.console import Console
@@ -90,6 +92,13 @@ def main(
     if verbose:
         import os
         os.environ["VERBOSE"] = "1"
+
+    # Initialize the global SQLite LLM response cache
+    try:
+        from src.utils.llm_cache import setup_llm_cache
+        setup_llm_cache()
+    except Exception as exc:
+        print(f"Warning: could not setup LLM cache: {exc}", file=sys.stderr)
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
@@ -195,8 +204,8 @@ def ask(
 
     try:
         answer = agent.ask(question)
-        from rich.markdown import Markdown
-        console.print(Panel(Markdown(answer), title="[bold green]Agent Response[/bold green]", border_style="green"))
+        from src.utils.markdown_renderer import render_markdown_to_group
+        console.print(Panel(render_markdown_to_group(answer), title="[bold green]Agent Response[/bold green]", border_style="green"))
     except Exception as exc:
         console.print(f"[bold red]✗ Error:[/bold red] {exc}")
         raise typer.Exit(code=1)

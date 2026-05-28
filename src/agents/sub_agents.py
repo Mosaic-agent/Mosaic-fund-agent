@@ -48,7 +48,10 @@ _SIGNAL_RE = re.compile(
     # Pipeline / ML explicit triggers (require the word pipeline, ml, or prediction)
     r"|goldbees\s+(?:pipeline|ml|prediction|recommendation)"
     r"|run\s+goldbees|run\s+pipeline"
-    r"|today.?s\s+(?:gold|etf|composite)\s+signal",
+    r"|today.?s\s+(?:gold|etf|composite)\s+signal"
+    # Plot/chart triggers to direct them to the specialized chart tools in the signal/research agent
+    r"|plot\s+(?:the\s+)?(?:price|chart|data|returns|volatility|garch)"
+    r"|price\s+chart|returns\s+chart|garch\s+chart|volatility\s+trend",
     re.I,
 )
 _MACRO_RE = re.compile(
@@ -127,7 +130,6 @@ _CODE_RE = re.compile(
     r"|fix\s+(?:the\s+)?(?:code|script|bug|error)"
     r"|custom\s+(?:query|script|analysis|sql)"
     r"|backtest\s+(?:this|the|a)"
-    r"|plot\s+(?:the\s+)?(?:price|chart|data|returns)"
     r"|(?:analyse?|analyze)\s+(?:\w+\s+)?(?:data|table|results)\s+(?:with\s+(?:code|python)|using\s+(?:code|python))?"
     r"|python\s+snippet|ad.?hoc\s+(?:query|analysis)"
     r"|show\s+me\s+the\s+code|list\s+(?:all\s+)?scripts",
@@ -194,6 +196,10 @@ def route_intent(question: str) -> str:
         return "database"
     if _CODE_RE.search(question):
         return "code"
+    if any(k in question.lower() for k in ("plot", "chart", "visualise", "visualize")):
+        if _INTL_ETF_RE.search(question):
+            return "intl_etf"
+        return "signal"
     if _SIGNAL_RE.search(question):
         return "signal"
     if _INTL_ETF_RE.search(question):
@@ -230,6 +236,20 @@ def route_intent(question: str) -> str:
         except Exception:
             pass
     return "main"
+
+
+def _get_message_text(content: Any) -> str:
+    """Extract string content from LangChain message content, which could be a list of blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        return "\n".join(texts)
+    return str(content) if content else ""
 
 
 # ── Base sub-agent ─────────────────────────────────────────────────────────────
@@ -346,9 +366,12 @@ class _SubAgent:
             return self._confirm_fallback(question)
 
         from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
+        from config.settings import settings
+        is_local = (bool(settings.llm_base_url) and not settings.llm_local_disabled)
+        limit = 8 if is_local else self.RECURSION_LIMIT
         config: dict = (
-            {"recursion_limit": self.RECURSION_LIMIT}
-            if self.RECURSION_LIMIT is not None
+            {"recursion_limit": limit}
+            if limit is not None
             else {}
         )
         if callbacks:
@@ -402,15 +425,54 @@ class _SubAgent:
             if tool_sections:
                 # Prefer a final LLM synthesis if it already exists.
                 last_ai = next(
-                    (m for m in reversed(msgs) if isinstance(m, AIMessage) and str(m.content).strip()),
+                    (m for m in reversed(msgs) if isinstance(m, AIMessage) and _get_message_text(m.content).strip()),
                     None,
                 )
                 if last_ai and not _recursion_hit:
+                    ai_text = _get_message_text(last_ai.content)
+
+                    # Find any plot_price_chart tool output in the message logs
+                    chart_str = None
+                    for m in msgs:
+                        if isinstance(m, ToolMessage):
+                            content_str = str(m.content)
+                            if "┤" in content_str and "price" in content_str.lower():
+                                chart_str = m.content
+                                break
+
+                    if chart_str and "┤" not in ai_text:
+                        # Clean up chart_str if it's wrapped in list/dict
+                        if isinstance(chart_str, dict):
+                            chart_str = chart_str.get("chart", "")
+
+                        import re
+                        # Replace empty space/content under "Price Chart" header if it exists
+                        pattern = re.compile(
+                            r"(#+\s*(?:1-Year\s+)?Price\s+Chart.*?)(?=\n\s*\n|\n\s*#|\Z)",
+                            re.IGNORECASE | re.DOTALL
+                        )
+                        match = pattern.search(ai_text)
+                        if match:
+                            header = match.group(1).strip()
+                            ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
+                        else:
+                            # Otherwise fallback: place it under Company Snapshot
+                            snapshot_pattern = re.compile(
+                                r"(#+\s*(?:1\.\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)",
+                                re.IGNORECASE | re.DOTALL
+                            )
+                            match = snapshot_pattern.search(ai_text)
+                            if match:
+                                section = match.group(1).strip()
+                                ai_text = ai_text.replace(match.group(0), f"{section}\n\n{chart_str}\n")
+                            else:
+                                ai_text = f"{ai_text}\n\n### 1-Year Price Chart\n{chart_str}"
+
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
-                        self.__class__.__name__, len(str(last_ai.content)),
+                        self.__class__.__name__, len(ai_text),
                     )
-                    return str(last_ai.content)
+                    return ai_text
 
                 # Recursion limit hit (or no final AI message) — synthesise now.
                 if self._llm:
@@ -441,9 +503,8 @@ class _SubAgent:
                 logger.info("%s: merged %d tool outputs programmatically", self.__class__.__name__, len(tool_sections))
                 return "\n\n---\n\n".join(tool_sections)
 
-            # No tool calls — return the last AI message.
-            return str(msgs[-1].content) if msgs else "No response from sub-agent."
-
+            # No tool calls — return the last AI message directly.
+            return _get_message_text(msgs[-1].content) if msgs else "No response from sub-agent."
         except Exception as exc:
             logger.error("%s: message processing failed: %s", self.__class__.__name__, exc)
             return f"Research incomplete: {exc}"
@@ -497,30 +558,49 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
     try:
         from src.tools.yahoo_finance import fetch_yahoo_data, fetch_price_history
         yf   = fetch_yahoo_data(symbol, exchange)
-        hist = fetch_price_history(symbol, exchange, "3mo")
+        hist = fetch_price_history(symbol, exchange, "1y")
         mc   = f"₹{yf.market_cap / 1e7:,.0f} Cr" if yf.market_cap else "N/A"
+
+        yoy_change_str = "—"
+        if len(hist) >= 2:
+            latest = hist[-1]["close"]
+            prev1y = hist[0]["close"]
+            r1y = round((latest - prev1y) / prev1y * 100, 2) if prev1y else 0
+            yoy_change_str = f"{r1y:+.2f}%"
+
         parts.append(
             f"## Company Snapshot\n"
             f"| Metric | Value |\n|---|---|\n"
             f"| Sector | {yf.sector or 'N/A'} |\n"
             f"| Industry | {yf.industry or 'N/A'} |\n"
-            f"| Market Cap | {mc} |\n"
+            f"| Market Cap | {mc} (YoY Change: {yoy_change_str}) |\n"
             f"| P/E (Trailing) | {round(yf.pe_ratio, 1) if yf.pe_ratio else 'N/A'} |\n"
             f"| P/B | {round(yf.pb_ratio, 1) if yf.pb_ratio else 'N/A'} |\n"
-            f"| Current Price | ₹{yf.current_price:,.0f} |\n"
-            f"| 52-Week High | ₹{yf.fifty_two_week_high:,.0f} |\n"
-            f"| 52-Week Low | ₹{yf.fifty_two_week_low:,.0f} |\n"
+            f"| Current Price | ₹{yf.current_price:,.2f} (YoY Change: {yoy_change_str}) |\n"
+            f"| 52-Week High | ₹{yf.fifty_two_week_high:,.2f} |\n"
+            f"| 52-Week Low | ₹{yf.fifty_two_week_low:,.2f} |\n"
         )
         if yf.description:
             parts.append(f"**Business:** {yf.description[:500]}…")
-        if len(hist) >= 22:
+        if len(hist) >= 2:
             latest  = hist[-1]["close"]
-            prev30  = hist[-22]["close"]
-            prev90  = hist[0]["close"]
+            idx_30d = max(0, len(hist) - 22)
+            idx_90d = max(0, len(hist) - 66)
+            prev30  = hist[idx_30d]["close"]
+            prev90  = hist[idx_90d]["close"]
+            prev1y  = hist[0]["close"]
             r30 = round((latest - prev30) / prev30 * 100, 2) if prev30 else 0
             r90 = round((latest - prev90) / prev90 * 100, 2) if prev90 else 0
+            r1y = round((latest - prev1y) / prev1y * 100, 2) if prev1y else 0
             sig = "BULLISH" if r30 > 5 else "BEARISH" if r30 < -5 else "NEUTRAL"
-            parts.append(f"**Price Momentum:** 30d {r30:+.2f}% \u2502 90d {r90:+.2f}% \u2502 Signal: **{sig}**")
+            parts.append(f"**Price Momentum:** 30d {r30:+.2f}% │ 90d {r90:+.2f}% │ 1y (YoY) {r1y:+.2f}% │ Signal: **{sig}**")
+            try:
+                from src.tools.chart_tools import plot_price_chart
+                chart_str = plot_price_chart(symbol, days=365)
+                if chart_str and "No price data found" not in chart_str and "Error" not in chart_str:
+                    parts.append(f"### 1-Year Price Chart\n{chart_str}")
+            except Exception as chart_exc:
+                logger.warning("Failed to add price chart to programmatic output: %s", chart_exc)
     except Exception as exc:
         parts.append(f"## Company Snapshot\n*Yahoo Finance unavailable: {exc}*")
 
@@ -537,6 +617,7 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
                 f"| EPS | ₹{q.eps:.2f} |\n"
                 f"| Revenue Growth YoY | {q.revenue_yoy_pct:+.1f}% |\n"
                 f"| Profit Growth YoY | {q.profit_yoy_pct:+.1f}% |\n"
+                f"| EPS Growth YoY | {q.eps_yoy_pct:+.1f}% |\n"
             )
         else:
             parts.append("## Quarterly Results\n*Not available via Screener.in for this symbol.*")
@@ -657,7 +738,9 @@ class DeepDiveSubAgent(_SubAgent):
         "You are a US equity research analyst specialising in SEC filing analysis. "
         "You have access to EDGAR data, XBRL financials, and Yahoo Finance market data. "
         "FIRST: Call `resolve_company` on any input ticker/name to confirm the symbol "
-        "and verify the market is 'US'. If `resolve_company` returns market='India', "
+        "and verify the market is 'US'. Ticker symbols can change or be newly listed; "
+        "always check if the output contains an 'error' field before proceeding. "
+        "If `resolve_company` returns market='India', "
         "immediately reply: \"This stock is listed in India (NSE/BSE). "
         "Please use the Indian equity research path.\".  "
         "For US tickers: use `run_deepdive_analysis` to fetch SEC filings. "
@@ -698,7 +781,9 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "Research happens in exactly TWO rounds to maximise parallel execution:\n\n"
         "ROUND 1 — Resolve (single call):\n"
         "  Call `resolve_company(query)` to get `symbol` (e.g. ADANIENT), `exchange`, "
-        "and `company_name`. Wait for the result before proceeding.\n\n"
+        "and `company_name`. Wait for the result before proceeding. "
+        "Note that company symbols can change, demerge, or be newly listed; always check "
+        "if the output contains an 'error' field before proceeding to Round 2.\n\n"
         "ROUND 2 — Parallel data fetch (emit ALL in ONE response — never call them one by one):\n"
         "  • `get_yahoo_finance_data(\"SYMBOL:EXCHANGE\")` — price, P/E, P/B, 52-week range, market cap\n"
         "  • `get_price_momentum(\"SYMBOL:EXCHANGE\")` — 30d/90d returns, momentum signal\n"
@@ -707,14 +792,12 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `get_shareholding_pattern(symbol)` — Promoter/FII/DII/Public holding % with QoQ delta\n"
         "  • `get_mf_holdings_for_stock(company_name)` — DSP fund cross-ownership\n"
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
-        "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n\n"
-        "CRITICAL: All seven must appear in one AIMessage response as parallel tool calls. "
+        "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n"
+        "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n\n"
+        "CRITICAL: All parallel tools must appear in one AIMessage response as parallel tool calls. "
         "Calling them one at a time wastes steps and will hit the recursion limit.\n\n"
-        "CHART/PLOT requests: If the user asks to plot a price chart, add "
-        "`plot_price_chart(SYMBOL, days)` to ROUND 2. If it returns 'No price data found', "
-        "call `check_and_refresh_symbol_data(SYMBOL)` once, then retry plot_price_chart.\n\n"
         "SYNTHESIS: After all results arrive, write a structured Markdown research note:\n"
-        "(1) Company Snapshot  (2) Financials table  (3) Valuation vs sector  "
+        "(1) Company Snapshot (including the 1-year price chart directly under the snapshot table)  (2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
         "(5) Institutional Ownership — use get_shareholding_pattern output: show Promoter/FII/DII/Public % "
         "as of the latest quarter with QoQ delta arrows (↑↓) for each. "
@@ -1229,7 +1312,7 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    Do NOT call for every ETF in a broad scan — only for the 1–3 primary symbols the
    user explicitly named.
 
-1. **Entity resolution** — `resolve_company` → get NSE/BSE ticker, exchange, full name
+1. **Entity resolution** — Call `resolve_company(query)` to get the NSE/BSE ticker, exchange, and full name. Note that company symbols can change, demerge, or be newly listed; always rely on `resolve_company` rather than hardcoding symbols, and check if its output contains an "error" field before running further tools.
 2. **Price & Momentum** — `get_yahoo_finance_data` (P/E, 52w range, market cap);
    `get_price_momentum` (30d/90d returns, momentum signal); `plot_price_chart`
 3. **Fundamentals** — `get_quarterly_results` (revenue, EPS, YoY growth);

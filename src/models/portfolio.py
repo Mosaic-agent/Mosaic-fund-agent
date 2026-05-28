@@ -146,6 +146,7 @@ class QuarterlyResult(BaseModel):
     eps: float = Field(default=0.0, description="Earnings Per Share in INR")
     revenue_yoy_pct: float = Field(default=0.0, description="Revenue growth YoY %")
     profit_yoy_pct: float = Field(default=0.0, description="Profit growth YoY %")
+    eps_yoy_pct: float = Field(default=0.0, description="EPS growth YoY %")
     guidance: str = Field(default="", description="Management guidance / commentary")
     source_url: str = Field(default="", description="Source URL for the results")
 
