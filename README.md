@@ -12,6 +12,42 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
+## Overview
+
+**Mosaic Fund Agent** is an advanced, multi-source quantitative investment and portfolio analysis platform specifically engineered for the **Indian equity and commodity ETF markets**. It bridges the gap between machine-learning-driven alpha generation, institutional flow tracking, and macro-thematic investing.
+
+### 1. Data Engineering & Infrastructure (The ClickHouse Pipeline)
+The foundation of the platform is a robust, delta-synced data pipeline built on **ClickHouse**.
+*   **Idempotent Ingestion:** It uses `ReplacingMergeTree` tables and watermark-based delta-syncs to safely and continuously ingest data.
+*   **13+ Data Fetchers:** It aggregates data from diverse sources including NSE (live iNAV), Yahoo Finance, CFTC Socrata (COT positioning), WGC/World Bank (Central Bank gold reserves), MFAPI (Mutual Fund NAVs), Morningstar (Portfolio holdings), Sensibull (FII/DII flows), and live news APIs (NewsAPI, Google News).
+*   **Event-Driven Architecture:** An internal `EventBus` triggers background tasks (like ML retraining, signal refreshing, and cache invalidation) asynchronously whenever new data is imported.
+
+### 2. The Quantitative Engine (ML & Risk)
+The platform features a sophisticated forecasting and position-sizing engine, primarily optimized for the GOLDBEES (Gold) ETF:
+*   **Predictive Alpha (LightGBM):** A walk-forward model forecasting 5-day returns using 25+ features (momentum, mean-reversion, macro indicators like DXY/USDINR, FII flows, and seasonality). It outputs quantile confidence intervals and expected returns.
+*   **Advanced Anomaly Detection:** Instead of relying on raw standard deviations, it uses a three-stage pipeline: a robust MAD-based Z-score, a **GARCH(1,1)** model to standardize residuals (filtering out normal volatility clustering), and a cross-asset **Isolation Forest** to identify true market regimes (e.g., "Flash Crash", "Blow-off Top", "Crowded Long").
+*   **Risk Governor & Sizing:** Position sizing is not static. It dynamically calculates weights using the **Kelly Criterion** based on the LightGBM hit ratio, blended with a "Risk Governor" that applies continuous inverse-volatility scaling (`w = vol_target / σ_t`).
+
+### 3. Institutional "Whale Tracking" & The DSP Signal
+Mosaic doesn't just look at price action; it deeply analyzes institutional behavior:
+*   **FII/DII & COT Flows:** Tracks daily/monthly Foreign and Domestic Institutional Investor flows in the Indian cash and F&O markets, alongside global Commitment of Traders (COT) positioning for metals.
+*   **DSP Multi-Asset Conviction Signal:** The platform includes specialized tools to backfill and analyze the monthly portfolio disclosures of major Indian multi-asset funds (specifically DSP AMC). By tracking cross-fund ownership and month-over-month allocation changes across 60+ funds, it reverse-engineers institutional conviction levels and tactical pivots (like Gold-to-Silver Ratio trades) to form a highly reliable contrarian signal.
+
+### 4. The 6-Pillar Signal Aggregator
+For 18+ core ETFs, the platform runs a parallelized LangGraph/Strategy-pattern orchestrator that outputs a 0–100 composite score based on six independent pillars:
+1.  **Macro (25%):** Maps live geopolitical and macroeconomic news themes to directional ETF impacts.
+2.  **Flow (25%):** Analyzes FII/DII net flows.
+3.  **Valuation (15%):** Scans for real-time iNAV premiums/discounts via Z-scores.
+4.  **Sentiment (15%):** Analyzes the positive/negative ratio of recent news articles.
+5.  **ML Forecast (15%):** Integrates the expected return from the LightGBM model.
+6.  **Anomaly (5%):** Dampens or boosts scores based on the identified volatility regime.
+
+### 5. Multi-Agent Orchestration & UI
+*   **CLI & Agents:** The platform is operated via a Typer-based CLI. It utilizes specialized agents (built with LangChain/LangGraph) like the `MosaicFundAgent` for full portfolio analysis via Zerodha Kite MCP, a `ComexAgent` for pre-market signals, and a `NewsSentimentAgent`.
+*   **Streamlit Data Hub:** A local, no-code web interface (running on port 8501) that allows users to trigger imports, run arbitrary SQL queries on the ClickHouse DB, visualize charts, and monitor real-time signals without writing code.
+
+---
+
 ## Features
 
 - **Portfolio analysis** — per-holding risk scores, news sentiment, quarterly results, sector breakdown
