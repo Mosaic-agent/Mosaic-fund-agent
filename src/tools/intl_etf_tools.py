@@ -65,6 +65,10 @@ def get_intl_etf_premium(symbol: str = "") -> str:
     RBI's overseas investment cap creates persistent premiums — buying when
     premium is negative (discount) has historically been profitable.
 
+    iNAV freshness: during market hours (IST 09:15–15:30) the latest iNAV is
+    fetched live from NSE if the DB snapshot is older than 10 minutes.
+    Outside market hours the last stored snapshot is used.
+
     Args:
         symbol: specific ETF symbol (e.g. 'MAFANG') — blank = all ETFs
 

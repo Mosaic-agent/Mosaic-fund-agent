@@ -35,7 +35,10 @@ from src.utils.symbol_mapper import SYMBOL_TO_COMPANY
 
 log = logging.getLogger(__name__)
 
-_YAHOO_SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
+_YAHOO_SEARCH_URL   = "https://query1.finance.yahoo.com/v1/finance/search"
+_SCREENER_BASE      = "https://www.screener.in"
+# /company/{SYMBOL}/ is the only publicly accessible Screener.in URL pattern;
+# the /api/company/search/ JSON endpoint is blocked outside the browser.
 
 # ── LLM-powered symbol resolver ───────────────────────────────────────────────
 
@@ -166,6 +169,33 @@ _ALIAS: dict[str, str] = {
     "state bank": "SBIN",
     "sbi": "SBIN",
     "sbi life": "SBILIFE",
+    # New-age insurance / fintech
+    "godigit": "GODIGIT",
+    "go digit": "GODIGIT",
+    "digit insurance": "GODIGIT",
+    "digit general insurance": "GODIGIT",
+    "go digit general insurance": "GODIGIT",
+    "go digit insurance": "GODIGIT",
+    "policybazaar": "POLICYBZR",
+    "pb fintech": "POLICYBZR",
+    "paytm": "PAYTM",
+    "one97": "PAYTM",
+    "zomato": "ZOMATO",
+    "nykaa": "NYKAA",
+    "fss technologies": "FSS",
+    "delhivery": "DELHIVERY",
+    # Insurance
+    "lic": "LICI",
+    "lic india": "LICI",
+    "lic of india": "LICI",
+    "life insurance": "LICI",
+    "life insurance corporation": "LICI",
+    "life insurance corporation of india": "LICI",
+    "hdfc life insurance": "HDFCLIFE",
+    "sbi life insurance": "SBILIFE",
+    "icici lombard": "ICICOLOMB",
+    "new india assurance": "NIACL",
+    "star health": "STARHEALTH",
     # IT giants
     "tcs": "TCS",
     "tata consultancy services": "TCS",
@@ -354,19 +384,25 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     if upper in SYMBOL_TO_COMPANY:
         return upper
 
-    # 4. Partial alias match — longest suffix match wins
+    # 4. Partial alias match — word-tokenized, longest word-count match wins.
+    # Uses word boundaries to avoid "lt" matching "ltd" inside "insurance ltd".
+    q_words = q.split()
     best: tuple[int, str] = (0, "")
     for alias, sym in _ALIAS.items():
-        if alias in q or q in alias:
-            if len(alias) > best[0]:
-                best = (len(alias), sym)
+        alias_words = alias.split()
+        n = len(alias_words)
+        # Alias must match a contiguous block of words in the query (not a substring)
+        for i in range(len(q_words) - n + 1):
+            if q_words[i : i + n] == alias_words and n > best[0]:
+                best = (n, sym)
+                break
     if best[1]:
         return best[1]
 
     # 5. Fuzzy match — catches typos like "adanai" → "adani"
     import difflib
     all_keys = list(_ALIAS.keys()) + list(_NAME_TO_NSE.keys())
-    matches = difflib.get_close_matches(q, all_keys, n=1, cutoff=0.75)
+    matches = difflib.get_close_matches(q, all_keys, n=1, cutoff=0.85)
     if matches:
         matched_key = matches[0]
         sym = _ALIAS.get(matched_key) or _NAME_TO_NSE.get(matched_key)
@@ -438,7 +474,20 @@ def resolve_company_info(query: str) -> dict:
             and not q.get("symbol", "").startswith("^")
         ]
 
-        for quote in quotes:
+        # Separate Indian vs US results and always prefer Indian first.
+        # This prevents a US OTC ticker (e.g. LICT) from shadowing an NSE
+        # listing (e.g. LICICORP.NS) just because Yahoo returns it earlier.
+        indian_quotes = []
+        us_quotes = []
+        for q in quotes:
+            s = q.get("symbol", "")
+            e = q.get("exchange", "")
+            if e in _INDIAN_CODES or s.endswith(".NS") or s.endswith(".BO"):
+                indian_quotes.append(q)
+            elif e in _US_CODES:
+                us_quotes.append(q)
+
+        for quote in indian_quotes + us_quotes:
             sym          = quote.get("symbol", "")
             exch_code    = quote.get("exchange", "")
             display_name = quote.get("shortname") or quote.get("longname") or sym
@@ -448,7 +497,6 @@ def resolve_company_info(query: str) -> dict:
                 or sym.endswith(".NS")
                 or sym.endswith(".BO")
             )
-            is_us = exch_code in _US_CODES and not is_indian
 
             clean = re.sub(r"\.(NS|BO|BSE)$", "", sym, flags=re.I)
 
@@ -465,7 +513,7 @@ def resolve_company_info(query: str) -> dict:
                     "currency":     "INR",
                     "source":       "yahoo_search",
                 }
-            elif is_us:
+            else:
                 return {
                     "symbol":       sym,
                     "nse_symbol":   None,
@@ -479,9 +527,70 @@ def resolve_company_info(query: str) -> dict:
     except Exception as exc:
         log.warning("Yahoo Finance search failed for %r: %s", query, exc)
 
-    # ── 3. Fallback — treat as NSE symbol ──────────────────────────────────
+    # ── 3. Yahoo Finance (India-focused re-query) ──────────────────────────
+    # Re-query with region=IN to surface Indian listings the US-region
+    # search may have missed. Only Screener.in's /company/{SYMBOL}/ URL
+    # pattern works (search API is blocked); symbol validation uses that.
+    try:
+        resp_in = requests.get(
+            _YAHOO_SEARCH_URL,
+            params={"q": _yahoo_query, "lang": "en-IN", "region": "IN", "quotesCount": 6},
+            headers=_HEADERS,
+            timeout=_TIMEOUT,
+        )
+        resp_in.raise_for_status()
+        for q_item in resp_in.json().get("quotes", []):
+            s = q_item.get("symbol", "")
+            e = q_item.get("exchange", "")
+            if (e in _INDIAN_CODES or s.endswith(".NS") or s.endswith(".BO")) \
+                    and q_item.get("quoteType") in ("EQUITY", "STOCK"):
+                clean = re.sub(r"\.(NS|BO)$", "", s, flags=re.I)
+                yf_sym = s if s.endswith((".NS", ".BO")) else f"{clean}.NS"
+                display = q_item.get("shortname") or q_item.get("longname") or clean
+                log.info("resolve_company: Yahoo-IN found %r → %s (%s)", query, clean, display)
+                return {
+                    "symbol":       clean,
+                    "nse_symbol":   clean,
+                    "yf_symbol":    yf_sym,
+                    "exchange":     "BSE" if s.endswith(".BO") else "NSE",
+                    "market":       "India",
+                    "company_name": display,
+                    "currency":     "INR",
+                    "source":       "yahoo_search_in",
+                }
+    except Exception as exc:
+        log.warning("Yahoo Finance (IN) search failed for %r: %s", query, exc)
+
+    # ── 4. Fallback — treat as NSE symbol, validate via Screener.in URL ────
+    # Only /company/{SYMBOL}/ works (search API is blocked in Docker).
+    # A 200 response confirms the symbol is a real NSE listing.
     upper = query.strip().upper().split()[0]    # first word as ticker
     log.info("resolve_company: falling back to NSE for %r → %s", query, upper)
+    try:
+        verify_url = f"{_SCREENER_BASE}/company/{upper}/"
+        resp = requests.get(verify_url, headers=_HEADERS, timeout=_TIMEOUT)
+        if resp.status_code == 200:
+            # Extract company name from page title: "Name | ... - Screener"
+            from bs4 import BeautifulSoup as _BS
+            soup = _BS(resp.text, "lxml")
+            title_tag = soup.find("title")
+            title_text = title_tag.get_text(strip=True) if title_tag else upper
+            # Title format: "Company Name share price | ... - Screener"
+            company_name = title_text.split(" share price")[0].split("|")[0].strip() or upper
+            log.info("resolve_company: Screener.in validated %r → %s (%s)", upper, upper, company_name)
+            return {
+                "symbol":       upper,
+                "nse_symbol":   upper,
+                "yf_symbol":    f"{upper}.NS",
+                "exchange":     "NSE",
+                "market":       "India",
+                "company_name": company_name,
+                "currency":     "INR",
+                "source":       "fallback",
+            }
+    except Exception:
+        pass
+    # Ticker not validated — still return best guess but flag it
     return {
         "symbol":       upper,
         "nse_symbol":   upper,
@@ -490,7 +599,7 @@ def resolve_company_info(query: str) -> dict:
         "market":       "India",
         "company_name": upper,
         "currency":     "INR",
-        "source":       "fallback",
+        "source":       "fallback_unverified",
     }
 
 

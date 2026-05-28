@@ -35,12 +35,46 @@ class KiteMCPClient:
     We use the 'tools/call' method to invoke MCP tools.
     """
 
+    # Session file persists the session_id across restarts / new client instances.
+    _SESSION_FILE = "/tmp/.kite_mcp_session"
+
+    @classmethod
+    def _load_session(cls) -> str | None:
+        """Load persisted session_id from disk."""
+        import os, json as _json
+        try:
+            if os.path.exists(cls._SESSION_FILE):
+                data = _json.loads(open(cls._SESSION_FILE).read())
+                return data.get("session_id")
+        except Exception:
+            pass
+        return None
+
+    @classmethod
+    def _save_session(cls, session_id: str) -> None:
+        """Persist session_id to disk for reuse across instances."""
+        import json as _json
+        try:
+            open(cls._SESSION_FILE, "w").write(_json.dumps({"session_id": session_id}))
+        except Exception:
+            pass
+
+    @classmethod
+    def _clear_session(cls) -> None:
+        """Remove stale session file."""
+        import os
+        try:
+            os.remove(cls._SESSION_FILE)
+        except FileNotFoundError:
+            pass
+
     def __init__(self) -> None:
         # [NON-SENSITIVE] MCP endpoint URL (from config)
         self._base_url: str = settings.kite_mcp_url.rstrip("/")
         self._timeout: int = settings.kite_mcp_timeout
         self._client: httpx.AsyncClient | None = None
-        self._session_id: str | None = None
+        self._session_id: str | None = self._load_session()   # Kite OAuth session (legacy cookie)
+        self._mcp_session_id: str | None = self._load_session()  # MCP protocol session ID
         self._runner = CommandRunner(max_retries=3)
 
     # ── Context Manager ───────────────────────────────────────────────────────
@@ -51,7 +85,56 @@ class KiteMCPClient:
             headers={"Content-Type": "application/json"},
         )
         logger.info("KiteMCPClient connected to %s", self._base_url)
+        # Reuse persisted session if available — re-initialising would create a
+        # NEW unauthenticated session, discarding the one the user logged into.
+        if not self._mcp_session_id:
+            await self._mcp_initialize()
+        else:
+            logger.info(
+                "KiteMCPClient: reusing persisted mcp-session-id (%s…)",
+                self._mcp_session_id[:12],
+            )
         return self
+
+    async def _mcp_initialize(self) -> None:
+        """
+        Perform the MCP protocol handshake.
+
+        The Kite MCP server (mcp.kite.trade v0.3.1) requires:
+          1. POST initialize  → server returns mcp-session-id in response headers
+          2. POST notifications/initialized (with Mcp-Session-Id header)
+        All subsequent tool calls must carry this Mcp-Session-Id header.
+        """
+        if self._client is None:
+            return
+        try:
+            r = await self._client.post(
+                self._base_url,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 0,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "mosaic-agent", "version": "1.0"},
+                    },
+                },
+            )
+            sid = r.headers.get("mcp-session-id")
+            if sid:
+                self._mcp_session_id = sid
+                self._save_session(sid)
+                logger.info("KiteMCPClient: mcp-session-id established (%s…)", sid[:12])
+            # Send initialized notification to complete handshake
+            if self._mcp_session_id:
+                await self._client.post(
+                    self._base_url,
+                    json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    headers={"Mcp-Session-Id": self._mcp_session_id},
+                )
+        except Exception as exc:
+            logger.warning("KiteMCPClient: MCP initialize failed: %s", exc)
 
     async def __aexit__(self, *_: Any) -> None:
         if self._client:
@@ -84,8 +167,11 @@ class KiteMCPClient:
             },
         }
 
-        # Attach session cookie if we have one from a previous login
+        # Every call must carry the MCP protocol session ID as a header.
         headers = {}
+        if self._mcp_session_id:
+            headers["Mcp-Session-Id"] = self._mcp_session_id
+        # Also send legacy Kite session cookie if captured from OAuth callback.
         if self._session_id:
             headers["Cookie"] = f"session_id={self._session_id}"
 
@@ -96,16 +182,29 @@ class KiteMCPClient:
             json=payload,
             headers=headers,
         )
+        if response.status_code == 400:
+            body = response.text[:200]
+            if tool_name != "login":
+                # Kite OAuth session expired — clear and prompt re-login.
+                self._session_id = None
+                self._clear_session()
+                raise RuntimeError(
+                    "Kite session expired. Run: initiate_kite_login() → "
+                    "open the URL in your browser → retry."
+                )
+            # login itself returning 400 means MCP session gone — fall through
+            logger.warning("KiteMCPClient: login 400 (%s) — MCP session may be stale", body[:80])
         response.raise_for_status()
 
         data = response.json()
 
-        # Capture Set-Cookie from Kite login if present
+        # Capture Set-Cookie from Kite login if present — persist to disk
         if "set-cookie" in response.headers:
             cookie = response.headers["set-cookie"]
             if "session_id=" in cookie:
                 self._session_id = cookie.split("session_id=")[1].split(";")[0]
-                logger.debug("MCP session_id captured")
+                self._save_session(self._session_id)
+                logger.info("KiteMCPClient: session_id captured and persisted")
 
         if "error" in data:
             raise RuntimeError(

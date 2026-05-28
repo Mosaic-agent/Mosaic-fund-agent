@@ -267,6 +267,10 @@ class _SubAgent:
     SYSTEM_PROMPT: str = "You are a helpful assistant."
     #: Override in subclass — property or class-level list
     TOOLS: list = []
+    #: Max LangGraph steps. Simple agents (news, signal) need ~8; equity/research
+    #: need more due to parallel tool batches + optional import steps.
+    #: None = LangGraph default (25). Override per subclass as needed.
+    RECURSION_LIMIT: int | None = 20
 
     def __init__(self) -> None:
         self._agent: Any = None
@@ -361,18 +365,51 @@ class _SubAgent:
         if self._agent is None:
             return self._confirm_fallback(question)
 
-        from langchain_core.messages import HumanMessage, ToolMessage
+        from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
         from config.settings import settings
         is_local = (bool(settings.llm_base_url) and not settings.llm_local_disabled)
-        config: dict = {"recursion_limit": 8 if is_local else 25}
+        limit = 8 if is_local else self.RECURSION_LIMIT
+        config: dict = (
+            {"recursion_limit": limit}
+            if limit is not None
+            else {}
+        )
         if callbacks:
             config["callbacks"] = callbacks
-        try:
-            result = self._agent.invoke({"messages": [HumanMessage(content=question)]}, config=config)
-            msgs = result.get("messages", [])
 
-            # Collect tool outputs; skip pure-plumbing calls (e.g. resolve_company
-            # which returns a symbol dict with no display value).
+        # Stream instead of invoke so we accumulate partial state at every step.
+        # If the recursion limit fires mid-run, we still have all tool outputs
+        # collected so far and can synthesise from them.
+        msgs: list = []
+        _recursion_hit = False
+        try:
+            for state in self._agent.stream(
+                {"messages": [HumanMessage(content=question)]},
+                config=config,
+                stream_mode="values",
+            ):
+                if isinstance(state, dict):
+                    msgs = state.get("messages", msgs)
+        except Exception as exc:
+            err = str(exc).lower()
+            if "recursion" in err:
+                _recursion_hit = True
+                logger.warning(
+                    "%s: recursion limit hit — synthesising from %d partial messages",
+                    self.__class__.__name__, len(msgs),
+                )
+            elif any(k in err for k in ("tool", "400", "invalid_request", "function", "tool_calls", "not support")):
+                logger.info(
+                    "%s: LLM tool-calling failed (%s), using programmatic fallback",
+                    self.__class__.__name__, type(exc).__name__,
+                )
+                return self._confirm_fallback(question)
+            else:
+                logger.error("%s.run() failed: %s", self.__class__.__name__, exc)
+                return f"Research incomplete: {exc}"
+
+        try:
+            # Collect tool outputs; skip pure-plumbing symbol-resolution calls.
             _SKIP_KEYS = ('"symbol"', '"nse_symbol"', '"yf_symbol"')
             tool_sections = []
             for m in msgs:
@@ -381,43 +418,56 @@ class _SubAgent:
                 content = str(m.content).strip()
                 if not content:
                     continue
-                # Skip symbol-resolution tool output (internal plumbing)
                 if content.startswith("{") and any(k in content for k in _SKIP_KEYS):
                     continue
                 tool_sections.append(content)
 
             if tool_sections:
-                # If the last message is a non-empty AIMessage, the LLM already
-                # produced a synthesis — prefer that over raw tool concatenation.
-                from langchain_core.messages import AIMessage
+                # Prefer a final LLM synthesis if it already exists.
                 last_ai = next(
                     (m for m in reversed(msgs) if isinstance(m, AIMessage) and _get_message_text(m.content).strip()),
                     None,
                 )
-                if last_ai:
+                if last_ai and not _recursion_hit:
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
                         self.__class__.__name__, len(_get_message_text(last_ai.content)),
                     )
                     return _get_message_text(last_ai.content)
 
-                logger.info(
-                    "%s: merged %d tool outputs programmatically",
-                    self.__class__.__name__, len(tool_sections),
-                )
+                # Recursion limit hit (or no final AI message) — synthesise now.
+                if self._llm:
+                    try:
+                        from langchain_core.messages import SystemMessage
+                        combined = "\n\n---\n\n".join(tool_sections[:10])
+                        synth = self._llm.invoke([
+                            SystemMessage(content=(
+                                self.SYSTEM_PROMPT + "\n\n"
+                                "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
+                                "- Write ONLY the sections for which you have actual tool output data.\n"
+                                "- OMIT any section entirely if no tool data was collected for it.\n"
+                                "- NEVER write '(Data pending)', 'N/A', or placeholder text.\n"
+                                "- Do not mention step limits, recursion, or missing data.\n"
+                                "- Be concise and factual — only report what the tools returned."
+                            )),
+                            HumanMessage(content=f"Question: {question}\n\nData collected:\n{combined}"),
+                        ])
+                        logger.info(
+                            "%s: partial synthesis (%d tool outputs → %d chars)",
+                            self.__class__.__name__, len(tool_sections), len(str(synth.content)),
+                        )
+                        return str(synth.content)
+                    except Exception as synth_exc:
+                        logger.warning("%s: synthesis call failed: %s", self.__class__.__name__, synth_exc)
+
+                # Last resort — concatenate raw tool outputs.
+                logger.info("%s: merged %d tool outputs programmatically", self.__class__.__name__, len(tool_sections))
                 return "\n\n---\n\n".join(tool_sections)
 
             # No tool calls — return the last AI message directly.
             return _get_message_text(msgs[-1].content) if msgs else "No response from sub-agent."
         except Exception as exc:
-            err = str(exc).lower()
-            if any(k in err for k in ("tool", "400", "invalid_request", "function", "tool_calls", "not support")):
-                logger.info(
-                    "%s: LLM tool-calling failed (%s), using programmatic fallback",
-                    self.__class__.__name__, type(exc).__name__,
-                )
-                return self._confirm_fallback(question)
-            logger.error("%s.run() failed: %s", self.__class__.__name__, exc)
+            logger.error("%s: message processing failed: %s", self.__class__.__name__, exc)
             return f"Research incomplete: {exc}"
 
     def _confirm_fallback(self, question: str) -> str:
@@ -662,42 +712,59 @@ class IndianEquityResearchSubAgent(_SubAgent):
     direct NSE symbol — ``resolve_company`` is always called first.
     """
 
+    # resolve(1) + optional check/import(2) + 7 parallel tools(1) + plot(1) + synthesis(1) = ~8-14 steps
+    RECURSION_LIMIT = 40
+
     SYSTEM_PROMPT = (
         "You are a senior Indian equity analyst covering NSE/BSE listed stocks. "
         "Research happens in exactly TWO rounds to maximise parallel execution:\n\n"
         "ROUND 1 — Resolve (single call):\n"
         "  Call `resolve_company(query)` to get `symbol` (e.g. ADANIENT), `exchange`, "
         "and `company_name`. Wait for the result before proceeding.\n\n"
-        "ROUND 2 — Parallel data fetch (call ALL seven tools simultaneously in one response):\n"
+        "ROUND 2 — Parallel data fetch (emit ALL in ONE response — never call them one by one):\n"
         "  • `get_yahoo_finance_data(\"SYMBOL:EXCHANGE\")` — price, P/E, P/B, 52-week range, market cap\n"
         "  • `get_price_momentum(\"SYMBOL:EXCHANGE\")` — 30d/90d returns, momentum signal\n"
         "  • `get_quarterly_results(\"SYMBOL:EXCHANGE\")` — revenue, net profit, EPS, YoY growth\n"
         "  • `get_stock_cashflow(\"SYMBOL:EXCHANGE\")` — 3yr FCF, operating CF, capex\n"
-        "  • `get_mf_holdings_for_stock(company_name)` — DSP fund holdings & weights\n"
+        "  • `get_shareholding_pattern(symbol)` — Promoter/FII/DII/Public holding % with QoQ delta\n"
+        "  • `get_mf_holdings_for_stock(company_name)` — DSP fund cross-ownership\n"
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
-        "  • `get_fii_dii_summary(7)` — 7-day FII/DII institutional flows\n\n"
-        "IMPORTANT: Emit all seven tool calls in a single response (not one at a time). "
-        "LangGraph will execute them concurrently.\n\n"
+        "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n\n"
+        "CRITICAL: All seven must appear in one AIMessage response as parallel tool calls. "
+        "Calling them one at a time wastes steps and will hit the recursion limit.\n\n"
+        "CHART/PLOT requests: If the user asks to plot a price chart, add "
+        "`plot_price_chart(SYMBOL, days)` to ROUND 2. If it returns 'No price data found', "
+        "call `check_and_refresh_symbol_data(SYMBOL)` once, then retry plot_price_chart.\n\n"
         "SYNTHESIS: After all results arrive, write a structured Markdown research note:\n"
         "(1) Company Snapshot  (2) Financials table  (3) Valuation vs sector  "
-        "(4) Cash Flow quality  (5) Institutional Ownership  (6) News Sentiment  "
+        "(4) Cash Flow quality  "
+        "(5) Institutional Ownership — use get_shareholding_pattern output: show Promoter/FII/DII/Public % "
+        "as of the latest quarter with QoQ delta arrows (↑↓) for each. "
+        "Also include DSP MF cross-ownership from get_mf_holdings_for_stock.  "
+        "(6) News Sentiment  "
         "(7) Key Risks  (8) Recommendation (BUY/HOLD/SELL/WATCH + one-line rationale)\n\n"
-        "RULES: All monetary values in ₹. Never invent figures."
+        "RULES: All monetary values in ₹. Never invent figures.\n\n"
+        "DATA AVAILABILITY: If a ClickHouse query returns 0 rows, or plot_price_chart "
+        "returns 'No price data found', call `check_and_refresh_symbol_data(symbol)` "
+        "to auto-import the data, then retry the query or chart tool."
     )
 
     def _get_tools(self) -> list:
         from src.tools.company_resolver import resolve_company
         from src.tools.yahoo_finance import YAHOO_TOOLS
-        from src.tools.earnings_scraper import EARNINGS_TOOLS
+        from src.tools.earnings_scraper import EARNINGS_TOOLS  # includes get_shareholding_pattern
         from src.tools.news_search import get_stock_news
         from src.tools.newsapi_search import get_newsapi_stock_news
-        from src.tools.skills_tools import query_clickhouse_db
+        from src.tools.skills_tools import query_clickhouse_db, import_symbol_data
         from src.tools.indian_equity_tools import INDIAN_EQUITY_TOOLS
+        from src.tools.chart_tools import plot_price_chart
+        from src.tools.agent_tools import check_and_refresh_symbol_data
         return (
             [resolve_company]
             + YAHOO_TOOLS
             + EARNINGS_TOOLS
-            + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db]
+            + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db,
+               import_symbol_data, check_and_refresh_symbol_data, plot_price_chart]
             + INDIAN_EQUITY_TOOLS
         )
 
@@ -747,6 +814,11 @@ class SignalSubAgent(_SubAgent):
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
         "Format all signal tables in clean Markdown.\n\n"
+        "## iNAV / Premium freshness\n"
+        "iNAV data is automatically kept current. During market hours (IST 09:15–15:30) "
+        "the system fetches a live NSE snapshot if the DB copy is older than 10 minutes. "
+        "Tool output includes an `inav_source` field: 'db' = cached, 'nse_api_live' = just "
+        "fetched. Always report which source was used and the snapshot timestamp.\n\n"
         "## Charts\n"
         "Call chart tools when the user asks to visualise signals or weights:\n"
         "- `plot_signal_scores()` — overall composite scores for all ETFs\n"
@@ -762,6 +834,8 @@ class SignalSubAgent(_SubAgent):
             run_goldbees_pipeline,
             run_etf_news_sentiment,
             run_risk_governor_analysis,
+            run_premium_alerts,
+            get_live_inav,
             query_clickhouse_db,
         )
         from src.tools.chart_tools import (
@@ -774,6 +848,8 @@ class SignalSubAgent(_SubAgent):
             run_goldbees_pipeline,
             run_etf_news_sentiment,
             run_risk_governor_analysis,
+            run_premium_alerts,
+            get_live_inav,
             query_clickhouse_db,
             plot_price_chart,
             plot_signal_scores,
@@ -895,6 +971,15 @@ to show how much of each ETF's return is FX-driven vs index-driven.
 This agent is read-only. If the user asks to import, refresh, or update NAV/price data,
 tell them to use: `python src/main.py import --category etfs`
 or type: "import etfs" in the chat (routes to the main agent).
+
+## iNAV Freshness
+Premium data is automatically kept current:
+- **During market hours (IST 09:15–15:30)**: if the DB snapshot is older than 10 minutes
+  the tool fetches live iNAV from the NSE API and stores the result. The `inav_source`
+  field in tool output will show `"nse_api_live"` when this happens.
+- **Outside market hours**: last stored snapshot (up to 4 days old) is used.
+When reporting a premium, always mention the snapshot timestamp so the user knows
+whether they are seeing live or cached data.
 
 ## Rules
 - Never invent numbers — use only tool output.
@@ -1142,6 +1227,9 @@ class AutonomousResearchAgent(_SubAgent):
     news with agent-chosen date windows, MF holding pattern analysis,
     institutional flows, ClickHouse queries, and custom Python execution.
     """
+
+    # 10-layer framework + optional delegation calls + synthesis
+    RECURSION_LIMIT = 50
 
     SYSTEM_PROMPT = """\
 You are the Mosaic Autonomous Research Agent — a self-directed, multi-domain analyst
