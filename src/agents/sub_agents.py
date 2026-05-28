@@ -679,7 +679,9 @@ class DeepDiveSubAgent(_SubAgent):
         "You are a US equity research analyst specialising in SEC filing analysis. "
         "You have access to EDGAR data, XBRL financials, and Yahoo Finance market data. "
         "FIRST: Call `resolve_company` on any input ticker/name to confirm the symbol "
-        "and verify the market is 'US'. If `resolve_company` returns market='India', "
+        "and verify the market is 'US'. Ticker symbols can change or be newly listed; "
+        "always check if the output contains an 'error' field before proceeding. "
+        "If `resolve_company` returns market='India', "
         "immediately reply: \"This stock is listed in India (NSE/BSE). "
         "Please use the Indian equity research path.\".  "
         "For US tickers: use `run_deepdive_analysis` to fetch SEC filings. "
@@ -720,7 +722,9 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "Research happens in exactly TWO rounds to maximise parallel execution:\n\n"
         "ROUND 1 — Resolve (single call):\n"
         "  Call `resolve_company(query)` to get `symbol` (e.g. ADANIENT), `exchange`, "
-        "and `company_name`. Wait for the result before proceeding.\n\n"
+        "and `company_name`. Wait for the result before proceeding. "
+        "Note that company symbols can change, demerge, or be newly listed; always check "
+        "if the output contains an 'error' field before proceeding to Round 2.\n\n"
         "ROUND 2 — Parallel data fetch (emit ALL in ONE response — never call them one by one):\n"
         "  • `get_yahoo_finance_data(\"SYMBOL:EXCHANGE\")` — price, P/E, P/B, 52-week range, market cap\n"
         "  • `get_price_momentum(\"SYMBOL:EXCHANGE\")` — 30d/90d returns, momentum signal\n"
@@ -1251,7 +1255,7 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    Do NOT call for every ETF in a broad scan — only for the 1–3 primary symbols the
    user explicitly named.
 
-1. **Entity resolution** — `resolve_company` → get NSE/BSE ticker, exchange, full name
+1. **Entity resolution** — Call `resolve_company(query)` to get the NSE/BSE ticker, exchange, and full name. Note that company symbols can change, demerge, or be newly listed; always rely on `resolve_company` rather than hardcoding symbols, and check if its output contains an "error" field before running further tools.
 2. **Price & Momentum** — `get_yahoo_finance_data` (P/E, 52w range, market cap);
    `get_price_momentum` (30d/90d returns, momentum signal); `plot_price_chart`
 3. **Fundamentals** — `get_quarterly_results` (revenue, EPS, YoY growth);
