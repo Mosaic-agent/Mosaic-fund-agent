@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-05-14
+> Last updated: 2026-05-28
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -79,9 +79,9 @@ src/
   tools/                  Standalone signal functions (no side effects)
   ui/
     app.py                Streamlit 5-tab data hub
-  utils/                  Caching, symbol mapping, report loading
+  utils/                  Caching, symbol mapping, report loading, and terminal markdown renderer (markdown_renderer.py)
 
-scripts/                  Standalone runnable analysis scripts
+scripts/                  Standalone runnable analysis scripts (including goldbees_report.py)
 docs/                     This documentation
 skills/                   Gemini / Claude skill definitions
 data-engineering-importer/  Data pipeline reference (importer guide + schema)

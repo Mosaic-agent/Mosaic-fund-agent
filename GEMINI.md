@@ -182,8 +182,8 @@ This reads from 4 ClickHouse tables (`ml_predictions`, `weight_checkpoints`, `si
 ```
 User: "run goldbees pipeline" / "today's signal" / "what should I do with GOLDBEES"
 → Run: python src/scripts/goldbees_report.py
-→ Display output verbatim
-→ Narrate one-line recommendation from the printed weights
+→ Display output verbatim (which dynamically appends the intelligent LLM-generated recommendation)
+→ Explain/narrate the recommendation and printed weights
 ```
 
 ```

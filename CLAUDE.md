@@ -99,7 +99,7 @@ CLI (src/main.py)
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
-| Utils | `src/utils/` | `sanity_checker` (ClickHouse anomaly rules) |
+| Utils | `src/utils/` | `sanity_checker` (ClickHouse anomaly rules), `markdown_renderer` (terminal Markdown table formatter) |
 
 ### Data Import Pipeline
 ```

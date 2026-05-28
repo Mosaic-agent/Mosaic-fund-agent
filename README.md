@@ -224,7 +224,13 @@ src/
     domestic_etf_scanner.py     ETF valuation + flow + momentum scanner
     market_context.py           Live Nifty/BankNifty levels for LLM prompts
     (+ news_search, earnings_scraper, summarization, valuation_alerts, …)
+  utils/
+    markdown_renderer.py        Beautiful terminal Markdown renderer using rich.table.Table
+    llm_cache.py                SQLite-backed LLM response cache
+    ist.py, symbol_mapper.py    Utility helpers
   ui/app.py                     Streamlit data hub (Import / Query / Explorer / Kite Dashboard)
+  scripts/
+    goldbees_report.py          GOLDBEES investment pipeline report with LLM recommendation
 scripts/
   save_portfolio_holdings.py         Backup CNC holdings to ClickHouse
   backup_zerodha_account.py          Backup profile, margins, and orders
