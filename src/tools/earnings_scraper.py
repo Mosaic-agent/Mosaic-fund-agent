@@ -148,6 +148,7 @@ def fetch_from_screener(symbol: str) -> QuarterlyResult | None:
 
         revenue_prev = get_prev_value(r"sales|revenue|net sales")
         profit_prev = get_prev_value(r"net profit|profit after tax|pat")
+        eps_prev = get_prev_value(r"eps|earning per share")
 
         # YoY calculations
         revenue_yoy = (
@@ -155,6 +156,9 @@ def fetch_from_screener(symbol: str) -> QuarterlyResult | None:
         )
         profit_yoy = (
             ((net_profit - profit_prev) / profit_prev * 100) if profit_prev else 0.0
+        )
+        eps_yoy = (
+            ((eps - eps_prev) / eps_prev * 100) if eps_prev else 0.0
         )
 
         return QuarterlyResult(
@@ -164,6 +168,7 @@ def fetch_from_screener(symbol: str) -> QuarterlyResult | None:
             eps=round(eps, 2),
             revenue_yoy_pct=round(revenue_yoy, 2),
             profit_yoy_pct=round(profit_yoy, 2),
+            eps_yoy_pct=round(eps_yoy, 2),
             source_url=url,
         )
 
@@ -217,19 +222,27 @@ def fetch_from_yahoo_financials(symbol: str, exchange: str = "NSE") -> Quarterly
             # Scale INR absolute values to Crores
             return round(val / 1e7, 2) if val else 0.0
 
+        eps = _safe_get(qf, "Basic EPS", latest_col) or _safe_get(qf, "Diluted EPS", latest_col)
+        eps_prev = _safe_get(qf, "Basic EPS", prev_col) or _safe_get(qf, "Diluted EPS", prev_col) if prev_col else 0.0
+
         revenue_yoy = (
             ((revenue - revenue_prev) / abs(revenue_prev) * 100) if revenue_prev else 0.0
         )
         profit_yoy = (
             ((net_income - income_prev) / abs(income_prev) * 100) if income_prev else 0.0
         )
+        eps_yoy = (
+            ((eps - eps_prev) / abs(eps_prev) * 100) if eps_prev else 0.0
+        )
 
         return QuarterlyResult(
             period=period_label,
             revenue_cr=to_cr(revenue),
             net_profit_cr=to_cr(net_income),
+            eps=round(eps, 2),
             revenue_yoy_pct=round(revenue_yoy, 2),
             profit_yoy_pct=round(profit_yoy, 2),
+            eps_yoy_pct=round(eps_yoy, 2),
             source_url=f"https://finance.yahoo.com/quote/{yf_symbol}/financials",
         )
 
@@ -294,6 +307,7 @@ def get_quarterly_results(input_str: str) -> dict[str, Any]:
         "eps": result.eps,
         "revenue_yoy_pct": result.revenue_yoy_pct,
         "profit_yoy_pct": result.profit_yoy_pct,
+        "eps_yoy_pct": result.eps_yoy_pct,
         "guidance": result.guidance,
         "source_url": result.source_url,
     }

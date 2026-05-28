@@ -157,7 +157,8 @@ def get_yahoo_finance_data(input_str: str) -> dict[str, Any]:
       "NIFTYBEES:NSE"   → fetches NIFTYBEES.NS (ETF)
 
     Returns a dict with sector, industry, P/E, P/B, 52-week range,
-    market cap, dividend yield, current price, and company description.
+    market cap, dividend yield, current price, YoY price change %,
+    YoY market cap change %, and company description.
     """
     # Parse input
     parts = input_str.strip().split(":")
@@ -168,6 +169,14 @@ def get_yahoo_finance_data(input_str: str) -> dict[str, Any]:
     time.sleep(0.5)
 
     data = fetch_yahoo_data(symbol, exchange)
+
+    # Fetch 1y history to compute YoY change
+    hist = fetch_price_history(symbol, exchange, period="1y")
+    yoy_pct = None
+    if len(hist) >= 2:
+        latest = hist[-1]["close"]
+        prev1y = hist[0]["close"]
+        yoy_pct = round(((latest - prev1y) / prev1y * 100), 2) if prev1y else 0.0
 
     return {
         "symbol": data.symbol,
@@ -180,6 +189,8 @@ def get_yahoo_finance_data(input_str: str) -> dict[str, Any]:
         "52_week_high": data.fifty_two_week_high,
         "52_week_low": data.fifty_two_week_low,
         "current_price_inr": data.current_price,
+        "price_yoy_change_pct": yoy_pct,
+        "market_cap_yoy_change_pct": yoy_pct, # assuming constant outstanding shares
         "description": data.description[:500] if data.description else "",
     }
 
@@ -187,20 +198,20 @@ def get_yahoo_finance_data(input_str: str) -> dict[str, Any]:
 @tool
 def get_price_momentum(input_str: str) -> dict[str, Any]:
     """
-    Fetch 3-month price history and compute momentum signals for an
+    Fetch 1-year price history and compute momentum signals for an
     Indian stock using Yahoo Finance (free).
 
     Input format: "SYMBOL" or "SYMBOL:EXCHANGE"
 
     Returns recent close prices, 30-day return %, 90-day return %,
-    and a simple momentum signal (BULLISH / BEARISH / NEUTRAL).
+    1-year return % (YoY), and a simple momentum signal (BULLISH / BEARISH / NEUTRAL).
     """
     parts = input_str.strip().split(":")
     symbol = parts[0].strip().upper()
     exchange = parts[1].strip().upper() if len(parts) > 1 else "NSE"
 
     time.sleep(0.5)
-    history = fetch_price_history(symbol, exchange, period="3mo")
+    history = fetch_price_history(symbol, exchange, period="1y")
 
     if len(history) < 2:
         return {"symbol": symbol, "error": "Insufficient price history"}
@@ -212,8 +223,13 @@ def get_price_momentum(input_str: str) -> dict[str, Any]:
     idx_30d = max(0, len(history) - 22)
     close_30d_ago = history[idx_30d]["close"]
 
+    # 90-day return (approx last 66 trading days)
+    idx_90d = max(0, len(history) - 66)
+    close_90d_ago = history[idx_90d]["close"]
+
     ret_30d = ((latest_close - close_30d_ago) / close_30d_ago * 100) if close_30d_ago else 0
-    ret_90d = ((latest_close - oldest_close) / oldest_close * 100) if oldest_close else 0
+    ret_90d = ((latest_close - close_90d_ago) / close_90d_ago * 100) if close_90d_ago else 0
+    ret_1y = ((latest_close - oldest_close) / oldest_close * 100) if oldest_close else 0
 
     if ret_30d > 5:
         signal = "BULLISH"
@@ -227,6 +243,7 @@ def get_price_momentum(input_str: str) -> dict[str, Any]:
         "current_price": latest_close,
         "return_30d_pct": round(ret_30d, 2),
         "return_90d_pct": round(ret_90d, 2),
+        "return_1y_pct": round(ret_1y, 2),
         "momentum_signal": signal,
         "data_points": len(history),
     }

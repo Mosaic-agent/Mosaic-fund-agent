@@ -519,30 +519,42 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
     try:
         from src.tools.yahoo_finance import fetch_yahoo_data, fetch_price_history
         yf   = fetch_yahoo_data(symbol, exchange)
-        hist = fetch_price_history(symbol, exchange, "3mo")
+        hist = fetch_price_history(symbol, exchange, "1y")
         mc   = f"₹{yf.market_cap / 1e7:,.0f} Cr" if yf.market_cap else "N/A"
+
+        yoy_change_str = "—"
+        if len(hist) >= 2:
+            latest = hist[-1]["close"]
+            prev1y = hist[0]["close"]
+            r1y = round((latest - prev1y) / prev1y * 100, 2) if prev1y else 0
+            yoy_change_str = f"{r1y:+.2f}%"
+
         parts.append(
             f"## Company Snapshot\n"
             f"| Metric | Value |\n|---|---|\n"
             f"| Sector | {yf.sector or 'N/A'} |\n"
             f"| Industry | {yf.industry or 'N/A'} |\n"
-            f"| Market Cap | {mc} |\n"
+            f"| Market Cap | {mc} (YoY Change: {yoy_change_str}) |\n"
             f"| P/E (Trailing) | {round(yf.pe_ratio, 1) if yf.pe_ratio else 'N/A'} |\n"
             f"| P/B | {round(yf.pb_ratio, 1) if yf.pb_ratio else 'N/A'} |\n"
-            f"| Current Price | ₹{yf.current_price:,.0f} |\n"
-            f"| 52-Week High | ₹{yf.fifty_two_week_high:,.0f} |\n"
-            f"| 52-Week Low | ₹{yf.fifty_two_week_low:,.0f} |\n"
+            f"| Current Price | ₹{yf.current_price:,.2f} (YoY Change: {yoy_change_str}) |\n"
+            f"| 52-Week High | ₹{yf.fifty_two_week_high:,.2f} |\n"
+            f"| 52-Week Low | ₹{yf.fifty_two_week_low:,.2f} |\n"
         )
         if yf.description:
             parts.append(f"**Business:** {yf.description[:500]}…")
-        if len(hist) >= 22:
+        if len(hist) >= 2:
             latest  = hist[-1]["close"]
-            prev30  = hist[-22]["close"]
-            prev90  = hist[0]["close"]
+            idx_30d = max(0, len(hist) - 22)
+            idx_90d = max(0, len(hist) - 66)
+            prev30  = hist[idx_30d]["close"]
+            prev90  = hist[idx_90d]["close"]
+            prev1y  = hist[0]["close"]
             r30 = round((latest - prev30) / prev30 * 100, 2) if prev30 else 0
             r90 = round((latest - prev90) / prev90 * 100, 2) if prev90 else 0
+            r1y = round((latest - prev1y) / prev1y * 100, 2) if prev1y else 0
             sig = "BULLISH" if r30 > 5 else "BEARISH" if r30 < -5 else "NEUTRAL"
-            parts.append(f"**Price Momentum:** 30d {r30:+.2f}% \u2502 90d {r90:+.2f}% \u2502 Signal: **{sig}**")
+            parts.append(f"**Price Momentum:** 30d {r30:+.2f}% │ 90d {r90:+.2f}% │ 1y (YoY) {r1y:+.2f}% │ Signal: **{sig}**")
     except Exception as exc:
         parts.append(f"## Company Snapshot\n*Yahoo Finance unavailable: {exc}*")
 
@@ -559,6 +571,7 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
                 f"| EPS | ₹{q.eps:.2f} |\n"
                 f"| Revenue Growth YoY | {q.revenue_yoy_pct:+.1f}% |\n"
                 f"| Profit Growth YoY | {q.profit_yoy_pct:+.1f}% |\n"
+                f"| EPS Growth YoY | {q.eps_yoy_pct:+.1f}% |\n"
             )
         else:
             parts.append("## Quarterly Results\n*Not available via Screener.in for this symbol.*")
