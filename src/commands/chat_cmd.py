@@ -21,6 +21,8 @@ import logging
 import os
 import re
 import uuid
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 from typing import Any
 
 

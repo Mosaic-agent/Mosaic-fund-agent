@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 import typer
 from rich.console import Console

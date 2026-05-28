@@ -30,7 +30,7 @@ def parse_markdown_table(table_text: str) -> Table | None:
         return [cell.strip() for cell in r.split("|")]
 
     headers = split_row(lines[0])
-    if not headers or all(h == "" for h in headers):
+    if not headers:
         return None
 
     # Check if second line is a markdown table separator (e.g. |---|---|)
@@ -38,9 +38,10 @@ def parse_markdown_table(table_text: str) -> Table | None:
     if not sep_cells or not all(re.match(r"^:?-+:?$", c) for c in sep_cells):
         return None
 
+    has_headers = not all(h == "" for h in headers)
     table = Table(
         box=box.ROUNDED,
-        show_header=True,
+        show_header=has_headers,
         header_style="bold cyan",
         border_style="dim",
         expand=False,
