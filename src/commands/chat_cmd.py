@@ -405,6 +405,7 @@ def _get_plan_llm() -> "Any":
             _plan_llm = ChatAnthropic(
                 model=settings.llm_model,
                 api_key=settings.anthropic_api_key,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
                 **kw,
             )
         elif settings.llm_provider == "google":

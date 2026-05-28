@@ -64,6 +64,7 @@ def _get_llm() -> Any:
             api_key=settings.anthropic_api_key,
             temperature=0.2,
             max_tokens=settings.llm_token_budget,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         )
 
     # ── OpenAI cloud (default) ────────────────────────────────────────────────

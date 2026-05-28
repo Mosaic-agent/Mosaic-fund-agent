@@ -227,6 +227,7 @@ class MosaicFundAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         # ── OpenAI cloud (default) ─────────────────────────────────────────────
@@ -263,6 +264,7 @@ class MosaicFundAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
                 max_tokens=cloud_budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         from langchain_openai import ChatOpenAI
@@ -308,6 +310,7 @@ class MosaicFundAgent:
                 api_key=settings.anthropic_api_key,
                 temperature=0,
                 max_tokens=budget,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
         if provider == "google":

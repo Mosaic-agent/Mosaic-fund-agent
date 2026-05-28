@@ -70,6 +70,7 @@ def _get_resolver_llm() -> "Any":
                 _resolver_llm = ChatAnthropic(
                     model=model,
                     api_key=settings.anthropic_api_key,
+                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
                     **kwargs,
                 )
             elif provider == "google":

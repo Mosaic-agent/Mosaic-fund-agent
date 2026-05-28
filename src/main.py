@@ -91,6 +91,13 @@ def main(
         import os
         os.environ["VERBOSE"] = "1"
 
+    # Initialize the global SQLite LLM response cache
+    try:
+        from src.utils.llm_cache import setup_llm_cache
+        setup_llm_cache()
+    except Exception as exc:
+        print(f"Warning: could not setup LLM cache: {exc}", file=sys.stderr)
+
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 @app.command()
