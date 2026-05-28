@@ -429,11 +429,50 @@ class _SubAgent:
                     None,
                 )
                 if last_ai and not _recursion_hit:
+                    ai_text = _get_message_text(last_ai.content)
+
+                    # Find any plot_price_chart tool output in the message logs
+                    chart_str = None
+                    for m in msgs:
+                        if isinstance(m, ToolMessage):
+                            content_str = str(m.content)
+                            if "┤" in content_str and "price" in content_str.lower():
+                                chart_str = m.content
+                                break
+
+                    if chart_str and "┤" not in ai_text:
+                        # Clean up chart_str if it's wrapped in list/dict
+                        if isinstance(chart_str, dict):
+                            chart_str = chart_str.get("chart", "")
+
+                        import re
+                        # Replace empty space/content under "Price Chart" header if it exists
+                        pattern = re.compile(
+                            r"(#+\s*(?:1-Year\s+)?Price\s+Chart.*?)(?=\n\s*\n|\n\s*#|\Z)",
+                            re.IGNORECASE | re.DOTALL
+                        )
+                        match = pattern.search(ai_text)
+                        if match:
+                            header = match.group(1).strip()
+                            ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
+                        else:
+                            # Otherwise fallback: place it under Company Snapshot
+                            snapshot_pattern = re.compile(
+                                r"(#+\s*(?:1\.\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)",
+                                re.IGNORECASE | re.DOTALL
+                            )
+                            match = snapshot_pattern.search(ai_text)
+                            if match:
+                                section = match.group(1).strip()
+                                ai_text = ai_text.replace(match.group(0), f"{section}\n\n{chart_str}\n")
+                            else:
+                                ai_text = f"{ai_text}\n\n### 1-Year Price Chart\n{chart_str}"
+
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
-                        self.__class__.__name__, len(_get_message_text(last_ai.content)),
+                        self.__class__.__name__, len(ai_text),
                     )
-                    return _get_message_text(last_ai.content)
+                    return ai_text
 
                 # Recursion limit hit (or no final AI message) — synthesise now.
                 if self._llm:
