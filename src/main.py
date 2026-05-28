@@ -202,8 +202,8 @@ def ask(
 
     try:
         answer = agent.ask(question)
-        from rich.markdown import Markdown
-        console.print(Panel(Markdown(answer), title="[bold green]Agent Response[/bold green]", border_style="green"))
+        from src.utils.markdown_renderer import render_markdown_to_group
+        console.print(Panel(render_markdown_to_group(answer), title="[bold green]Agent Response[/bold green]", border_style="green"))
     except Exception as exc:
         console.print(f"[bold red]✗ Error:[/bold red] {exc}")
         raise typer.Exit(code=1)
