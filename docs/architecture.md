@@ -26,7 +26,7 @@ External Data Sources
         └──▶  SanityCheckObserver     (async) → anomaly validation
         │
         ▼
-  ClickHouse  (market_data database — 19 tables)
+  ClickHouse  (market_data database — 26 tables)
         │
         ├──▶  MarketDataRepository reads  ← typed queries, consistent FINAL
         ├──▶  Signal Sources  (src/agents/signal_sources.py)  ← Strategy pattern
@@ -66,11 +66,11 @@ src/
   formatters/             JSON / HTML report rendering
   importer/
     base_fetcher.py       Fetcher ABC — Adapter interface for all data sources
-    cli.py                run_import() — legacy orchestrator (still active)
+    cli.py                run_import() — delta-sync orchestrator
     clickhouse.py         Schema DDL, bulk inserts, watermark management
     registry.py           Symbol catalogs (stocks, ETFs, commodities, indices, FX)
     fetchers/
-      adapters.py         5 concrete Fetcher adapters + FETCHER_REGISTRY
+      adapters.py         Fetcher adapters + FETCHER_REGISTRY
       <name>_fetcher.py   One file per external data source
   ml/
     trend_predictor.py    LightGBM 5-day predictor + joblib model cache
@@ -105,7 +105,14 @@ All importers are **watermark-based delta-sync**: each fetcher reads `import_wat
 | `imf_reserves_fetcher` | WGC Goldhub (primary) + World Bank WDI REST API (fallback) | `cb_gold_reserves` | Monthly |
 | `etf_aum_fetcher` | Yahoo Finance | `etf_aum` | Daily |
 | `mf_holdings_fetcher` | Morningstar (mstarpy) | `mf_holdings` | Monthly |
-| `import_dsp_history.py` (script) | DSP website ZIP archives | `mf_holdings` | One-time backfill (Sep 2023–Mar 2026); writes per-fund watermark |
+| `fx_rates_fetcher` | Yahoo Finance | `fx_rates` | Daily |
+| `worldbank_macro_fetcher` | World Bank WDI API | `macro_indicators` | Annual |
+| `imf_weo_fetcher` | IMF DataMapper API | `macro_indicators` | Semi-annual |
+| `nse_quote_fetcher` | NSE Direct API | `daily_prices` | Intraday (Post-close) |
+| `earnings_fetcher` | Yahoo Finance | `stock_earnings` | Quarterly |
+| `insider_fetcher` | Yahoo Finance | `stock_insider_trades` | Daily |
+| `valuation_fetcher` | Yahoo Finance | `stock_valuation` | Daily |
+| `fund_imports/` (factory) | AMC Websites (ICICI, Nippon) | `mf_holdings` | Monthly |
 | News tools | NewsAPI + Google News RSS | `news_articles` | Twice daily |
 | `signal_aggregator` | Reads ClickHouse | `signal_composite` | Daily / on-demand |
 | `trend_predictor` | Reads ClickHouse | `ml_predictions` | Daily after close |
@@ -145,6 +152,16 @@ Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-i
 | `signal_composite` | as_of, etf_symbol, macro_score, sentiment_score, valuation_score, flow_score, ml_score, composite_score, action | Multi-pillar ETF scores 0–100 with BUY/HOLD/SELL action |
 | `news_articles` | fetched_at, title, source, sentiment, etfs_impacted, category, impact_tier | ETF-tagged news + macro events |
 | `import_watermarks` | source, symbol, last_date | Delta-sync state tracking |
+| `weight_checkpoints` | as_of, symbol, method, recommended_weight, regime | Position-sizing decisions (Kelly / Risk Governor) |
+| `stock_earnings` | symbol, earnings_date, eps_actual, surprise_pct | US stock quarterly earnings |
+| `stock_insider_trades` | symbol, insider_name, transaction_date, shares | US stock insider buying/selling |
+| `stock_valuation` | symbol, snapshot_date, trailing_pe, forward_pe, roe | US stock valuation & fundamentals snapshot |
+| `user_holdings` | tradingsymbol, isin, quantity, average_price, pnl | Zerodha Kite CNC holdings backup |
+| `user_profile` | user_id, user_name, broker | Zerodha Kite user profile backup |
+| `user_margins` | segment, cash, available_balance | Zerodha Kite account margins backup |
+| `user_positions` | tradingsymbol, product, quantity, average_price | Zerodha Kite live positions backup |
+| `user_orders` | order_id, status, tradingsymbol, quantity | Zerodha Kite order history backup |
+| `macro_indicators` | ref_year, country_code, indicator_code, value, source | World Bank/IMF macro indicators (GDP, CPI, etc.) |
 
 ---
 
@@ -338,27 +355,44 @@ Every fetcher checks `import_watermarks.(source, symbol).last_date` before fetch
 ### 2. Repository Pattern (`src/db/repository.py`)
 `MarketDataRepository` is the single access point for all ClickHouse reads. Centralises `FINAL` usage, typed return shapes, and the `run_fetcher()` orchestration loop. All signal sources and ML code read through the repo — never raw SQL strings scattered across files.
 
-### 3. Strategy Pattern (`src/agents/signal_sources.py`)
+### 3. Agent Architecture (Multi-Agent Orchestrator)
+The platform employs a **Multi-Agent Orchestrator** pattern. A main `MosaicFundAgent` uses a keyword-based **Intent Router** (in `src/agents/sub_agents.py`) to delegate user queries to specialized sub-agents. This keeps tool scopes narrow and prompts focused, improving accuracy for complex queries.
+
+*   **DeepDiveSubAgent:** Specialized in SEC filings (10-K/10-Q), XBRL financial data, and peer valuation analysis.
+*   **SignalSubAgent:** Handles ETF-specific quant signals, the GOLDBEES ML pipeline, and the Risk Governor.
+*   **MacroSubAgent:** Focuses on COMEX pre-market signals, FII/DII flow attribution, and macro theme scanning.
+*   **CodeSubAgent:** Executes Python code and runs ad-hoc ClickHouse queries to answer "Show me X vs Y" style questions.
+*   **IntlETFSubAgent:** Analyzes international ETFs (Nasdaq 100, S&P 500, Hang Seng) and their "Scarcity Premium" patterns.
+
+### 4. Local LLM & Gemma Integration
+Mosaic is optimized for both cloud (OpenAI/Anthropic) and **Local LLM** execution via **Ollama**. It specifically supports **Gemma 4** (customized as `mosaic-gemma4`) with several architectural adaptations:
+
+*   **Compact Prompting:** For local models with limited context windows (e.g., 4k–8k tokens), the agent switches to high-density, compact system prompts to preserve space for market data.
+*   **Direct-to-LLM Fallback:** When a model's context is too low to support a full ReAct tool-calling loop, the system bypasses the agent and passes raw data tables directly to the model for one-shot summarization.
+*   **Structured Table Injection:** Instead of relying on the LLM to "query" the database via tools, the orchestrator pre-fetches relevant tables and injects them into the prompt, allowing models like Gemma to focus on analysis rather than orchestration.
+*   **Tool-Calling-Free Path:** For smaller models that struggle with complex JSON-RPC tool schemas, the orchestrator provides a flattened data path that reduces "hallucination risk" in function selection.
+
+### 5. Strategy Pattern (`src/agents/signal_sources.py`)
 `SignalSource` ABC defines `collect(repo) -> dict[etf, float]`. Each signal pillar is a subclass. The aggregator holds a `score_sources: list[SignalSource]` — adding a new pillar = one class + one list append. All sources run in parallel via `ThreadPoolExecutor`.
 
-### 4. Adapter Pattern (`src/importer/base_fetcher.py`)
+### 6. Adapter Pattern (`src/importer/base_fetcher.py`)
 `Fetcher` ABC defines `fetch() / validate() / insert() / max_date()`. Each external data source is a concrete subclass registered in `FETCHER_REGISTRY`. `repo.run_fetcher(fetcher)` handles watermarks, dry-run, and event publishing — the fetcher only knows its data.
 
-### 5. Observer Pattern (`src/events/`)
+### 7. Observer Pattern (`src/events/`)
 `EventBus` fires `DataImportedEvent` after every live `run_fetcher()` insert. Observers subscribe once; the import pipeline has zero knowledge of ML retraining or signal refresh. Built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async, daemon threads).
 
-### 6. Graceful Pillar Degradation
+### 8. Graceful Pillar Degradation
 Every signal pillar degrades to neutral 50 (not 0) when its data source is unavailable. The composite score remains valid across all 18 ETFs — missing data does not penalise the composite.
 
-### 7. LLM-Required Scoring
+### 9. LLM-Required Scoring
 All agent scoring paths require a configured LLM. LLM provider (OpenAI / Anthropic / local via OpenAI-compatible endpoint) is selected at runtime via `llm_provider` setting. Set `LLM_BASE_URL` for local inference with Ollama or LM Studio.
 
-### 8. Tool Loop Protection
+### 10. Tool Loop Protection
 - ComexAgent uses a direct function call for local LLMs (avoids ReAct loop overhead)
 - NewsSentimentAgent uses a single `collate_news_sentiment()` call (not a tool loop)
 - LangGraph agents have explicit loop guards (`max_iterations=2`)
 
-### 9. iNAV Arbitrage Detection
+### 11. iNAV Arbitrage Detection
 NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_discount_pct > +0.5%` triggers a premium alert; `< −0.25%` flags a discount opportunity. The SILVERBEES / GOLDBEES premium spread is a direct input to the quant scorecard valuation pillar.
 
 ---
