@@ -84,10 +84,38 @@ def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
             ORDER BY trade_date ASC
         """)
         if df.empty:
-            return f"No price data found for {symbol}. Call check_and_refresh_symbol_data('{symbol.upper()}') to import it first."
+            # Fallback to yfinance price history
+            from src.tools.yahoo_finance import fetch_price_history
+            clean_symbol = symbol.upper()
+            exchange = "NSE"
+            if clean_symbol.endswith(".NS"):
+                clean_symbol = clean_symbol[:-3]
+                exchange = "NSE"
+            elif clean_symbol.endswith(".BO"):
+                clean_symbol = clean_symbol[:-3]
+                exchange = "BSE"
 
-        dates  = df["trade_date"].astype(str).tolist()
-        prices = df["close"].tolist()
+            if days <= 30:
+                yf_period = "1mo"
+            elif days <= 90:
+                yf_period = "3mo"
+            elif days <= 180:
+                yf_period = "6mo"
+            elif days <= 365:
+                yf_period = "1y"
+            else:
+                yf_period = "2y"
+
+            hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
+            if not hist:
+                return f"No price data found for {symbol} (tried ClickHouse and Yahoo Finance fallback)."
+
+            dates  = [r["date"] for r in hist]
+            prices = [r["close"] for r in hist]
+        else:
+            dates  = df["trade_date"].astype(str).tolist()
+            prices = df["close"].tolist()
+
         spark  = sparkline(prices)
         chg    = ((prices[-1] - prices[0]) / prices[0] * 100) if len(prices) >= 2 else 0
 

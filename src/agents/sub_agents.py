@@ -555,6 +555,13 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
             r1y = round((latest - prev1y) / prev1y * 100, 2) if prev1y else 0
             sig = "BULLISH" if r30 > 5 else "BEARISH" if r30 < -5 else "NEUTRAL"
             parts.append(f"**Price Momentum:** 30d {r30:+.2f}% │ 90d {r90:+.2f}% │ 1y (YoY) {r1y:+.2f}% │ Signal: **{sig}**")
+            try:
+                from src.tools.chart_tools import plot_price_chart
+                chart_str = plot_price_chart(symbol, days=365)
+                if chart_str and "No price data found" not in chart_str and "Error" not in chart_str:
+                    parts.append(f"### 1-Year Price Chart\n{chart_str}")
+            except Exception as chart_exc:
+                logger.warning("Failed to add price chart to programmatic output: %s", chart_exc)
     except Exception as exc:
         parts.append(f"## Company Snapshot\n*Yahoo Finance unavailable: {exc}*")
 
@@ -746,14 +753,12 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `get_shareholding_pattern(symbol)` — Promoter/FII/DII/Public holding % with QoQ delta\n"
         "  • `get_mf_holdings_for_stock(company_name)` — DSP fund cross-ownership\n"
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
-        "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n\n"
-        "CRITICAL: All seven must appear in one AIMessage response as parallel tool calls. "
+        "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n"
+        "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n\n"
+        "CRITICAL: All parallel tools must appear in one AIMessage response as parallel tool calls. "
         "Calling them one at a time wastes steps and will hit the recursion limit.\n\n"
-        "CHART/PLOT requests: If the user asks to plot a price chart, add "
-        "`plot_price_chart(SYMBOL, days)` to ROUND 2. If it returns 'No price data found', "
-        "call `check_and_refresh_symbol_data(SYMBOL)` once, then retry plot_price_chart.\n\n"
         "SYNTHESIS: After all results arrive, write a structured Markdown research note:\n"
-        "(1) Company Snapshot  (2) Financials table  (3) Valuation vs sector  "
+        "(1) Company Snapshot (including the 1-year price chart directly under the snapshot table)  (2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
         "(5) Institutional Ownership — use get_shareholding_pattern output: show Promoter/FII/DII/Public % "
         "as of the latest quarter with QoQ delta arrows (↑↓) for each. "
