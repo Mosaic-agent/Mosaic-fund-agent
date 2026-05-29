@@ -211,19 +211,9 @@ def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx
     return _run_cmd_streaming(args)
 
 
-@tool
-def import_symbol_data(symbol: str, days: int = 365) -> str:
+def import_symbol_data_impl(symbol: str, days: int = 365) -> str:
     """
-    Import price history for a specific NSE symbol over a custom date range.
-    Use when the user wants to import/refresh ONE specific symbol — e.g.
-    "import HNGSNGBEES 1 year", "import GOLDBEES last 6 months", "import RELIANCE 2 years".
-    For bulk category imports (all ETFs, all stocks), use run_data_engineering_importer instead.
-
-    Args:
-        symbol: NSE symbol to import (e.g. "HNGSNGBEES", "GOLDBEES", "RELIANCE", "NIFTY50").
-                Uppercased automatically. Covers ETFs, stocks, commodities, and indices.
-        days:   Calendar days of history back from today.
-                365=1 year · 730=2 years · 180=6 months · 90=3 months · 30=1 month
+    Core implementation to import price history for a specific symbol.
     """
     from datetime import date, timedelta
 
@@ -330,6 +320,23 @@ def import_symbol_data(symbol: str, days: int = 365) -> str:
 
 
 @tool
+def import_symbol_data(symbol: str, days: int = 365) -> str:
+    """
+    Import price history for a specific NSE symbol over a custom date range.
+    Use when the user wants to import/refresh ONE specific symbol — e.g.
+    "import HNGSNGBEES 1 year", "import GOLDBEES last 6 months", "import RELIANCE 2 years".
+    For bulk category imports (all ETFs, all stocks), use run_data_engineering_importer instead.
+
+    Args:
+        symbol: NSE symbol to import (e.g. "HNGSNGBEES", "GOLDBEES", "RELIANCE", "NIFTY50").
+                Uppercased automatically. Covers ETFs, stocks, commodities, and indices.
+        days:   Calendar days of history back from today.
+                365=1 year · 730=2 years · 180=6 months · 90=3 months · 30=1 month
+    """
+    return import_symbol_data_impl(symbol, days)
+
+
+@tool
 def run_risk_governor_analysis() -> str:
     """
     Compute GARCH-based position sizing and volatility targeting decision for GOLDBEES.
@@ -425,7 +432,7 @@ def query_clickhouse_db(sql_query: str) -> str:
                     import sys
                     sys.stdout.write(f"Symbol {sym} not found in DB. Executing auto-import...\n")
                     sys.stdout.flush()
-                    import_res = import_symbol_data(sym)
+                    import_res = import_symbol_data_impl(sym)
                     sys.stdout.write(f"Auto-import result: {import_res}\n")
                     sys.stdout.flush()
     except Exception as exc:
