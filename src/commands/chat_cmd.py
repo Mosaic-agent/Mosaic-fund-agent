@@ -1216,11 +1216,12 @@ def run_chat_loop(console: Console | None = None) -> None:
                     "main":         "main agent",
                 }.get(_intent, _intent)
 
+            _ctx_size = settings.code_llm_context_window or settings.llm_context_window if _intent == "code" else settings.llm_context_window
             console.print(Panel(
                 _plan_text,
                 title=(
                     f"[bold cyan]Plan[/bold cyan]  "
-                    f"[dim]{_model_tag} @ {_model_back}  →  {_agent_label}[/dim]"
+                    f"[dim]{_model_tag} @ {_model_back} ({_ctx_size} ctx)  →  {_agent_label}[/dim]"
                 ),
                 border_style="cyan",
                 padding=(0, 1),
