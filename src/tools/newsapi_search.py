@@ -63,9 +63,9 @@ def _newsapi_client() -> NewsApiClient | None:
 
 # ── Fetcher ───────────────────────────────────────────────────────────────────
 
-def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem]:
+def fetch_newsapi_articles(symbol: str, company_name: str = "", target_date: str = "") -> list[NewsItem]:
     """
-    Fetch recent articles for a stock symbol from NewsAPI.org.
+    Fetch recent articles for a stock symbol from NewsAPI.org, filtered by target date.
 
     Responses are cached for newsapi_cache_ttl_seconds (default 1 hour) to
     protect the free-tier 100 req/day quota from repeated runs.
@@ -73,20 +73,41 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
     Args:
         symbol:       NSE/BSE trading symbol e.g. 'RELIANCE', 'TCS'
         company_name: Optional full company name for richer query coverage.
+        target_date:  Optional target date in YYYY-MM-DD format (or "today"). 
+                      If omitted, defaults to today's date. Only articles published 
+                      on this date are returned.
 
     Returns:
         List of NewsItem models; empty list if key not set or request fails.
     """
+    import pytz
+    from datetime import datetime
+    from dateutil import parser as date_parser
+
+    # Resolve target_dt
+    if not target_date or target_date.lower() == "today":
+        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+        target_dt = datetime.now(tz).date()
+    else:
+        try:
+            target_dt = date_parser.parse(target_date).date()
+        except Exception as exc:
+            logger.warning("Failed to parse target_date '%s': %s. Defaulting to today.", target_date, exc)
+            tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+            target_dt = datetime.now(tz).date()
+
+    target_date_str = target_dt.strftime("%Y-%m-%d")
+
     # ── Cache check ──────────────────────────────────────────────────────────
-    _cache_key = f"newsapi_{symbol.upper()}_{settings.news_lookback_days}d"
+    _cache_key = f"newsapi_{symbol.upper()}_{target_date_str}"
     _ttl = settings.newsapi_cache_ttl_seconds
     if _ttl > 0:
         cached_raw = cache_get(_cache_key, ttl_seconds=_ttl)
         if cached_raw is not None:
             age = cache_age_seconds(_cache_key) or 0
             logger.info(
-                "NewsAPI: serving cached response for %s (age %.0fm%.0fs / TTL %dh)",
-                symbol, age // 60, age % 60, _ttl // 3600,
+                "NewsAPI: serving cached response for %s matching date %s (age %.0fm%.0fs / TTL %dh)",
+                symbol, target_date_str, age // 60, age % 60, _ttl // 3600,
             )
             # Re-hydrate dicts back to NewsItem models
             return [
@@ -105,10 +126,6 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
     if client is None:
         return []
 
-    from_date = (
-        datetime.utcnow() - timedelta(days=settings.news_lookback_days)
-    ).strftime("%Y-%m-%d")
-
     # Company name in quotes gives best relevance for Indian financials
     query = f'"{company_name}" OR "{symbol}"' if company_name else symbol
 
@@ -116,13 +133,14 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
         response = client.get_everything(
             q=query,
             domains=INDIAN_NEWS_DOMAINS,
-            from_param=from_date,
+            from_param=target_date_str,
+            to=target_date_str,
             language="en",
             sort_by="publishedAt",
             page_size=settings.news_articles_per_stock,
         )
     except Exception as exc:
-        logger.warning("NewsAPI request failed for %s: %s", symbol, exc)
+        logger.warning("NewsAPI request failed for %s on date %s: %s", symbol, target_date_str, exc)
         return []
 
     items: list[NewsItem] = []
@@ -141,10 +159,10 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
         )
 
     logger.info(
-        "NewsAPI: fetched %d articles for %s (lookback=%dd)",
+        "NewsAPI: fetched %d articles for %s matching date %s",
         len(items),
         symbol,
-        settings.news_lookback_days,
+        target_date_str,
     )
 
     # Persist to cache so next call within TTL window skips the HTTP request
@@ -171,7 +189,7 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "") -> list[NewsItem
 # ── LangChain Tool ────────────────────────────────────────────────────────────
 
 @tool
-def get_newsapi_stock_news(input_str: str) -> dict[str, Any]:
+def get_newsapi_stock_news(input_str: str, target_date: str = "") -> dict[str, Any]:
     """
     Fetch recent Indian financial news for a stock symbol via NewsAPI.org.
 
@@ -183,6 +201,12 @@ def get_newsapi_stock_news(input_str: str) -> dict[str, Any]:
       "RELIANCE"                  → searches for RELIANCE articles
       "TCS|Tata Consultancy"      → searches for Tata Consultancy OR TCS articles
 
+    Args:
+        input_str:   The stock symbol (e.g., "RELIANCE") or symbol and company name.
+        target_date: Optional. The target date in YYYY-MM-DD format (or "today"). 
+                     If omitted, defaults to today's date. Only articles published 
+                     on this date are returned.
+
     Returns articles with title, source, published_at, url, and per-article sentiment.
     Requires NEWSAPI_KEY in .env (free tier: 100 req/day).
     """
@@ -190,7 +214,7 @@ def get_newsapi_stock_news(input_str: str) -> dict[str, Any]:
     symbol = parts[0].strip().upper()
     company_name = parts[1].strip() if len(parts) > 1 else ""
 
-    items = fetch_newsapi_articles(symbol, company_name)
+    items = fetch_newsapi_articles(symbol, company_name, target_date)
 
     if not items:
         return {

@@ -63,7 +63,7 @@ already does both. STOP after Step 2.
 # ── Core Collation Tool ────────────────────────────────────────────────────────
 
 @tool
-def collate_news_sentiment(input_str: str) -> dict[str, Any]:
+def collate_news_sentiment(input_str: str, target_date: str = "") -> dict[str, Any]:
     """
     Fetch news from BOTH NewsAPI.org and Google News, deduplicate articles,
     and compute a comprehensive multi-source sentiment report.
@@ -74,6 +74,12 @@ def collate_news_sentiment(input_str: str) -> dict[str, Any]:
     Examples:
       "RELIANCE"                    → fetches and colates RELIANCE news
       "RELIANCE|Reliance Industries" → uses company name for richer queries
+
+    Args:
+        input_str:   The stock symbol (e.g., "RELIANCE") or symbol and company name.
+        target_date: Optional. The target date in YYYY-MM-DD format (or "today"). 
+                     If omitted, defaults to today's date. Only articles published 
+                     on this date are returned.
 
     Returns:
       symbol, total_articles, newsapi_count, gnews_count,
@@ -87,8 +93,8 @@ def collate_news_sentiment(input_str: str) -> dict[str, Any]:
     company_name = parts[1].strip() if len(parts) > 1 else ""
 
     # ── Fetch from both sources ───────────────────────────────────────────────
-    newsapi_items = fetch_newsapi_articles(symbol, company_name)
-    gnews_items = fetch_news_for_symbol(symbol, company_name)
+    newsapi_items = fetch_newsapi_articles(symbol, company_name, target_date)
+    gnews_items = fetch_news_for_symbol(symbol, company_name, target_date)
 
     # Convert to plain dicts and tag source
     def _to_dict(item: Any, source_tag: str) -> dict:

@@ -51,13 +51,13 @@ except Exception:
 
 # ── GNews Client ─────────────────────────────────────────────────────────────
 
-def _make_gnews_client() -> GNews:
-    """Create a GNews client configured for Indian English financial news."""
+def _make_gnews_client(lookback_days: int) -> GNews:
+    """Create a GNews client configured for Indian English financial news with a dynamic lookback."""
     return GNews(
         language="en",
         country="IN",
-        max_results=settings.news_articles_per_stock,
-        period=f"{settings.news_lookback_days}d",
+        max_results=min(settings.news_articles_per_stock * 3, 30),
+        period=f"{lookback_days}d",
     )
 
 
@@ -93,18 +93,43 @@ def _infer_sentiment(text: str) -> Sentiment:
     return Sentiment.NEUTRAL
 
 
-def fetch_news_for_symbol(symbol: str, company_name: str = "") -> list[NewsItem]:
+def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str = "") -> list[NewsItem]:
     """
-    Fetch recent news articles for a given NSE/BSE stock symbol via Google News.
+    Fetch news articles for a given NSE/BSE stock symbol via Google News, filtered by target date.
 
     Args:
         symbol:       Zerodha trading symbol e.g. 'RELIANCE', 'TCS'
         company_name: Optional full company name for better query results.
+        target_date:  Optional target date in YYYY-MM-DD format (or "today"). 
+                      If omitted, defaults to today's date. Only articles published 
+                      on this date are returned.
 
     Returns:
-        List of NewsItem models (up to news_articles_per_stock from config).
+        List of NewsItem models.
     """
-    client = _make_gnews_client()
+    import pytz
+    from datetime import datetime
+    from dateutil import parser as date_parser
+
+    # Resolve target_dt
+    if not target_date or target_date.lower() == "today":
+        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+        target_dt = datetime.now(tz).date()
+    else:
+        try:
+            target_dt = date_parser.parse(target_date).date()
+        except Exception as exc:
+            logger.warning("Failed to parse target_date '%s': %s. Defaulting to today.", target_date, exc)
+            tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+            target_dt = datetime.now(tz).date()
+
+    # Calculate dynamic lookback needed to cover the target date
+    tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+    today_dt = datetime.now(tz).date()
+    days_diff = (today_dt - target_dt).days
+    lookback_days = max(settings.news_lookback_days, days_diff + 1)
+
+    client = _make_gnews_client(lookback_days)
     query = f"{company_name} NSE stock" if company_name else f"{symbol} NSE stock"
 
     try:
@@ -120,29 +145,44 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "") -> list[NewsItem]
         except Exception:
             return []
 
-    items: list[NewsItem] = []
-    for article in articles[: settings.news_articles_per_stock]:
-        title = article.get("title") or ""
-        description = article.get("description") or ""
-        publisher = article.get("publisher", {})
-        source = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
+    filtered_items: list[NewsItem] = []
+    for article in articles:
+        pub_date_str = article.get("published date", "")
+        if not pub_date_str:
+            continue
+        try:
+            pub_date = date_parser.parse(pub_date_str)
+            if pub_date.tzinfo is not None:
+                pub_date = pub_date.astimezone(tz)
+            pub_dt = pub_date.date()
+        except Exception:
+            continue
 
-        items.append(
-            NewsItem(
-                title=title,
-                source=source,
-                published_at=str(article.get("published date", "")),
-                url=article.get("url") or "",
-                description=description,
-                sentiment=_infer_sentiment(f"{title} {description}"),
+        if pub_dt == target_dt:
+            title = article.get("title") or ""
+            description = article.get("description") or ""
+            publisher = article.get("publisher", {})
+            source = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
+
+            filtered_items.append(
+                NewsItem(
+                    title=title,
+                    source=source,
+                    published_at=str(article.get("published date", "")),
+                    url=article.get("url") or "",
+                    description=description,
+                    sentiment=_infer_sentiment(f"{title} {description}"),
+                )
             )
-        )
+
+    items = filtered_items[: settings.news_articles_per_stock]
 
     logger.info(
-        "Fetched %d news articles for %s (lookback=%dd)",
+        "Fetched %d news articles for %s matching date %s (lookback=%dd)",
         len(items),
         symbol,
-        settings.news_lookback_days,
+        target_dt,
+        lookback_days,
     )
     return items
 
@@ -150,7 +190,7 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "") -> list[NewsItem]
 # ── LangChain Tool ────────────────────────────────────────────────────────────
 
 @tool
-def get_stock_news(input_str: str) -> dict[str, Any]:
+def get_stock_news(input_str: str, target_date: str = "") -> dict[str, Any]:
     """
     Fetch the latest Indian financial news for a stock symbol using Google News.
 
@@ -158,6 +198,12 @@ def get_stock_news(input_str: str) -> dict[str, Any]:
     Examples:
       "RELIANCE"                   → searches for RELIANCE NSE stock news
       "TCS|Tata Consultancy"       → searches for Tata Consultancy NSE stock news
+
+    Args:
+        input_str:   The stock symbol (e.g., "RELIANCE") or symbol and company name.
+        target_date: Optional. The target date in YYYY-MM-DD format (or "today"). 
+                     If omitted, defaults to today's date. Only articles published 
+                     on this date are returned.
 
     Returns a list of news articles with title, source, date, URL,
     sentiment (POSITIVE/NEUTRAL/NEGATIVE), and overall sentiment summary.
@@ -168,7 +214,7 @@ def get_stock_news(input_str: str) -> dict[str, Any]:
     symbol = parts[0].strip().upper()
     company_name = parts[1].strip() if len(parts) > 1 else ""
 
-    news_items = fetch_news_for_symbol(symbol, company_name)
+    news_items = fetch_news_for_symbol(symbol, company_name, target_date)
 
     if not news_items:
         return {
@@ -210,7 +256,7 @@ def get_stock_news(input_str: str) -> dict[str, Any]:
 
 
 @tool
-def search_financial_news(query: str, max_results: int = 10) -> str:
+def search_financial_news(query: str, max_results: int = 10, target_date: str = "") -> str:
     """
     Free-text financial news search via Google News (GNews).
 
@@ -221,22 +267,70 @@ def search_financial_news(query: str, max_results: int = 10) -> str:
       - "RBI rate decision"
       - "budget 2026 India"
 
+    Args:
+        query:       The query string.
+        max_results: Max results to return (default 10).
+        target_date: Optional. The target date in YYYY-MM-DD format (or "today"). 
+                     If omitted, defaults to today's date. Only articles published 
+                     on this date are returned.
+
     Returns a Markdown table: Title | Source | Date | Sentiment
     """
+    import pytz
+    from datetime import datetime
+    from dateutil import parser as date_parser
+
+    # Resolve target_dt
+    if not target_date or target_date.lower() == "today":
+        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+        target_dt = datetime.now(tz).date()
+    else:
+        try:
+            target_dt = date_parser.parse(target_date).date()
+        except Exception as exc:
+            logger.warning("Failed to parse target_date '%s': %s. Defaulting to today.", target_date, exc)
+            tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+            target_dt = datetime.now(tz).date()
+
+    # Calculate dynamic lookback needed to cover the target date
+    tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+    today_dt = datetime.now(tz).date()
+    days_diff = (today_dt - target_dt).days
+    lookback_days = max(settings.news_lookback_days, days_diff + 1)
+
     try:
         from gnews import GNews
         client = GNews(
             language="en",
             country="IN",
-            max_results=min(max_results, 15),
-            period=f"{settings.news_lookback_days}d",
+            max_results=min(max_results * 3, 30),
+            period=f"{lookback_days}d",
         )
         articles = client.get_news(query)
         if not articles:
             return f"No news found for query: '{query}'"
 
-        lines = ["| Title | Source | Date | Sentiment |", "|---|---|---|---|"]
+        filtered_articles = []
         for a in articles:
+            pub_date_str = a.get("published date", "")
+            if not pub_date_str:
+                continue
+            try:
+                pub_date = date_parser.parse(pub_date_str)
+                if pub_date.tzinfo is not None:
+                    pub_date = pub_date.astimezone(tz)
+                pub_dt = pub_date.date()
+            except Exception:
+                continue
+
+            if pub_dt == target_dt:
+                filtered_articles.append(a)
+
+        if not filtered_articles:
+            return f"No news found for query: '{query}' on date: {target_dt}"
+
+        lines = ["| Title | Source | Date | Sentiment |", "|---|---|---|---|"]
+        for a in filtered_articles[:max_results]:
             title = (a.get("title") or "")[:90]
             pub   = a.get("publisher", {})
             src   = pub.get("title", "—") if isinstance(pub, dict) else str(pub)
