@@ -476,7 +476,7 @@ class _SubAgent:
                                 ai_text = ai_text.replace(match.group(0), f"{section}\n\n{chart_str}\n")
                                 continue
                             
-                            ai_text = f"{ai_text}\n\n### Price Chart\n{chart_str}"
+                            ai_text = f"{ai_text}\n\n### Price Chart\n\n{chart_str}"
                         elif "fii" in tool_name.lower() or "flow" in tool_name.lower():
                             import re
                             pattern = re.compile(
@@ -488,11 +488,11 @@ class _SubAgent:
                                 header = match.group(1).strip()
                                 ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
                             else:
-                                ai_text = f"{ai_text}\n\n### FII/DII Net Flows Chart\n{chart_str}"
+                                ai_text = f"{ai_text}\n\n### FII/DII Net Flows Chart\n\n{chart_str}"
                         else:
                             # Generic fallback for any other chart
                             title = tool_name.replace("plot_", "").replace("_", " ").title()
-                            ai_text = f"{ai_text}\n\n### {title}\n{chart_str}"
+                            ai_text = f"{ai_text}\n\n### {title}\n\n{chart_str}"
 
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
