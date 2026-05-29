@@ -555,6 +555,39 @@ def test_nse_inav_fetcher_importer_correction():
     print("  ✓ Importer fetcher glitch correction — ALL CHECKS PASSED")
 
 
+def test_auto_import_missing_symbol():
+    print("\n" + "="*60)
+    print("TEST 14: Auto Import Missing Symbol Check")
+    print("="*60)
+
+    from unittest.mock import patch, MagicMock
+    import pandas as pd
+    from src.tools.company_resolver import resolve_company_info
+
+    # 1. Mock case where symbol EXISTS in DB (cnt > 0)
+    mock_df_exists = pd.DataFrame([{"cnt": 100}])
+    # 2. Mock case where symbol DOES NOT EXIST in DB (cnt == 0)
+    mock_df_missing = pd.DataFrame([{"cnt": 0}])
+
+    with patch("src.db.pool.query_df", return_value=mock_df_exists) as mock_query, \
+         patch("src.tools.skills_tools.import_symbol_data") as mock_import:
+        # Resolve a known company, e.g. "RELIANCE"
+        resolve_company_info("RELIANCE", auto_import=True)
+        # Should NOT trigger import because cnt is 100
+        mock_import.assert_not_called()
+        print("  ✓ When symbol exists in DB, auto-import is NOT triggered")
+
+    with patch("src.db.pool.query_df", return_value=mock_df_missing) as mock_query, \
+         patch("src.tools.skills_tools.import_symbol_data") as mock_import:
+        # Resolve a company, e.g. "RELIANCE"
+        resolve_company_info("RELIANCE", auto_import=True)
+        # Should trigger import because cnt is 0
+        mock_import.assert_called_once_with("RELIANCE")
+        print("  ✓ When symbol is missing from DB, auto-import is triggered")
+
+    print("  ✓ Auto-import missing symbols — ALL CHECKS PASSED")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -570,6 +603,7 @@ if __name__ == "__main__":
         test_comex_signals,
         test_silvercase_glitch_correction,
         test_nse_inav_fetcher_importer_correction,
+        test_auto_import_missing_symbol,
     ]
     passed = 0
     failed = 0
