@@ -830,6 +830,22 @@ def _print_answer(console: "Console", answer: Any) -> None:
     if len(chart_lines) >= 5:
         # Find the contiguous chart block
         first, last = chart_lines[0], chart_lines[-1]
+        
+        # Extend the last line to include trailing tick labels or x-labels (up to 3 lines)
+        import re
+        while last + 1 < len(lines):
+            next_line = lines[last + 1].strip()
+            # If the next line is not empty and contains typical chart labels, dates, or symbols
+            if next_line and (
+                any(c in next_line for c in ("/", "→", "₹", "Cr", "$")) or
+                re.search(r'^\d+(\s+\d+)*$', next_line) or
+                re.search(r'^\d{2}/\d{2}', next_line) or
+                re.search(r'^[0-9\s\-\:\.\/]+$', next_line)
+            ):
+                last += 1
+            else:
+                break
+                
         text_before = "\n".join(lines[:first]).strip()
         chart_block  = "\n".join(lines[first:last + 1])
         text_after   = "\n".join(lines[last + 1:]).strip()
