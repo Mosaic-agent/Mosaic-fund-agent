@@ -378,6 +378,7 @@ Chart tools available (use when the query involves price, trend, pattern, compar
   plot_intl_etf_premium(symbol, days)        — line chart: scarcity premium/discount trend for one intl ETF (intl_etf agent)
 
 IMPORTANT: Always include chart tools as explicit numbered plan steps when visualisation adds value.
+If a chart is requested but no specific chart tool exists in the list above, route to the `code` or `research` agent and plan to write Python code to build/plot the chart using `plotext` at run time.
 Example: "5. Plot 90-day price trend → plot_price_chart('GOLDBEES', 90)"
 
 User query: \"{query}\"\
@@ -1215,11 +1216,12 @@ def run_chat_loop(console: Console | None = None) -> None:
                     "main":         "main agent",
                 }.get(_intent, _intent)
 
+            _ctx_size = settings.code_llm_context_window or settings.llm_context_window if _intent == "code" else settings.llm_context_window
             console.print(Panel(
                 _plan_text,
                 title=(
                     f"[bold cyan]Plan[/bold cyan]  "
-                    f"[dim]{_model_tag} @ {_model_back}  →  {_agent_label}[/dim]"
+                    f"[dim]{_model_tag} @ {_model_back} ({_ctx_size} ctx)  →  {_agent_label}[/dim]"
                 ),
                 border_style="cyan",
                 padding=(0, 1),
