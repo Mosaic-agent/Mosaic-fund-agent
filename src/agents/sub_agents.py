@@ -55,7 +55,7 @@ _SIGNAL_RE = re.compile(
     re.I,
 )
 _MACRO_RE = re.compile(
-    r"\bcomex|macro theme|macro scan|fii flow|dii flow|institutional flow"
+    r"\bcomex|macro theme|macro scan|\bfii\b|\bdii\b|fii flow|dii flow|institutional flow"
     r"|gold price|silver price|copper price|crude oil|fed rate|rbi rate"
     r"|usd.?inr|cot report|geopolit|war risk|tariff|trade war"
     # Geopolitical countries / blocs whose events move Indian markets
@@ -199,6 +199,8 @@ def route_intent(question: str) -> str:
     if any(k in question.lower() for k in ("plot", "chart", "visualise", "visualize")):
         if _INTL_ETF_RE.search(question):
             return "intl_etf"
+        if _MACRO_RE.search(question):
+            return "macro"
         return "signal"
     if _SIGNAL_RE.search(question):
         return "signal"
@@ -431,32 +433,39 @@ class _SubAgent:
                 if last_ai and not _recursion_hit:
                     ai_text = _get_message_text(last_ai.content)
 
-                    # Find any plot_price_chart tool output in the message logs
-                    chart_str = None
+                    # Find all chart tool outputs in the message logs
+                    charts = []
                     for m in msgs:
                         if isinstance(m, ToolMessage):
                             content_str = str(m.content)
-                            if "┤" in content_str and "price" in content_str.lower():
-                                chart_str = m.content
-                                break
+                            is_chart = (
+                                (m.name and m.name.startswith("plot_")) or
+                                ("┤" in content_str)
+                            )
+                            if is_chart:
+                                chart_val = m.content
+                                # Clean up chart_str if it's wrapped in list/dict
+                                if isinstance(chart_val, dict):
+                                    chart_val = chart_val.get("chart", "") or chart_val.get("result", "") or str(chart_val)
+                                charts.append((m.name or "plot_chart", str(chart_val)))
 
-                    if chart_str and "┤" not in ai_text:
-                        # Clean up chart_str if it's wrapped in list/dict
-                        if isinstance(chart_str, dict):
-                            chart_str = chart_str.get("chart", "")
+                    for tool_name, chart_str in charts:
+                        # Skip if this chart is already present in the text
+                        if "┤" in ai_text and chart_str[:50] in ai_text:
+                            continue
 
-                        import re
-                        # Replace empty space/content under "Price Chart" header if it exists
-                        pattern = re.compile(
-                            r"(#+\s*(?:1-Year\s+)?Price\s+Chart.*?)(?=\n\s*\n|\n\s*#|\Z)",
-                            re.IGNORECASE | re.DOTALL
-                        )
-                        match = pattern.search(ai_text)
-                        if match:
-                            header = match.group(1).strip()
-                            ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
-                        else:
-                            # Otherwise fallback: place it under Company Snapshot
+                        if "price" in tool_name.lower():
+                            import re
+                            pattern = re.compile(
+                                r"(#+\s*(?:1-Year\s+)?Price\s+Chart.*?)(?=\n\s*\n|\n\s*#|\Z)",
+                                re.IGNORECASE | re.DOTALL
+                            )
+                            match = pattern.search(ai_text)
+                            if match:
+                                header = match.group(1).strip()
+                                ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
+                                continue
+                            
                             snapshot_pattern = re.compile(
                                 r"(#+\s*(?:1\.\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)",
                                 re.IGNORECASE | re.DOTALL
@@ -465,8 +474,25 @@ class _SubAgent:
                             if match:
                                 section = match.group(1).strip()
                                 ai_text = ai_text.replace(match.group(0), f"{section}\n\n{chart_str}\n")
+                                continue
+                            
+                            ai_text = f"{ai_text}\n\n### Price Chart\n{chart_str}"
+                        elif "fii" in tool_name.lower() or "flow" in tool_name.lower():
+                            import re
+                            pattern = re.compile(
+                                r"(#+\s*FII/DII\s+(?:Net\s+)?Flow.*?)(?=\n\s*\n|\n\s*#|\Z)",
+                                re.IGNORECASE | re.DOTALL
+                            )
+                            match = pattern.search(ai_text)
+                            if match:
+                                header = match.group(1).strip()
+                                ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
                             else:
-                                ai_text = f"{ai_text}\n\n### 1-Year Price Chart\n{chart_str}"
+                                ai_text = f"{ai_text}\n\n### FII/DII Net Flows Chart\n{chart_str}"
+                        else:
+                            # Generic fallback for any other chart
+                            title = tool_name.replace("plot_", "").replace("_", " ").title()
+                            ai_text = f"{ai_text}\n\n### {title}\n{chart_str}"
 
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
@@ -945,6 +971,11 @@ class MacroSubAgent(_SubAgent):
         "'Iran oil sanctions Indian market impact' to fetch live news articles. "
         "Then call `run_macro_scanner` to get the ETF impact scores. "
         "Present both: news table first, then ETF impact scores.\n\n"
+        "## Charts\n"
+        "If the user asks for a chart, visualisation, or trend:\n"
+        "- FII/DII flow trend → `plot_fii_dii_chart(days)`\n"
+        "- Gold/silver/commodity price trend → `plot_price_chart(symbol, days)`\n"
+        "Always call the appropriate chart tool to render the visual when requested.\n\n"
         "CRITICAL: Only cite prices and flows from live tool output — never from "
         "training-time knowledge. Gold, FII, USDINR change daily."
     )
@@ -956,12 +987,15 @@ class MacroSubAgent(_SubAgent):
             query_clickhouse_db,
         )
         from src.tools.news_search import search_financial_news, get_db_news
+        from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
         return [
             run_macro_scanner,
             run_comex_analysis,
             query_clickhouse_db,
             search_financial_news,
             get_db_news,
+            plot_fii_dii_chart,
+            plot_price_chart,
         ]
 
 
@@ -1246,6 +1280,9 @@ class CodeSubAgent(_SubAgent):
         "- New fetcher adapters go in src/importer/fetchers/adapters.py — subclass Fetcher ABC.\n"
         "- New standalone scripts go in src/scripts/<domain>/.\n"
         "- Never modify src/agents/mosaic_fund_agent.py or src/importer/clickhouse.py directly.\n\n"
+        "## Charts and Visualisation\n"
+        "- Use predefined chart functions (like `plot_price_chart`, `plot_fii_dii_chart`, etc.) when available.\n"
+        "- If a specific chart function does not exist or does not cover the required data, write Python code at run time to fetch the data from ClickHouse and build the chart using `plotext` (or fallback) and execute it using `execute_python_snippet` to output the chart trend.\n\n"
         "## Output rules\n"
         "- Never compute numbers in your text — always execute code and report printed output.\n"
         "- Format all data as Markdown tables.\n"
@@ -1363,7 +1400,8 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - Find instruments co-moving with the target: SQL JOIN + pandas correlation
    - `get_intl_etf_correlation` for intl ETF / USDINR sensitivity
 9. **Visualise** — pair each data layer with a chart where it adds clarity:
-   `plot_multi_price_chart`, `plot_fund_holdings_chart`, `plot_garch_volatility_chart`
+   - Use predefined chart functions: `plot_multi_price_chart`, `plot_fund_holdings_chart`, `plot_garch_volatility_chart`, `plot_price_chart`, `plot_fii_dii_chart`, etc.
+   - If a specific chart function does not exist or does not cover the required data, write Python code at run time to fetch the data from ClickHouse and build the chart using `plotext` (or fallback) and execute it using `execute_python_snippet` to output the chart trend.
 10. **Synthesise** — write a structured Markdown research report
 
 ## ClickHouse rules (critical)
