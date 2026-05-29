@@ -169,6 +169,31 @@ def plot_fii_dii_chart(days: int = 30) -> str:
         plt.bar(list(range(len(fii))), fii, label=f"FII net  (Σ {fii_tot:+,.0f} Cr)")
         plt.bar(list(range(len(dii))), dii, label=f"DII net  (Σ {dii_tot:+,.0f} Cr)")
         plt.title(f"FII / DII Net Flows — last {days} days")
+        
+        # Format ticks to show short dates (DD/MM) rather than indices (0..18)
+        from datetime import datetime
+        step = max(1, len(fii) // 5)  # target showing ~5-6 ticks to prevent overlap
+        tick_indices = []
+        tick_labels = []
+        for idx in range(0, len(fii), step):
+            tick_indices.append(idx)
+            try:
+                dt = datetime.strptime(labels[idx], "%Y-%m-%d")
+                tick_labels.append(dt.strftime("%d/%m"))
+            except Exception:
+                tick_labels.append(labels[idx])
+        
+        # Ensure the last date is included
+        if (len(fii) - 1) not in tick_indices:
+            tick_indices.append(len(fii) - 1)
+            try:
+                dt = datetime.strptime(labels[-1], "%Y-%m-%d")
+                tick_labels.append(dt.strftime("%d/%m"))
+            except Exception:
+                tick_labels.append(labels[-1])
+                
+        plt.xticks(tick_indices, tick_labels)
+        
         plt.xlabel(f"{labels[0]} → {labels[-1]}")
         plt.ylabel("₹ Crore")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
