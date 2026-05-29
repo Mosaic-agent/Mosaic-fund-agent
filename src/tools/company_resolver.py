@@ -439,8 +439,8 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
                     import sys
                     sys.stdout.write(f"Symbol {sym} not found in DB. Executing auto-import...\n")
                     sys.stdout.flush()
-                    from src.tools.skills_tools import import_symbol_data
-                    import_res = import_symbol_data(sym)
+                    from src.tools.skills_tools import import_symbol_data_impl
+                    import_res = import_symbol_data_impl(sym)
                     sys.stdout.write(f"Auto-import result: {import_res}\n")
                     sys.stdout.flush()
             except Exception as e:
