@@ -696,14 +696,24 @@ class MosaicFundAgent:
                 state = self._agent.get_state(config)
                 messages = state.values.get("messages", [])
                 if messages:
-                    last_msg = messages[-1]
-                    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
-                        logger.warning("chat: found incomplete tool calls at the end of history. Cleaning up...")
-                        from langchain_core.messages import RemoveMessage
-                        self._agent.update_state(
-                            config,
-                            {"messages": [RemoveMessage(id=last_msg.id)]}
-                        )
+                    from langchain_core.messages import RemoveMessage
+                    removes = []
+                    for i, msg in enumerate(messages):
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            expected_ids = {tc["id"] for tc in msg.tool_calls}
+                            found_ids = set()
+                            j = i + 1
+                            while j < len(messages) and messages[j].__class__.__name__ == "ToolMessage":
+                                found_ids.add(messages[j].tool_call_id)
+                                j += 1
+                            if not expected_ids.issubset(found_ids):
+                                logger.warning("chat: found orphaned tool calls in message %s. Cleaning up...", msg.id)
+                                removes.append(RemoveMessage(id=msg.id))
+                                # Also remove any partial/orphaned ToolMessages in that block
+                                for k in range(i + 1, j):
+                                    removes.append(RemoveMessage(id=messages[k].id))
+                    if removes:
+                        self._agent.update_state(config, {"messages": removes})
             except Exception as clean_exc:
                 logger.warning("chat: failed to clean up incomplete state: %s", clean_exc)
 
