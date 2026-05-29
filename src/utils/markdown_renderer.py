@@ -77,38 +77,31 @@ def render_markdown_to_group(text: str) -> Group:
     Parse markdown text and return a Group of renderables where tables
     are beautifully formatted tables and the rest is standard markdown.
     """
-    lines = text.split("\n")
+    # Split by blank lines to get paragraphs/blocks
+    blocks = re.split(r'\n\s*\n', text)
     renderables: list[Any] = []
-    current_block: list[str] = []
-    in_table = False
 
-    def flush_block():
-        nonlocal current_block, in_table
-        if not current_block:
-            return
-        block_text = "\n".join(current_block)
-        if in_table:
-            table = parse_markdown_table(block_text)
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+
+        # 1. Check if it's a table
+        if block.startswith("|"):
+            table = parse_markdown_table(block)
             if table:
                 renderables.append(table)
-            else:
-                renderables.append(Markdown(block_text))
-        else:
-            renderables.append(Markdown(block_text))
-        current_block = []
+                continue
 
-    for line in lines:
-        is_table_line = line.strip().startswith("|")
-        if is_table_line:
-            if not in_table:
-                flush_block()
-                in_table = True
-            current_block.append(line)
-        else:
-            if in_table:
-                flush_block()
-                in_table = False
-            current_block.append(line)
+        # 2. Check if it's a chart (contains chart tick or frame characters)
+        if "┤" in block or ("┌" in block and "└" in block):
+            from rich.text import Text as RichText
+            chart_text = RichText.from_ansi(block)
+            chart_text.no_wrap = True
+            renderables.append(chart_text)
+            continue
 
-    flush_block()
+        # 3. Default to Markdown
+        renderables.append(Markdown(block))
+
     return Group(*renderables)
