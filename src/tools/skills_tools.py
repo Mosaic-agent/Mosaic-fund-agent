@@ -252,7 +252,7 @@ def import_symbol_data(symbol: str, days: int = 365) -> str:
         sys.stdout.flush()
         try:
             from src.tools.company_resolver import resolve_company_info
-            info = resolve_company_info(sym)
+            info = resolve_company_info(sym, auto_import=False)
             yf_sym = info.get("yf_symbol", "")
             market = info.get("market", "")
             source = info.get("source", "")
@@ -402,6 +402,33 @@ def query_clickhouse_db(sql_query: str) -> str:
         from src.tools.db_tools import _auto_fix_sql
         clean_query, _changes = _auto_fix_sql(clean_query)
     except Exception:
+        pass
+
+    # Auto-import missing symbols if found in the SQL query
+    try:
+        import re
+        symbols_found = set()
+        # Pattern 1: symbol = 'XYZ'
+        for m in re.finditer(r"\bsymbol\s*=\s*['\"]([a-zA-Z0-9&_\.-]+)['\"]", clean_query, re.I):
+            symbols_found.add(m.group(1).upper())
+        # Pattern 2: symbol IN ('XYZ', 'ABC')
+        for m in re.finditer(r"\bsymbol\s+in\s*\(([^)]+)\)", clean_query, re.I):
+            list_content = m.group(1)
+            for item in re.finditer(r"['\"]([a-zA-Z0-9&_\.-]+)['\"]", list_content):
+                symbols_found.add(item.group(1).upper())
+
+        if symbols_found:
+            from src.db.pool import query_df as _internal_qdf
+            for sym in sorted(symbols_found):
+                check_df = _internal_qdf(f"SELECT count() as cnt FROM market_data.daily_prices FINAL WHERE symbol = '{sym}'")
+                if not check_df.empty and check_df.iloc[0]['cnt'] == 0:
+                    import sys
+                    sys.stdout.write(f"Symbol {sym} not found in DB. Executing auto-import...\n")
+                    sys.stdout.flush()
+                    import_res = import_symbol_data(sym)
+                    sys.stdout.write(f"Auto-import result: {import_res}\n")
+                    sys.stdout.flush()
+    except Exception as exc:
         pass
 
     try:

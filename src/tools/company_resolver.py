@@ -418,12 +418,39 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     return None
 
 
-def resolve_company_info(query: str) -> dict:
+def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     """
     Core resolver — not a LangChain tool, call from Python directly.
 
     Resolves ``query`` (company name, partial name, or ticker) to a
     canonical trading symbol with market classification.
+    """
+    info = _resolve_company_info_impl(query)
+    # Check and auto-import if requested and resolved successfully to an Indian symbol
+    if auto_import and info and not info.get("error"):
+        sym = info.get("symbol")
+        market = info.get("market")
+        if sym and market == "India":
+            try:
+                from src.db.pool import query_df
+                # Check if symbol exists in ClickHouse daily_prices table
+                res = query_df(f"SELECT count() as cnt FROM market_data.daily_prices FINAL WHERE symbol = '{sym}'")
+                if not res.empty and res.iloc[0]['cnt'] == 0:
+                    import sys
+                    sys.stdout.write(f"Symbol {sym} not found in DB. Executing auto-import...\n")
+                    sys.stdout.flush()
+                    from src.tools.skills_tools import import_symbol_data
+                    import_res = import_symbol_data(sym)
+                    sys.stdout.write(f"Auto-import result: {import_res}\n")
+                    sys.stdout.flush()
+            except Exception as e:
+                log.warning("Auto-import check failed for %s: %s", sym, e)
+    return info
+
+
+def _resolve_company_info_impl(query: str) -> dict:
+    """
+    Core resolver implementation.
     """
     # ── 1. Fast local lookup (no network) ─────────────────────────────────
     local_sym = _local_indian_lookup(query)
