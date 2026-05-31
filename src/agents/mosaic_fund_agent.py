@@ -39,6 +39,7 @@ from src.tools.yahoo_finance import YAHOO_TOOLS
 from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
 from src.tools.skills_tools import SKILLS_TOOLS
 from src.tools.newsapi_search import get_newsapi_stock_news
+from src.tools.chart_tools import CHART_TOOLS
 from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.panel import Panel
@@ -47,7 +48,7 @@ from rich.markdown import Markdown
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS
+ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS
 
 
 class RichConsoleCallbackHandler(BaseCallbackHandler):
@@ -117,6 +118,7 @@ AGENT_SYSTEM_PROMPT = (
     "  • Screener.in / Quarterly Results: Use `get_quarterly_results` to fetch quarterly revenue (in $ Millions for US stocks), net profit, EPS, and YoY growth percentages. Supports US listed stocks by passing 'US' as the exchange (e.g. `ADSK:US` or `AAPL:US`), which falls back to Yahoo Finance.\n"
     "  • News API / Google News: Use `get_stock_news` (Google News RSS) and `get_newsapi_stock_news` (NewsAPI.org) to fetch recent financial news and infer sentiment.\n"
     "  • US Company Deep-Dive / SEC Filings: Use `run_deepdive_analysis` to fetch SEC filings (10-K, 10-Q, etc.) and generate a multi-section research report for US stocks (like ADSK, AAPL). These reports are automatically persisted to ClickHouse and will be used to enhance your insights during `analyze` if they exist. You can also use the `query_clickhouse_db` tool to read raw data from `deepdive_*` tables or the `view_file` tool to read the final report.md file.\n"
+    "  • Visualisation / Charts: Use the appropriate `plot_*` tools (like `plot_price_chart`, `plot_fii_dii_chart`, `plot_nav_chart`, etc.) whenever the user asks for a chart, trend, plot, or visual representation of price, NAV, flows, or signals. Always prefer calling these tools to render visual plots in your responses.\n"
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "
     "Always reason step by step and use the available tools to gather data before answering. "
     "CRITICAL RULES:\n"
