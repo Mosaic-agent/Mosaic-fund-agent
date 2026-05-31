@@ -271,6 +271,7 @@ See [docs/import-schema.md](docs/import-schema.md) for all categories, the full 
 
 | Doc | What's in it |
 |---|---|
+| [docs/user_guide.md](docs/user_guide.md) | **Getting Started User Guide** — tutorials, CLI commands, database explorers, offline setups |
 | [docs/architecture.md](docs/architecture.md) | Full system architecture — data flow, agents, tools, ML, ClickHouse schema, design patterns |
 | [docs/import-schema.md](docs/import-schema.md) | All import categories, ClickHouse tables, cron schedule |
 | [docs/data-sources.md](docs/data-sources.md) | APIs and data sources used |
