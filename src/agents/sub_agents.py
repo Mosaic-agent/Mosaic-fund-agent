@@ -961,6 +961,7 @@ class MacroSubAgent(_SubAgent):
         "Use `run_macro_scanner` to scan live macro/geopolitical events and map "
         "their directional impact to ETFs. "
         "Use `run_comex_analysis` for COMEX gold/silver/copper pre-market price signals. "
+        "Use `run_whale_tracker` to track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear, Energy, Infra) across multi-asset funds. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL` and "
         "`market_data.cot_gold FINAL` for institutional positioning data. "
         "Score interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
@@ -975,6 +976,7 @@ class MacroSubAgent(_SubAgent):
         "If the user asks for a chart, visualisation, or trend:\n"
         "- FII/DII flow trend → `plot_fii_dii_chart(days)`\n"
         "- Gold/silver/commodity price trend → `plot_price_chart(symbol, days)`\n"
+        "- Multi-asset fund holdings, allocations, or institutional shifts → `run_whale_tracker` (automatically appends ASCII trend charts)\n"
         "Always call the appropriate chart tool to render the visual when requested.\n\n"
         "CRITICAL: Only cite prices and flows from live tool output — never from "
         "training-time knowledge. Gold, FII, USDINR change daily."
@@ -985,6 +987,7 @@ class MacroSubAgent(_SubAgent):
             run_macro_scanner,
             run_comex_analysis,
             query_clickhouse_db,
+            run_whale_tracker,
         )
         from src.tools.news_search import search_financial_news, get_db_news
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
@@ -992,6 +995,7 @@ class MacroSubAgent(_SubAgent):
             run_macro_scanner,
             run_comex_analysis,
             query_clickhouse_db,
+            run_whale_tracker,
             search_financial_news,
             get_db_news,
             plot_fii_dii_chart,
