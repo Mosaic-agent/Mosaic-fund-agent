@@ -597,8 +597,8 @@ class MosaicFundAgent:
             return str(content) if content else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
-            if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:
-                logger.warning("Model does not support tools. Falling back to direct LLM Q&A.")
+            if any(term in err_msg for term in ["does not support tool", "tool binding", "not support tool"]):
+                logger.warning("Model does not support tools. Falling back to direct LLM Q&A. Error: %s", exc)
                 try:
                     llm = self._pick_llm(question)
                     res = llm.invoke([
@@ -609,7 +609,7 @@ class MosaicFundAgent:
                 except Exception as fallback_exc:
                     logger.error("Fallback LLM query failed: %s", fallback_exc)
                     return f"Error: {fallback_exc}"
-            logger.error("Agent query failed: %s", exc)
+            logger.error("Agent query failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
     def chat(self, question: str, thread_id: str = "default", forced_intent: str | None = None) -> str:
@@ -690,6 +690,33 @@ class MosaicFundAgent:
         if os.getenv("VERBOSE") == "1":
             config["callbacks"] = [RichConsoleCallbackHandler()]
 
+        # Clean up incomplete tool calls in history if any
+        if self._checkpointer is not None:
+            try:
+                state = self._agent.get_state(config)
+                messages = state.values.get("messages", [])
+                if messages:
+                    from langchain_core.messages import RemoveMessage
+                    removes = []
+                    for i, msg in enumerate(messages):
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            expected_ids = {tc["id"] for tc in msg.tool_calls}
+                            found_ids = set()
+                            j = i + 1
+                            while j < len(messages) and messages[j].__class__.__name__ == "ToolMessage":
+                                found_ids.add(messages[j].tool_call_id)
+                                j += 1
+                            if not expected_ids.issubset(found_ids):
+                                logger.warning("chat: found orphaned tool calls in message %s. Cleaning up...", msg.id)
+                                removes.append(RemoveMessage(id=msg.id))
+                                # Also remove any partial/orphaned ToolMessages in that block
+                                for k in range(i + 1, j):
+                                    removes.append(RemoveMessage(id=messages[k].id))
+                    if removes:
+                        self._agent.update_state(config, {"messages": removes})
+            except Exception as clean_exc:
+                logger.warning("chat: failed to clean up incomplete state: %s", clean_exc)
+
         try:
             result = self._agent.invoke(
                 {"messages": [HumanMessage(content=question)]},
@@ -699,8 +726,8 @@ class MosaicFundAgent:
             return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
-            if "tool" in err_msg or "400" in err_msg or "invalid_request" in err_msg:
-                logger.warning("chat: model doesn't support tools, falling back to direct LLM")
+            if any(term in err_msg for term in ["does not support tool", "tool binding", "not support tool"]):
+                logger.warning("chat: model doesn't support tools, falling back to direct LLM. Error: %s", exc)
                 try:
                     from langchain_core.messages import SystemMessage
                     llm = self._pick_llm(question)
@@ -711,7 +738,7 @@ class MosaicFundAgent:
                     return str(res.content)
                 except Exception as fb_exc:
                     return f"Error: {fb_exc}"
-            logger.error("chat() failed: %s", exc)
+            logger.error("chat() failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
     # ── Private Helpers ───────────────────────────────────────────────────────
