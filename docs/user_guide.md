@@ -98,6 +98,18 @@ python src/main.py comex
 ```
 *   **Assets covered:** Gold (XAU), Silver (XAG), Copper (HG), Platinum (XPT), and Palladium (XPD) vs. previous sessions.
 
+### D. GOLDBEES ML Model Drift Monitor
+Evaluates the accuracy of the predictive models by comparing historical predictions with actual matured realized returns, updating the database table, and triggering alerts/retraining if stats drop:
+```bash
+# Run the drift monitor:
+python src/main.py drift-monitor --lookback 90
+
+# Or using the Docker wrapper:
+./mosaic.sh drift-monitor
+```
+*   **Metrics evaluated:** Rolling Hit Ratio (direction accuracy), Area Under ROC Curve (AUC), and Mean Absolute Error (MAE).
+*   **Automatic Retraining:** If hit ratio falls below 50% or AUC drops below 0.50, the monitor clears cache files and triggers model retraining automatically with 7 walk-forward CV splits.
+
 ---
 
 ## 4. Multi-Market Equity Research
