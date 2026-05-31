@@ -109,6 +109,17 @@ python src/main.py drift-monitor --lookback 90
 ```
 *   **Metrics evaluated:** Rolling Hit Ratio (direction accuracy), Area Under ROC Curve (AUC), and Mean Absolute Error (MAE).
 *   **Automatic Retraining:** If hit ratio falls below 50% or AUC drops below 0.50, the monitor clears cache files and triggers model retraining automatically with 7 walk-forward CV splits.
+### E. Institutional Whale Tracker & Conviction Index
+Monitors institutional ("Whale") allocation shifts in multi-asset mutual funds (DSP, Nippon India, ICICI, Bajaj, Quant) to reverse-engineer conviction levels and net flows in commodities (Gold/Silver), energy, and electrification:
+```bash
+# Run the whale tracker:
+python src/scripts/market/whale_tracker.py
+
+# Or using the Docker wrapper:
+./mosaic.sh src/scripts/market/whale_tracker.py
+```
+*   **Whale Funds Monitored:** Tracks 7 core multi-asset funds including Nippon Multi Asset, DSP Multi Asset, Quant Multi Asset, Bajaj Multi Asset, and ICICI Multi Asset.
+*   **Composite Conviction Index:** Aggregates theme-level flows and single-stock cross-ownership. Highlights high-conviction equities held by $\ge 2$ funds and classifies them (`CORE CONVICTION`, `TACTICAL ADD`, `TRIMMING`, `HOLDING`).
 
 ---
 

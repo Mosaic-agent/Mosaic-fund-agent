@@ -92,6 +92,11 @@ def run_whale_tracker():
         border_style="cyan"
     ))
 
+    # Composite aggregations for the Institutional Conviction Index
+    composite_latest = {}
+    composite_prev = {}
+    fund_ownership = {}
+
     for fund in WHALE_FUNDS:
         fund_name = fund['name']
         query_filter = fund['query_filter']
@@ -106,6 +111,16 @@ def run_whale_tracker():
         latest_m, prev_m = months[0], months[1]
         latest_h = get_fund_holdings(client, query_filter, latest_m)
         prev_h = get_fund_holdings(client, query_filter, prev_m)
+
+        # Accumulate for Composite Index
+        for sec, val in latest_h.items():
+            composite_latest[sec] = composite_latest.get(sec, 0.0) + val
+            if sec not in fund_ownership:
+                fund_ownership[sec] = []
+            fund_ownership[sec].append(fund_name)
+
+        for sec, val in prev_h.items():
+            composite_prev[sec] = composite_prev.get(sec, 0.0) + val
 
         table = Table(title=f"{fund_name} (Changes: {prev_m} → {latest_m})", show_header=True)
         table.add_column("Theme", style="dim")
@@ -153,6 +168,127 @@ def run_whale_tracker():
             console.print(table)
         else:
             console.print(f"[dim]  - No significant changes in tracked themes for {fund_name}.[/dim]")
+
+    # ── 2. Composite Institutional Conviction Index ──────────────────────────────
+    console.print("\n" + "=" * 80)
+    console.print(Panel(
+        "[bold green]🐳 COMPOSITE INSTITUTIONAL CONVICTION INDEX (ALL FUNDS)[/bold green]\n"
+        "[dim]Aggregated multi-asset flows and cross-ownership conviction signals[/dim]",
+        border_style="green"
+    ))
+
+    # 2a. Theme Aggregations
+    theme_latest = {}
+    theme_prev = {}
+
+    for label, kws in THEME_KEYWORDS.items():
+        theme_latest[label] = 0.0
+        theme_prev[label] = 0.0
+        
+        # Calculate sum across all matching securities in composite sets
+        for sec in composite_latest:
+            if any(kw.lower() in sec.lower() for kw in kws):
+                theme_latest[label] += composite_latest[sec]
+        for sec in composite_prev:
+            if any(kw.lower() in sec.lower() for kw in kws):
+                theme_prev[label] += composite_prev[sec]
+
+    theme_table = Table(title="Unified Macro Theme Allocations", show_header=True)
+    theme_table.add_column("Macro Theme", style="bold cyan")
+    theme_table.add_column("Combined Prev Weight", justify="right")
+    theme_table.add_column("Combined Latest Weight", justify="right")
+    theme_table.add_column("Net Flow Change", justify="right")
+
+    for theme, curr_val in theme_latest.items():
+        prev_val = theme_prev[theme]
+        diff = curr_val - prev_val
+        diff_str = f"{diff:+.2f}%"
+        
+        if diff > 0.5: style = "bold green"
+        elif diff < -0.5: style = "bold red"
+        elif diff > 0: style = "green"
+        elif diff < 0: style = "red"
+        else: style = "dim"
+
+        theme_table.add_row(
+            theme,
+            f"{prev_val:.2f}%",
+            f"{curr_val:.2f}%",
+            f"[{style}]{diff_str}[/{style}]"
+        )
+    console.print(theme_table)
+
+    # 2b. High Conviction Single-Name Equities (Cross-ownership >= 2 funds)
+    # Exclude Gold/Silver ETFs, cash, or derivatives to focus on direct equities
+    exclude_kws = THEME_KEYWORDS['🥈 Silver'] + THEME_KEYWORDS['🥇 Gold'] + ['cash', 'liquid', 'treasury', 'arbitrage', 'mutual fund', 'yield', 'margin', 'repo']
+    
+    equity_conviction = []
+    for sec, funds in fund_ownership.items():
+        # Check exclusion
+        if any(kw.lower() in sec.lower() for kw in exclude_kws):
+            continue
+            
+        num_funds = len(funds)
+        if num_funds >= 2:
+            prev_val = composite_prev.get(sec, 0.0)
+            curr_val = composite_latest.get(sec, 0.0)
+            diff = curr_val - prev_val
+            
+            # Conviction rating definition
+            if num_funds >= 3 and diff > 0:
+                rating = "🔥 CORE CONVICTION"
+                r_style = "bold green"
+            elif num_funds >= 2 and diff > 0.3:
+                rating = "📈 TACTICAL ADD"
+                r_style = "green"
+            elif diff < -0.3:
+                rating = "⚠️ TRIMMING"
+                r_style = "bold red"
+            else:
+                rating = "HOLDING"
+                r_style = "dim"
+                
+            equity_conviction.append({
+                "security": sec,
+                "num_funds": num_funds,
+                "prev_val": prev_val,
+                "curr_val": curr_val,
+                "diff": diff,
+                "rating": rating,
+                "r_style": r_style
+            })
+
+    # Sort: most funds holding first, then highest current weight
+    equity_conviction.sort(key=lambda x: (x["num_funds"], x["curr_val"]), reverse=True)
+
+    equity_table = Table(title="High-Conviction Equity Cross-Ownership", show_header=True)
+    equity_table.add_column("Security Name", style="magenta")
+    equity_table.add_column("Funds Count", justify="center")
+    equity_table.add_column("Combined Prev %", justify="right")
+    equity_table.add_column("Combined Latest %", justify="right")
+    equity_table.add_column("Net Change", justify="right")
+    equity_table.add_column("Conviction Rating", justify="center")
+
+    for item in equity_conviction[:15]: # Show top 15 high-conviction names
+        diff = item["diff"]
+        diff_str = f"{diff:+.2f}%"
+        if diff > 0.3: d_style = "green"
+        elif diff < -0.3: d_style = "red"
+        else: d_style = "dim"
+
+        equity_table.add_row(
+            item["security"],
+            str(item["num_funds"]),
+            f"{item['prev_val']:.2f}%",
+            f"{item['curr_val']:.2f}%",
+            f"[{d_style}]{diff_str}[/{d_style}]",
+            f"[{item['r_style']}]{item['rating']}[/{item['r_style']}]"
+        )
+        
+    if equity_conviction:
+        console.print(equity_table)
+    else:
+        console.print("[dim]  - No multi-fund cross-ownership detected in direct equities.[/dim]")
 
     client.close()
 
