@@ -4,9 +4,7 @@ This file is read automatically by Gemini CLI when working in this project.
 
 ## Project Overview
 
-Mosaic-agent is a quantitative investment platform for Indian equity/commodity ETFs.
-The core pipeline runs LightGBM classification → Kelly position sizing → Risk Governor blend
-for GOLDBEES (gold ETF).
+Mosaic is an agentic quantitative research, asset-allocation, and risk-management platform for Indian and global ETF/equity markets. It integrates walk-forward machine learning predictions (LightGBM), dynamic volatility scaling (GARCH), multi-pillar signal aggregation, and institutional flow (whale) tracking. Broker integrations (like Zerodha Kite) serve as data ingestion feeds rather than the core identity.
 
 ### CLI Commands
 ```bash

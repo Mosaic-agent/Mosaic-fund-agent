@@ -1,10 +1,10 @@
-# Mosaic Fund Agent
+# Mosaic
 
-Ask your Zerodha portfolio a question. Get an actual answer.
+> **An intelligent multi-asset investment co-pilot, quantitative research, and risk-management platform for Indian & global ETF/equity markets.**
 
-Pulls live holdings from Zerodha Kite, enriches each position with news, results, and iNAV data, scores risk and sentiment via LLM, and outputs a terminal report and JSON export.
+Mosaic bridges the gap between machine-learning-driven alpha, institutional flow tracking, currency/tax optimization, and macroeconomic intelligence. By continuously syncing 13+ data sources into a local ClickHouse data lake, Mosaic computes real-time multi-pillar signals, models volatility regimes, and scales portfolio position sizing dynamically.
 
-A built-in **Streamlit data hub** lets you import and store historical market data in ClickHouse, run arbitrary SQL, and run composite anomaly detection and ML forecasting — no code required.
+Whether you are a retail investor looking for a simple visual dashboard, a trader tracking pre-market commodities, or a quant engineer backtesting volatility regimes, Mosaic turns complex market data into clear, risk-adjusted decisions.
 
 > **Not financial advice.** This is a personal research tool. Always verify before acting on any output.
 
@@ -12,59 +12,81 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
-## Overview
+## 🎯 Key Capabilities & Value Pillars
 
-**Mosaic Fund Agent** is an advanced, multi-source quantitative investment and portfolio analysis platform specifically engineered for the **Indian equity and commodity ETF markets**. It bridges the gap between machine-learning-driven alpha generation, institutional flow tracking, and macro-thematic investing.
+### 1. Tactical Asset Allocation & Decision Intelligence
+*   **6-Pillar Composite Scoring:** Automatically scores 18+ ETFs from `0 to 100` by analyzing Macro Trends, Capital Flows, Valuation, News Sentiment, ML Forecasts, and Volatility Regimes.
+*   **GOLDBEES Pipeline:** Integrates 5-day walk-forward predictive returns with dynamic target allocation sizing.
 
-### 1. Data Engineering & Infrastructure (The ClickHouse Pipeline)
-The foundation of the platform is a robust, delta-synced data pipeline built on **ClickHouse**.
-*   **Idempotent Ingestion:** It uses `ReplacingMergeTree` tables and watermark-based delta-syncs to safely and continuously ingest data.
-*   **13+ Data Fetchers:** It aggregates data from diverse sources including NSE (live iNAV), Yahoo Finance, CFTC Socrata (COT positioning), WGC/World Bank (Central Bank gold reserves), MFAPI (Mutual Fund NAVs), Morningstar (Portfolio holdings), Sensibull (FII/DII flows), and live news APIs (NewsAPI, Google News).
-*   **Event-Driven Architecture:** An internal `EventBus` triggers background tasks (like ML retraining, signal refreshing, and cache invalidation) asynchronously whenever new data is imported.
+### 2. Multi-Market Equity Research Hub
+*   **🇮🇳 Indian Equity Research:** Automates deep-dives for any NSE/BSE stock—extracting 3-year cash flows, quarterly results, promoter/FII shareholding patterns with QoQ deltas, mutual fund cross-ownership (e.g., DSP AMC conviction), news sentiment, and automatic price charts.
+*   **🇺🇸 US Equity Research:** Performs SEC filing research—parsing SEC 10-K/10-Q filing text, XBRL financials, executive compensation, corporate recruitment metrics (Workday job scrapers), and peer multiples.
+*   **🌍 International ETF "Scarcity Premium" Tracker:** Tracks international ETFs (like Nasdaq 100, S&P 500, or Hang Seng ETFs) and flags SEBI-mandated AMC investment limit inflows and premium distortions.
 
-### 2. The Quantitative Engine (ML & Risk)
-The platform features a sophisticated forecasting and position-sizing engine, primarily optimized for the GOLDBEES (Gold) ETF:
-*   **Predictive Alpha (LightGBM):** A walk-forward model forecasting 5-day returns using 25+ features (momentum, mean-reversion, macro indicators like DXY/USDINR, FII flows, and seasonality). It outputs quantile confidence intervals and expected returns.
-*   **Advanced Anomaly Detection:** Instead of relying on raw standard deviations, it uses a three-stage pipeline: a robust MAD-based Z-score, a **GARCH(1,1)** model to standardize residuals (filtering out normal volatility clustering), and a cross-asset **Isolation Forest** to identify true market regimes (e.g., "Flash Crash", "Blow-off Top", "Crowded Long").
-*   **Risk Governor & Sizing:** Position sizing is not static. It dynamically calculates weights using the **Kelly Criterion** based on the LightGBM hit ratio, blended with a "Risk Governor" that applies continuous inverse-volatility scaling (`w = vol_target / σ_t`).
+### 3. Volatility Management & Capital Preservation
+*   **Smart Sizing (Risk Governor):** Dynamically scales position weights using continuous inverse-volatility scaling blended with the Kelly Criterion, protecting capital during high-stress regimes.
+*   **Market Anomaly Detection:** Utilizes standard GARCH(1,1) residuals and Isolation Forests to classify true market volatility regimes (e.g., "Flash Crash", "Blow-off Top").
 
-### 3. Institutional "Whale Tracking" & The DSP Signal
-Mosaic doesn't just look at price action; it deeply analyzes institutional behavior:
-*   **FII/DII & COT Flows:** Tracks daily/monthly Foreign and Domestic Institutional Investor flows in the Indian cash and F&O markets, alongside global Commitment of Traders (COT) positioning for metals.
-*   **DSP Multi-Asset Conviction Signal:** The platform includes specialized tools to backfill and analyze the monthly portfolio disclosures of major Indian multi-asset funds (specifically DSP AMC). By tracking cross-fund ownership and month-over-month allocation changes across 60+ funds, it reverse-engineers institutional conviction levels and tactical pivots (like Gold-to-Silver Ratio trades) to form a highly reliable contrarian signal.
+### 4. Institutional Flow & "Whale" Tracking
+*   **AMC Smart Money Tracker:** Scrapes and analyzes monthly portfolio disclosures across major Indian AMCs (DSP, Nippon India, ICICI Prudential) to reverse-engineer professional fund conviction.
+*   **FII/DII & COT Flows:** Monitors daily Cash + F&O participant flows alongside global metal speculator commitments (CFTC COT).
 
-### 4. The 6-Pillar Signal Aggregator
-For 18+ core ETFs, the platform runs a parallelized LangGraph/Strategy-pattern orchestrator that outputs a 0–100 composite score based on six independent pillars:
-1.  **Macro (25%):** Maps live geopolitical and macroeconomic news themes to directional ETF impacts.
-2.  **Flow (25%):** Analyzes FII/DII net flows.
-3.  **Valuation (15%):** Scans for real-time iNAV premiums/discounts via Z-scores.
-4.  **Sentiment (15%):** Analyzes the positive/negative ratio of recent news articles.
-5.  **ML Forecast (15%):** Integrates the expected return from the LightGBM model.
-6.  **Anomaly (5%):** Dampens or boosts scores based on the identified volatility regime.
+### 5. Real-Time Price & Fair Value Telemetry
+*   **iNAV Fair-Value Watch:** Compares live exchange prices against the true underlying Net Asset Value (iNAV) of ETFs to alert on premium/discount markups.
+*   **COMEX Pre-Market Intel:** Analyzes global metal markets (Gold, Silver, Copper, Platinum, Palladium) to prepare commodity strategies before Indian markets open.
 
-### 5. Multi-Agent Orchestration & UI
-*   **CLI & Agents:** The platform is operated via a Typer-based CLI. It utilizes specialized agents (built with LangChain/LangGraph) like the `MosaicFundAgent` for full portfolio analysis via Zerodha Kite MCP, a `ComexAgent` for pre-market signals, and a `NewsSentimentAgent`.
-*   **Streamlit Data Hub:** A local, no-code web interface (running on port 8501) that allows users to trigger imports, run arbitrary SQL queries on the ClickHouse DB, visualize charts, and monitor real-time signals without writing code.
+### 6. Tax, Currency, & Portfolio Health
+*   **Tax-Aware Portfolios:** Incorporates latest Indian tax structures (e.g., Budget 2024 FoF rules) to optimize post-tax returns.
+*   **INR Currency Hedging:** Suggests currency-hedging strategies by analyzing how USDINR affects real-asset valuations.
+*   **Broker Sync & Backups:** Backs up Zerodha Kite holdings, margins, and historical order books to a local ClickHouse database.
 
 ---
 
-## Features
+## 🤖 The Agent System: A Specialized Analyst Guild
 
-- **Portfolio analysis** — per-holding risk scores, news sentiment, quarterly results, sector breakdown
-- **ETF premium/discount** — live iNAV vs market price for every ETF holding
-- **Terminal Charting** — high-resolution ASCII/Unicode line and bar charts (Price, NAV, FII/DII flows, Signal Pillars) directly in the CLI
-- **Visual Intelligence** — Unicode sparklines (`▁▂▃▄▅▆▇█`) for instant 20-day trend context in summaries
-- **COMEX pre-market signals** — Gold, Silver, Copper, Platinum, Palladium vs previous close
-- **Who Is Selling?** — institutional sell-off attribution (retail panic / institutional exit / speculator crowding)
-- **LightGBM 5-day forecast** — walk-forward predictor with 25 alpha features + quantile regression 80% CI
-- **GARCH(1,1) anomaly detection** — conditional volatility residuals + cross-asset Isolation Forest (COT + USDINR)
-- **Risk Governor** — continuous inverse-vol position sizing (`w = vol_target / σ_t`) with regime + score overrides
-- **Quant Scorecard** — Gold + Silver 4-pillar scores (Macro/Flows/Valuation/Momentum) with stale-data guards
-- **DSP Smart Money tracker** — 31-month allocation history for DSP Multi Asset Fund; reverse-engineered GSR-based tactical pivot signal (R=0.68)
-- **FII/DII institutional flows** — daily cash + monthly (Sep 2018→present) + F&O participant OI
-- **Streamlit UI** — import, SQL explorer, charts, anomaly detection, and **🪁 Kite Dashboard**
-- **Zerodha Account Backup** — persist personal holdings, margins, profile, and orders to ClickHouse for historical tracking
-- **Gemini & Antigravity (agy) CLI agents** — macro strategy agent + 4 skills discoverable from `.gemini/` and `.agents/`
+Rather than passing raw user prompts to a single LLM with dozens of tools, Mosaic employs a **deterministic Intent Router & Multi-Agent Orchestrator** to route queries to dedicated sub-agents wrapping a LangChain/LangGraph ReAct loop with a domain-specific system prompt and a curated tool subset:
+
+*   **💼 Portfolio Orchestrator (`MosaicFundAgent`):** Accesses Zerodha Kite accounts to inspect holdings, calculate portfolio-level sector exposure, enrich positions with news/earnings, and compile risk summaries.
+*   **🇮🇳 Indian Equity Analyst (`IndianEquityResearchSubAgent`):** Orchestrates multi-tool parallel lookups for NSE/BSE stocks (Yahoo multiples, momentum, cash flows, promoter trends, and mutual fund conviction).
+*   **🇺🇸 US Equity Analyst (`DeepDiveSubAgent`):** Targeted SEC filing analyst querying SEC EDGAR for 10-K/10-Q filings, XBRL financials, executive pay, and Workday hiring trends.
+*   **📈 Volatility & Quant Agent (`SignalSubAgent`):** Manages GOLDBEES forecasts, walk-forward ML evaluation metrics, and computes risk-governed weights.
+*   **🌍 International ETF Arbitrage Agent (`IntlETFSubAgent`):** Specializes in tracking overseas ETFs and analyzing SEBI inflow constraints to discover scarcity premiums.
+*   **🌐 Macro & Flow Agent (`MacroSubAgent`):** Maps macro news themes (rates, inflation, trade wars) to ETF directions, details pre-market COMEX indicators, and breaks down FII/DII flow dynamics.
+*   **💻 Code & DB Developer (`CodeSubAgent`):** Writes and runs local Python scripts or queries raw ClickHouse SQL to answer ad-hoc database questions.
+
+*Mosaic is optimized to run locally via **Ollama** (specifically customized **Gemma 4** models) using high-density compact prompts and structured table injection to avoid context drift and token exhaustion.*
+
+---
+
+## 📐 Quantitative & Infrastructure Spec (For Quant Engineers)
+
+### 1. Database & Pipeline Engineering (ClickHouse Data Lake)
+*   **Deduplicated Storage:** Core tables (`daily_prices`, `mf_holdings`, `fii_dii_flows`) leverage ClickHouse's `ReplacingMergeTree` engines for idempotent inserts.
+*   **Watermark Delta-Sync:** Ingestion pipelines utilize watermark-based delta syncing (tracking `max(trade_date)`) to protect API limits.
+*   **Cross-Asset Freshness Guard:** Enforces a system-wide freshness guard verifying synchronization across all 105+ symbols (Indices, Gold/Silver, FX Rates, US Stocks) before allowing execution of cross-asset mathematical models.
+
+### 2. Machine Learning Predictive Pipeline
+*   **Model Architecture:** 5-day walk-forward LightGBM regression/classification models.
+*   **Feature Set:** Generates 25+ features including multi-timeframe price momentum, mean reversion oscillators, USDINR/DXY currency spreads, CFTC COT positioning, and seasonality.
+*   **Uncertainty Quantification:** Leverages quantile regression to construct 80% confidence intervals (`confidence_band`) around expected log returns.
+*   **Model Diagnostics:** Evaluates performance via walk-forward Cross-Validation (CV) metrics (AUC and hit ratio).
+
+### 3. Volatility & Anomaly Pipelines
+*   **GARCH Volatility Scaling:** Estimates conditional volatility ($\sigma_t$) using a **GARCH(1,1)** model with Student-t innovations to capture fat-tailed asset return distributions.
+*   **Regime Classification:** Standardized GARCH residuals are passed alongside macro indicators to a cross-asset **Isolation Forest** model to detect volatility anomaly regimes.
+*   **Risk Governor Sizing:** Combines continuous inverse-volatility scaling ($w_t = \frac{\sigma_{\text{target}}}{\sigma_t}$) with the **Kelly Criterion** to determine blended portfolio weights.
+
+---
+
+## 💻 Choose Your Experience
+
+### 🟢 Non-Technical (The Web Hub & Agent)
+*   **Visual Dashboard:** Run the Streamlit Web UI ([app.py](file:///home/dt/project/Mosaic-fund-agent/src/ui/app.py)) with one click to view charts, run data syncs, and check signal summaries visually.
+*   **Conversational Assistant:** Ask questions in plain English (e.g., *"Am I overexposed to IT?"*, *"Which gold ETFs have the lowest premium?"*, *"Analyze Roku's R&D spend trend"*) and get immediate, written answers.
+
+### 👑 Intermediate (The Command Line & Reports)
+*   **Pre-Built Reports:** Generate terminal summaries with high-resolution text charts and unicode trend sparklines.
+*   **Targeted CLI Commands:** Run direct commands like `python src/main.py comex` or `python src/main.py signals`.
 
 ---
 
@@ -249,6 +271,7 @@ See [docs/import-schema.md](docs/import-schema.md) for all categories, the full 
 
 | Doc | What's in it |
 |---|---|
+| [docs/user_guide.md](docs/user_guide.md) | **Getting Started User Guide** — tutorials, CLI commands, database explorers, offline setups |
 | [docs/architecture.md](docs/architecture.md) | Full system architecture — data flow, agents, tools, ML, ClickHouse schema, design patterns |
 | [docs/import-schema.md](docs/import-schema.md) | All import categories, ClickHouse tables, cron schedule |
 | [docs/data-sources.md](docs/data-sources.md) | APIs and data sources used |
