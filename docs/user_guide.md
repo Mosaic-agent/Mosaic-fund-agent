@@ -40,10 +40,24 @@ The easiest way to interact with Mosaic is through the local web interface power
 Mosaic features a multi-agent routing loop. You don't need to know SQL or database command arguments; you can ask questions in plain English.
 
 ### How to Query
-Run the `ask` command from your terminal:
-```bash
-python src/main.py ask "YOUR_QUESTION"
-```
+Depending on your environment setup, you can launch the conversational agents as follows:
+
+*   **🐳 Via the Docker Wrapper (Recommended / Zero-Dependency):**
+    If you are running Mosaic through Docker, you can execute the agent without setting up Python locally:
+    ```bash
+    # On macOS or Linux:
+    ./mosaic.sh ask "YOUR_QUESTION"
+
+    # On Windows:
+    mosaic.bat ask "YOUR_QUESTION"
+    ```
+*   **🐍 Via Local Python CLI:**
+    ```bash
+    python src/main.py ask "YOUR_QUESTION"
+    ```
+
+> [!TIP]
+> This wrapper pattern applies to all CLI commands and scripts. For example, to run the GOLDBEES report in Docker, use `./mosaic.sh src/scripts/goldbees_report.py` instead of `python src/scripts/goldbees_report.py`.
 
 ### High-Value Questions to Try:
 *   **Portfolio Analysis:**
