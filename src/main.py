@@ -1318,5 +1318,27 @@ def signals_cmd(
         console.print(f"[green]✓ Signal composite saved to DB for {len(report.signals)} ETFs.[/green]")
 
 
+@app.command(name="drift-monitor")
+def drift_monitor_cmd(
+    retrain: bool = typer.Option(
+        True, "--retrain/--no-retrain", help="Auto-trigger retraining if drift is detected."
+    ),
+    lookback: int = typer.Option(
+        90, "--lookback", "-l", help="Number of predictions to evaluate."
+    ),
+) -> None:
+    """
+    Monitor GOLDBEES ML prediction model drift.
+
+    Queries predictions, maps them to future realized returns, computes
+    hit ratios and AUC over time, and triggers retraining if skill degrades.
+    """
+    _setup_logging()
+
+    from src.ml.drift_monitor import run_drift_monitor
+
+    run_drift_monitor(lookback_days=lookback, auto_retrain=retrain)
+
+
 if __name__ == "__main__":
     app()
