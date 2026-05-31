@@ -533,7 +533,64 @@ def _summarize_whale_tracker_output(output: str) -> str:
             summary += f"| {fund} | {theme} | {security} | {change_val:+.2f}% |\n"
     else:
         summary += "| None detected | | | |\n"
+
+    # Extract sector/theme trend allocations if present in the output
+    if "Unified Macro Theme Allocations" in output:
+        sub = output.split("Unified Macro Theme Allocations")[1]
+        if "High-Conviction Equity Cross-Ownership" in sub:
+            sub = sub.split("High-Conviction Equity Cross-Ownership")[0]
+            
+        themes = []
+        latest_weights = []
+        flow_changes = []
         
+        for line in sub.splitlines():
+            if "%" in line:
+                line_clean = line
+                for emoji in ["🥈", "🥇", "⚛️", "🛢️", "🏗️"]:
+                    line_clean = line_clean.replace(emoji, "")
+                parts = line_clean.split()
+                if len(parts) >= 4:
+                    theme_name = parts[0]
+                    if theme_name in ["Silver", "Gold", "Nuclear/Grid", "Energy", "Infra"]:
+                        try:
+                            latest_w = float(parts[-2].replace("%", "").strip())
+                            flow_c = float(parts[-1].replace("%", "").strip())
+                            themes.append(theme_name)
+                            latest_weights.append(latest_w)
+                            flow_changes.append(flow_c)
+                        except ValueError:
+                            pass
+        
+        if themes:
+            try:
+                import plotext as plt
+                import re
+                ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+                
+                # Plot Combined Latest Weights
+                plt.clear_figure()
+                plt.bar(themes, latest_weights, orientation="horizontal")
+                plt.title("Combined Latest Weights by Sector/Theme (%)")
+                plt.plot_size(70, 15)
+                latest_chart = plt.build()
+                latest_chart_clean = ansi_escape.sub("", latest_chart)
+                
+                # Plot Net Flow Change
+                plt.clear_figure()
+                plt.bar(themes, flow_changes, orientation="horizontal")
+                plt.title("Net Flow Change by Sector/Theme (%)")
+                plt.plot_size(70, 15)
+                flow_chart = plt.build()
+                flow_chart_clean = ansi_escape.sub("", flow_chart)
+                
+                summary += "\n\n#### Combined Latest Weights by Sector/Theme (%)\n"
+                summary += f"```text\n{latest_chart_clean}\n```\n"
+                summary += "\n\n#### Net Flow Change by Sector/Theme (%)\n"
+                summary += f"```text\n{flow_chart_clean}\n```\n"
+            except Exception as e:
+                summary += f"\n\n*(Note: Could not generate ASCII charts: {e})*\n"
+                
     return summary
 
 
