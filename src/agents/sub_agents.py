@@ -1352,6 +1352,7 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - `UNKNOWN_SYMBOL` → skip the import; use `get_yahoo_finance_data` for price data
    Do NOT call for every ETF in a broad scan — only for the 1–3 primary symbols the
    user explicitly named.
+   - If the user asks to import or update stocks with freshness generally (without naming a specific symbol), call `run_data_engineering_importer(category='stocks')` directly. This will automatically get the list of stocks and import each stock in parallel with a limit of 5 concurrent workers (including its price and other relevant data). Do NOT ask the user for a specific symbol.
 
 1. **Entity resolution** — Call `resolve_company(query)` to get the NSE/BSE ticker, exchange, and full name. Note that company symbols can change, demerge, or be newly listed; always rely on `resolve_company` rather than hardcoding symbols, and check if its output contains an "error" field before running further tools.
 2. **Price & Momentum** — `get_yahoo_finance_data` (P/E, 52w range, market cap);
@@ -1449,7 +1450,7 @@ aggregations must be computed by Python or SQL, then narrated.
         from src.tools.news_search import search_financial_news, get_stock_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.intl_etf_tools import get_intl_etf_correlation, get_intl_etf_performance
-        from src.tools.code_tools import execute_python_snippet
+        from src.tools.code_tools import execute_python_snippet, install_python_dependency
         from src.tools.chart_tools import (
             plot_price_chart,
             plot_multi_price_chart,
@@ -1465,6 +1466,7 @@ aggregations must be computed by Python or SQL, then narrated.
             *INDIAN_EQUITY_TOOLS,
             query_clickhouse_db,
             execute_python_snippet,
+            install_python_dependency,
             run_macro_scanner,
             run_daily_signal_composite,
             run_risk_governor_analysis,

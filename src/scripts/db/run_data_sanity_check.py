@@ -7,7 +7,7 @@ from rich.table import Table
 from rich.panel import Panel
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 try:
     from config.settings import settings

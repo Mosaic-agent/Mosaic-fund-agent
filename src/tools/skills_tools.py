@@ -197,6 +197,8 @@ def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx
     Trigger the historical ClickHouse data engineering pipeline to import and sync data from external APIs.
     Streams live progress to the terminal as each symbol is fetched and inserted.
     Use this when asked to sync/import/refresh general market data or specific categories.
+    Note: If the user asks to import or update stocks with freshness generally (without naming a specific symbol),
+    do NOT ask for a symbol; call this tool with category='stocks' to run the parallel stock importer for all stocks.
     Args:
         category: Comma-separated list of categories to import.
                   Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav.
