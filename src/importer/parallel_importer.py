@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.importer.clickhouse import ClickHouseImporter
@@ -9,26 +10,23 @@ from src.importer.fetchers.valuation_fetcher import fetch_valuation
 
 logger = logging.getLogger(__name__)
 
+# Per-domain inter-request spacing (seconds).  Phase 3 will replace these
+# with proper token-bucket rate limiters (aiolimiter).
+_INITIAL_SLEEP = 0.3   # stagger thread start
+_BETWEEN_CALLS = 0.4   # spacing between sequential API calls per symbol
+
+
 def import_single_stock(symbol: str, ticker: str, category: str, lookback_days: int, full_reimport: bool, clickhouse_config: dict, dry_run: bool = False) -> dict:
     """
     Import price and other relevant data (earnings, insider, valuation) for a single stock.
+    Borrows a connection from the shared CHPool instead of opening a raw TCP handshake
+    per thread.
     """
+    from src.db.pool import get_pool
+
     logger.info("Starting parallel import for %s (%s) | %s (dry_run=%s)", symbol, ticker, category, dry_run)
-    
-    ch = ClickHouseImporter(
-        host=clickhouse_config.get("host", "localhost"),
-        port=clickhouse_config.get("port", 8123),
-        database=clickhouse_config.get("database", "market_data"),
-        username=clickhouse_config.get("username", "default"),
-        password=clickhouse_config.get("password", ""),
-    )
-    
-    today = date.today()
-    from_date = today - timedelta(days=lookback_days)
-    if not full_reimport and not dry_run:
-        wm = ch.get_watermark("yfinance", symbol)
-        if wm:
-            from_date = wm - timedelta(days=3)  # 3 days overlap
+
+    pool = get_pool()
 
     results = {
         "symbol": symbol,
@@ -38,64 +36,76 @@ def import_single_stock(symbol: str, ticker: str, category: str, lookback_days: 
         "valuation_inserted": 0,
         "error": None
     }
-    
+
     try:
-        import time
-        import random
-        
-        # Initial jitter sleep to stagger the start times of the 5 parallel worker threads
-        time.sleep(random.uniform(0.1, 1.2))
-        
-        # 1. Prices
-        prices = fetch_ohlcv([(symbol, ticker)], category, from_date, today)
-        if prices:
-            if not dry_run:
-                inserted_prices = ch.insert_prices(prices)
-                results["prices_inserted"] = inserted_prices
-                max_date = max(r["trade_date"] for r in prices)
-                ch.set_watermark("yfinance", symbol, max_date)
-            else:
-                results["prices_inserted"] = len(prices)
-            
-        # Spacing delay between endpoints
-        time.sleep(random.uniform(0.3, 1.0))
-        
-        # 2. Earnings
-        earnings = fetch_earnings([(symbol, ticker)])
-        if earnings:
-            if not dry_run:
-                results["earnings_inserted"] = ch.insert_stock_earnings(earnings)
-            else:
-                results["earnings_inserted"] = len(earnings)
-            
-        # Spacing delay between endpoints
-        time.sleep(random.uniform(0.3, 1.0))
-        
-        # 3. Insider
-        insider = fetch_insider_trades([(symbol, ticker)])
-        if insider:
-            if not dry_run:
-                results["insider_inserted"] = ch.insert_stock_insider(insider)
-            else:
-                results["insider_inserted"] = len(insider)
-            
-        # Spacing delay between endpoints
-        time.sleep(random.uniform(0.3, 1.0))
-        
-        # 4. Valuation
-        valuation = fetch_valuation([(symbol, ticker)])
-        if valuation:
-            if not dry_run:
-                results["valuation_inserted"] = ch.insert_stock_valuation(valuation)
-            else:
-                results["valuation_inserted"] = len(valuation)
-            
+        # Stagger thread start to avoid thundering-herd on the upstream APIs
+        time.sleep(_INITIAL_SLEEP)
+
+        with pool.acquire() as client:
+            ch = ClickHouseImporter(
+                host=clickhouse_config.get("host", "localhost"),
+                port=clickhouse_config.get("port", 8123),
+                database=clickhouse_config.get("database", "market_data"),
+                username=clickhouse_config.get("username", "default"),
+                password=clickhouse_config.get("password", ""),
+                client=client,  # pool-managed — no TCP handshake, no close() needed
+            )
+
+            today = date.today()
+            from_date = today - timedelta(days=lookback_days)
+            if not full_reimport and not dry_run:
+                wm = ch.get_watermark("yfinance", symbol, dataset="prices")
+                if wm:
+                    from_date = wm - timedelta(days=3)  # 3 days overlap
+
+            # 1. Prices
+            prices = fetch_ohlcv([(symbol, ticker)], category, from_date, today)
+            if prices:
+                if not dry_run:
+                    inserted_prices = ch.insert_prices(prices)
+                    results["prices_inserted"] = inserted_prices
+                    max_date = max(r["trade_date"] for r in prices)
+                    ch.set_watermark("yfinance", symbol, max_date, dataset="prices")
+                else:
+                    results["prices_inserted"] = len(prices)
+
+            time.sleep(_BETWEEN_CALLS)
+
+            # 2. Earnings
+            earnings = fetch_earnings([(symbol, ticker)])
+            if earnings:
+                if not dry_run:
+                    results["earnings_inserted"] = ch.insert_stock_earnings(earnings)
+                    ch.set_watermark("yfinance", symbol, date.today(), dataset="earnings")
+                else:
+                    results["earnings_inserted"] = len(earnings)
+
+            time.sleep(_BETWEEN_CALLS)
+
+            # 3. Insider
+            insider = fetch_insider_trades([(symbol, ticker)])
+            if insider:
+                if not dry_run:
+                    results["insider_inserted"] = ch.insert_stock_insider(insider)
+                    ch.set_watermark("yfinance", symbol, date.today(), dataset="insider")
+                else:
+                    results["insider_inserted"] = len(insider)
+
+            time.sleep(_BETWEEN_CALLS)
+
+            # 4. Valuation
+            valuation = fetch_valuation([(symbol, ticker)])
+            if valuation:
+                if not dry_run:
+                    results["valuation_inserted"] = ch.insert_stock_valuation(valuation)
+                    ch.set_watermark("yfinance", symbol, date.today(), dataset="valuation")
+                else:
+                    results["valuation_inserted"] = len(valuation)
+
     except Exception as exc:
         results["error"] = str(exc)
         logger.error("Failed parallel import for %s: %s", symbol, exc)
-    finally:
-        ch.close()
-        
+
     return results
 
 def run_parallel_stock_import(

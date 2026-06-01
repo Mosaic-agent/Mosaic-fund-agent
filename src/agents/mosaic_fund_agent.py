@@ -22,6 +22,7 @@ it can autonomously decide which tools to call and in what order.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from typing import Any
 
@@ -441,34 +442,38 @@ class MosaicFundAgent:
             TextColumn("[progress.description]{task.description}"),
             console=console,
         ) as progress:
-            task = progress.add_task("Analyzing holdings...", total=len(holdings))
-            for holding in holdings:
-                progress.update(task, description=f"Analyzing [bold]{holding.tradingsymbol}[/bold]...")
-                try:
-                    analysis = analyze_holding(holding)
-                    analyses.append(analysis)
-                    dd = analysis.deepdive_data
-                    dd_suffix = (
-                        f" | DeepDive: ✓ ({dd['report_date']}, {dd['age_days']}d ago)"
-                        if dd else ""
-                    )
-                    console.print(
-                        f"  [green]✓[/green] {holding.tradingsymbol} "
-                        f"| Sentiment: {analysis.sentiment_score:+.2f} "
-                        f"| Risk: {analysis.risk_score:.0f}/10"
-                        + dd_suffix
-                    )
-                    if dd and dd.get("age_days", 0) > 90:
-                        console.print(
-                            f"  [yellow]⚠ DeepDive data for {holding.tradingsymbol} is "
-                            f"{dd['age_days']}d old — run: "
-                            f"python src/main.py deepdive {holding.tradingsymbol}[/yellow]"
+            task = progress.add_task(
+                f"Analyzing {len(holdings)} holdings in parallel…", total=len(holdings)
+            )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+                future_map = {pool.submit(analyze_holding, h): h for h in holdings}
+                for future in concurrent.futures.as_completed(future_map):
+                    holding = future_map[future]
+                    try:
+                        analysis = future.result()
+                        analyses.append(analysis)
+                        dd = analysis.deepdive_data
+                        dd_suffix = (
+                            f" | DeepDive: ✓ ({dd['report_date']}, {dd['age_days']}d ago)"
+                            if dd else ""
                         )
-                except Exception as exc:
-                    logger.error("Analysis failed for %s: %s", holding.tradingsymbol, exc)
-                    console.print(f"  [red]✗[/red] {holding.tradingsymbol} – analysis failed: {exc}")
-                finally:
-                    progress.advance(task)
+                        console.print(
+                            f"  [green]✓[/green] {holding.tradingsymbol} "
+                            f"| Sentiment: {analysis.sentiment_score:+.2f} "
+                            f"| Risk: {analysis.risk_score:.0f}/10"
+                            + dd_suffix
+                        )
+                        if dd and dd.get("age_days", 0) > 90:
+                            console.print(
+                                f"  [yellow]⚠ DeepDive data for {holding.tradingsymbol} is "
+                                f"{dd['age_days']}d old — run: "
+                                f"python src/main.py deepdive {holding.tradingsymbol}[/yellow]"
+                            )
+                    except Exception as exc:
+                        logger.error("Analysis failed for %s: %s", holding.tradingsymbol, exc)
+                        console.print(f"  [red]✗[/red] {holding.tradingsymbol} – analysis failed: {exc}")
+                    finally:
+                        progress.advance(task)
 
         console.print(f"[green]✓ Enriched {len(analyses)} holdings[/green]")
 
@@ -587,7 +592,16 @@ class MosaicFundAgent:
             if os.getenv("VERBOSE") == "1":
                 config["callbacks"] = [RichConsoleCallbackHandler()]
 
-            result = self._agent.invoke({"messages": messages}, config=config)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(self._agent.invoke, {"messages": messages}, config)
+                try:
+                    result = _fut.result(timeout=120)
+                except concurrent.futures.TimeoutError:
+                    return (
+                        "Agent timed out after 120 s. "
+                        "A tool (news API / yfinance / Screener.in) likely stalled. "
+                        "Try again or use `--max` to limit holdings."
+                    )
             msgs = result.get("messages", [])
             if not msgs:
                 return "No answer generated."

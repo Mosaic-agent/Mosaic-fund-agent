@@ -1621,16 +1621,15 @@ with tab_explorer:
                     delta_color="normal" if net_5d >= 0 else "inverse",
                 )
 
-                # ── Combined FII + DII line chart ─────────────────────────────
-                # Lines work cleanly for 30 daily points; grouped bars become
-                # invisible at this density. FII = solid blue, DII = dashed orange.
-                fii_long = fii_df[["trade_date", "fii_net_cr", "dii_net_cr"]].melt(
+                # ── Grouped bar chart — last 15 trading days ─────────────────
+                bar_df   = fii_df.tail(15).copy()
+                bar_long = bar_df[["trade_date", "fii_net_cr", "dii_net_cr"]].melt(
                     id_vars="trade_date",
                     value_vars=["fii_net_cr", "dii_net_cr"],
                     var_name="_col",
                     value_name="net_cr",
                 )
-                fii_long["Investor"] = fii_long["_col"].map(
+                bar_long["Investor"] = bar_long["_col"].map(
                     {"fii_net_cr": "FII", "dii_net_cr": "DII"}
                 )
 
@@ -1638,62 +1637,121 @@ with tab_explorer:
                     domain=["FII", "DII"],
                     range=["#3498DB", "#E67E22"],
                 )
-                _base = alt.Chart(fii_long).encode(
-                    x=alt.X(
-                        "trade_date:T",
-                        title=None,
-                        axis=alt.Axis(format="%d %b", labelAngle=-30, grid=False),
-                    ),
-                    y=alt.Y(
-                        "net_cr:Q",
-                        title="₹ Crore",
-                        scale=alt.Scale(zero=True),
-                        axis=alt.Axis(format=",.0f", grid=True, gridOpacity=0.2),
-                    ),
-                    color=alt.Color(
-                        "Investor:N",
-                        scale=_color_scale,
-                        legend=alt.Legend(
-                            title=None, orient="top-left",
-                            symbolType="stroke", symbolStrokeWidth=3,
-                            labelFontSize=12,
-                        ),
-                    ),
-                    tooltip=[
-                        alt.Tooltip("trade_date:T", title="Date",        format="%d %b %Y"),
-                        alt.Tooltip("Investor:N",   title="Investor"),
-                        alt.Tooltip("net_cr:Q",     title="Net (₹ Cr)", format="+,.0f"),
-                    ],
-                )
-
-                _lines = _base.mark_line(strokeWidth=2).encode(
-                    strokeDash=alt.condition(
-                        alt.datum["Investor"] == "DII",
-                        alt.value([6, 3]),   # dashed for DII
-                        alt.value([1, 0]),   # solid for FII
-                    ),
-                )
-                _dots  = _base.mark_circle(size=40, opacity=0.9)
-                _zero  = (
+                _zero_rule = (
                     alt.Chart(pd.DataFrame({"z": [0]}))
                     .mark_rule(color="#555555", strokeWidth=1.5, strokeDash=[3, 3])
                     .encode(y=alt.Y("z:Q"))
                 )
+                _bars = (
+                    alt.Chart(bar_long)
+                    .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3, opacity=0.85)
+                    .encode(
+                        x=alt.X(
+                            "trade_date:T",
+                            title=None,
+                            axis=alt.Axis(format="%d %b", labelAngle=-30, grid=False),
+                            scale=alt.Scale(padding=0.3),
+                        ),
+                        y=alt.Y(
+                            "net_cr:Q",
+                            title="₹ Crore",
+                            scale=alt.Scale(zero=True),
+                            axis=alt.Axis(format=",.0f", grid=True, gridOpacity=0.2),
+                        ),
+                        xOffset=alt.XOffset("Investor:N"),
+                        color=alt.Color(
+                            "Investor:N",
+                            scale=_color_scale,
+                            legend=alt.Legend(
+                                title=None, orient="top-left",
+                                symbolType="square",
+                                labelFontSize=12,
+                            ),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date",        format="%d %b %Y"),
+                            alt.Tooltip("Investor:N",   title="Investor"),
+                            alt.Tooltip("net_cr:Q",     title="Net (₹ Cr)", format="+,.0f"),
+                        ],
+                    )
+                )
 
                 st.altair_chart(
-                    alt.layer(_zero, _lines, _dots)
+                    alt.layer(_zero_rule, _bars)
                     .properties(
                         title=alt.TitleParams(
-                            "FII & DII Net Flows  (🔵 FII solid · 🟠 DII dashed)",
+                            "FII & DII Net Flows — Last 15 Days  (🔵 FII · 🟠 DII)",
                             fontSize=13,
                         ),
-                        height=300,
+                        height=320,
                     )
                     .configure_view(strokeWidth=0)
                     .configure_title(anchor="start")
                     .interactive(),
                     width="stretch",
                 )
+
+                # 30-day trend line overview
+                with st.expander("📈 30-day trend (line chart)", expanded=False):
+                    fii_long = fii_df[["trade_date", "fii_net_cr", "dii_net_cr"]].melt(
+                        id_vars="trade_date",
+                        value_vars=["fii_net_cr", "dii_net_cr"],
+                        var_name="_col",
+                        value_name="net_cr",
+                    )
+                    fii_long["Investor"] = fii_long["_col"].map(
+                        {"fii_net_cr": "FII", "dii_net_cr": "DII"}
+                    )
+                    _base30 = alt.Chart(fii_long).encode(
+                        x=alt.X(
+                            "trade_date:T", title=None,
+                            axis=alt.Axis(format="%d %b", labelAngle=-30, grid=False),
+                        ),
+                        y=alt.Y(
+                            "net_cr:Q", title="₹ Crore",
+                            scale=alt.Scale(zero=True),
+                            axis=alt.Axis(format=",.0f", grid=True, gridOpacity=0.2),
+                        ),
+                        color=alt.Color(
+                            "Investor:N", scale=_color_scale,
+                            legend=alt.Legend(
+                                title=None, orient="top-left",
+                                symbolType="stroke", symbolStrokeWidth=3, labelFontSize=12,
+                            ),
+                        ),
+                        tooltip=[
+                            alt.Tooltip("trade_date:T", title="Date",        format="%d %b %Y"),
+                            alt.Tooltip("Investor:N",   title="Investor"),
+                            alt.Tooltip("net_cr:Q",     title="Net (₹ Cr)", format="+,.0f"),
+                        ],
+                    )
+                    _lines30 = _base30.mark_line(strokeWidth=2).encode(
+                        strokeDash=alt.condition(
+                            alt.datum["Investor"] == "DII",
+                            alt.value([6, 3]),
+                            alt.value([1, 0]),
+                        )
+                    )
+                    _dots30 = _base30.mark_circle(size=40, opacity=0.9)
+                    _zero30 = (
+                        alt.Chart(pd.DataFrame({"z": [0]}))
+                        .mark_rule(color="#555555", strokeWidth=1.5, strokeDash=[3, 3])
+                        .encode(y=alt.Y("z:Q"))
+                    )
+                    st.altair_chart(
+                        alt.layer(_zero30, _lines30, _dots30)
+                        .properties(
+                            title=alt.TitleParams(
+                                "30-Day Trend  (🔵 FII solid · 🟠 DII dashed)",
+                                fontSize=13,
+                            ),
+                            height=260,
+                        )
+                        .configure_view(strokeWidth=0)
+                        .configure_title(anchor="start")
+                        .interactive(),
+                        width="stretch",
+                    )
 
                 with st.expander("📋 Raw data", expanded=False):
                     show_df = fii_df[["trade_date", "fii_net_cr", "dii_net_cr"]].copy()

@@ -121,11 +121,20 @@ def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
 
         plt = _plt()
         plt.clear_figure()
-        plt.plot(list(range(len(prices))), prices, label=symbol)
+        xs = list(range(len(prices)))
+        plt.plot(xs, prices, label=symbol)
         plt.title(f"{symbol} — {days}d price  |  {chg:+.1f}%  |  {spark}")
-        plt.xlabel(f"{dates[0]} → {dates[-1]}")
         plt.ylabel("Price (₹)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
+        # Set ~5 evenly-spaced date labels so plotext doesn't auto-generate
+        # raw integer ticks that overflow into a second panel below the chart.
+        n = len(dates)
+        step = max(1, n // 5)
+        tick_idx = list(range(0, n, step))
+        if tick_idx[-1] != n - 1:
+            tick_idx.append(n - 1)
+        tick_lbl = [str(dates[i])[:10] for i in tick_idx]
+        plt.xticks(tick_idx, tick_lbl)
         return _build(plt)
     except ImportError as exc:
         return str(exc)
@@ -292,11 +301,17 @@ def plot_nav_chart(symbol_or_scheme: str, days: int = 90) -> str:
 
         plt = _plt()
         plt.clear_figure()
-        plt.plot(list(range(len(navs))), navs, label=label)
+        xs = list(range(len(navs)))
+        plt.plot(xs, navs, label=label)
         plt.title(f"NAV — {label}  |  {chg:+.1f}%  |  {spark}")
-        plt.xlabel(f"{dates[0]} → {dates[-1]}")
         plt.ylabel("NAV (₹)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
+        n = len(dates)
+        step = max(1, n // 5)
+        tick_idx = list(range(0, n, step))
+        if tick_idx[-1] != n - 1:
+            tick_idx.append(n - 1)
+        plt.xticks(tick_idx, [str(dates[i])[:10] for i in tick_idx])
         return _build(plt)
     except ImportError as exc:
         return str(exc)
@@ -335,11 +350,14 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "etfs")
         if df.empty:
             return f"No price data for symbols: {symbols}"
 
+        # Build common date axis from the symbol with most data points
+        ref_sym = df["symbol"].value_counts().idxmax()
+        ref_dates = df[df["symbol"] == ref_sym]["trade_date"].astype(str).tolist()
+
         plt = _plt()
         plt.clear_figure()
         for sym, grp in df.groupby("symbol"):
             prices = grp["close"].tolist()
-            # Normalise to 100 for fair comparison
             base = prices[0] or 1
             norm = [p / base * 100 for p in prices]
             plt.plot(list(range(len(norm))), norm, label=sym)
@@ -347,6 +365,12 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "etfs")
         plt.title(f"Normalised price comparison (base=100)  —  last {days} days")
         plt.ylabel("Indexed price (base 100)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
+        n = len(ref_dates)
+        step = max(1, n // 5)
+        tick_idx = list(range(0, n, step))
+        if tick_idx[-1] != n - 1:
+            tick_idx.append(n - 1)
+        plt.xticks(tick_idx, [str(ref_dates[i])[:10] for i in tick_idx])
         return _build(plt)
     except ImportError as exc:
         return str(exc)
@@ -636,6 +660,58 @@ def plot_intl_etf_premium(symbol: str = "MAFANG", days: int = 180) -> str:
         return f"Error plotting premium for {symbol}: {exc}"
 
 
+@tool
+def plot_shareholding_bar(symbol: str) -> str:
+    """
+    Plot a horizontal bar chart of the shareholding pattern for an Indian NSE stock.
+    Shows Promoter / FII / DII / Public holding % side-by-side.
+
+    Args:
+        symbol: NSE ticker — e.g. GRWRHITECH, RELIANCE, LICI
+
+    Example: plot_shareholding_bar("GRWRHITECH")
+    """
+    try:
+        from src.tools.earnings_scraper import get_shareholding_pattern
+
+        data = get_shareholding_pattern.invoke({"symbol": symbol})
+        if "error" in data:
+            return f"Shareholding data unavailable for {symbol}: {data['error']}"
+
+        categories = ["Promoter", "FII", "DII", "Public"]
+        values = [
+            float(data.get("promoter_pct", 0)),
+            float(data.get("fii_pct", 0)),
+            float(data.get("dii_pct", 0)),
+            float(data.get("public_pct", 0)),
+        ]
+        deltas = {
+            "FII":     data.get("fii_pct_qoq_delta", 0),
+            "DII":     data.get("dii_pct_qoq_delta", 0),
+            "Promoter": 0.0,
+            "Public":  0.0,
+        }
+        quarter = data.get("latest_quarter", "latest quarter")
+
+        plt = _plt()
+        plt.clear_figure()
+        plt.bar(categories, values, orientation="horizontal")
+        plt.title(f"{symbol.upper()} — Shareholding Pattern ({quarter})")
+        plt.xlabel("% Holding")
+        plt.plot_size(_chart_width(), max(len(categories) + 6, 12))
+        chart = _build(plt)
+
+        delta_lines = "  ".join(
+            f"{cat}: {val:.2f}%  (QoQ {deltas[cat]:+.2f}%)" if cat in deltas else f"{cat}: {val:.2f}%"
+            for cat, val in zip(categories, values)
+        )
+        return f"{chart}\n{delta_lines}"
+    except ImportError as exc:
+        return str(exc)
+    except Exception as exc:
+        return f"Error plotting shareholding for {symbol}: {exc}"
+
+
 CHART_TOOLS = [
     plot_price_chart,
     plot_fii_dii_chart,
@@ -648,4 +724,5 @@ CHART_TOOLS = [
     plot_garch_volatility_chart,
     plot_intl_etf_performance,
     plot_intl_etf_premium,
+    plot_shareholding_bar,
 ]

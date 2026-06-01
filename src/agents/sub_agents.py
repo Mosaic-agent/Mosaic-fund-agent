@@ -827,6 +827,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `get_quarterly_results(\"SYMBOL:EXCHANGE\")` — revenue, net profit, EPS, YoY growth\n"
         "  • `get_stock_cashflow(\"SYMBOL:EXCHANGE\")` — 3yr FCF, operating CF, capex\n"
         "  • `get_shareholding_pattern(symbol)` — Promoter/FII/DII/Public holding % with QoQ delta\n"
+        "  • `plot_shareholding_bar(symbol)` — bar chart of the shareholding breakdown (call this alongside get_shareholding_pattern)\n"
         "  • `get_mf_holdings_for_stock(company_name)` — DSP fund cross-ownership\n"
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
         "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n"
@@ -836,8 +837,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "SYNTHESIS: After all results arrive, write a structured Markdown research note:\n"
         "(1) Company Snapshot (including the 1-year price chart directly under the snapshot table)  (2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
-        "(5) Institutional Ownership — use get_shareholding_pattern output: show Promoter/FII/DII/Public % "
-        "as of the latest quarter with QoQ delta arrows (↑↓) for each. "
+        "(5) Institutional Ownership — embed the plot_shareholding_bar chart verbatim, then the "
+        "Promoter/FII/DII/Public % table with QoQ delta arrows (↑↓) from get_shareholding_pattern. "
         "Also include DSP MF cross-ownership from get_mf_holdings_for_stock.  "
         "(6) News Sentiment  "
         "(7) Key Risks  (8) Recommendation (BUY/HOLD/SELL/WATCH + one-line rationale)\n\n"
@@ -855,14 +856,15 @@ class IndianEquityResearchSubAgent(_SubAgent):
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.skills_tools import query_clickhouse_db, import_symbol_data
         from src.tools.indian_equity_tools import INDIAN_EQUITY_TOOLS
-        from src.tools.chart_tools import plot_price_chart
+        from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar
         from src.tools.agent_tools import check_and_refresh_symbol_data
         return (
             [resolve_company]
             + YAHOO_TOOLS
             + EARNINGS_TOOLS
             + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db,
-               import_symbol_data, check_and_refresh_symbol_data, plot_price_chart]
+               import_symbol_data, check_and_refresh_symbol_data,
+               plot_price_chart, plot_shareholding_bar]
             + INDIAN_EQUITY_TOOLS
         )
 
