@@ -663,8 +663,8 @@ def plot_intl_etf_premium(symbol: str = "MAFANG", days: int = 180) -> str:
 @tool
 def plot_shareholding_bar(symbol: str) -> str:
     """
-    Plot a horizontal bar chart of the shareholding pattern for an Indian NSE stock.
-    Shows Promoter / FII / DII / Public holding % side-by-side.
+    Plot a horizontal stacked bar chart of the shareholding pattern for an Indian NSE stock.
+    Shows Promoter, FII, DII, Government, and Public holding percentages as a 100% stacked bar.
 
     Args:
         symbol: NSE ticker — e.g. GRWRHITECH, RELIANCE, LICI
@@ -678,36 +678,94 @@ def plot_shareholding_bar(symbol: str) -> str:
         if "error" in data:
             return f"Shareholding data unavailable for {symbol}: {data['error']}"
 
-        categories = ["Promoter", "FII", "DII", "Public"]
+        categories = ["Promoter", "FII", "DII", "Government", "Public"]
         values = [
             float(data.get("promoter_pct", 0)),
             float(data.get("fii_pct", 0)),
             float(data.get("dii_pct", 0)),
+            float(data.get("government_pct", 0)),
             float(data.get("public_pct", 0)),
         ]
-        deltas = {
-            "FII":     data.get("fii_pct_qoq_delta", 0),
-            "DII":     data.get("dii_pct_qoq_delta", 0),
-            "Promoter": 0.0,
-            "Public":  0.0,
+
+        # Calculate width dynamically based on terminal width, ensuring it fits
+        width = max(40, _chart_width() - 8)
+
+        # Distribute blocks using the largest remainder method to sum exactly to width
+        total_val = sum(values) or 100.0
+        raw_blocks = [val / total_val * width for val in values]
+        blocks = [int(x) for x in raw_blocks]
+        remainder = width - sum(blocks)
+
+        # Distribute the remainder based on fractional parts
+        fractional = [(raw_blocks[i] - blocks[i], i) for i in range(len(values))]
+        fractional.sort(reverse=True, key=lambda x: x[0])
+        for i in range(remainder):
+            idx = fractional[i][1]
+            blocks[idx] += 1
+
+        # Patterns for high compatibility without color
+        patterns = {
+            "Promoter": "█",
+            "FII": "▓",
+            "DII": "▒",
+            "Government": "▞",
+            "Public": "░",
         }
+
+        # Sleek ANSI terminal colors (High-intensity / 256 support)
+        colors = {
+            "Promoter": "\033[94m",    # Light Blue
+            "FII": "\033[96m",         # Light Cyan
+            "DII": "\033[93m",         # Light Yellow
+            "Government": "\033[95m",  # Light Magenta
+            "Public": "\033[90m",      # Dark Gray
+        }
+        reset = "\033[0m"
+
+        # Build the horizontal stacked bar
+        bar_parts = []
+        for cat, blk in zip(categories, blocks):
+            if blk > 0:
+                char = patterns[cat]
+                color = colors[cat]
+                bar_parts.append(f"{color}{char * blk}{reset}")
+        bar_str = "".join(bar_parts)
+
+        # Build legend and details
+        deltas = {
+            "Promoter": float(data.get("promoter_pct_qoq_delta", 0)),
+            "FII": float(data.get("fii_pct_qoq_delta", 0)),
+            "DII": float(data.get("dii_pct_qoq_delta", 0)),
+            "Government": float(data.get("government_pct_qoq_delta", 0)),
+            "Public": float(data.get("public_pct_qoq_delta", 0)),
+        }
+
         quarter = data.get("latest_quarter", "latest quarter")
+        title_line = f"\033[1m{symbol.upper()} — Shareholding Composition ({quarter})\033[0m"
 
-        plt = _plt()
-        plt.clear_figure()
-        plt.bar(categories, values, orientation="horizontal")
-        plt.title(f"{symbol.upper()} — Shareholding Pattern ({quarter})")
-        plt.xlabel("% Holding")
-        plt.plot_size(_chart_width(), max(len(categories) + 6, 12))
-        chart = _build(plt)
+        # Format the lines wrapped in clean borders
+        border_top = f"┌{'─' * (width + 2)}┐"
+        bar_line = f"│ {bar_str} │"
+        border_bottom = f"└{'─' * (width + 2)}┘"
 
-        delta_lines = "  ".join(
-            f"{cat}: {val:.2f}%  (QoQ {deltas[cat]:+.2f}%)" if cat in deltas else f"{cat}: {val:.2f}%"
-            for cat, val in zip(categories, values)
-        )
-        return f"{chart}\n{delta_lines}"
-    except ImportError as exc:
-        return str(exc)
+        legend_lines = []
+        for cat, val in zip(categories, values):
+            if val > 0 or deltas[cat] != 0:
+                color = colors[cat]
+                char = patterns[cat]
+                delta = deltas[cat]
+                delta_str = f"({delta:+.2f}% QoQ)" if delta != 0 else ""
+                legend_lines.append(f"  {color}{char}{reset} {cat:<10}: {val:>6.2f}%   {delta_str}")
+
+        lines = [
+            title_line,
+            border_top,
+            bar_line,
+            border_bottom,
+            ""
+        ] + legend_lines
+
+        return "\n".join(lines)
     except Exception as exc:
         return f"Error plotting shareholding for {symbol}: {exc}"
 
