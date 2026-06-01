@@ -192,19 +192,27 @@ def run_dsp_multi_asset_importer() -> str:
 
 
 @tool
-def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates,inav", full: bool = False) -> str:
+def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates,inav", full: bool = False, symbol: str = "") -> str:
     """
-    Trigger the historical ClickHouse data engineering pipeline to import and sync data from external APIs.
-    Streams live progress to the terminal as each symbol is fetched and inserted.
-    Use this when asked to sync/import/refresh general market data or specific categories.
-    Note: If the user asks to import or update stocks with freshness generally (without naming a specific symbol),
-    do NOT ask for a symbol; call this tool with category='stocks' to run the parallel stock importer for all stocks.
+    Trigger the historical ClickHouse data engineering pipeline to import and sync BULK data.
+    Use ONLY for bulk category imports — e.g. "import all stocks", "refresh ETFs", "sync everything".
+
+    IMPORTANT: If the user names a SPECIFIC symbol (e.g. "import ADVENZYMES", "refresh GOLDBEES"),
+    do NOT use this tool — use `import_symbol_data(symbol)` instead.
+    This tool imports ALL symbols in a category, which is slow and wasteful when only one is needed.
+
+    If called with a symbol anyway, it will auto-redirect to import_symbol_data for that symbol.
+
     Args:
         category: Comma-separated list of categories to import.
                   Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav.
-                  inav = live NSE iNAV snapshot for all tracked ETFs (updates every ~15s during market hours).
-        full: If True, performs a full backfill ignoring watermarks (not applicable for inav).
+        full: If True, performs a full backfill ignoring watermarks.
+        symbol: (optional) If a specific symbol is provided, redirects to import_symbol_data.
     """
+    # Safety net: if caller passed a specific symbol, redirect to per-symbol import
+    if symbol and symbol.strip():
+        return import_symbol_data_impl(symbol.strip().upper())
+
     args = ["src/main.py", "import"]
     if full:
         args.append("--full")
@@ -324,13 +332,14 @@ def import_symbol_data_impl(symbol: str, days: int = 365) -> str:
 @tool
 def import_symbol_data(symbol: str, days: int = 365) -> str:
     """
-    Import price history for a specific NSE symbol over a custom date range.
-    Use when the user wants to import/refresh ONE specific symbol — e.g.
-    "import HNGSNGBEES 1 year", "import GOLDBEES last 6 months", "import RELIANCE 2 years".
+    Import price history for a SPECIFIC NSE symbol. This is the PREFERRED tool when the user
+    names a particular stock/ETF to import — e.g. "import ADVENZYMES", "refresh GOLDBEES data",
+    "update RELIANCE prices". Much faster than bulk import since it fetches only one symbol.
+
     For bulk category imports (all ETFs, all stocks), use run_data_engineering_importer instead.
 
     Args:
-        symbol: NSE symbol to import (e.g. "HNGSNGBEES", "GOLDBEES", "RELIANCE", "NIFTY50").
+        symbol: NSE symbol to import (e.g. "ADVENZYMES", "GOLDBEES", "RELIANCE", "NIFTY50").
                 Uppercased automatically. Covers ETFs, stocks, commodities, and indices.
         days:   Calendar days of history back from today.
                 365=1 year · 730=2 years · 180=6 months · 90=3 months · 30=1 month
