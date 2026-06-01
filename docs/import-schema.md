@@ -29,6 +29,21 @@ python src/main.py import --category commodities --full   # full re-import
 python src/main.py import --category etfs --dry-run       # preview, no DB writes
 ```
 
+### High-Concurrency & Parallel Stock Imports
+
+For `stocks` and `us_stocks` categories, the sequential importer is automatically intercepted and routed to a high-concurrency parallel pipeline ([parallel_importer.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/parallel_importer.py)).
+
+This pipeline concurrently processes each stock symbol using a thread pool to fetch pricing history (`daily_prices`), quarterly earnings, insider transactions, and valuation snapshots.
+- **Worker Limit:** Capped at 5 concurrent worker threads to balance speed and stability.
+- **Anti-Rate-Limiting Jitter:** Staggers worker execution using randomized initial delays (`0.1s` to `1.2s`) and spacing delays (`0.3s` to `1.0s`) between fetches. This prevents Yahoo Finance from blocking requests with `HTTP Error 401: Unauthorized` or rate-limiting.
+- **Auto-Routing:** Agent LLM loops and standard CLI calls like `python src/main.py import --category stocks` are automatically routed through this parallel importer.
+
+You can also invoke the script directly from the project root:
+```bash
+python src/scripts/portfolio/import_stocks_parallel.py --workers 5 [--dry-run] [--full]
+```
+
+
 ### Fetcher Adapter Pattern
 
 Five core categories have typed **Fetcher adapters** (`src/importer/fetchers/adapters.py`):

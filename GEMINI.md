@@ -27,6 +27,7 @@ python src/main.py config                   # show masked config
 ```bash
 python src/scripts/portfolio/fund_mom_returns.py --scheme 152056   # MoM NAV returns
 python src/scripts/portfolio/portfolio_health_check.py
+python src/scripts/portfolio/import_stocks_parallel.py --workers 5  # parallel stock import
 python src/scripts/portfolio/inr_hedge_report.py
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import
 python src/scripts/dsp/import_latest_dsp.py                        # latest month only
@@ -126,7 +127,7 @@ All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
 - **Output files:** Reports written to `./output/` as JSON/HTML.
-- **Scripts subdirs:** `dsp/` (DSP AMC import + analysis), `fund_imports/` (factory-pattern AMC importers), `etf/` (ETF comparison, CAGR, risk), `ml/` (prediction backfill/eval), `portfolio/` (health checks, opportunity scan, MoM returns), `market/` (macro, FII/DII, metals, sentiment), `db/` (ClickHouse backup/restore/sanity).
+- **Scripts subdirs:** `dsp/` (DSP AMC import + analysis), `fund_imports/` (factory-pattern AMC importers), `etf/` (ETF comparison, CAGR, risk), `ml/` (prediction backfill/eval), `portfolio/` (health checks, opportunity scan, MoM returns, parallel stock import), `market/` (macro, FII/DII, metals, sentiment), `db/` (ClickHouse backup/restore/sanity).
 
 ## Critical: Grounding Rules — DO NOT Hallucinate
 
