@@ -30,6 +30,67 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+def _print_thinking_blocks(content: Any, label: str = "🧠 Analyst Reasoning") -> None:
+    """
+    Extract Anthropic extended-thinking blocks from a message content and
+    print them to the console in a distinctive cyan panel.
+
+    Called after the synthesis LLM responds so the user can see the
+    cross-check reasoning before reading the final report.
+
+    content: AIMessage.content (list of dicts, or plain str)
+    """
+    if not isinstance(content, list):
+        return
+    thinking_parts = [
+        blk.get("thinking", "")
+        for blk in content
+        if isinstance(blk, dict) and blk.get("type") == "thinking" and blk.get("thinking")
+    ]
+    if not thinking_parts:
+        return
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.markdown import Markdown
+        _c = Console()
+        thinking_text = "\n\n---\n\n".join(thinking_parts)
+        _c.print(Panel(
+            Markdown(thinking_text),
+            title=f"[bold cyan]{label}[/bold cyan]",
+            border_style="cyan",
+            expand=False,
+        ))
+    except Exception:
+        # Non-critical — log as debug if Rich unavailable
+        logger.debug("thinking: %s", "\n".join(thinking_parts[:200]))
+
+
+# ── Common indicator typo corrections ──────────────────────────────────────────
+
+_INDICATOR_TYPOS: dict[str, str] = {
+    "mcad": "MACD",
+    "mcda": "MACD",
+    "risi": "RSI",
+    "bolinger": "Bollinger",
+    "bolliger": "Bollinger",
+    "boilinger": "Bollinger",
+}
+
+_INDICATOR_TYPO_RE = re.compile(
+    r"\b(" + "|".join(re.escape(k) for k in _INDICATOR_TYPOS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _fix_indicator_typos(question: str) -> str:
+    """Correct common misspellings of technical indicator names."""
+    def _repl(m: re.Match) -> str:
+        return _INDICATOR_TYPOS[m.group(0).lower()]
+    return _INDICATOR_TYPO_RE.sub(_repl, question)
+
+
 # ── Shared rule: injected into every agent system prompt ───────────────────────
 NO_LLM_CALC_RULE = (
     "\n\nNUMERIC COMPUTATION RULE (mandatory — never violate): "
@@ -191,13 +252,61 @@ def _needs_cloud(question: str) -> bool:
     return bool(_CLOUD_NEEDED_RE.search(question))
 
 
+def _fast_path_intent(question: str) -> str | None:
+    """
+    Tiny fast-path router for the 3 truly unambiguous cases where calling an
+    LLM would be wasteful. Returns None if the LLM router should decide.
+
+    Cases handled here:
+      - `import|refresh|sync` data ops  → main
+      - Explicit SQL / database ops     → database
+      - Bare ticker (≤2 words, in local lookup) → india_equity
+    """
+    if _IMPORT_RE.search(question):
+        return "main"
+    if _DB_RE.search(question):
+        return "database"
+    bare = question.strip().rstrip("?.")
+    if 0 < len(bare.split()) <= 2:
+        try:
+            from src.tools.company_resolver import _local_indian_lookup
+            from src.agents.signal_sources import SIGNAL_ETFS
+            sym = _local_indian_lookup(bare)
+            if sym:
+                return "signal" if sym in SIGNAL_ETFS else "india_equity"
+        except Exception:
+            pass
+    return None
+
+
 def route_intent(question: str) -> str:
     """
     Determine which sub-agent should handle this question.
 
+    Strategy: 3-case fast-path regex → LLM router (cached Haiku/gpt-4o-mini)
+    → minimal-regex fallback only if LLM router unavailable.
+
     Returns
     -------
-    'deepdive' | 'research' | 'india_equity' | 'signal' | 'macro' | 'code' | 'main'
+    'deepdive' | 'research' | 'india_equity' | 'signal' | 'macro'
+    | 'intl_etf' | 'news' | 'code' | 'database' | 'main'
+    """
+    hit = _fast_path_intent(question)
+    if hit is not None:
+        return hit
+    try:
+        from src.agents.intent_router import route_intent_llm
+        return route_intent_llm(question)
+    except Exception as exc:
+        logger.debug("route_intent: LLM router unavailable (%s) — using regex fallback", exc)
+        return _regex_route_intent(question)
+
+
+def _regex_route_intent(question: str) -> str:
+    """
+    Legacy regex-only router. Used as the absolute fallback when no LLM
+    router is configured (no OPENAI/ANTHROPIC/GOOGLE key) and called by
+    intent_router._regex_fallback.
     """
     if _DEEPDIVE_RE.search(question):
         return "deepdive"
@@ -207,11 +316,28 @@ def route_intent(question: str) -> str:
         return "database"
     if _CODE_RE.search(question):
         return "code"
-    if any(k in question.lower() for k in ("plot", "chart", "visualise", "visualize")):
+    if any(k in question.lower() for k in ("plot", "chart", "visualise", "visualize", "show")):
         if _INTL_ETF_RE.search(question):
             return "intl_etf"
         if _MACRO_RE.search(question):
             return "macro"
+        # Best-effort: strip action words and check if the remainder is an Indian stock
+        try:
+            from src.tools.company_resolver import _local_indian_lookup
+            from src.agents.signal_sources import SIGNAL_ETFS
+            _words = re.sub(
+                r"\b(?:plot|chart|visualise|visualize|show|display|give|me|the|a|an"
+                r"|trend|year|month|day|week|daily|weekly|monthly|price|prices"
+                r"|macd|rsi|bollinger|ema|sma|moving|average|volume|technical|indicator"
+                r"|1|2|3|5|10|52|30|60|90|180|252|365)\b|'s\b",
+                "", question, flags=re.I,
+            ).strip()
+            if _words:
+                sym = _local_indian_lookup(_words)
+                if sym and sym not in SIGNAL_ETFS:
+                    return "india_equity"
+        except Exception:
+            pass
         return "signal"
     if _SIGNAL_RE.search(question):
         return "signal"
@@ -223,7 +349,6 @@ def route_intent(question: str) -> str:
         return "macro"
     if _NEWS_RE.search(question):
         return "news"
-    # General research intent — resolve company locally (no network) to avoid slowdown
     m = _GENERAL_RESEARCH_RE.search(question)
     if m:
         subject = m.group(1).strip().rstrip("?.")
@@ -231,15 +356,12 @@ def route_intent(question: str) -> str:
             from src.tools.company_resolver import _local_indian_lookup, resolve_company_info
             if _local_indian_lookup(subject):
                 return "india_equity"
-            # Fall through to full resolver only if subject looks short (likely a ticker/name)
             if len(subject.split()) <= 5:
                 info = resolve_company_info(subject)
                 if info["source"] != "fallback":
                     return "india_equity" if info["market"] == "India" else "deepdive"
         except Exception:
             pass
-    # Last resort: bare company/ticker name with no action verb
-    # e.g. "adani enterprise", "RELIANCE", "hdfc bank"
     bare = question.strip().rstrip("?.")
     if len(bare.split()) <= 4:
         try:
@@ -444,8 +566,11 @@ class _SubAgent:
                 if last_ai and not _recursion_hit:
                     ai_text = _get_message_text(last_ai.content)
 
-                    # Find all chart tool outputs in the message logs
-                    charts = []
+                    # Print any extended-thinking blocks from the final message
+                    _print_thinking_blocks(last_ai.content)
+
+                    # Collect chart tool outputs keyed by type
+                    chart_by_type: dict[str, str] = {}   # "price" | "shareholding" | tool_name → chart_str
                     for m in msgs:
                         if isinstance(m, ToolMessage):
                             content_str = str(m.content)
@@ -455,55 +580,58 @@ class _SubAgent:
                             )
                             if is_chart:
                                 chart_val = m.content
-                                # Clean up chart_str if it's wrapped in list/dict
                                 if isinstance(chart_val, dict):
                                     chart_val = chart_val.get("chart", "") or chart_val.get("result", "") or str(chart_val)
-                                charts.append((m.name or "plot_chart", str(chart_val)))
+                                tname = m.name or "plot_chart"
+                                if "price" in tname.lower():
+                                    chart_by_type["price"] = str(chart_val)
+                                elif "shareholding" in tname.lower():
+                                    chart_by_type["shareholding"] = str(chart_val)
+                                else:
+                                    chart_by_type[tname] = str(chart_val)
 
-                    for tool_name, chart_str in charts:
-                        # Skip if this chart is already present in the text
-                        if "┤" in ai_text and chart_str[:50] in ai_text:
-                            continue
+                    # Strip any box-drawing / chart characters the LLM may have
+                    # reproduced despite instructions.  These corrupt Rich panels.
+                    import re as _re
+                    _CHART_LINE_RE = _re.compile(
+                        r"^.*[┤┼┌┐┘└├┬┴─]{3,}.*$|"   # box-drawing heavy lines
+                        r"^.*[████▓▓▒▒░░]{4,}.*$|"    # bar chart fill blocks
+                        r"^.*▞▞.*▗▌.*$",               # plotext braille scatter
+                        _re.MULTILINE,
+                    )
+                    ai_text = _CHART_LINE_RE.sub("", ai_text)
+                    # Clean up empty ``` blocks left behind
+                    ai_text = _re.sub(r"```\s*```", "", ai_text)
+                    # Collapse runs of 3+ blank lines
+                    ai_text = _re.sub(r"\n{3,}", "\n\n", ai_text)
 
-                        if "price" in tool_name.lower():
-                            import re
-                            pattern = re.compile(
-                                r"(#+\s*(?:1-Year\s+)?Price\s+Chart.*?)(?=\n\s*\n|\n\s*#|\Z)",
-                                re.IGNORECASE | re.DOTALL
-                            )
-                            match = pattern.search(ai_text)
-                            if match:
-                                header = match.group(1).strip()
-                                ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
-                                continue
-                            
-                            snapshot_pattern = re.compile(
-                                r"(#+\s*(?:1\.\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)",
-                                re.IGNORECASE | re.DOTALL
-                            )
-                            match = snapshot_pattern.search(ai_text)
-                            if match:
-                                section = match.group(1).strip()
-                                ai_text = ai_text.replace(match.group(0), f"{section}\n\n{chart_str}\n")
-                                continue
-                            
-                            ai_text = f"{ai_text}\n\n### Price Chart\n\n{chart_str}"
-                        elif "fii" in tool_name.lower() or "flow" in tool_name.lower():
-                            import re
-                            pattern = re.compile(
-                                r"(#+\s*FII/DII\s+(?:Net\s+)?Flow.*?)(?=\n\s*\n|\n\s*#|\Z)",
-                                re.IGNORECASE | re.DOTALL
-                            )
-                            match = pattern.search(ai_text)
-                            if match:
-                                header = match.group(1).strip()
-                                ai_text = ai_text.replace(match.group(0), f"{header}\n\n{chart_str}\n")
-                            else:
-                                ai_text = f"{ai_text}\n\n### FII/DII Net Flows Chart\n\n{chart_str}"
+                    # Replace [CHART:price] and [CHART:shareholding] placeholders
+                    if "price" in chart_by_type:
+                        if "[CHART:price]" in ai_text:
+                            ai_text = ai_text.replace("[CHART:price]", chart_by_type.pop("price"))
                         else:
-                            # Generic fallback for any other chart
-                            title = tool_name.replace("plot_", "").replace("_", " ").title()
-                            ai_text = f"{ai_text}\n\n### {title}\n\n{chart_str}"
+                            # Fallback: insert after Company Snapshot header
+                            snap = _re.search(r"(#+\s*(?:\(?\d\)?\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)", ai_text, _re.I | _re.DOTALL)
+                            if snap:
+                                ai_text = ai_text[:snap.end()] + "\n\n" + chart_by_type.pop("price") + "\n" + ai_text[snap.end():]
+                            else:
+                                ai_text += "\n\n" + chart_by_type.pop("price")
+
+                    if "shareholding" in chart_by_type:
+                        if "[CHART:shareholding]" in ai_text:
+                            ai_text = ai_text.replace("[CHART:shareholding]", chart_by_type.pop("shareholding"))
+                        else:
+                            # Fallback: insert before the Institutional Ownership table
+                            own = _re.search(r"(#+\s*(?:\(?\d\)?\s*)?Institutional\s+Ownership.*?)(?=\n\s*[╭|])", ai_text, _re.I | _re.DOTALL)
+                            if own:
+                                ai_text = ai_text[:own.end()] + "\n\n" + chart_by_type.pop("shareholding") + "\n" + ai_text[own.end():]
+                            else:
+                                ai_text += "\n\n" + chart_by_type.pop("shareholding")
+
+                    # Append any remaining charts (FII/DII, etc.) that weren't placed
+                    for tname, chart_str in chart_by_type.items():
+                        title = tname.replace("plot_", "").replace("_", " ").title()
+                        ai_text += f"\n\n### {title}\n\n{chart_str}"
 
                     logger.info(
                         "%s: returning LLM synthesis (%d chars)",
@@ -515,8 +643,20 @@ class _SubAgent:
                 if self._llm:
                     try:
                         from langchain_core.messages import SystemMessage
+
+                        # Use extended thinking for the synthesis call when the LLM
+                        # is Anthropic Claude — gives a deeper reasoning pass over
+                        # all collected tool data before writing the research note.
+                        synth_llm = self._llm
+                        try:
+                            if hasattr(synth_llm, "model") and "claude" in str(getattr(synth_llm, "model", "")).lower():
+                                synth_llm = synth_llm.bind(thinking={"type": "enabled", "budget_tokens": 8000})
+                                logger.info("%s: extended thinking enabled for synthesis", self.__class__.__name__)
+                        except Exception:
+                            pass  # non-critical — fall through to normal LLM
+
                         combined = "\n\n---\n\n".join(tool_sections[:10])
-                        synth = self._llm.invoke([
+                        synth = synth_llm.invoke([
                             SystemMessage(content=(
                                 self.SYSTEM_PROMPT + NO_LLM_CALC_RULE + "\n\n"
                                 "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
@@ -528,11 +668,13 @@ class _SubAgent:
                             )),
                             HumanMessage(content=f"Question: {question}\n\nData collected:\n{combined}"),
                         ])
+                        # Print extended-thinking blocks if present
+                        _print_thinking_blocks(synth.content, label="🧠 Analyst Reasoning (extended thinking)")
                         logger.info(
                             "%s: partial synthesis (%d tool outputs → %d chars)",
                             self.__class__.__name__, len(tool_sections), len(str(synth.content)),
                         )
-                        return str(synth.content)
+                        return _get_message_text(synth.content) if isinstance(synth.content, list) else str(synth.content)
                     except Exception as synth_exc:
                         logger.warning("%s: synthesis call failed: %s", self.__class__.__name__, synth_exc)
 
@@ -707,18 +849,6 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
     except Exception as exc:
         parts.append(f"## News\n*Unavailable: {exc}*")
 
-    # 6. FII/DII institutional flows
-    try:
-        from src.tools.indian_equity_tools import get_fii_dii_summary
-        fii_result = get_fii_dii_summary.invoke({"days": 7})
-        parts.append(
-            f"## FII/DII Institutional Flows (7 days)\n{fii_result}"
-            if fii_result and "Error" not in fii_result
-            else "## FII/DII Flows\n*Data unavailable from ClickHouse.*"
-        )
-    except Exception as exc:
-        parts.append(f"## FII/DII Flows\n*Unavailable: {exc}*")
-
     raw_data = "\n\n".join(parts)
 
     # LLM synthesis — only attempted when the model has enough context headroom.
@@ -826,23 +956,46 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `get_price_momentum(\"SYMBOL:EXCHANGE\")` — 30d/90d returns, momentum signal\n"
         "  • `get_quarterly_results(\"SYMBOL:EXCHANGE\")` — revenue, net profit, EPS, YoY growth\n"
         "  • `get_stock_cashflow(\"SYMBOL:EXCHANGE\")` — 3yr FCF, operating CF, capex\n"
-        "  • `get_shareholding_pattern(symbol)` — Promoter/FII/DII/Public holding % with QoQ delta\n"
-        "  • `plot_shareholding_bar(symbol)` — bar chart of the shareholding breakdown (call this alongside get_shareholding_pattern)\n"
+        "  • `plot_shareholding_bar(symbol)` — fetches AND charts Promoter/FII/DII/Public % (do NOT also call get_shareholding_pattern separately)\n"
         "  • `get_mf_holdings_for_stock(company_name)` — DSP fund cross-ownership\n"
+        "  • `get_db_price_summary(symbol)` — 30/60/90/365-day price trends from ClickHouse (auto-imports if missing)\n"
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
-        "  • `get_fii_dii_summary(7)` — 7-day aggregate FII/DII market flows\n"
-        "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n\n"
+        "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n"
+        "  • `plot_macd_chart(symbol, days)` — MACD(12,26,9) chart with signal line + histogram (use when user asks for MACD)\n\n"
+        "TECHNICAL INDICATOR RECOGNITION:\n"
+        "When the query contains MACD, RSI, Bollinger, EMA, SMA, or similar indicator names, "
+        "the user wants a chart/analysis of that indicator — NOT a second stock. "
+        "For example, 'ADVENZYMES MACD' means 'show MACD chart for ADVENZYMES', not two stocks. "
+        "Call `plot_macd_chart(symbol, 180)` for MACD requests.\n\n"
         "CRITICAL: All parallel tools must appear in one AIMessage response as parallel tool calls. "
         "Calling them one at a time wastes steps and will hit the recursion limit.\n\n"
-        "SYNTHESIS: After all results arrive, write a structured Markdown research note:\n"
-        "(1) Company Snapshot (including the 1-year price chart directly under the snapshot table)  (2) Financials table  (3) Valuation vs sector  "
+        "SYNTHESIS: After all results arrive, reason through the data before writing:\n\n"
+        "REASONING STEP (do this silently before writing the report):\n"
+        "  1. Cross-check revenue/profit growth vs price momentum — do they corroborate each other?\n"
+        "  2. Assess FCF quality: is operating CF genuinely growing, or is capex masking weak earnings?\n"
+        "  3. Evaluate promoter + FII/DII QoQ deltas — are institutions accumulating or distributing?\n"
+        "  4. Gauge valuation: P/E relative to profit growth → compute a qualitative PEG assessment.\n"
+        "  5. Assess competitive moat — is this a niche leader or a commodity player?\n"
+        "  6. Identify the single most important risk that could invalidate the investment thesis.\n"
+        "  7. Arrive at a conviction-weighted BUY/HOLD/SELL/WATCH rating with clear rationale.\n\n"
+        "Then write the structured Markdown research note:\n"
+        "(1) Company Snapshot — table of key metrics, then write `[CHART:price]` on its own line where the price chart should appear  "
+        "(2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
-        "(5) Institutional Ownership — embed the plot_shareholding_bar chart verbatim, then the "
-        "Promoter/FII/DII/Public % table with QoQ delta arrows (↑↓) from get_shareholding_pattern. "
+        "(5) Institutional Ownership — write `[CHART:shareholding]` on its own line where the shareholding bar should appear, then the "
+        "Promoter/FII/DII/Public % table with QoQ delta arrows (↑↓) from plot_shareholding_bar output. "
         "Also include DSP MF cross-ownership from get_mf_holdings_for_stock.  "
         "(6) News Sentiment  "
-        "(7) Key Risks  (8) Recommendation (BUY/HOLD/SELL/WATCH + one-line rationale)\n\n"
-        "RULES: All monetary values in ₹. Never invent figures. Do not output the price chart twice: render it ONLY once, directly under the Snapshot table in Section (1), and do not create a separate section or code block for the price chart later in the report.\n\n"
+        "(7) Key Risks (ranked by severity, with the thesis-killer risk called out explicitly)  "
+        "(8) Analyst Reasoning — 3-5 sentences explaining the cross-checks from the reasoning step above  "
+        "(9) Recommendation (BUY/HOLD/SELL/WATCH + conviction level LOW/MEDIUM/HIGH + one-line rationale)\n\n"
+        "CHART RULES (CRITICAL — violating these causes duplicate charts):\n"
+        "- NEVER reproduce, copy, or re-type any chart/graph output from plot_* tools.\n"
+        "- NEVER include box-drawing characters (┤ ┼ ─ └ ┐ ┘ ┌ ├ ████ ▓▓ ░░) in your text.\n"
+        "- Instead, write ONLY the placeholder tags `[CHART:price]` and `[CHART:shareholding]` — "
+        "the system will automatically inject the real charts at those positions.\n"
+        "- Charts from tools are rendered separately — your job is ONLY the narrative text.\n\n"
+        "RULES: All monetary values in ₹. Never invent figures.\n\n"
         "DATA AVAILABILITY: If a ClickHouse query returns 0 rows, or plot_price_chart "
         "returns 'No price data found', call `check_and_refresh_symbol_data(symbol)` "
         "to auto-import the data, then retry the query or chart tool."
@@ -851,21 +1004,21 @@ class IndianEquityResearchSubAgent(_SubAgent):
     def _get_tools(self) -> list:
         from src.tools.company_resolver import resolve_company
         from src.tools.yahoo_finance import YAHOO_TOOLS
-        from src.tools.earnings_scraper import EARNINGS_TOOLS  # includes get_shareholding_pattern
+        from src.tools.earnings_scraper import get_quarterly_results  # get_shareholding_pattern excluded — plot_shareholding_bar calls it internally
         from src.tools.news_search import get_stock_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.skills_tools import query_clickhouse_db, import_symbol_data
-        from src.tools.indian_equity_tools import INDIAN_EQUITY_TOOLS
-        from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar
+        from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
+        from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
         from src.tools.agent_tools import check_and_refresh_symbol_data
         return (
             [resolve_company]
             + YAHOO_TOOLS
-            + EARNINGS_TOOLS
+            + [get_quarterly_results]
             + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db,
                import_symbol_data, check_and_refresh_symbol_data,
-               plot_price_chart, plot_shareholding_bar]
-            + INDIAN_EQUITY_TOOLS
+               plot_price_chart, plot_shareholding_bar, plot_macd_chart,
+               get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary]
         )
 
     def _fallback(self, question: str) -> str:
@@ -925,7 +1078,8 @@ class SignalSubAgent(_SubAgent):
         "- `plot_signal_breakdown('SYM1,SYM2')` — weighted pillar breakdown (macro/sentiment/valuation/flow/ML)\n"
         "- `plot_weight_recommendations('blended_50')` — recommended position weights\n"
         "- `plot_garch_volatility_chart(symbol)` — GARCH vol trend vs vol-target line\n"
-        "- `plot_price_chart(symbol)` — price trend for a specific ETF"
+        "- `plot_price_chart(symbol)` — price trend for a specific ETF\n"
+        "- `plot_macd_chart(symbol, days)` — MACD(12,26,9) with EMA overlay and histogram"
     )
 
     def _get_tools(self) -> list:
@@ -941,7 +1095,7 @@ class SignalSubAgent(_SubAgent):
         from src.tools.chart_tools import (
             plot_price_chart, plot_signal_scores, plot_multi_price_chart,
             plot_signal_breakdown, plot_weight_recommendations,
-            plot_garch_volatility_chart,
+            plot_garch_volatility_chart, plot_macd_chart,
         )
         return [
             run_daily_signal_composite,
@@ -957,6 +1111,7 @@ class SignalSubAgent(_SubAgent):
             plot_weight_recommendations,
             plot_garch_volatility_chart,
             plot_multi_price_chart,
+            plot_macd_chart,
         ]
 
 
@@ -1365,7 +1520,8 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - `UNKNOWN_SYMBOL` → skip the import; use `get_yahoo_finance_data` for price data
    Do NOT call for every ETF in a broad scan — only for the 1–3 primary symbols the
    user explicitly named.
-   - If the user asks to import or update stocks with freshness generally (without naming a specific symbol), call `run_data_engineering_importer(category='stocks')` directly. This will automatically get the list of stocks and import each stock in parallel with a limit of 5 concurrent workers (including its price and other relevant data). Do NOT ask the user for a specific symbol.
+   - If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES'), call `import_symbol_data(symbol)` instead of `run_data_engineering_importer`.
+   - Only call `run_data_engineering_importer(category='stocks')` when the user asks to import ALL stocks generically without naming a specific one.
 
 1. **Entity resolution** — Call `resolve_company(query)` to get the NSE/BSE ticker, exchange, and full name. Note that company symbols can change, demerge, or be newly listed; always rely on `resolve_company` rather than hardcoding symbols, and check if its output contains an "error" field before running further tools.
 2. **Price & Momentum** — `get_yahoo_finance_data` (P/E, 52w range, market cap);
@@ -1533,6 +1689,8 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
         Pass [RichConsoleCallbackHandler()] to see live tool-call output.
         TracingCallbackHandler is always appended for observability.
     """
+    # Fix common indicator typos before the sub-agent LLM sees the query
+    question = _fix_indicator_typos(question)
     import os
     from src.agents.tracer import TracingCallbackHandler, log_trace
     from src.agents.budget import BudgetCallbackHandler
