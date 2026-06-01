@@ -111,6 +111,44 @@ def run_import(
     for category, symbol_list in cat_symbols.items():
         console.print(f"\n[bold cyan]▶ {category.upper()}[/bold cyan] ({len(symbol_list)} symbols)")
 
+        if category in ("stocks", "us_stocks"):
+            console.print(f"  [dim]Running parallel import (limit: 5 workers)...[/dim]")
+            from src.importer.parallel_importer import run_parallel_stock_import
+            
+            clickhouse_config = {
+                "host": clickhouse_host,
+                "port": clickhouse_port,
+                "database": clickhouse_database,
+                "username": clickhouse_user,
+                "password": clickhouse_password,
+            }
+            
+            res = run_parallel_stock_import(
+                symbols=symbol_list,
+                category=category,
+                lookback_days=lookback_days,
+                full_reimport=full_reimport,
+                workers=5,
+                clickhouse_config=clickhouse_config,
+                dry_run=dry_run,
+            )
+            
+            inserted = res["prices"]
+            console.print(
+                f"  [green]✓[/green] Completed parallel stock import. "
+                f"Prices: {res['prices']} rows, Earnings: {res['earnings']} rows, "
+                f"Insider: {res['insider']} rows, Valuations: {res['valuation']} rows."
+            )
+            
+            summary_rows.append((
+                category,
+                "yfinance_parallel",
+                inserted,
+                (today - timedelta(days=lookback_days)).isoformat(),
+                today.isoformat(),
+            ))
+            continue
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),

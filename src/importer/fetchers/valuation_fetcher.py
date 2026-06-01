@@ -57,6 +57,9 @@ def fetch_valuation(symbols: list[tuple[str, str]]) -> list[dict]:
     for internal, yahoo in symbols:
         try:
             info = yf.Ticker(yahoo).info
+            if not info or not isinstance(info, dict):
+                logger.warning("No valid valuation info returned for %s (rate-limited or unavailable)", yahoo)
+                continue
             row: dict = {"symbol": internal, "snapshot_date": today}
 
             for col, key in _FLOAT_FIELDS.items():
