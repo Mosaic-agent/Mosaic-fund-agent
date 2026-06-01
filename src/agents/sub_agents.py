@@ -842,7 +842,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "Also include DSP MF cross-ownership from get_mf_holdings_for_stock.  "
         "(6) News Sentiment  "
         "(7) Key Risks  (8) Recommendation (BUY/HOLD/SELL/WATCH + one-line rationale)\n\n"
-        "RULES: All monetary values in ₹. Never invent figures.\n\n"
+        "RULES: All monetary values in ₹. Never invent figures. Do not output the price chart twice: render it ONLY once, directly under the Snapshot table in Section (1), and do not create a separate section or code block for the price chart later in the report.\n\n"
         "DATA AVAILABILITY: If a ClickHouse query returns 0 rows, or plot_price_chart "
         "returns 'No price data found', call `check_and_refresh_symbol_data(symbol)` "
         "to auto-import the data, then retry the query or chart tool."
