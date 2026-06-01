@@ -537,9 +537,13 @@ class MosaicFundAgent:
         import re
 
         # Heuristic for weak models: if question looks like a deep-dive request, trigger it manually
-        if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", question.lower()):
-            name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", question, re.I)
-            raw_query  = name_match.group(1).strip() if name_match else question
+        clean_question = question
+        if "[End of context]\n" in question:
+            clean_question = question.split("[End of context]\n", 1)[1]
+
+        if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", clean_question.lower()):
+            name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", clean_question, re.I)
+            raw_query  = name_match.group(1).strip() if name_match else clean_question
 
             from src.tools.company_resolver import resolve_company_info
             info = resolve_company_info(raw_query)
@@ -659,10 +663,14 @@ class MosaicFundAgent:
         from src.agents.sub_agents import get_subagent
 
         # Deep-dive heuristic: resolve company then route India vs US
-        if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", question.lower()):
+        clean_question = question
+        if "[End of context]\n" in question:
+            clean_question = question.split("[End of context]\n", 1)[1]
+
+        if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", clean_question.lower()):
             # Extract everything after the deepdive keyword as the query
-            name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", question, re.I)
-            raw_query  = name_match.group(1).strip() if name_match else question
+            name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", clean_question, re.I)
+            raw_query  = name_match.group(1).strip() if name_match else clean_question
 
             from src.tools.company_resolver import resolve_company_info
             info = resolve_company_info(raw_query)
