@@ -770,6 +770,115 @@ def plot_shareholding_bar(symbol: str) -> str:
         return f"Error plotting shareholding for {symbol}: {exc}"
 
 
+@tool
+def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
+    """
+    Plot a MACD (12, 26, 9) indicator chart for an NSE symbol from ClickHouse.
+
+    Renders a stacked ASCII chart:
+      • Top:    Price + EMA12 + EMA26
+      • Bottom: MACD line + Signal line + Histogram bars
+
+    Args:
+        symbol:   NSE ticker — e.g. ADVENZYMES, RELIANCE, GOLDBEES
+        days:     Trading-day lookback window (default 180; min 60)
+        category: 'stocks' or 'etfs' — leave blank to auto-detect
+
+    All EMA / MACD math is computed in pandas (never in the LLM).
+    """
+    try:
+        import pandas as pd
+        from src.db.pool import query_df
+
+        sym = symbol.upper().strip()
+        lookback = max(60, days)
+        cat_filter = f"AND category = '{category}'" if category else ""
+        df = query_df(f"""
+            SELECT trade_date,
+                   toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = '{sym}' {cat_filter}
+              AND trade_date >= today() - {lookback + 60}
+            GROUP BY trade_date
+            ORDER BY trade_date ASC
+        """)
+
+        if df.empty:
+            # Auto-import then retry
+            try:
+                from src.tools.agent_tools import check_and_refresh_symbol_data
+                status = check_and_refresh_symbol_data.invoke({"symbol": sym})
+                logger.info("plot_macd_chart auto-import for %s: %s", sym, status)
+                df = query_df(f"""
+                    SELECT trade_date,
+                           toFloat64(argMax(close, imported_at)) AS close
+                    FROM market_data.daily_prices FINAL
+                    WHERE symbol = '{sym}' {cat_filter}
+                      AND trade_date >= today() - {lookback + 60}
+                    GROUP BY trade_date
+                    ORDER BY trade_date ASC
+                """)
+            except Exception as imp_exc:
+                return f"No price data for {sym} and auto-import failed: {imp_exc}"
+
+        if df.empty or len(df) < 35:
+            return f"Insufficient price history for {sym} (need ≥35 bars for MACD, got {len(df)})."
+
+        # Compute EMA-12, EMA-26, MACD, Signal, Histogram in pandas
+        df["ema12"]  = df["close"].ewm(span=12, adjust=False).mean()
+        df["ema26"]  = df["close"].ewm(span=26, adjust=False).mean()
+        df["macd"]   = df["ema12"] - df["ema26"]
+        df["signal"] = df["macd"].ewm(span=9, adjust=False).mean()
+        df["hist"]   = df["macd"] - df["signal"]
+
+        # Restrict display window
+        view = df.tail(days).reset_index(drop=True)
+        dates  = view["trade_date"].astype(str).tolist()
+        xs     = list(range(len(view)))
+
+        plt = _plt()
+        plt.clear_figure()
+        # Stacked layout: top = price/EMAs, bottom = MACD/Signal + histogram
+        plt.subplots(2, 1)
+
+        plt.subplot(1, 1)
+        plt.plot(xs, view["close"].tolist(),  label="Close",  color="white")
+        plt.plot(xs, view["ema12"].tolist(),  label="EMA-12", color="cyan")
+        plt.plot(xs, view["ema26"].tolist(),  label="EMA-26", color="magenta")
+        last_close = view["close"].iloc[-1]
+        last_macd  = view["macd"].iloc[-1]
+        last_sig   = view["signal"].iloc[-1]
+        last_hist  = view["hist"].iloc[-1]
+        cross = "BULL" if last_macd > last_sig else "BEAR"
+        plt.title(f"{sym} — MACD(12,26,9) | Close ₹{last_close:.2f} | MACD {last_macd:+.2f} | Signal {last_sig:+.2f} | Hist {last_hist:+.2f} ({cross})")
+        plt.ylabel("Price (₹)")
+
+        plt.subplot(2, 1)
+        plt.plot(xs, view["macd"].tolist(),   label="MACD",   color="cyan")
+        plt.plot(xs, view["signal"].tolist(), label="Signal", color="orange")
+        # Histogram as bars; plotext supports plot bar
+        plt.bar(xs, view["hist"].tolist(),    label="Hist",   color="green")
+        plt.ylabel("MACD")
+
+        plt.plot_size(_chart_width(), _CHART_HEIGHT * 2)
+
+        # Shared date ticks on the bottom subplot
+        n = len(dates)
+        step = max(1, n // 5)
+        tick_idx = list(range(0, n, step))
+        if tick_idx[-1] != n - 1:
+            tick_idx.append(n - 1)
+        tick_lbl = [str(dates[i])[:10] for i in tick_idx]
+        plt.xticks(tick_idx, tick_lbl)
+
+        return _build(plt)
+    except ImportError as exc:
+        return str(exc)
+    except Exception as exc:
+        logger.error("plot_macd_chart failed for %s: %s", symbol, exc)
+        return f"Error plotting MACD for {symbol}: {exc}"
+
+
 CHART_TOOLS = [
     plot_price_chart,
     plot_fii_dii_chart,
@@ -783,4 +892,5 @@ CHART_TOOLS = [
     plot_intl_etf_performance,
     plot_intl_etf_premium,
     plot_shareholding_bar,
+    plot_macd_chart,
 ]

@@ -222,6 +222,145 @@ LIMIT {min(days, 30)}
         return f"Error fetching FII/DII data: {exc}"
 
 
+@tool
+def get_db_price_summary(symbol: str) -> dict[str, Any]:
+    """
+    Fetch price trend summary from ClickHouse for an Indian stock.
+
+    Returns 30/60/90/365-day close, high, low, avg volume, and percentage
+    change — all computed from ``market_data.daily_prices``.
+
+    Args:
+        symbol: NSE ticker e.g. ADVENZYMES, RELIANCE, GOLDBEES
+
+    Example: get_db_price_summary("ADVENZYMES")
+    """
+    try:
+        from src.db.pool import query_df
+
+        sym = symbol.upper().strip()
+        df = query_df(f"""
+            SELECT
+                count()                                          AS trading_days,
+                argMax(close, trade_date)                        AS latest_close,
+                max(trade_date)                                  AS latest_date,
+                min(trade_date)                                  AS earliest_date,
+
+                -- 30-day window
+                maxIf(high, trade_date >= today() - 30)          AS high_30d,
+                minIf(low,  trade_date >= today() - 30)          AS low_30d,
+                avgIf(close, trade_date >= today() - 30)         AS avg_close_30d,
+                avgIf(volume, trade_date >= today() - 30)        AS avg_vol_30d,
+
+                -- 60-day window
+                maxIf(high, trade_date >= today() - 60)          AS high_60d,
+                minIf(low,  trade_date >= today() - 60)          AS low_60d,
+                avgIf(close, trade_date >= today() - 60)         AS avg_close_60d,
+
+                -- 90-day window
+                maxIf(high, trade_date >= today() - 90)          AS high_90d,
+                minIf(low,  trade_date >= today() - 90)          AS low_90d,
+                avgIf(close, trade_date >= today() - 90)         AS avg_close_90d,
+
+                -- 365-day window
+                maxIf(high, trade_date >= today() - 365)         AS high_1y,
+                minIf(low,  trade_date >= today() - 365)         AS low_1y,
+                avgIf(close, trade_date >= today() - 365)        AS avg_close_1y
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = '{sym}'
+              AND trade_date >= today() - 365
+        """)
+
+        if df.empty or df.iloc[0]["trading_days"] == 0:
+            # Auto-import: trigger data refresh then retry the query
+            try:
+                from src.tools.agent_tools import check_and_refresh_symbol_data
+                status = check_and_refresh_symbol_data.invoke({"symbol": sym})
+                log.info("get_db_price_summary auto-import for %s: %s", sym, status)
+                if "REFRESHED" in str(status) or "FRESH" in str(status) or "UNCHANGED" in str(status):
+                    df = query_df(f"""
+                        SELECT
+                            count()                                          AS trading_days,
+                            argMax(close, trade_date)                        AS latest_close,
+                            max(trade_date)                                  AS latest_date,
+                            min(trade_date)                                  AS earliest_date,
+                            maxIf(high, trade_date >= today() - 30)          AS high_30d,
+                            minIf(low,  trade_date >= today() - 30)          AS low_30d,
+                            avgIf(close, trade_date >= today() - 30)         AS avg_close_30d,
+                            avgIf(volume, trade_date >= today() - 30)        AS avg_vol_30d,
+                            maxIf(high, trade_date >= today() - 60)          AS high_60d,
+                            minIf(low,  trade_date >= today() - 60)          AS low_60d,
+                            avgIf(close, trade_date >= today() - 60)         AS avg_close_60d,
+                            maxIf(high, trade_date >= today() - 90)          AS high_90d,
+                            minIf(low,  trade_date >= today() - 90)          AS low_90d,
+                            avgIf(close, trade_date >= today() - 90)         AS avg_close_90d,
+                            maxIf(high, trade_date >= today() - 365)         AS high_1y,
+                            minIf(low,  trade_date >= today() - 365)         AS low_1y,
+                            avgIf(close, trade_date >= today() - 365)        AS avg_close_1y
+                        FROM market_data.daily_prices FINAL
+                        WHERE symbol = '{sym}'
+                          AND trade_date >= today() - 365
+                    """)
+                if df.empty or df.iloc[0]["trading_days"] == 0:
+                    return {"symbol": sym, "error": f"No price data after auto-import ({status})."}
+            except Exception as imp_exc:
+                log.warning("get_db_price_summary auto-import failed for %s: %s", sym, imp_exc)
+                return {"symbol": sym, "error": f"No data and auto-import failed: {imp_exc}"}
+
+        r = df.iloc[0]
+
+        # Compute % changes from window-start close
+        def _pct(window_days: int) -> float | None:
+            start_df = query_df(f"""
+                SELECT close FROM market_data.daily_prices FINAL
+                WHERE symbol = '{sym}'
+                  AND trade_date >= today() - {window_days}
+                ORDER BY trade_date ASC LIMIT 1
+            """)
+            if start_df.empty:
+                return None
+            start = float(start_df.iloc[0]["close"])
+            if start == 0:
+                return None
+            return round((float(r["latest_close"]) - start) / start * 100, 2)
+
+        return {
+            "symbol": sym,
+            "source": "ClickHouse daily_prices",
+            "latest_close": round(float(r["latest_close"]), 2),
+            "latest_date": str(r["latest_date"]),
+            "trading_days": int(r["trading_days"]),
+            "30d": {
+                "change_pct": _pct(30),
+                "high": round(float(r["high_30d"]), 2),
+                "low": round(float(r["low_30d"]), 2),
+                "avg_close": round(float(r["avg_close_30d"]), 2),
+                "avg_volume": int(r["avg_vol_30d"]),
+            },
+            "60d": {
+                "change_pct": _pct(60),
+                "high": round(float(r["high_60d"]), 2),
+                "low": round(float(r["low_60d"]), 2),
+                "avg_close": round(float(r["avg_close_60d"]), 2),
+            },
+            "90d": {
+                "change_pct": _pct(90),
+                "high": round(float(r["high_90d"]), 2),
+                "low": round(float(r["low_90d"]), 2),
+                "avg_close": round(float(r["avg_close_90d"]), 2),
+            },
+            "1y": {
+                "change_pct": _pct(365),
+                "high": round(float(r["high_1y"]), 2),
+                "low": round(float(r["low_1y"]), 2),
+                "avg_close": round(float(r["avg_close_1y"]), 2),
+            },
+        }
+    except Exception as exc:
+        log.error("get_db_price_summary failed for %s: %s", symbol, exc)
+        return {"symbol": symbol, "error": str(exc)}
+
+
 # Convenience list for agent tool registration
 INDIAN_EQUITY_TOOLS = [
     get_mf_holdings_for_stock,

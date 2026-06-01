@@ -67,6 +67,7 @@ Special routing rules:
 - "import", "refresh", "sync", "backfill" data → always "main" (import runs there)
 - Questions mentioning specific Indian companies (RELIANCE, TCS, HDFC) → "india_equity"
 - "plot" or "chart" + macro keyword → "macro"; + ETF keyword → "signal"
+- "plot" or "chart" + Indian stock name (RELIANCE, TCS, ADVENZYMES, etc.) → "india_equity"
 - When uncertain, prefer "main" over guessing
 
 Respond with ONLY a JSON object (no markdown, no explanation):
@@ -100,8 +101,16 @@ def _get_router_llm() -> Any | None:
     """
     from config.settings import settings
 
+    # Treat known placeholder values as "no key" — these are used for local
+    # OpenAI-compatible endpoints (LM Studio, Ollama) which can't serve real
+    # OpenAI cloud calls.
+    _PLACEHOLDERS = {"", "ollama", "local", "none", "null", "lm-studio", "lmstudio"}
+
+    def _real_key(k: str | None) -> bool:
+        return bool(k) and k.strip().lower() not in _PLACEHOLDERS
+
     # Prefer a small fast model for routing — gpt-4o-mini costs ~$0.0001 per call
-    if settings.openai_api_key:
+    if _real_key(settings.openai_api_key) and not settings.llm_base_url:
         try:
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(
@@ -114,7 +123,7 @@ def _get_router_llm() -> Any | None:
         except Exception as exc:
             logger.debug("Router LLM (OpenAI) build failed: %s", exc)
 
-    if settings.anthropic_api_key:
+    if _real_key(settings.anthropic_api_key):
         try:
             from langchain_anthropic import ChatAnthropic
             return ChatAnthropic(
@@ -126,7 +135,7 @@ def _get_router_llm() -> Any | None:
         except Exception as exc:
             logger.debug("Router LLM (Anthropic) build failed: %s", exc)
 
-    if getattr(settings, "google_api_key", None):
+    if _real_key(getattr(settings, "google_api_key", None)):
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
             return ChatGoogleGenerativeAI(
@@ -208,9 +217,9 @@ def route_intent_llm(question: str) -> str:
 
 
 def _regex_fallback(question: str) -> str:
-    """Import and call the legacy regex router."""
-    from src.agents.sub_agents import route_intent as _route_intent_regex
-    return _route_intent_regex(question)
+    """Import and call the legacy regex router (non-recursive)."""
+    from src.agents.sub_agents import _regex_route_intent
+    return _regex_route_intent(question)
 
 
 def clear_intent_cache() -> None:
