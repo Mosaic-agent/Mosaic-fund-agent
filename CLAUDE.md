@@ -104,7 +104,8 @@ CLI (src/main.py)
 ### Data Import Pipeline
 ```
 CLI import command
-  → src/importer/cli.py  (legacy orchestrator, still active)
+  → src/importer/cli.py  (orchestrates imports; intercepts stocks & us_stocks categories)
+      ↳ Redirects to src/importer/parallel_importer.py (5 parallel worker threads with staggered jitter delays)
       → src/importer/fetchers/<name>_fetcher.py  (external API → DataFrame)
       → src/importer/clickhouse.py               (watermark check → bulk insert)
           ReplacingMergeTree: re-importing same date is safe / idempotent
@@ -260,6 +261,6 @@ Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
   - `fund_imports/` — Factory-pattern AMC importers; run via `python src/scripts/fund_imports/run.py <icici|nippon|icici-index|all> [--dry-run] [--test]`. `base.py` has the `BaseFundImporter` ABC; `importers/` has one class per AMC; `factory.py` has `create_importer(name)`.
   - `etf/` — ETF comparison, CAGR validation, risk analysis
   - `ml/` — ML prediction backfill and evaluation
-  - `portfolio/` — portfolio tracking, health checks, opportunity scan
+  - `portfolio/` — portfolio tracking, health checks, opportunity scan, parallel stock import (`import_stocks_parallel.py`)
   - `market/` — macro themes, FII/DII, metals, sentiment, whale tracker
   - `db/` — ClickHouse backup, restore, and sanity checks
