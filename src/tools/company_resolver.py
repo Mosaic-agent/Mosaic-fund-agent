@@ -366,6 +366,36 @@ _ALIAS: dict[str, str] = {
     "mrs bectors": "BECTORFOOD",
     "mrs bectors food specialities": "BECTORFOOD",
     "bectorfood": "BECTORFOOD",
+    # Enzyme / specialty chemicals
+    "advanced enzyme technologies": "ADVENZYMES",
+    "advanced enzyme technologies ltd": "ADVENZYMES",
+    "advanced enzyme": "ADVENZYMES",
+    "advenzymes": "ADVENZYMES",
+    # Other frequent small/mid caps that Yahoo search misses
+    "pi industries": "PIIND",
+    "pi industry": "PIIND",
+    "astral poly technik": "ASTRAL",
+    "astral polytechnik": "ASTRAL",
+    "astral pipes": "ASTRAL",
+    "astral limited": "ASTRAL",
+    "fine organics": "FINEORG",
+    "fine organic industries": "FINEORG",
+    "galaxy surfactants": "GALAXYSURF",
+    "clean science technology": "CLEAN",
+    "clean science": "CLEAN",
+    "navin fluorine": "NAVINFLUOR",
+    "navin fluorine international": "NAVINFLUOR",
+    "alkyl amines": "ALKYLAMINE",
+    "alkyl amines chemicals": "ALKYLAMINE",
+    "deepak nitrite": "DEEPAKNTR",
+    "aarti industries": "AARTIIND",
+    "aarti drugs": "AARTIDRUGS",
+    "vinati organics": "VINATIORGA",
+    "sudarshan chemical": "SUDARSCHEM",
+    "camlin fine sciences": "CAMLINFINE",
+    "balaji amines": "BALAMINES",
+    "gujarat fluorochemicals": "FLUOROCHEM",
+    "gfl": "FLUOROCHEM",
 }
 
 
@@ -503,14 +533,28 @@ def _resolve_company_info_impl(query: str) -> dict:
                 timeout=_TIMEOUT,
             )
             resp.raise_for_status()
-            quotes = [
+            candidates = [
                 q for q in resp.json().get("quotes", [])
                 if q.get("quoteType") in ("EQUITY", "STOCK")
                 and not q.get("symbol", "").startswith("^")
             ]
-            if quotes:
+            # Only accept this batch if at least one quote is actually an Indian or US stock.
+            # This prevents the LLM returning an exchange name (e.g. "NSE") from polluting
+            # the search and causing early-exit with unrelated results.
+            actionable = [
+                q for q in candidates
+                if q.get("exchange", "") in _INDIAN_CODES | _US_CODES
+                or q.get("symbol", "").endswith((".NS", ".BO"))
+            ]
+            if actionable:
+                quotes = candidates
                 log.info("resolve_company: Yahoo search found %d quotes for query %r", len(quotes), yq)
                 break
+            elif candidates:
+                log.info(
+                    "resolve_company: Yahoo returned %d quotes for %r but none are Indian/US — trying next query",
+                    len(candidates), yq,
+                )
         except Exception as exc:
             log.warning("Yahoo Finance search failed for %r: %s", yq, exc)
 

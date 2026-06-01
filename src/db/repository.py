@@ -104,7 +104,7 @@ class MarketDataRepository:
         """
         rows = self._q(
             f"SELECT etfs_impacted, sentiment "
-            f"FROM market_data.news_articles "
+            f"FROM market_data.news_articles FINAL "
             f"WHERE fetched_at >= now() - INTERVAL {days} DAY"
         )
         return [(str(r[0]), str(r[1])) for r in rows]
@@ -143,7 +143,7 @@ class MarketDataRepository:
             f"argMax(low, imported_at) AS low, "
             f"argMax(close, imported_at) AS close, "
             f"argMax(volume, imported_at) AS volume "
-            f"FROM market_data.daily_prices "
+            f"FROM market_data.daily_prices FINAL "
             f"WHERE symbol = '{symbol}' AND category = '{category}' "
             f"GROUP BY trade_date ORDER BY trade_date ASC"
         )
@@ -181,7 +181,7 @@ class MarketDataRepository:
 
         latest_rows = self._q(
             f"SELECT symbol, argMax(premium_discount_pct, snapshot_at) "
-            f"FROM market_data.inav_snapshots "
+            f"FROM market_data.inav_snapshots FINAL "
             f"WHERE symbol IN ({sym_in}) GROUP BY symbol"
         )
         latest_map = {r[0]: float(r[1]) for r in latest_rows if r[1] is not None}
@@ -189,7 +189,7 @@ class MarketDataRepository:
         hist_rows = self._q(
             f"SELECT symbol, toStartOfHour(snapshot_at), "
             f"argMax(premium_discount_pct, snapshot_at) "
-            f"FROM market_data.inav_snapshots "
+            f"FROM market_data.inav_snapshots FINAL "
             f"WHERE symbol IN ({sym_in}) "
             f"  AND snapshot_at >= toDateTime('{cutoff} 00:00:00') "
             f"GROUP BY symbol, toStartOfHour(snapshot_at) "
@@ -260,8 +260,10 @@ class MarketDataRepository:
                 else:
                     from_date = wm - timedelta(days=fetcher.overlap_days)
 
-            rows = fetcher.fetch(from_date, today)
+            rows = fetcher.fetch_with_retry(from_date, today)
             if not rows:
+                # fetch failed after retries — log to import_failures and skip
+                self._record_failure(fetcher, from_date, today, "FetchError", "fetch returned empty after retries")
                 return FetchResult(fetcher=fetcher, n=0, from_date=from_date,
                                    to_date=today, skipped=True)
 
@@ -300,6 +302,43 @@ class MarketDataRepository:
             get_event_bus().publish(event)
         except Exception as exc:
             log.warning("EventBus publish failed (non-fatal): %s", exc)
+
+    def _record_failure(
+        self,
+        fetcher,
+        from_date: "date",
+        to_date: "date",
+        error_class: str,
+        error_msg: str,
+    ) -> None:
+        """Write a row to market_data.import_failures (best-effort; non-fatal)."""
+        from datetime import datetime
+        try:
+            from src.importer.clickhouse import ClickHouseImporter
+            ch = ClickHouseImporter(**self._ch_kwargs())
+            try:
+                ch._client.insert(
+                    "market_data.import_failures",
+                    [[
+                        datetime.utcnow(),
+                        fetcher.source_name,
+                        getattr(fetcher, "dataset", "prices"),
+                        fetcher.symbol_key,
+                        from_date,
+                        to_date,
+                        error_class[:128],
+                        error_msg[:512],
+                        0,
+                    ]],
+                    column_names=[
+                        "failed_at", "source", "dataset", "symbol",
+                        "from_date", "to_date", "error_class", "error_msg", "retry_count",
+                    ],
+                )
+            finally:
+                ch.close()
+        except Exception as exc:
+            log.warning("import_failures write failed (non-fatal): %s", exc)
 
     def _ch_kwargs(self) -> dict:
         """Extract ClickHouse connection params from the pool config."""

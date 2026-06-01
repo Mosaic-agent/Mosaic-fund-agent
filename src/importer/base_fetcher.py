@@ -27,9 +27,45 @@ That's it. The orchestrator loop picks it up automatically.
 """
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from datetime import date
 from typing import Any
+
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    _TENACITY_AVAILABLE = True
+except ImportError:
+    _TENACITY_AVAILABLE = False
+
+log = logging.getLogger(__name__)
+
+
+def _with_retry(fn, *args, **kwargs):
+    """
+    Call fn(*args, **kwargs) with exponential backoff retries if tenacity is
+    available.  Falls back to a single call when tenacity is not installed.
+
+    Retries on any Exception up to 5 attempts:
+        attempt 1 — immediate
+        attempt 2 — 1 s wait
+        attempt 3 — 2 s wait
+        attempt 4 — 4 s wait
+        attempt 5 — 8 s wait (capped at 30 s)
+    """
+    if not _TENACITY_AVAILABLE:
+        return fn(*args, **kwargs)
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=30),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+    )
+    def _wrapped():
+        return fn(*args, **kwargs)
+
+    return _wrapped()
 
 
 class Fetcher(ABC):
@@ -61,6 +97,23 @@ class Fetcher(ABC):
 
         Returns empty list if source is unavailable — never raises.
         """
+
+    def fetch_with_retry(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        """
+        Call fetch() with exponential-backoff retry.
+
+        On final failure, logs the error and returns an empty list so the
+        orchestrator can route to the dead-letter import_failures table
+        instead of crashing the batch.
+        """
+        try:
+            return _with_retry(self.fetch, from_date, to_date)
+        except Exception as exc:
+            log.error(
+                "%s fetch failed after retries (%s→%s): %s",
+                self.__class__.__name__, from_date, to_date, exc,
+            )
+            return []
 
     @abstractmethod
     def insert(self, rows: list[dict[str, Any]], ch) -> int:

@@ -125,6 +125,7 @@ class CHPool:
             username=self._username,
             password=self._password,
             connect_timeout=self._connect_timeout,
+            compress="lz4",  # ~3× wire reduction for OHLCV bulk reads/writes
         )
         with self._lock:
             self._all.append(client)
