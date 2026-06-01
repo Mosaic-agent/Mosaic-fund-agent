@@ -67,6 +67,3 @@ plotly>=5.18.0                   # Interactive charts (pie, line) used in Holdin
 # ── Company Deep-Dive ────────────────────────────────────────────────────────
 sec-api>=1.0.36                  # sec-api.io SDK: QueryApi, DownloadApi, XbrlApi, ExtractorApi, ExecCompApi, MappingApi
 pdfplumber>=0.11.0               # 10-K PDF fallback if HTML filing unavailable
-
-
-some_fake_package                      # Added automatically by CodeSubAgent auto-dependency installer
