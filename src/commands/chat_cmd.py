@@ -826,37 +826,63 @@ def _print_answer(console: "Console", answer: Any) -> None:
         if any(c in ln for c in _CHART_CHARS)
     ]
 
-    # Only split if there's a meaningful run of chart lines (at least 5)
-    if len(chart_lines) >= 5:
-        # Find the contiguous chart block
-        first, last = chart_lines[0], chart_lines[-1]
-        
-        # Extend the last line to include trailing tick labels or x-labels (up to 3 lines)
-        import re
-        while last + 1 < len(lines):
-            next_line = lines[last + 1].strip()
-            # If the next line is not empty and contains typical chart labels, dates, or symbols
-            if next_line and (
-                any(c in next_line for c in ("/", "→", "₹", "Cr", "$")) or
-                re.search(r'^\d+(\s+\d+)*$', next_line) or
-                re.search(r'^\d{2}/\d{2}', next_line) or
-                re.search(r'^[0-9\s\-\:\.\/]+$', next_line)
-            ):
-                last += 1
+    # Find all contiguous ranges of chart lines
+    blocks = []
+    if chart_lines:
+        current_block = [chart_lines[0]]
+        for idx in chart_lines[1:]:
+            # If the line is within 3 lines of the previous chart line, group it
+            if idx - current_block[-1] <= 3:
+                current_block.append(idx)
             else:
-                break
-                
-        text_before = "\n".join(lines[:first]).strip()
-        chart_block  = "\n".join(lines[first:last + 1])
-        text_after   = "\n".join(lines[last + 1:]).strip()
+                blocks.append(current_block)
+                current_block = [idx]
+        blocks.append(current_block)
 
-        if text_before:
-            console.print(Panel(render_markdown_to_group(text_before), border_style="green"))
-        _t = Text.from_ansi(chart_block)
-        _t.no_wrap = True
-        console.print(Panel(_t, border_style="blue", title="Chart", expand=False))
-        if text_after:
-            console.print(Panel(render_markdown_to_group(text_after), border_style="green"))
+    # Filter out blocks that have fewer than 5 chart lines total (too small to be a real chart)
+    valid_blocks = [blk for blk in blocks if len(blk) >= 5]
+
+    if valid_blocks:
+        extended_blocks = []
+        for i, blk in enumerate(valid_blocks):
+            first, last = blk[0], blk[-1]
+            limit = valid_blocks[i+1][0] if i + 1 < len(valid_blocks) else len(lines)
+            
+            import re
+            while last + 1 < limit:
+                next_line = lines[last + 1].strip()
+                if next_line and (
+                    any(c in next_line for c in ("/", "→", "₹", "Cr", "$")) or
+                    re.search(r'^\d+(\s+\d+)*$', next_line) or
+                    re.search(r'^\d{2}/\d{2}', next_line) or
+                    re.search(r'^[0-9\s\-\:\.\/]+$', next_line)
+                ):
+                    last += 1
+                else:
+                    break
+            extended_blocks.append((first, last))
+
+        current_idx = 0
+        for first, last in extended_blocks:
+            # Print text before this chart block
+            if first > current_idx:
+                text_block = "\n".join(lines[current_idx:first]).strip()
+                if text_block:
+                    console.print(Panel(render_markdown_to_group(text_block), border_style="green"))
+            
+            # Print this chart block
+            chart_block = "\n".join(lines[first:last + 1])
+            _t = Text.from_ansi(chart_block)
+            _t.no_wrap = True
+            console.print(Panel(_t, border_style="blue", title="Chart", expand=False))
+            
+            current_idx = last + 1
+            
+        # Print remaining text after the last chart block
+        if current_idx < len(lines):
+            text_block = "\n".join(lines[current_idx:]).strip()
+            if text_block:
+                console.print(Panel(render_markdown_to_group(text_block), border_style="green"))
     else:
         console.print(Panel(render_markdown_to_group(answer), border_style="green"))
 
