@@ -263,4 +263,4 @@ Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
   - `ml/` — ML prediction backfill and evaluation
   - `portfolio/` — portfolio tracking, health checks, opportunity scan, parallel stock import (`import_stocks_parallel.py`)
   - `market/` — macro themes, FII/DII, metals, sentiment, whale tracker
-  - `db/` — ClickHouse backup, restore, and sanity checks
+  - `db/` — ClickHouse backup, restore, sanity checks, and data quality repairs (`fix_bad_data.py`)

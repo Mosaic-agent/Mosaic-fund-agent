@@ -334,6 +334,7 @@ src/
   scripts/
     goldbees_report.py          GOLDBEES investment pipeline report with LLM recommendation
     portfolio/import_stocks_parallel.py  High-concurrency parallel stock data importer
+    db/fix_bad_data.py          Deduplication, watermark alignment, and invalid data repair script
 scripts/
   save_portfolio_holdings.py         Backup CNC holdings to ClickHouse
   backup_zerodha_account.py          Backup profile, margins, and orders
