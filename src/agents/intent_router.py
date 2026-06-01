@@ -109,17 +109,55 @@ def _get_router_llm() -> Any | None:
     def _real_key(k: str | None) -> bool:
         return bool(k) and k.strip().lower() not in _PLACEHOLDERS
 
+    # 1. Prefer cloud LLM if local is disabled
+    if getattr(settings, "llm_local_disabled", False) and settings.llm_cloud_provider:
+        cloud_provider = settings.llm_cloud_provider.strip().lower()
+        if cloud_provider == "anthropic" and _real_key(settings.anthropic_api_key):
+            try:
+                from langchain_anthropic import ChatAnthropic
+                return ChatAnthropic(
+                    model="claude-3-5-haiku-20241022",
+                    api_key=settings.anthropic_api_key,
+                    temperature=0,
+                    max_tokens=50,
+                )
+            except Exception as exc:
+                logger.debug("Router LLM (Anthropic Cloud) build failed: %s", exc)
+        elif cloud_provider == "openai" and _real_key(settings.openai_api_key):
+            try:
+                from langchain_openai import ChatOpenAI
+                return ChatOpenAI(
+                    model="gpt-4o-mini",
+                    api_key=settings.openai_api_key,
+                    temperature=0,
+                    max_tokens=50,
+                    request_timeout=5,
+                )
+            except Exception as exc:
+                logger.debug("Router LLM (OpenAI Cloud) build failed: %s", exc)
+
+    # 2. Otherwise fall back to local/default API key providers
     # Prefer a small fast model for routing — gpt-4o-mini costs ~$0.0001 per call
-    if _real_key(settings.openai_api_key) and not settings.llm_base_url:
+    if _real_key(settings.openai_api_key):
         try:
             from langchain_openai import ChatOpenAI
-            return ChatOpenAI(
-                model="gpt-4o-mini",
-                api_key=settings.openai_api_key,
-                temperature=0,
-                max_tokens=50,
-                request_timeout=5,
-            )
+            if settings.llm_base_url:
+                return ChatOpenAI(
+                    model=settings.llm_model,
+                    base_url=settings.llm_base_url,
+                    api_key=settings.openai_api_key,
+                    temperature=0,
+                    max_tokens=50,
+                    request_timeout=5,
+                )
+            else:
+                return ChatOpenAI(
+                    model="gpt-4o-mini",
+                    api_key=settings.openai_api_key,
+                    temperature=0,
+                    max_tokens=50,
+                    request_timeout=5,
+                )
         except Exception as exc:
             logger.debug("Router LLM (OpenAI) build failed: %s", exc)
 
