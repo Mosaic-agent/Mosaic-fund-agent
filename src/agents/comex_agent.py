@@ -9,7 +9,7 @@ Routing strategy:
                                        reliably stop after one tool call, so
                                        we skip the agent loop entirely and
                                        call get_comex_signals() directly.
-  Cloud model  (OpenAI / Anthropic)  →  LangGraph deep-agent with loop guard.
+  Cloud model  (OpenAI / Anthropic)  →  LangGraph react-agent with loop guard.
 
 This guarantees COMEX data is always returned fast, without burning LM Studio
 tokens or hanging in an infinite tool-call loop.
@@ -73,6 +73,9 @@ def _increment_call_counter() -> int:
 
 COMEX_SYSTEM_PROMPT = """\
 You are an Indian commodity pre-market analyst for NSE/BSE traders.
+
+NUMERIC COMPUTATION RULE (mandatory): NEVER compute, estimate, or derive any
+number yourself. ALL numbers in your response must come verbatim from tool output.
 
 CRITICAL INSTRUCTION: Call fetch_all_comex_signals EXACTLY ONCE.
 As soon as you receive the tool result, output the JSON immediately as your
@@ -228,7 +231,7 @@ class ComexAgent:
                 settings.llm_model,
             )
             self._llm = self._build_llm()
-            self._agent = self._build_deep_agent()
+            self._agent = self._build_react_agent()
 
     # ── LLM builder ───────────────────────────────────────────────────────────
 
@@ -275,28 +278,20 @@ class ComexAgent:
 
     # ── Agent builder ─────────────────────────────────────────────────────────
 
-    def _build_deep_agent(self) -> Any:
+    def _build_react_agent(self) -> Any:
         """
-        Build a Deep Agent using create_deep_agent from the deepagents package.
-        Returns None when deepagents is not installed or creation fails.
+        Build a LangGraph ReAct agent for COMEX analysis.
+        Returns None when creation fails.
         """
         try:
-            from deepagents import create_deep_agent  # type: ignore[import]
-        except ImportError:
-            logger.debug(
-                "deepagents not installed — ComexAgent will use direct mode. "
-                "Install with: pip install deepagents"
-            )
-            return None
-
-        try:
-            return create_deep_agent(
+            from langgraph.prebuilt import create_react_agent
+            return create_react_agent(
                 model=self._llm,
                 tools=COMEX_TOOLS,
-                system_prompt=COMEX_SYSTEM_PROMPT,
+                prompt=COMEX_SYSTEM_PROMPT,
             )
         except Exception as exc:
-            logger.warning("create_deep_agent (COMEX) failed (%s) — using direct mode.", exc)
+            logger.warning("create_react_agent (COMEX) failed (%s) — using direct mode.", exc)
             return None
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -306,7 +301,7 @@ class ComexAgent:
         Run COMEX pre-market signal analysis.
 
         Local model  → calls get_comex_signals() directly, zero LLM tokens used.
-        Cloud model  → LangGraph deep-agent with recursion_limit=6 + call-counter guard.
+        Cloud model  → LangGraph react-agent with recursion_limit + call-counter guard.
 
         Returns:
             Full COMEX signals dict from get_comex_signals().
@@ -324,7 +319,7 @@ class ComexAgent:
 
         # ── CLOUD: LangGraph deep-agent with loop guard ───────────────────────
         if self._agent is None:
-            logger.info("ComexAgent deep agent unavailable — running direct.")
+            logger.info("ComexAgent react agent unavailable — running direct.")
             return self._run_direct()
 
         # Reset the per-invocation loop guard before each run

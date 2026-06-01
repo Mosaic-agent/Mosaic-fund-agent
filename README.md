@@ -278,6 +278,7 @@ See [docs/import-schema.md](docs/import-schema.md) for all categories, the full 
 |---|---|
 | [docs/user_guide.md](docs/user_guide.md) | **Getting Started User Guide** — tutorials, CLI commands, database explorers, offline setups |
 | [docs/architecture.md](docs/architecture.md) | Full system architecture — data flow, agents, tools, ML, ClickHouse schema, design patterns |
+| [docs/agent-architecture.md](docs/agent-architecture.md) | Agent orchestration — intent routing, 10 sub-agents, tracing, budget middleware, mandatory rules |
 | [docs/import-schema.md](docs/import-schema.md) | All import categories, ClickHouse tables, cron schedule |
 | [docs/data-sources.md](docs/data-sources.md) | APIs and data sources used |
 | [docs/anomaly-detection.md](docs/anomaly-detection.md) | GARCH(1,1) anomaly pipeline — regimes, cross-asset IF, Risk Governor integration |

@@ -19,6 +19,8 @@ httpx-sse>=0.4.0                 # SSE support for MCP streaming
 yfinance>=0.2.40                 # Yahoo Finance – free EOD/historical data (.NS/.BO)
 pandas>=2.2.0                    # Data manipulation for financial time series
 numpy>=1.26.0                    # Numerical computations
+openpyxl>=3.1.0                  # Excel parsing support for pandas (.xlsx)
+xlrd>=2.0.1                      # Excel parsing support for pandas (.xls)
 
 # ── Web Scraping & Indian Market Data ─────────────────────────────────────────
 # Screener.in used via direct HTTP (no PyPI package):
@@ -32,7 +34,6 @@ fake-useragent>=1.5.0            # Rotate user-agents to avoid scraping blocks
 # ── News ──────────────────────────────────────────────────────────────────────
 gnews>=0.3.7                     # Google News scraper — no API key required
 newsapi-python>=0.2.7            # NewsAPI.org client — premium Indian financial news
-deepagents>=0.1.0                # LangGraph agent harness — create_deep_agent
 
 # ── Configuration & Validation ────────────────────────────────────────────────
 pydantic>=2.7.0                  # Data models and schema validation
@@ -41,6 +42,7 @@ python-dotenv>=1.0.0             # Load .env into environment
 
 # ── ClickHouse (historical data importer) ─────────────────────────────────────
 clickhouse-connect>=0.7.0        # Official ClickHouse Python client (HTTP)
+tenacity>=8.2.0                  # Exponential-backoff retry wrapper for fetchers
 
 # ── Web UI ────────────────────────────────────────────────────────────────────
 streamlit>=1.35.0                # Data management UI (streamlit run src/ui/app.py)
@@ -65,3 +67,6 @@ plotly>=5.18.0                   # Interactive charts (pie, line) used in Holdin
 # ── Company Deep-Dive ────────────────────────────────────────────────────────
 sec-api>=1.0.36                  # sec-api.io SDK: QueryApi, DownloadApi, XbrlApi, ExtractorApi, ExecCompApi, MappingApi
 pdfplumber>=0.11.0               # 10-K PDF fallback if HTML filing unavailable
+
+
+some_fake_package                      # Added automatically by CodeSubAgent auto-dependency installer
