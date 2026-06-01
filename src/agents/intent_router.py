@@ -116,7 +116,7 @@ def _get_router_llm() -> Any | None:
             try:
                 from langchain_anthropic import ChatAnthropic
                 return ChatAnthropic(
-                    model="claude-3-5-haiku-20241022",
+                    model=settings.llm_cloud_model or "claude-3-5-haiku-20241022",
                     api_key=settings.anthropic_api_key,
                     temperature=0,
                     max_tokens=50,
