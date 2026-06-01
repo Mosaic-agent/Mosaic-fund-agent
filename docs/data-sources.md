@@ -6,7 +6,7 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 
 | What | Source | Notes |
 |---|---|---|
-| Stock / ETF / commodity OHLCV | Yahoo Finance `.NS`, `GC=F`, etc. | Free, no rate limit |
+| Stock / ETF / commodity OHLCV | Yahoo Finance `.NS`, `GC=F`, etc. | Free, subject to rate-limiting on high concurrency (handled via staggered jitter delays in the parallel stock importer) |
 | ETF iNAV — live | NSE API | Free, 15-second refresh (9:15 AM – 3:30 PM IST) |
 | ETF iNAV — historic / NAV | MFAPI.in (AMFI official) | Free |
 | COMEX spot prices | gold-api.com | Free with API key |

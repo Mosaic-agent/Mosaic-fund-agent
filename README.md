@@ -231,6 +231,11 @@ python src/main.py import --category etfs --category mf
 python src/main.py import --category fii_dii    # FII/DII flows
 ```
 
+*Note: For the `stocks` and `us_stocks` categories, the importer automatically switches to a high-concurrency mode running parallel symbol fetches (up to 5 concurrent workers) that pull prices, earnings, insider trades, and valuations. This parallel run is staggered with random jitter delays to avoid rate-limiting blocks. You can also invoke the parallel script directly:*
+```bash
+python src/scripts/portfolio/import_stocks_parallel.py --workers 5
+```
+
 > [!IMPORTANT]  
 > **Mandatory Data Freshness:** Quantitative signals (Macro, ML, Composite) rely on cross-asset correlations (e.g., Gold vs USDINR vs US10Y). If any category is stale, the signals are mathematically invalid. **Always run an import at the start of your session.**
 
@@ -328,6 +333,7 @@ src/
   ui/app.py                     Streamlit data hub (Import / Query / Explorer / Kite Dashboard)
   scripts/
     goldbees_report.py          GOLDBEES investment pipeline report with LLM recommendation
+    portfolio/import_stocks_parallel.py  High-concurrency parallel stock data importer
 scripts/
   save_portfolio_holdings.py         Backup CNC holdings to ClickHouse
   backup_zerodha_account.py          Backup profile, margins, and orders
