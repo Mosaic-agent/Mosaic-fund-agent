@@ -127,7 +127,14 @@ AGENT_SYSTEM_PROMPT = (
     "2. If you have called tools, your final response MUST be a synthesis of the data returned by those tools (e.g. news headlines, financial metrics, sentiment). "
     "3. If multiple tools fail or return no data, state clearly what you tried and what was missing (e.g. 'I tried to fetch news but the service was unavailable').\n"
     "When presenting structured data, weight shifts, signals, returns, or tabular results from any tool, "
-    "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points."
+    "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points.\n\n"
+    "NUMERIC COMPUTATION RULE (mandatory — never violate): "
+    "NEVER compute, estimate, or derive any number (returns, ratios, averages, "
+    "percentages, scores, sums, differences, CAGR, PE, Kelly fractions, etc.) "
+    "inside your response. ALL numeric work MUST be performed by a tool call "
+    "(Python, SQL, or a dedicated function). You may ONLY narrate or format "
+    "numbers that were returned verbatim by a tool. If no tool has produced a "
+    "number, state that the data is unavailable — do NOT approximate."
 )
 
 # Compact system prompt for low-context local models (≤ 4k tokens, e.g. gemma4).
@@ -135,7 +142,8 @@ AGENT_SYSTEM_PROMPT = (
 AGENT_SYSTEM_PROMPT_COMPACT = (
     "You are Mosaic-fund-agent, a financial analyst for Indian equity markets (NSE/BSE). "
     "Answer concisely using your training knowledge. "
-    "Use ₹ for Indian monetary values. Never invent figures."
+    "Use ₹ for Indian monetary values. Never invent figures. "
+    "NEVER compute any number yourself — only narrate numbers returned by tools."
 )
 
 
@@ -552,10 +560,11 @@ class MosaicFundAgent:
                     logger.error("Heuristic deep-dive failed: %s", exc)
 
         # Broad intent routing — catches "find info about X", "research X", etc.
-        from src.agents.sub_agents import route_intent, run_subagent_for
-        _intent = route_intent(question)
+        from src.agents.intent_router import route_intent_llm
+        from src.agents.sub_agents import run_subagent_for
+        _intent = route_intent_llm(question)
         if _intent != "main":
-            logger.info("ask: routing to %s sub-agent via route_intent", _intent)
+            logger.info("ask: routing to %s sub-agent via LLM router", _intent)
             return run_subagent_for(_intent, question)
 
         # Low-context model (e.g. gemma4 at 3k): agent was not built, go direct to LLM.
@@ -632,7 +641,8 @@ class MosaicFundAgent:
         import os
         import re
         from langchain_core.messages import HumanMessage
-        from src.agents.sub_agents import route_intent, get_subagent
+        from src.agents.intent_router import route_intent_llm
+        from src.agents.sub_agents import get_subagent
 
         # Deep-dive heuristic: resolve company then route India vs US
         if re.search(r"deep[\s.?-]?dive|deep[\s-]?down", question.lower()):
@@ -667,7 +677,7 @@ class MosaicFundAgent:
                     logger.error("Deep-dive heuristic failed: %s", exc)
 
         # Intent-based routing — use AI-planner override when provided
-        intent = forced_intent if forced_intent else route_intent(question)
+        intent = forced_intent if forced_intent else route_intent_llm(question)
         if intent != "main":
             logger.info("chat: routing to %s sub-agent", intent)
             from src.agents.sub_agents import run_subagent_for

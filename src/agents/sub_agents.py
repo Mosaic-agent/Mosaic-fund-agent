@@ -30,6 +30,17 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# ── Shared rule: injected into every agent system prompt ───────────────────────
+NO_LLM_CALC_RULE = (
+    "\n\nNUMERIC COMPUTATION RULE (mandatory — never violate): "
+    "NEVER compute, estimate, or derive any number (returns, ratios, averages, "
+    "percentages, scores, sums, differences, CAGR, PE, Kelly fractions, etc.) "
+    "inside your response. ALL numeric work MUST be performed by a tool call "
+    "(Python, SQL, or a dedicated function). You may ONLY narrate or format "
+    "numbers that were returned verbatim by a tool. If no tool has produced a "
+    "number, state that the data is unavailable — do NOT approximate."
+)
+
 # ── Intent routing ─────────────────────────────────────────────────────────────
 
 _DEEPDIVE_RE = re.compile(
@@ -341,7 +352,7 @@ class _SubAgent:
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT,
+                prompt=self.SYSTEM_PROMPT + NO_LLM_CALC_RULE,
             )
             logger.info("%s: agent built with parallel ToolNode (%d tools)", self.__class__.__name__, len(tools))
         except Exception as exc:
@@ -507,7 +518,7 @@ class _SubAgent:
                         combined = "\n\n---\n\n".join(tool_sections[:10])
                         synth = self._llm.invoke([
                             SystemMessage(content=(
-                                self.SYSTEM_PROMPT + "\n\n"
+                                self.SYSTEM_PROMPT + NO_LLM_CALC_RULE + "\n\n"
                                 "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
                                 "- Write ONLY the sections for which you have actual tool output data.\n"
                                 "- OMIT any section entirely if no tool data was collected for it.\n"
@@ -1518,8 +1529,13 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     ----------
     callbacks:
         Pass [RichConsoleCallbackHandler()] to see live tool-call output.
+        TracingCallbackHandler is always appended for observability.
     """
     import os
+    from src.agents.tracer import TracingCallbackHandler, log_trace
+    from src.agents.budget import BudgetCallbackHandler
+    import time
+
     cloud_llm = None
     if _needs_cloud(question):
         try:
@@ -1531,7 +1547,38 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
                 logger.info("run_subagent_for: using cloud LLM for %r", question[:60])
         except Exception as exc:
             logger.warning("run_subagent_for: could not build cloud LLM: %s", exc)
-    if callbacks is None and os.getenv("VERBOSE") == "1":
-        from src.agents.mosaic_fund_agent import RichConsoleCallbackHandler
-        callbacks = [RichConsoleCallbackHandler()]
-    return get_subagent(intent).run(question, llm_override=cloud_llm, callbacks=callbacks)
+
+    # Build callback list with tracing and budget always enabled
+    tracer = TracingCallbackHandler(agent=intent)
+    budget = BudgetCallbackHandler()
+    if callbacks is None:
+        callbacks = []
+        if os.getenv("VERBOSE") == "1":
+            from src.agents.mosaic_fund_agent import RichConsoleCallbackHandler
+            callbacks.append(RichConsoleCallbackHandler())
+    callbacks.extend([tracer, budget])
+
+    # Log the routing decision itself
+    log_trace(
+        agent="router",
+        run_id=tracer.run_id,
+        tool_name="route_intent",
+        args_json=f'{{"question": "{question[:200]}", "intent": "{intent}"}}',
+        status="ok",
+    )
+
+    start = time.monotonic()
+    result = get_subagent(intent).run(question, llm_override=cloud_llm, callbacks=callbacks)
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+
+    # Log completion
+    log_trace(
+        agent=intent,
+        run_id=tracer.run_id,
+        tool_name="_complete",
+        latency_ms=elapsed_ms,
+        result_json=result[:500] if result else "",
+        status="ok",
+    )
+
+    return result

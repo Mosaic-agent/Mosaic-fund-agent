@@ -64,12 +64,89 @@ _DDL_WATERMARKS = """
 CREATE TABLE IF NOT EXISTS market_data.import_watermarks (
     source       String,       -- yfinance | mfapi
     symbol       String,
+    dataset      String DEFAULT 'prices',  -- prices | earnings | insider | valuation | nav | holdings
     last_date    Date,
     updated_at   DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree(updated_at)
-ORDER BY (source, symbol)
+ORDER BY (source, symbol, dataset)
 """
+
+_DDL_IMPORT_FAILURES = """
+CREATE TABLE IF NOT EXISTS market_data.import_failures (
+    failed_at    DateTime DEFAULT now(),
+    source       LowCardinality(String),
+    dataset      LowCardinality(String),
+    symbol       String,
+    from_date    Date,
+    to_date      Date,
+    error_class  LowCardinality(String),
+    error_msg    String,
+    retry_count  UInt8 DEFAULT 0,
+    _ver         DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(_ver)
+ORDER BY (source, dataset, symbol, failed_at)
+"""
+
+_DDL_AGENT_TRACES = """
+CREATE TABLE IF NOT EXISTS market_data.agent_traces (
+    created_at   DateTime DEFAULT now(),
+    run_id       String,
+    agent        LowCardinality(String),
+    step_idx     UInt16 DEFAULT 0,
+    tool_name    LowCardinality(String) DEFAULT '',
+    args_json    String DEFAULT '{}',
+    result_json  String DEFAULT '',
+    latency_ms   UInt32 DEFAULT 0,
+    tokens_in    UInt32 DEFAULT 0,
+    tokens_out   UInt32 DEFAULT 0,
+    status       LowCardinality(String) DEFAULT 'ok',
+    error_class  LowCardinality(String) DEFAULT '',
+    error_msg    String DEFAULT '',
+    parent_run_id String DEFAULT '',
+    _ver         DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(_ver)
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (agent, run_id, step_idx)
+"""
+
+# ── Idempotent column migrations (run on every startup) ───────────────────────
+# These ALTER statements are safe to run repeatedly — IF NOT EXISTS / IF EXISTS
+# guards prevent errors when the column already exists.
+
+_ALTER_LOWCARDINALITY = [
+    # daily_prices
+    "ALTER TABLE market_data.daily_prices MODIFY COLUMN IF EXISTS category LowCardinality(String)",
+    # fx_rates / etf_aum / cot_gold / cb_gold_reserves
+    "ALTER TABLE market_data.fx_rates MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    "ALTER TABLE market_data.etf_aum MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    "ALTER TABLE market_data.cot_gold MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    "ALTER TABLE market_data.cb_gold_reserves MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    "ALTER TABLE market_data.macro_indicators MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    # inav_snapshots
+    "ALTER TABLE market_data.inav_snapshots MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    # ml_predictions
+    "ALTER TABLE market_data.ml_predictions MODIFY COLUMN IF EXISTS regime_signal LowCardinality(String)",
+    # mf_holdings
+    "ALTER TABLE market_data.mf_holdings MODIFY COLUMN IF EXISTS asset_type LowCardinality(String)",
+    # news_articles
+    "ALTER TABLE market_data.news_articles MODIFY COLUMN IF EXISTS source_type LowCardinality(String)",
+    "ALTER TABLE market_data.news_articles MODIFY COLUMN IF EXISTS fetch_source LowCardinality(String)",
+    "ALTER TABLE market_data.news_articles MODIFY COLUMN IF EXISTS category LowCardinality(String)",
+    "ALTER TABLE market_data.news_articles MODIFY COLUMN IF EXISTS sentiment LowCardinality(String)",
+    "ALTER TABLE market_data.news_articles MODIFY COLUMN IF EXISTS impact_tier LowCardinality(String)",
+    "ALTER TABLE market_data.news_articles MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    # weight_checkpoints
+    "ALTER TABLE market_data.weight_checkpoints MODIFY COLUMN IF EXISTS method LowCardinality(String)",
+    "ALTER TABLE market_data.weight_checkpoints MODIFY COLUMN IF EXISTS regime LowCardinality(String)",
+    # signal_composite
+    "ALTER TABLE market_data.signal_composite MODIFY COLUMN IF EXISTS anomaly_flag LowCardinality(String)",
+    "ALTER TABLE market_data.signal_composite MODIFY COLUMN IF EXISTS action LowCardinality(String)",
+    # import_watermarks
+    "ALTER TABLE market_data.import_watermarks MODIFY COLUMN IF EXISTS source LowCardinality(String)",
+    # add dataset column to import_watermarks for fine-grained watermark tracking
+    "ALTER TABLE market_data.import_watermarks ADD COLUMN IF NOT EXISTS dataset LowCardinality(String) DEFAULT 'prices'",
+]
 
 _DDL_COT_GOLD = """
 CREATE TABLE IF NOT EXISTS market_data.cot_gold (
@@ -475,6 +552,9 @@ class ClickHouseImporter:
     Parameters
     ----------
     host, port, database, username, password : from Settings
+    client : optional pre-created clickhouse_connect.Client (e.g. from CHPool).
+        When provided the importer will NOT open a new TCP connection and will
+        NOT close the client on close() — the pool owns the lifecycle.
     """
 
     def __init__(
@@ -484,19 +564,26 @@ class ClickHouseImporter:
         database: str = "market_data",
         username: str = "default",
         password: str = "",
+        *,
+        client=None,
     ) -> None:
         self._host = host
         self._port = port
         self._username = username
         self._password = password
         self._database = database
-        self._client = clickhouse_connect.get_client(
-            host=host,
-            port=port,
-            username=username,
-            password=password,
-            connect_timeout=15,
-        )
+        self._injected = client is not None
+        if client is not None:
+            self._client = client
+        else:
+            self._client = clickhouse_connect.get_client(
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                connect_timeout=15,
+                compress="lz4",
+            )
 
     # ── Schema ────────────────────────────────────────────────────────────────
 
@@ -511,11 +598,17 @@ class ClickHouseImporter:
             _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
-            _DDL_MACRO_INDICATORS,
+            _DDL_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
+            _DDL_AGENT_TRACES,
         ):
             self._client.command(ddl)
-        # Column migrations (idempotent — ADD COLUMN IF NOT EXISTS)
+        # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)
         self._client.command(_DDL_NEWS_ARTICLES_MIGRATE)
+        for alter in _ALTER_LOWCARDINALITY:
+            try:
+                self._client.command(alter)
+            except Exception as exc:  # non-fatal — table may not exist yet
+                logger.debug("Schema migration skipped (%s): %s", alter[:60], exc)
         logger.debug("ClickHouse schema verified.")
 
     # ── Bulk insert: user_holdings ────────────────────────────────────────────
@@ -753,28 +846,32 @@ class ClickHouseImporter:
 
     # ── Watermarks ────────────────────────────────────────────────────────────
 
-    def get_watermark(self, source: str, symbol: str) -> date | None:
+    def get_watermark(self, source: str, symbol: str, dataset: str = "prices") -> date | None:
         """
-        Return the last successfully imported date for (source, symbol),
+        Return the last successfully imported date for (source, symbol, dataset),
         or None if this symbol has never been imported.
+
+        dataset is one of: prices | earnings | insider | valuation | nav | holdings
+        (defaults to 'prices' for back-compatibility with all existing callers)
         """
         result = self._client.query(
             "SELECT last_date FROM market_data.import_watermarks FINAL "
             "WHERE source = {source:String} AND symbol = {symbol:String} "
+            "AND dataset = {dataset:String} "
             "LIMIT 1",
-            parameters={"source": source, "symbol": symbol},
+            parameters={"source": source, "symbol": symbol, "dataset": dataset},
         )
         rows = result.result_rows
         if rows:
             return rows[0][0]  # clickhouse_connect returns date objects
         return None
 
-    def set_watermark(self, source: str, symbol: str, last_date: date) -> None:
-        """Upsert the watermark for (source, symbol)."""
+    def set_watermark(self, source: str, symbol: str, last_date: date, dataset: str = "prices") -> None:
+        """Upsert the watermark for (source, symbol, dataset)."""
         self._client.insert(
             "market_data.import_watermarks",
-            [[source, symbol, last_date]],
-            column_names=["source", "symbol", "last_date"],
+            [[source, symbol, dataset, last_date]],
+            column_names=["source", "symbol", "dataset", "last_date"],
         )
 
     # ── Bulk insert: daily_prices ────────────────────────────────────────────
@@ -799,26 +896,24 @@ class ClickHouseImporter:
             logger.info("[dry-run] Would insert %d price rows.", len(rows))
             return len(rows)
 
-        data = [
-            [
-                r["symbol"],
-                r["category"],
-                r["trade_date"],
-                r["open"],
-                r["high"],
-                r["low"],
-                r["close"],
-                r["volume"],
-            ]
-            for r in rows
-        ]
-        self._client.insert(
-            "market_data.daily_prices",
-            data,
-            column_names=["symbol", "category", "trade_date", "open", "high", "low", "close", "volume"],
-            settings={"max_partitions_per_insert_block": 1500},
-        )
-        return len(rows)
+        import pandas as pd
+
+        df = pd.DataFrame(rows, columns=[
+            "symbol", "category", "trade_date", "open", "high", "low", "close", "volume"
+        ])[["symbol", "category", "trade_date", "open", "high", "low", "close", "volume"]]
+
+        # Chunk at 50k rows to stay within ClickHouse default block limits
+        chunk_size = 50_000
+        total = 0
+        for start in range(0, len(df), chunk_size):
+            chunk = df.iloc[start : start + chunk_size]
+            self._client.insert_df(
+                "market_data.daily_prices",
+                chunk,
+                settings={"max_partitions_per_insert_block": 1500},
+            )
+            total += len(chunk)
+        return total
 
     # ── Bulk insert: mf_nav ───────────────────────────────────────────────────
 
@@ -1251,7 +1346,9 @@ class ClickHouseImporter:
         return len(rows)
 
     def close(self) -> None:
-        self._client.close()
+        # Do not close a pool-managed client — the pool handles recycling.
+        if not self._injected:
+            self._client.close()
 
     def snapshot(self, lookback_days: int) -> list[dict[str, Any]]:
         """

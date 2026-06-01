@@ -3,9 +3,9 @@ src/agents/news_sentiment_agent.py
 ────────────────────────────────────
 Deep Agents-powered news sentiment analysis agent.
 
-Built with create_deep_agent (github.com/langchain-ai/deepagents) — a
-batteries-included LangGraph agent harness with built-in planning, filesystem
-access, and sub-agent delegation.
+Built with LangGraph create_react_agent — a ReAct loop agent harness with
+batteries-included LangGraph agent harness with built-in tool calling
+and sub-agent delegation.
 
 This agent:
   1. Fetches news from NewsAPI.org  (premium Indian financial publications)
@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 
 NEWS_SENTIMENT_SYSTEM_PROMPT = """\
 You are a financial news sentiment analyst for Indian equity markets (NSE/BSE).
+
+NUMERIC COMPUTATION RULE (mandatory): NEVER compute, estimate, or derive any
+number yourself. ALL numbers in your response must come verbatim from tool output.
 
 CRITICAL INSTRUCTION: Call collate_news_sentiment EXACTLY ONCE.
 Immediately after receiving the result, return the full JSON as your final answer.
@@ -239,7 +242,7 @@ class NewsSentimentAgent:
                 settings.llm_model,
             )
             self._llm = self._build_llm()
-            self._agent = self._build_deep_agent()
+            self._agent = self._build_react_agent()
 
     # ── LLM builder ───────────────────────────────────────────────────────────
 
@@ -286,28 +289,20 @@ class NewsSentimentAgent:
 
     # ── Agent builder ─────────────────────────────────────────────────────────
 
-    def _build_deep_agent(self) -> Any:
+    def _build_react_agent(self) -> Any:
         """
-        Build the Deep Agent using create_deep_agent from deepagents.
-        Falls back to None if deepagents is not installed.
+        Build a LangGraph ReAct agent for news sentiment analysis.
+        Returns None when creation fails.
         """
         try:
-            from deepagents import create_deep_agent  # type: ignore[import]
-        except ImportError:
-            logger.warning(
-                "deepagents not installed — NewsSentimentAgent will use direct mode. "
-                "Install with: pip install deepagents"
-            )
-            return None
-
-        try:
-            return create_deep_agent(
+            from langgraph.prebuilt import create_react_agent
+            return create_react_agent(
                 model=self._llm,
                 tools=SENTIMENT_TOOLS,
-                system_prompt=NEWS_SENTIMENT_SYSTEM_PROMPT,
+                prompt=NEWS_SENTIMENT_SYSTEM_PROMPT,
             )
         except Exception as exc:
-            logger.warning("create_deep_agent failed (%s) — using direct mode.", exc)
+            logger.warning("create_react_agent (NewsSentiment) failed (%s) — using direct mode.", exc)
             return None
 
     # ── Public API ─────────────────────────────────────────────────────────────
@@ -316,12 +311,12 @@ class NewsSentimentAgent:
         """
         Run multi-source news sentiment analysis for a stock symbol.
 
-        When the deep agent is available it will:
-          - Plan the analysis using deepagents' write_todos tool
+        When the react agent is available it will:
+          - Plan the analysis using the ReAct agent loop
           - Call collate_news_sentiment (or the individual source tools)
           - Return the structured JSON report
 
-        Falls back to _run_direct() when the deep agent is unavailable or fails.
+        Falls back to _run_direct() when the react agent is unavailable or fails.
 
         Args:
             symbol:       NSE/BSE trading symbol, e.g. "RELIANCE"
@@ -331,7 +326,7 @@ class NewsSentimentAgent:
             Structured sentiment report dict from collate_news_sentiment.
         """
         if self._agent is None:
-            logger.info("Deep agent unavailable — running direct collation.")
+            logger.info("React agent unavailable — running direct collation.")
             return self._run_direct(symbol, company_name)
 
         # ── LOCAL: bypass LangGraph entirely ─────────────────────────────────────

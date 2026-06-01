@@ -358,13 +358,22 @@ Every fetcher checks `import_watermarks.(source, symbol).last_date` before fetch
 `MarketDataRepository` is the single access point for all ClickHouse reads. Centralises `FINAL` usage, typed return shapes, and the `run_fetcher()` orchestration loop. All signal sources and ML code read through the repo — never raw SQL strings scattered across files.
 
 ### 3. Agent Architecture (Multi-Agent Orchestrator)
-The platform employs a **Multi-Agent Orchestrator** pattern. A main `MosaicFundAgent` uses a keyword-based **Intent Router** (in `src/agents/sub_agents.py`) to delegate user queries to specialized sub-agents. This keeps tool scopes narrow and prompts focused, improving accuracy for complex queries.
 
-*   **DeepDiveSubAgent:** Specialized in SEC filings (10-K/10-Q), XBRL financial data, and peer valuation analysis.
-*   **SignalSubAgent:** Handles ETF-specific quant signals, the GOLDBEES ML pipeline, and the Risk Governor.
-*   **MacroSubAgent:** Focuses on COMEX pre-market signals, FII/DII flow attribution, and macro theme scanning.
-*   **CodeSubAgent:** Executes Python code and runs ad-hoc ClickHouse queries to answer "Show me X vs Y" style questions.
-*   **IntlETFSubAgent:** Analyzes international ETFs (Nasdaq 100, S&P 500, Hang Seng) and their "Scarcity Premium" patterns.
+> **Full reference:** [docs/agent-architecture.md](agent-architecture.md) — intent routing, sub-agent catalogue, middleware (tracer + budget), mandatory rules, request flows, observability queries.
+
+The platform employs a **Multi-Agent Orchestrator** pattern. A main `MosaicFundAgent` uses an **LLM-based Intent Router** (`src/agents/intent_router.py`, with regex fallback in `src/agents/sub_agents.py`) to delegate user queries to 10 specialised sub-agents. Every sub-agent invocation auto-attaches **TracingCallbackHandler** (→ `agent_traces` table) and **BudgetCallbackHandler** (20 calls / 30k tokens / 180s wall-clock). All agent prompts include the **NO_LLM_CALC_RULE** — the LLM may never compute any number; all numeric work must come from tool output.
+
+| Sub-Agent | Purpose | Tools |
+|---|---|---|
+| **DeepDiveSubAgent** | US stock SEC filings (10-K/10-Q), XBRL, peer valuation | ~6 |
+| **IndianEquityResearchSubAgent** | NSE/BSE company research (price, earnings, cashflow, holdings, news) | ~15 |
+| **SignalSubAgent** | ETF composite scores, ML prediction, Kelly weights, GARCH vol | ~14 |
+| **MacroSubAgent** | COMEX pre-market, FII/DII flows, macro themes | ~10 |
+| **NewsSubAgent** | News headlines and sentiment per stock/ETF | ~5 |
+| **CodeSubAgent** | Ad-hoc Python execution and ClickHouse queries | ~5 |
+| **DatabaseSubAgent** | ClickHouse schema, watermarks, data freshness | ~5 |
+| **IntlETFSubAgent** | International ETFs (MAFANG, Hang Seng, Nasdaq 100) | ~8 |
+| **ResearchSubAgent** | Multi-domain cross-asset research | ~30 |
 
 ### 4. Local LLM & Gemma Integration
 Mosaic is optimized for both cloud (OpenAI/Anthropic) and **Local LLM** execution via **Ollama**. It specifically supports **Gemma 4** (customized as `mosaic-gemma4`) with several architectural adaptations:
