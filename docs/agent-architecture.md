@@ -248,6 +248,24 @@ This rule is injected at three levels:
 
 ---
 
+## Name Resolution & Spelling Correction
+
+**File:** `src/tools/company_resolver.py`
+
+Before any stock research or deep-dive, the system uses the `resolve_company` tool to resolve human queries (like "reliance", "welspun living", or "adanai") to canonical symbols (like `RELIANCE`, `WELSPUNLIV`, `ADANIENT`) and markets (`India` vs `US`). 
+
+The resolution flow follows a multi-tiered pipeline:
+
+1. **Fast Local Lookup**: Checks for exact matches and fuzzy matches (similarity $\ge 0.85$) against a local alias dictionary (`_ALIAS`) and registered company list (`SYMBOL_TO_COMPANY`).
+2. **LLM Ticker Suggestion**: Prompts the LLM to suggest the exchange ticker symbol from its training knowledge.
+3. **Exact Ticker Validation**: Queries Yahoo Finance Search with the LLM-suggested ticker. If a matching candidate is found, it uses it. If the suggested ticker does not exist as an exact match in the returned results, the suggestion is discarded, preventing incorrect mappings (e.g., mapping `"WELSPUN"` to `"WELENT"`).
+4. **Yahoo Search & Word-Overlap Ranking**: Performs a Yahoo Finance query using the user's original raw text. Results are scored and sorted by a word-overlap similarity ratio to prioritize the best match (e.g. prioritizing `"WELSPUNLIV.NS"` over `"WELENT.NS"` for `"welspun living"`).
+5. **ClickHouse ngramDistance Fallback**: If Yahoo search returns no results (common for typos like `"welspn living"`), the resolver queries ClickHouse `market_data.mf_holdings` (12,000+ unique stock names) using `ngramDistance`. If a close match is found ($\le 0.65$), it recursively restarts the search with the corrected name.
+6. **Interactive User Confirmation**: If running in an interactive session (`sys.stdin.isatty()` is True and not in a test environment), the CLI prompts the user to confirm the resolution. If the user rejects it, they can enter the correct name, and the resolver uses the LLM to suggest the top 3 matching listed company names/symbols for them to choose from.
+7. **Auto-Import**: If the resolved symbol is listed in India and is missing from the local ClickHouse database (`daily_prices`), it triggers a parallel data backfill before launching sub-agents.
+
+---
+
 ## Standalone Agents
 
 These agents run outside the sub-agent routing framework:
