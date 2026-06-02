@@ -366,6 +366,13 @@ _ALIAS: dict[str, str] = {
     "mrs bectors": "BECTORFOOD",
     "mrs bectors food specialities": "BECTORFOOD",
     "bectorfood": "BECTORFOOD",
+    # LT Foods (Daawat)
+    "lt foods": "LTFOODS",
+    "lt food": "LTFOODS",
+    "lt foods ltd": "LTFOODS",
+    "lt food ltd": "LTFOODS",
+    "lt food ltds": "LTFOODS",
+    "ltfoods": "LTFOODS",
     # Enzyme / specialty chemicals
     "advanced enzyme technologies": "ADVENZYMES",
     "advanced enzyme technologies ltd": "ADVENZYMES",
@@ -406,13 +413,29 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     """
     q = query.strip().lower()
 
+    # Strip common corporate suffixes from the query for better matching
+    corporate_suffixes = {
+        "ltd", "limited", "co", "corp", "corporation", "inc", "incorporated",
+        "plc", "company", "companies", "share", "shares", "stock", "stocks"
+    }
+
+    # Split by spaces, strip non-alphanumeric from each word to check against suffixes
+    words = q.split()
+    while words:
+        last_word = re.sub(r"[^a-z0-9]", "", words[-1])
+        if last_word in corporate_suffixes:
+            words.pop()
+        else:
+            break
+    q_clean = " ".join(words)
+
     # 1. Direct alias match
-    if q in _ALIAS:
-        return _ALIAS[q]
+    if q_clean in _ALIAS:
+        return _ALIAS[q_clean]
 
     # 2. Exact company-name match
-    if q in _NAME_TO_NSE:
-        return _NAME_TO_NSE[q]
+    if q_clean in _NAME_TO_NSE:
+        return _NAME_TO_NSE[q_clean]
 
     # 3. Looks like a known NSE symbol (passed directly by caller)
     upper = query.strip().upper().replace(" ", "")
@@ -421,11 +444,14 @@ def _local_indian_lookup(query: str) -> Optional[str]:
 
     # 4. Partial alias match — word-tokenized, longest word-count match wins.
     # Uses word boundaries to avoid "lt" matching "ltd" inside "insurance ltd".
-    q_words = q.split()
+    q_words = q_clean.split()
     best: tuple[int, str] = (0, "")
     for alias, sym in _ALIAS.items():
         alias_words = alias.split()
         n = len(alias_words)
+        # Avoid false positives: do not match a single-word alias if the query has multiple words
+        if n == 1 and len(q_words) > 1:
+            continue
         # Alias must match a contiguous block of words in the query (not a substring)
         for i in range(len(q_words) - n + 1):
             if q_words[i : i + n] == alias_words and n > best[0]:
@@ -437,12 +463,12 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     # 5. Fuzzy match — catches typos like "adanai" → "adani"
     import difflib
     all_keys = list(_ALIAS.keys()) + list(_NAME_TO_NSE.keys())
-    matches = difflib.get_close_matches(q, all_keys, n=1, cutoff=0.85)
+    matches = difflib.get_close_matches(q_clean, all_keys, n=1, cutoff=0.85)
     if matches:
         matched_key = matches[0]
         sym = _ALIAS.get(matched_key) or _NAME_TO_NSE.get(matched_key)
         if sym:
-            log.info("_local_indian_lookup: fuzzy %r → %r → %s", q, matched_key, sym)
+            log.info("_local_indian_lookup: fuzzy %r → %r → %s", q_clean, matched_key, sym)
             return sym
 
     return None
@@ -652,13 +678,27 @@ def _resolve_company_info_impl(query: str) -> dict:
     # ── 4. Fallback — treat as NSE symbol, validate via Screener.in URL ────
     # Only /company/{SYMBOL}/ works (search API is blocked in Docker).
     # A 200 response confirms the symbol is a real NSE listing.
-    words = query.strip().split()
+    fallback_words = query.strip().split()
     # Filter out common prefixes
-    if words and words[0].lower() in ("mrs", "mr", "dr", "the", "ms", "prof"):
-        words = words[1:]
+    if fallback_words and fallback_words[0].lower() in ("mrs", "mr", "dr", "the", "ms", "prof"):
+        fallback_words = fallback_words[1:]
 
-    upper = words[0].upper() if words else ""
-    upper = re.sub(r"[^A-Z0-9&]", "", upper) # Keep only alphanumeric and &
+    # Strip corporate suffixes from the end of the words list
+    corporate_suffixes = {
+        "ltd", "limited", "co", "corp", "corporation", "inc", "incorporated",
+        "plc", "company", "companies", "share", "shares", "stock", "stocks"
+    }
+    while fallback_words:
+        last_word = re.sub(r"[^a-z0-9]", "", fallback_words[-1].lower())
+        if last_word in corporate_suffixes:
+            fallback_words.pop()
+        else:
+            break
+
+    upper = ""
+    if len(fallback_words) == 1:
+        upper = fallback_words[0].upper()
+        upper = re.sub(r"[^A-Z0-9&]", "", upper) # Keep only alphanumeric and &
 
     if upper:
         log.info("resolve_company: falling back to NSE for %r → %s", query, upper)

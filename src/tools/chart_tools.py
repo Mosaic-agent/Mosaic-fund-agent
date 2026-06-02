@@ -131,7 +131,7 @@ def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
         n = len(dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
-        if tick_idx[-1] != n - 1:
+        if tick_idx and tick_idx[-1] != n - 1:
             tick_idx.append(n - 1)
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
         plt.xticks(tick_idx, tick_lbl)
@@ -309,7 +309,7 @@ def plot_nav_chart(symbol_or_scheme: str, days: int = 90) -> str:
         n = len(dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
-        if tick_idx[-1] != n - 1:
+        if tick_idx and tick_idx[-1] != n - 1:
             tick_idx.append(n - 1)
         plt.xticks(tick_idx, [str(dates[i])[:10] for i in tick_idx])
         return _build(plt)
@@ -368,7 +368,7 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "etfs")
         n = len(ref_dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
-        if tick_idx[-1] != n - 1:
+        if tick_idx and tick_idx[-1] != n - 1:
             tick_idx.append(n - 1)
         plt.xticks(tick_idx, [str(ref_dates[i])[:10] for i in tick_idx])
         return _build(plt)
@@ -866,7 +866,7 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         n = len(dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
-        if tick_idx[-1] != n - 1:
+        if tick_idx and tick_idx[-1] != n - 1:
             tick_idx.append(n - 1)
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
         plt.xticks(tick_idx, tick_lbl)

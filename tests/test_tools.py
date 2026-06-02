@@ -588,6 +588,34 @@ def test_auto_import_missing_symbol():
     print("  ✓ Auto-import missing symbols — ALL CHECKS PASSED")
 
 
+def test_company_resolver_false_positives():
+    print("\n" + "="*60)
+    print("TEST 15: Company Resolver False Positives Check")
+    print("="*60)
+
+    from src.tools.company_resolver import _local_indian_lookup
+
+    # 1. Negative tests: Multi-word queries with generic single-word abbreviations
+    # should NOT return the abbreviation's symbol.
+    assert _local_indian_lookup("LT other brand name") is None, "Expected 'LT other brand name' to not resolve to LT"
+    assert _local_indian_lookup("SBI Card") is None, "Expected 'SBI Card' to not resolve to SBIN"
+    assert _local_indian_lookup("Reliance Power") is None, "Expected 'Reliance Power' to not resolve to RELIANCE"
+
+    # 2. Positive tests: Suffixes should be stripped correctly and match exact aliases.
+    assert _local_indian_lookup("TCS Ltd") == "TCS", "Expected 'TCS Ltd' to resolve to TCS"
+    assert _local_indian_lookup("L&T") == "LT", "Expected 'L&T' to resolve to LT"
+    assert _local_indian_lookup("L&T Share") == "LT", "Expected 'L&T Share' to resolve to LT"
+    assert _local_indian_lookup("Larsen and Toubro Limited") == "LT", "Expected 'Larsen and Toubro Limited' to resolve to LT"
+    assert _local_indian_lookup("SBI Life") == "SBILIFE", "Expected 'SBI Life' to resolve to SBILIFE"
+
+    # 3. New local lookup tests for LT Foods
+    assert _local_indian_lookup("LT Foods Ltd") == "LTFOODS", "Expected 'LT Foods Ltd' to resolve to LTFOODS"
+    assert _local_indian_lookup("LT food ltds") == "LTFOODS", "Expected 'LT food ltds' to resolve to LTFOODS"
+    assert _local_indian_lookup("LT food") == "LTFOODS", "Expected 'LT food' to resolve to LTFOODS"
+
+    print("  ✓ Local Indian lookup false-positive check — ALL CHECKS PASSED")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -604,6 +632,7 @@ if __name__ == "__main__":
         test_silvercase_glitch_correction,
         test_nse_inav_fetcher_importer_correction,
         test_auto_import_missing_symbol,
+        test_company_resolver_false_positives,
     ]
     passed = 0
     failed = 0

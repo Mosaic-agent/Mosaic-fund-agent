@@ -48,20 +48,30 @@ def fetch_ohlcv(
         nse_map = {yahoo: nse for nse, yahoo in batch}
         tickers = list(nse_map.keys())
 
-        try:
-            df = yf.download(
-                tickers,
-                start=from_date.isoformat(),
-                end=(to_date + timedelta(days=1)).isoformat(),  # end is exclusive
-                auto_adjust=True,
-                progress=False,
-                threads=True,
-            )
-        except Exception as exc:
-            logger.warning("yfinance download failed for batch %s: %s", tickers[:3], exc)
-            continue
+        df = None
+        for attempt in range(1, 4):
+            try:
+                df = yf.download(
+                    tickers,
+                    start=from_date.isoformat(),
+                    end=(to_date + timedelta(days=1)).isoformat(),  # end is exclusive
+                    auto_adjust=True,
+                    progress=False,
+                    threads=True,
+                )
+                if df is not None and not df.empty:
+                    break
+            except Exception as exc:
+                logger.warning(
+                    "yfinance download attempt %d failed for batch %s: %s",
+                    attempt, tickers[:3], exc
+                )
+            if attempt < 3:
+                import time
+                time.sleep(1.0)
 
-        if df.empty:
+        if df is None or df.empty:
+            logger.warning("yfinance download failed/empty for batch %s after 3 attempts", tickers[:3])
             continue
 
         # yf.download always returns MultiIndex columns (Price × Ticker) in
