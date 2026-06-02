@@ -320,14 +320,14 @@ def plot_nav_chart(symbol_or_scheme: str, days: int = 90) -> str:
 
 
 @tool
-def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "etfs") -> str:
+def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "") -> str:
     """
     Plot price trends for multiple NSE symbols on the same chart for comparison.
 
     Args:
         symbols:  Comma-separated NSE symbols — e.g. 'GOLDBEES,SILVERBEES,NIFTYBEES'
         days:     Trading days to show (default 60)
-        category: 'etfs' or 'stocks'
+        category: Ignored (retained for backward compatibility)
 
     Example: plot_multi_price_chart("GOLDBEES,SILVERBEES", days=90)
     """
@@ -337,34 +337,95 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "etfs")
         if not sym_list:
             return "No symbols provided."
 
-        sym_sql = ", ".join(f"'{s}'" for s in sym_list)
-        df = query_df(f"""
-            SELECT symbol, trade_date,
-                   toFloat64(argMax(close, imported_at)) AS close
-            FROM market_data.daily_prices FINAL
-            WHERE symbol IN ({sym_sql}) AND category = '{category}'
-              AND trade_date >= today() - {days}
-            GROUP BY symbol, trade_date
-            ORDER BY symbol, trade_date ASC
-        """)
-        if df.empty:
-            return f"No price data for symbols: {symbols}"
+        series_data = {}  # symbol -> dict of date_str -> price
+        symbol_data_counts = {}  # symbol -> count
+
+        for s in sym_list:
+            # 1. Try ClickHouse (any category)
+            df_sym = query_df(f"""
+                SELECT trade_date, toFloat64(argMax(close, imported_at)) AS close
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = '{s}'
+                  AND trade_date >= today() - {days}
+                GROUP BY trade_date
+                ORDER BY trade_date ASC
+            """)
+
+            dates_prices = {}
+            if not df_sym.empty and len(df_sym) >= 5:
+                for _, row in df_sym.iterrows():
+                    dates_prices[str(row["trade_date"])] = float(row["close"])
+            else:
+                # 2. Try Yahoo Finance fallback
+                from src.tools.yahoo_finance import fetch_price_history
+                clean_symbol = s
+                exchange = "NSE"
+                if clean_symbol.endswith(".NS"):
+                    clean_symbol = clean_symbol[:-3]
+                    exchange = "NSE"
+                elif clean_symbol.endswith(".BO"):
+                    clean_symbol = clean_symbol[:-3]
+                    exchange = "BSE"
+
+                if days <= 30:
+                    yf_period = "1mo"
+                elif days <= 90:
+                    yf_period = "3mo"
+                elif days <= 180:
+                    yf_period = "6mo"
+                elif days <= 365:
+                    yf_period = "1y"
+                else:
+                    yf_period = "2y"
+
+                hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
+                if hist:
+                    for r in hist:
+                        dates_prices[r["date"]] = r["close"]
+
+            if dates_prices:
+                series_data[s] = dates_prices
+                symbol_data_counts[s] = len(dates_prices)
+
+        if not series_data:
+            return f"No price data found for symbols: {symbols} (tried ClickHouse and Yahoo Finance fallback)."
 
         # Build common date axis from the symbol with most data points
-        ref_sym = df["symbol"].value_counts().idxmax()
-        ref_dates = df[df["symbol"] == ref_sym]["trade_date"].astype(str).tolist()
+        ref_sym = max(symbol_data_counts, key=symbol_data_counts.get)
+        ref_dates = sorted(list(series_data[ref_sym].keys()))
 
         plt = _plt()
         plt.clear_figure()
-        for sym, grp in df.groupby("symbol"):
-            prices = grp["close"].tolist()
-            base = prices[0] or 1
+
+        for sym, dates_prices in series_data.items():
+            prices = []
+            last_valid_price = None
+            
+            # Find the first valid price to fill backwards if needed
+            first_valid_price = None
+            sorted_dates = sorted(list(dates_prices.keys()))
+            if sorted_dates:
+                first_valid_price = dates_prices[sorted_dates[0]]
+
+            for d in ref_dates:
+                if d in dates_prices:
+                    price = dates_prices[d]
+                    last_valid_price = price
+                else:
+                    price = last_valid_price if last_valid_price is not None else first_valid_price
+                prices.append(price)
+
+            if not prices or all(p is None for p in prices):
+                continue
+
+            base = prices[0] or 1.0
             norm = [p / base * 100 for p in prices]
             plt.plot(list(range(len(norm))), norm, label=sym)
 
         plt.title(f"Normalised price comparison (base=100)  —  last {days} days")
         plt.ylabel("Indexed price (base 100)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
+
         n = len(ref_dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
