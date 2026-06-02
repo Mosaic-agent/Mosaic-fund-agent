@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS
 
 
+def _make_daemon_thread() -> None:
+    import threading
+    threading.current_thread().daemon = True
+
+
 class RichConsoleCallbackHandler(BaseCallbackHandler):
     """Callback handler to print intermediate LLM steps and tool calls beautifully in the console."""
 
@@ -448,7 +453,7 @@ class MosaicFundAgent:
             task = progress.add_task(
                 f"Analyzing {len(holdings)} holdings in parallel…", total=len(holdings)
             )
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5, initializer=_make_daemon_thread) as pool:
                 future_map = {pool.submit(analyze_holding, h): h for h in holdings}
                 for future in concurrent.futures.as_completed(future_map):
                     holding = future_map[future]
@@ -607,7 +612,7 @@ class MosaicFundAgent:
             if os.getenv("VERBOSE") == "1":
                 config["callbacks"] = [RichConsoleCallbackHandler()]
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1, initializer=_make_daemon_thread) as _ex:
                 _fut = _ex.submit(self._agent.invoke, {"messages": messages}, config)
                 try:
                     result = _fut.result(timeout=120)
