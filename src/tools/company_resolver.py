@@ -45,6 +45,64 @@ _SCREENER_BASE      = "https://www.screener.in"
 _resolver_llm: "Any" = None          # lazy singleton — built on first use
 _llm_symbol_cache: dict[str, str | None] = {}   # session-level cache
 
+# Session/turn level resolution maps
+_turn_query_resolutions: dict[str, dict] = {}
+_turn_symbol_corrections: dict[str, str] = {}
+_turn_confirmed_symbols: set[str] = set()
+
+def clear_turn_resolutions() -> None:
+    _turn_query_resolutions.clear()
+    _turn_symbol_corrections.clear()
+    _turn_confirmed_symbols.clear()
+
+def _is_exact_symbol_match(query: str, info: dict) -> bool:
+    q = query.strip().upper()
+    sym = (info.get("symbol") or "").upper()
+    nse = (info.get("nse_symbol") or "").upper()
+    yf = (info.get("yf_symbol") or "").upper()
+    exc = (info.get("exchange") or "").upper()
+    
+    # Strip common suffixes/prefixes
+    q_clean = re.sub(r"\.(NS|BO|BSE)$", "", q, flags=re.I)
+    q_clean = re.sub(r":(NSE|BSE)$", "", q_clean, flags=re.I)
+    
+    if q == sym or q == nse or q == yf:
+        return True
+    if q_clean == sym or q_clean == nse:
+        return True
+    if q == f"{sym}:{exc}" or q == f"{nse}:{exc}":
+        return True
+    return False
+
+def rewrite_delegation_question(question: str) -> str:
+    """
+    Rewrite a delegation question to replace any references to corrected queries
+    or incorrect default symbols with the final corrected symbol.
+    """
+    if not question:
+        return question
+
+    modified = question
+    
+    # 1. Replace any incorrect symbols first (e.g., TATASTEEL -> TATAPOWER)
+    for orig, corrected in _turn_symbol_corrections.items():
+        # Replace whole word matches of the symbol
+        modified = re.sub(r'\b' + re.escape(orig) + r'\b', corrected, modified, flags=re.I)
+        
+    # 2. Replace references to the original queries with the corrected symbol
+    for q_text, info in _turn_query_resolutions.items():
+        symbol = info.get("symbol")
+        if not symbol:
+            continue
+            
+        # Replace simple word occurrences of the query text
+        modified = re.sub(r'\b' + re.escape(q_text) + r'\b', symbol, modified, flags=re.I)
+        
+        # Also handle common patterns like "query Group" or "query Corp"
+        modified = re.sub(r'\b' + re.escape(q_text) + r'\s+(Group|Corp|Ltd|Limited|Co|Company)\b', symbol, modified, flags=re.I)
+
+    return modified
+
 
 def _get_resolver_llm() -> "Any":
     """Return (building once) a minimal LLM for single-token symbol lookups."""
@@ -527,11 +585,19 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     canonical trading symbol with market classification.
     """
     info = _resolve_company_info_impl(query)
+    original_info = info.copy() if info else None
+
+    # Check if we can skip prompting
+    skip_prompt = False
+    if info and not info.get("error"):
+        final_symbol = info["symbol"].upper()
+        if final_symbol in _turn_confirmed_symbols or _is_exact_symbol_match(query, info):
+            skip_prompt = True
 
     # Interactive confirmation loop
     import sys
     import os
-    if os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1" and info and not info.get("error"):
+    if os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1" and info and not info.get("error") and not skip_prompt:
         company_desc = f"{info['company_name']} ({info['symbol']} on {info['exchange']})"
         sys.stdout.write(f"\n[Resolver] Resolved '{query}' to '{company_desc}'. Is this correct? [Y/n]: ")
         sys.stdout.flush()
@@ -570,6 +636,18 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
                     "currency": None,
                     "source": "cancelled",
                 }
+
+    # Record final resolution for mapping
+    if info and not info.get("error"):
+        final_symbol = info["symbol"].upper()
+        _turn_confirmed_symbols.add(final_symbol)
+        _turn_query_resolutions[query.lower().strip()] = info
+        
+        # If corrected, record symbol correction (e.g. original default was incorrect)
+        if original_info and not original_info.get("error"):
+            orig_symbol = original_info.get("symbol")
+            if orig_symbol and orig_symbol.upper() != final_symbol:
+                _turn_symbol_corrections[orig_symbol.upper()] = final_symbol
 
     # Check and auto-import if requested and resolved successfully to an Indian symbol
     if auto_import and info and not info.get("error"):

@@ -200,6 +200,11 @@ def delegate_to_signal_agent(question: str) -> str:
         The signal agent's complete analysis as a Markdown string.
     """
     try:
+        from src.tools.company_resolver import rewrite_delegation_question
+        question = rewrite_delegation_question(question)
+    except Exception:
+        pass
+    try:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("signal", question)
     except Exception as exc:
@@ -230,6 +235,11 @@ def delegate_to_macro_agent(question: str) -> str:
     Returns:
         The macro agent's complete analysis as a Markdown string.
     """
+    try:
+        from src.tools.company_resolver import rewrite_delegation_question
+        question = rewrite_delegation_question(question)
+    except Exception:
+        pass
     try:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("macro", question)
@@ -265,6 +275,11 @@ def delegate_to_intl_etf_agent(question: str) -> str:
         The intl ETF agent's complete analysis as a Markdown string.
     """
     try:
+        from src.tools.company_resolver import rewrite_delegation_question
+        question = rewrite_delegation_question(question)
+    except Exception:
+        pass
+    try:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("intl_etf", question)
     except Exception as exc:
@@ -292,6 +307,11 @@ def delegate_to_news_agent(question: str) -> str:
     Returns:
         A Markdown table of headlines + 2–3 sentence sentiment summary.
     """
+    try:
+        from src.tools.company_resolver import rewrite_delegation_question
+        question = rewrite_delegation_question(question)
+    except Exception:
+        pass
     try:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("news", question)
@@ -322,6 +342,11 @@ def delegate_to_india_equity_agent(question: str) -> str:
     Returns:
         A structured Markdown research note covering all 8 sections.
     """
+    try:
+        from src.tools.company_resolver import rewrite_delegation_question
+        question = rewrite_delegation_question(question)
+    except Exception:
+        pass
     try:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("india_equity", question)
