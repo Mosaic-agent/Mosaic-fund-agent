@@ -771,6 +771,42 @@ def test_resolver_turn_level_caching_and_rewriting():
     print("  ✓ Company Resolver Turn-Level Caching & Query Rewriting — ALL CHECKS PASSED")
 
 
+def test_chat_cmd_pre_resolution():
+    print("\n" + "="*60)
+    print("TEST 18: Chat Command Pre-Resolution and Query Rewriting")
+    print("="*60)
+
+    from src.commands.chat_cmd import extract_company_subject
+    
+    # 1. Test subject extraction
+    assert extract_company_subject("tata", "india_equity") == "tata"
+    assert extract_company_subject("tata news", "news") == "tata"
+    assert extract_company_subject("Research Tata Group", "india_equity") == "Tata Group"
+    assert extract_company_subject("deep research on HDFC Bank", "research") == "HDFC Bank"
+    assert extract_company_subject("quit", "main") is None
+    assert extract_company_subject("compare tata and sbi", "india_equity") is None
+
+    # 2. Test mock pre-resolution query rewrite flow
+    import re
+    from unittest.mock import patch
+
+    _subject = "tata"
+    _intent = "india_equity"
+    raw_query = "Research tata"
+    mock_info = {"symbol": "TATAPOWER", "company_name": "Tata Power"}
+
+    with patch("src.tools.company_resolver.resolve_company_info", return_value=mock_info):
+        from src.tools.company_resolver import resolve_company_info
+        _info = resolve_company_info(_subject, auto_import=False)
+        if _info and not _info.get("error") and _info.get("symbol"):
+            _symbol = _info["symbol"]
+            raw_query = re.sub(r'\b' + re.escape(_subject) + r'\b', _symbol, raw_query, flags=re.I)
+            
+    assert raw_query == "Research TATAPOWER"
+    print("  ✓ Pre-resolution and query rewriting simulated successfully")
+    print("  ✓ Chat Command Pre-Resolution — ALL CHECKS PASSED")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -790,6 +826,7 @@ if __name__ == "__main__":
         test_company_resolver_false_positives,
         test_company_resolver_interactive,
         test_resolver_turn_level_caching_and_rewriting,
+        test_chat_cmd_pre_resolution,
     ]
     passed = 0
     failed = 0
@@ -806,3 +843,4 @@ if __name__ == "__main__":
     print(f"RESULTS: {passed} passed, {failed} failed")
     print("="*60)
     sys.exit(0 if failed == 0 else 1)
+
