@@ -178,11 +178,25 @@ def get_yahoo_finance_data(input_str: str) -> dict[str, Any]:
         prev1y = hist[0]["close"]
         yoy_pct = round(((latest - prev1y) / prev1y * 100), 2) if prev1y else 0.0
 
+    # Format Market Cap to prevent LLM math/division errors.
+    # Indian stock tickers end with .NS/.BO, or exchange is NSE/BSE.
+    is_indian = (
+        data.symbol.endswith((".NS", ".BO"))
+        or exchange.upper() in ("NSE", "BSE")
+    )
+    if is_indian:
+        mc_crore = data.market_cap / 1e7
+        market_cap_formatted = f"₹{mc_crore:,.2f} Cr"
+    else:
+        mc_billion = data.market_cap / 1e9
+        market_cap_formatted = f"${mc_billion:,.2f} B"
+
     return {
         "symbol": data.symbol,
         "sector": data.sector,
         "industry": data.industry,
         "market_cap": data.market_cap,
+        "market_cap_formatted": market_cap_formatted,
         "pe_ratio": data.pe_ratio,
         "pb_ratio": data.pb_ratio,
         "dividend_yield_pct": data.dividend_yield,

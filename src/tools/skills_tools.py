@@ -317,6 +317,7 @@ def import_symbol_data_impl(symbol: str, days: int = 365) -> str:
             password=settings.clickhouse_password,
         )
         try:
+            ch.ensure_schema()
             n = ch.insert_prices(rows)
             max_date = max(r["trade_date"] for r in rows)
             ch.set_watermark("yfinance", sym, max_date)

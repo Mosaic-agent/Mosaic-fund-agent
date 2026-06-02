@@ -301,7 +301,8 @@ def get_quarterly_results(input_str: str) -> dict[str, Any]:
 
     return {
         "symbol": symbol,
-        "period": result.period,
+        "period": f"Quarter Ending {result.period}",
+        "note": "These are quarterly financial results (not annual/FY figures).",
         "revenue_cr": result.revenue_cr,
         "net_profit_cr": result.net_profit_cr,
         "eps": result.eps,
