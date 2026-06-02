@@ -1140,14 +1140,17 @@ class MacroSubAgent(_SubAgent):
         "Use `run_whale_tracker` to track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear, Energy, Infra) across multi-asset funds. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL` and "
         "`market_data.cot_gold FINAL` for institutional positioning data. "
-        "Score interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
+        "Net article flow index interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
         "| ≤−16 = strong bearish.\n\n"
+        "## Index stats (valuation & breadth)\n"
+        "Use `run_market_indicators` to fetch the index valuation (weighted P/E, P/B), market breadth (% of stocks above 50/200 DMA, Advances/Declines), and macro stress indicators (rupee stress DXY deviation, gold ETF SPDR GLD tonnes flow, sector rotation rank). "
+        "When asked about general market health, daily overview, or index valuations, ALWAYS run `run_market_indicators` and integrate this quantitative context with `run_macro_scanner` output.\n\n"
         "## Geopolitical / country news\n"
         "When the query is about a country or geopolitical event (Iran, Russia, crude oil, "
         "sanctions, war, etc.), call `search_financial_news` with a focused query such as "
         "'Iran oil sanctions Indian market impact' to fetch live news articles. "
-        "Then call `run_macro_scanner` to get the ETF impact scores. "
-        "Present both: news table first, then ETF impact scores.\n\n"
+        "Then call `run_macro_scanner` to get the ETF net article flows. "
+        "Present both: news table first, then ETF net article flows.\n\n"
         "## Charts\n"
         "If the user asks for a chart, visualisation, or trend:\n"
         "- FII/DII flow trend → `plot_fii_dii_chart(days)`\n"
@@ -1164,6 +1167,7 @@ class MacroSubAgent(_SubAgent):
             run_comex_analysis,
             query_clickhouse_db,
             run_whale_tracker,
+            run_market_indicators,
         )
         from src.tools.news_search import search_financial_news, get_db_news
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
@@ -1172,6 +1176,7 @@ class MacroSubAgent(_SubAgent):
             run_comex_analysis,
             query_clickhouse_db,
             run_whale_tracker,
+            run_market_indicators,
             search_financial_news,
             get_db_news,
             plot_fii_dii_chart,

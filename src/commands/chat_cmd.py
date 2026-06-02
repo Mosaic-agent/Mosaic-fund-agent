@@ -196,6 +196,9 @@ Examples:
   "composite scores all ETFs"    → 1. run_daily_signal_composite()  2. plot_signal_scores()
   "GOLDBEES position size"       → 1. run_risk_governor_analysis()  2. plot_garch_volatility_chart("GOLDBEES")
   "iNAV premium alerts"          → 1. run_premium_alerts()
+  "premium 6 months"             → run_premium_alerts(lookback=6, lookback_unit="months")
+  "premium 1 year"               → run_premium_alerts(lookback=1, lookback_unit="years")
+  "premium 90 days"              → run_premium_alerts(lookback=90, lookback_unit="days")
   "what is iNAV of SILVERBEES"   → 1. get_live_inav("SILVERBEES")
   "GOLDBEES current NAV"         → 1. get_live_inav("GOLDBEES")
   "is HNGSNGBEES at premium"     → 1. get_live_inav("HNGSNGBEES")
@@ -561,24 +564,122 @@ def _get_ml_status() -> str:
         from src.db.pool import query_df
         df = query_df("""
             SELECT as_of, expected_return_pct, regime_signal,
-                   cv_r2_mean, goldbees_close, confidence_low, confidence_high
+                   cv_r2_mean, goldbees_close, confidence_low, confidence_high,
+                   prob_up, cv_auc_mean
             FROM market_data.ml_predictions FINAL
             ORDER BY as_of DESC LIMIT 1
         """)
         if not df.empty:
             row = df.iloc[0]
+            prob_up = row.get("prob_up", 0.5)
+            cv_auc_mean = row.get("cv_auc_mean", 0.5)
             lines += [
                 "",
                 "### Latest ML Prediction (GOLDBEES)",
-                f"| Field | Value |",
-                f"|---|---|",
-                f"| as_of | {row['as_of']} |",
-                f"| expected_return_pct | {row['expected_return_pct']:.2f}% |",
-                f"| confidence_band | [{row['confidence_low']:.2f}%, {row['confidence_high']:.2f}%] |",
-                f"| regime_signal | **{row['regime_signal']}** |",
-                f"| cv_r2_mean | {row['cv_r2_mean']:.4f} |",
-                f"| goldbees_close | ₹{row['goldbees_close']:.2f} |",
+                f"| Field | Value | Detail |",
+                f"|---|---|---|",
+                f"| as_of | {row['as_of']} | Date of model execution |",
+                f"| expected_return_pct | **{row['expected_return_pct']:.2f}%** | Expected 5-day return |",
+                f"| probability_up | **{prob_up:.1%}** | Classifier probability GOLDBEES goes up |",
+                f"| confidence_band | [{row['confidence_low']:.2f}%, {row['confidence_high']:.2f}%] | 5-day quantile bounds |",
+                f"| regime_signal | **{row['regime_signal']}** | Dynamic regime signal |",
+                f"| Model AUC (CV mean) | {cv_auc_mean:.4f} | Validation AUC (>0.50 = edge) |",
+                f"| cv_r2_mean (skill) | {row['cv_r2_mean']:.4f} | Centred skill score (AUC - 0.5) |",
+                f"| goldbees_close | ₹{row['goldbees_close']:.2f} | Benchmark close at forecast time |",
             ]
+
+        # Calculate validation history
+        try:
+            import numpy as np
+            import pandas as pd
+            preds_all = query_df("""
+                SELECT
+                    as_of,
+                    horizon_days,
+                    expected_return_pct,
+                    regime_signal,
+                    goldbees_close AS start_price
+                FROM market_data.ml_predictions FINAL
+                ORDER BY as_of ASC
+            """)
+            prices_all = query_df("""
+                SELECT
+                    trade_date,
+                    argMax(close, imported_at) AS close
+                FROM market_data.daily_prices
+                WHERE symbol = 'GOLDBEES' AND category = 'etfs'
+                GROUP BY trade_date
+                ORDER BY trade_date ASC
+            """)
+            if not preds_all.empty and not prices_all.empty:
+                preds_all["as_of"]       = pd.to_datetime(preds_all["as_of"])
+                prices_all["trade_date"] = pd.to_datetime(prices_all["trade_date"])
+
+                price_idx = pd.DatetimeIndex(prices_all["trade_date"])
+                price_map = prices_all.set_index("trade_date")["close"].to_dict()
+
+                results = []
+                for _, prow in preds_all.iterrows():
+                    as_of = prow["as_of"]
+                    horizon = int(prow["horizon_days"])
+                    start_price = float(prow["start_price"])
+
+                    if start_price <= 0:
+                        continue
+
+                    entry_pos = price_idx.searchsorted(as_of, side="left")
+                    exit_pos  = entry_pos + horizon
+                    if exit_pos >= len(price_idx):
+                        continue
+
+                    end_date  = price_idx[exit_pos]
+                    end_price = float(price_map[end_date])
+
+                    actual_logret    = np.log(end_price / start_price) * 100
+                    predicted_logret = float(prow["expected_return_pct"])
+
+                    pred_sign   = np.sign(predicted_logret)
+                    actual_sign = np.sign(actual_logret)
+                    hit = int(pred_sign == actual_sign) if pred_sign != 0 else None
+
+                    results.append({
+                        "as_of":     as_of.date(),
+                        "end_date":  end_date.date(),
+                        "regime":    prow["regime_signal"],
+                        "predicted": predicted_logret,
+                        "actual":    actual_logret,
+                        "hit":       hit,
+                    })
+
+                if results:
+                    eval_df = pd.DataFrame(results)
+                    directional = eval_df[eval_df["hit"].notna()]
+                    hit_ratio   = directional["hit"].mean() if not directional.empty else float("nan")
+                    mae         = eval_df["predicted"].sub(eval_df["actual"]).abs().mean()
+                    rmse        = np.sqrt(eval_df["predicted"].sub(eval_df["actual"]).pow(2).mean())
+
+                    lines += [
+                        "",
+                        "### Model Validation & Out-of-Sample Backtest History",
+                        f"| Metric | Value | Reference / Threshold |",
+                        f"|---|---|---|",
+                        f"| **Out-of-Sample Hit Ratio** | **{hit_ratio:.1%}** | >50% indicates directional edge |",
+                        f"| **Mean Absolute Error (MAE)** | {mae:.2f}% | Average forecast magnitude error |",
+                        f"| **Root Mean Squared Error (RMSE)** | {rmse:.2f}% | Penalizes larger forecast errors |",
+                        f"| **Realised Predictions (n)** | {len(eval_df)} | Completed trading-day horizons |",
+                        "",
+                        "#### Recent Realised Out-of-Sample Outcomes",
+                        "| As Of | Target Date | Regime | Predicted Return | Realised Return | Hit |",
+                        "|---|---|---|---|---|---|",
+                    ]
+                    for _, r in eval_df.tail(6).iterrows():
+                        hit_str = "✓" if r["hit"] == 1 else "✗" if r["hit"] == 0 else "—"
+                        lines.append(
+                            f"| {r['as_of']} | {r['end_date']} | {r['regime']} | "
+                            f"{r['predicted']:+.2f}% | {r['actual']:+.2f}% | {hit_str} |"
+                        )
+        except Exception as eval_exc:
+            lines.append(f"\n*Validation metrics compilation failed: {eval_exc}*")
 
         wdf = query_df("""
             SELECT symbol, method, recommended_weight, garch_vol_pct, regime, as_of

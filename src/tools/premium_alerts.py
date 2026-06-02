@@ -52,6 +52,21 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+
+def _remove_outliers(values: list[float], iqr_multiplier: float = 3.0) -> tuple[list[float], int]:
+    """Return (cleaned_values, n_removed) using the IQR fence method."""
+    if len(values) < 4:
+        return values, 0
+    sorted_v = sorted(values)
+    n = len(sorted_v)
+    q1 = sorted_v[n // 4]
+    q3 = sorted_v[(3 * n) // 4]
+    iqr = q3 - q1
+    lo = q1 - iqr_multiplier * iqr
+    hi = q3 + iqr_multiplier * iqr
+    cleaned = [v for v in values if lo <= v <= hi]
+    return cleaned, len(values) - len(cleaned)
+
 log = logging.getLogger(__name__)
 
 # International ETFs affected by the RBI overseas investment cap
@@ -102,15 +117,16 @@ def check_premium_alerts(
 
     for sym in symbols:
         result: dict[str, Any] = {
-            "symbol":         sym,
-            "latest_premium": None,
-            "mean_premium":   None,
-            "std_premium":    None,
-            "z_score":        None,
-            "n_snapshots":    0,
-            "action":         "⚠ Insufficient Data",
-            "action_style":   "dim",
-            "error":          None,
+            "symbol":           sym,
+            "latest_premium":   None,
+            "mean_premium":     None,
+            "std_premium":      None,
+            "z_score":          None,
+            "n_snapshots":      0,
+            "n_outliers_removed": 0,
+            "action":           "⚠ Insufficient Data",
+            "action_style":     "dim",
+            "error":            None,
         }
 
         try:
@@ -150,8 +166,19 @@ def check_premium_alerts(
                 continue
 
             premiums = [float(r[1]) for r in hist_rows]
+            premiums, n_removed = _remove_outliers(premiums)
+            result["n_outliers_removed"] = n_removed
+            if n_removed:
+                log.warning("%s: removed %d outlier snapshot(s) from premium history", sym, n_removed)
+
+            if len(premiums) < min_snapshots:
+                result["n_snapshots"] = n
+                result["error"] = f"Only {len(premiums)} clean snapshots after removing {n_removed} outlier(s) (need ≥ {min_snapshots})"
+                results.append(result)
+                continue
+
             mean_prem = statistics.mean(premiums)
-            std_prem  = statistics.stdev(premiums) if n >= 2 else 0.0
+            std_prem  = statistics.stdev(premiums) if len(premiums) >= 2 else 0.0
 
             result["mean_premium"] = round(mean_prem, 4)
             result["std_premium"]  = round(std_prem, 4)
@@ -165,6 +192,7 @@ def check_premium_alerts(
                 continue
 
             # ── Z-score and action signal ─────────────────────────────────────
+            result["n_snapshots"] = len(premiums)  # count after outlier removal
             z = (latest_prem - mean_prem) / std_prem
             result["z_score"] = round(z, 3)
 

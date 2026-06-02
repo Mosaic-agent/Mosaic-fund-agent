@@ -747,7 +747,13 @@ def get_live_inav(symbol: str) -> str:
 
 
 @tool
-def run_premium_alerts(lookback: int = 30, z_threshold: float = -1.5, symbols: str = "", min_snapshots: int = 5) -> str:
+def run_premium_alerts(
+    lookback: int = 30,
+    lookback_unit: str = "days",
+    z_threshold: float = -1.5,
+    symbols: str = "",
+    min_snapshots: int = 5,
+) -> str:
     """
     Scarcity Premium/Discount Alerts for international Indian ETFs (MAFANG, HNGSNGBEES, etc.).
     Trades the premium created by RBI's overseas investment cap.
@@ -759,12 +765,28 @@ def run_premium_alerts(lookback: int = 30, z_threshold: float = -1.5, symbols: s
     The 'inav_source' field in results indicates "db" (cached) or "nse_api_live".
 
     Args:
-        lookback: Days of iNAV history used to compute mean/std (default 30).
+        lookback: Numeric period for the history window (default 30).
+        lookback_unit: Unit for the lookback period. One of:
+                         "days"   — calendar days  (e.g. lookback=30)
+                         "months" — calendar months (e.g. lookback=3  → 90 days)
+                         "years"  — calendar years  (e.g. lookback=1  → 365 days)
+                       Examples:
+                         "6 months" → lookback=6,  lookback_unit="months"
+                         "1 year"   → lookback=1,  lookback_unit="years"
+                         "90 days"  → lookback=90, lookback_unit="days"
         z_threshold: Z-score at or below which SCREAMING BUY fires (default -1.5).
         symbols: Comma-separated NSE symbols to scan (e.g., 'MAFANG,HNGSNGBEES'). Default is all international ETFs.
         min_snapshots: Minimum hourly snapshots required to compute a meaningful Z-score (default 5).
     """
-    args = ["src/main.py", "premium-alerts", "--lookback", str(lookback), "--z-threshold", str(z_threshold), "--min-snapshots", str(min_snapshots)]
+    unit = lookback_unit.lower().rstrip("s")  # normalise: "months" → "month"
+    if unit == "month":
+        lookback_days = lookback * 30
+    elif unit == "year":
+        lookback_days = lookback * 365
+    else:
+        lookback_days = lookback  # default: treat as days
+
+    args = ["src/main.py", "premium-alerts", "--lookback", str(lookback_days), "--z-threshold", str(z_threshold), "--min-snapshots", str(min_snapshots)]
     if symbols:
         args.extend(["--symbols", symbols])
     return _run_cmd(args)
@@ -844,6 +866,17 @@ def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: b
     return f"Deep-dive analysis executed.\n\nCommand Log:\n{cmd_output}{preview}"
 
 
+@tool
+def run_market_indicators() -> str:
+    """
+    Run the index valuation, market breadth, sector rotation, and macro indicators scorecard.
+    Use this when the user asks for Nifty 50 or Nifty 500 P/E, P/B ratios, market breadth (Advances/Declines,
+    percentage of stocks above 50/200 DMA), sector rotation rankings, rupee stress (USDINR deviation),
+    or gold ETF (SPDR GLD) whale flows.
+    """
+    return _run_cmd([sys.executable, "src/scripts/portfolio/market_indicators.py"])
+
+
 # Unified list of core skill tools
 SKILLS_TOOLS = [
     run_goldbees_pipeline,
@@ -862,4 +895,5 @@ SKILLS_TOOLS = [
     run_comex_analysis,
     run_premium_alerts,
     run_deepdive_analysis,
+    run_market_indicators,
 ]

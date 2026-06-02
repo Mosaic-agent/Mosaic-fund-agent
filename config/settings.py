@@ -211,6 +211,29 @@ class Settings(BaseSettings):
     # Defaults to 'gemini' (on PATH). Override if installed to a custom location.
     gemini_cli_path: str = Field(default="gemini", description="Path to gemini CLI binary")
 
+    # ── Shoonya (Finvasia) brokerage API — alternative NSE data source ──────
+    # Used as a reliable alternative to Yahoo Finance for NSE OHLCV data.
+    # Leave blank to disable; Yahoo Finance is used as fallback when not set.
+    # Obtain credentials at https://shoonya.com/
+
+    # [SENSITIVE] Shoonya login user ID
+    shoonya_user_id: str = Field(default="", description="Shoonya user ID")
+
+    # [SENSITIVE] Shoonya login password
+    shoonya_password: str = Field(default="", description="Shoonya password")
+
+    # [SENSITIVE] Shoonya vendor code (provided by Shoonya/Noren team)
+    shoonya_vendor_code: str = Field(default="", description="Shoonya vendor code")
+
+    # [SENSITIVE] Shoonya API secret (generated from Prism)
+    shoonya_api_secret: str = Field(default="", description="Shoonya API secret")
+
+    # [SENSITIVE] TOTP secret key for automated 2FA (base32 string from Shoonya app)
+    shoonya_totp_secret: str = Field(default="", description="Shoonya TOTP secret (base32)")
+
+    # [NON-SENSITIVE] Device IMEI or MAC address registered with Shoonya
+    shoonya_imei: str = Field(default="", description="Shoonya IMEI / MAC address")
+
     # ── ClickHouse (historical data importer) ────────────────────────────────
 
     # [NON-SENSITIVE] ClickHouse server host

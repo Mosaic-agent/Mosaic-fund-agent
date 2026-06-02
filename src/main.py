@@ -710,7 +710,8 @@ def premium_alerts(
         avg    = f"{r['mean_premium']:+.3f}%"   if r["mean_premium"]   is not None else "[dim]—[/dim]"
         std    = f"{r['std_premium']:.4f}"       if r["std_premium"]    is not None else "[dim]—[/dim]"
         zscore = f"{r['z_score']:+.3f}"          if r["z_score"]        is not None else "[dim]—[/dim]"
-        snaps  = str(r["n_snapshots"])
+        n_out  = r.get("n_outliers_removed", 0)
+        snaps  = f"{r['n_snapshots']}" + (f" [dim](-{n_out}✂)[/dim]" if n_out else "")
         style  = r["action_style"]
         action = f"[{style}]{r['action']}[/{style}]"
 
