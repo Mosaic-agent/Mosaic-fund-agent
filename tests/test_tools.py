@@ -858,6 +858,45 @@ def test_macd_chart_rendering_and_analysis():
     print("  ✓ MACD chart rendering and mathematical analysis check passed")
 
 
+def test_multi_price_chart_fallback():
+    print("\n" + "="*60)
+    print("TEST 20: Multi Price Chart Fallback & Caret Handling Check")
+    print("="*60)
+
+    from src.tools.chart_tools import plot_multi_price_chart
+    from unittest.mock import patch
+    import pandas as pd
+
+    # Mock query_df to return empty df (simulating missing in ClickHouse)
+    # Mock fetch_price_history to return dummy history for both symbols
+    mock_history_1 = [
+        {"date": f"2026-05-{i:02d}", "open": 100.0, "high": 105.0, "low": 95.0, "close": 100.0 + i, "volume": 1000}
+        for i in range(1, 10)
+    ]
+    mock_history_2 = [
+        {"date": f"2026-05-{i:02d}", "open": 200.0, "high": 205.0, "low": 195.0, "close": 200.0 - i, "volume": 1000}
+        for i in range(1, 10)
+    ]
+
+    def mock_fetch(symbol, exchange, period):
+        if symbol == "TATAPOWER":
+            return mock_history_1
+        elif symbol == "^CNXENERGY":
+            return mock_history_2
+        return []
+
+    with patch("src.db.pool.query_df", return_value=pd.DataFrame()), \
+         patch("src.tools.yahoo_finance.fetch_price_history", side_effect=mock_fetch):
+        output = plot_multi_price_chart.invoke({"symbols": "TATAPOWER,^CNXENERGY", "days": 30})
+        
+        # Verify chart title and normalised labels are present
+        assert "Normalised price comparison" in output
+        assert "TATAPOWER" in output
+        assert "^CNXENERGY" in output
+        
+    print("  ✓ Multi price chart fallback and index caret symbols handling passed")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -879,6 +918,7 @@ if __name__ == "__main__":
         test_resolver_turn_level_caching_and_rewriting,
         test_chat_cmd_pre_resolution,
         test_macd_chart_rendering_and_analysis,
+        test_multi_price_chart_fallback,
     ]
     passed = 0
     failed = 0
