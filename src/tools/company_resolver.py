@@ -478,6 +478,47 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     return None
 
 
+def _get_llm_suggestions(query: str) -> list[dict]:
+    """
+    Use the LLM to suggest the top 3 matching company names and their ticker symbols
+    for a given query. Returns a list of dicts: [{'name': '...', 'symbol': '...'}].
+    """
+    llm = _get_resolver_llm()
+    if llm is None:
+        return []
+    try:
+        from langchain_core.messages import HumanMessage
+        prompt = (
+            "You are a stock market expert.\n"
+            f"The user is searching for a stock with query: \"{query}\".\n"
+            "Suggest the top 3 most likely listed company names and their exact exchange ticker symbols (prefer NSE for Indian stocks, NYSE/NASDAQ for US stocks).\n"
+            "Format your reply as a simple list of 3 entries, each in the format:\n"
+            "COMPANY_NAME | TICKER\n"
+            "Do not include any other text, markdown formatting, or numbering."
+        )
+        raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+        suggestions = []
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # Strip list indicators like '1.', '-', etc.
+            line = re.sub(r"^[0-9\-.\s]+", "", line)
+            if "|" in line:
+                parts = line.split("|")
+                name = parts[0].strip()
+                sym = parts[1].strip()
+                sym_clean = re.sub(r"[^A-Z0-9&]", "", sym.upper())
+                if sym_clean and name:
+                    suggestions.append({"name": name, "symbol": sym_clean})
+            if len(suggestions) >= 3:
+                break
+        return suggestions
+    except Exception as exc:
+        log.warning("_get_llm_suggestions failed: %s", exc)
+        return []
+
+
 def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     """
     Core resolver — not a LangChain tool, call from Python directly.
@@ -486,6 +527,49 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     canonical trading symbol with market classification.
     """
     info = _resolve_company_info_impl(query)
+
+    # Interactive confirmation loop
+    import sys
+    if sys.stdin.isatty() and 'pytest' not in sys.modules and 'unittest' not in sys.modules and info and not info.get("error"):
+        company_desc = f"{info['company_name']} ({info['symbol']} on {info['exchange']})"
+        sys.stdout.write(f"\n[Resolver] Resolved '{query}' to '{company_desc}'. Is this correct? [Y/n]: ")
+        sys.stdout.flush()
+        ans = sys.stdin.readline().strip().lower()
+        if ans not in ('', 'y', 'yes'):
+            sys.stdout.write("Please enter the correct company name: ")
+            sys.stdout.flush()
+            new_query = sys.stdin.readline().strip()
+            if new_query:
+                # Suggest matching names using LLM
+                suggestions = _get_llm_suggestions(new_query)
+                if suggestions:
+                    sys.stdout.write("\nMatching companies found using LLM:\n")
+                    for i, sug in enumerate(suggestions, 1):
+                        sys.stdout.write(f"  {i}. {sug['name']} ({sug['symbol']})\n")
+                    sys.stdout.write("Select an option (1-3) or press Enter to search for your input directly: ")
+                    sys.stdout.flush()
+                    sel = sys.stdin.readline().strip()
+                    if sel.isdigit() and 1 <= int(sel) <= len(suggestions):
+                        chosen = suggestions[int(sel) - 1]
+                        log.info("resolve_company: user selected suggestion %s (%s)", chosen['name'], chosen['symbol'])
+                        info = _resolve_company_info_impl(chosen['symbol'])
+                    else:
+                        info = _resolve_company_info_impl(new_query)
+                else:
+                    info = _resolve_company_info_impl(new_query)
+            else:
+                return {
+                    "error": "User cancelled resolution.",
+                    "symbol": None,
+                    "nse_symbol": None,
+                    "yf_symbol": None,
+                    "exchange": None,
+                    "market": None,
+                    "company_name": None,
+                    "currency": None,
+                    "source": "cancelled",
+                }
+
     # Check and auto-import if requested and resolved successfully to an Indian symbol
     if auto_import and info and not info.get("error"):
         sym = info.get("symbol")
