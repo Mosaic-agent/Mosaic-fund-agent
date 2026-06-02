@@ -232,12 +232,13 @@ When: Research on a specific Indian NSE/BSE listed stock — price, valuation, e
       cash flow, MF holding pattern, institutional ownership. NOT for US stocks (→ deepdive).
 Key tools: resolve_company · get_yahoo_finance_data · get_price_momentum · get_quarterly_results ·
            get_stock_cashflow · get_mf_holdings_for_stock · get_fii_dii_summary · get_stock_news ·
-           plot_price_chart · plot_fund_holdings_chart
+           plot_price_chart · plot_fund_holdings_chart · plot_macd_chart
 Examples:
   "RELIANCE fundamentals"        → 1. resolve_company("RELIANCE")  2. get_yahoo_finance_data("RELIANCE:NSE")  3. get_quarterly_results("RELIANCE:NSE")  4. get_mf_holdings_for_stock("Reliance")
   "HDFC Bank cashflow"           → 1. resolve_company("HDFC Bank")  2. get_stock_cashflow("HDFCBANK:NSE")
   "TCS MF holdings trend"        → 1. get_mf_holdings_for_stock("TCS")  2. plot_fund_holdings_chart("DSP Top 100", 10)
   "TATASTEEL price momentum"     → 1. resolve_company("TATASTEEL")  2. get_price_momentum("TATASTEEL:NSE")  3. plot_price_chart("TATASTEEL", 90)
+  "INFY MACD chart"              → 1. resolve_company("INFY")  2. plot_macd_chart("INFY", 180)
 
 ── intl_etf ─────────────────────────────────────
 When: Analysis of the 6 NSE-listed overseas ETFs — NEVER for importing their data.
@@ -517,6 +518,15 @@ def _build_fallback_plan(question: str, intent: str) -> str:
         subject = " ".join(question.split()[:4])
 
     steps = _INTENT_STEPS.get(intent, _INTENT_STEPS["main"])
+    if intent == "india_equity" and "macd" in question.lower():
+        steps = list(steps)
+        # Find index of "Synthesise research note" to insert before it
+        try:
+            idx = steps.index("Synthesise research note")
+            steps.insert(idx, "Plot MACD chart and analyze momentum → plot_macd_chart('{subject}', 180)")
+        except ValueError:
+            steps.append("Plot MACD chart and analyze momentum → plot_macd_chart('{subject}', 180)")
+
     return "\n".join(
         f"  [cyan]{i}.[/cyan] {s.format(subject=subject)}"
         for i, s in enumerate(steps, 1)

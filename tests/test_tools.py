@@ -807,6 +807,52 @@ def test_chat_cmd_pre_resolution():
     print("  ✓ Chat Command Pre-Resolution — ALL CHECKS PASSED")
 
 
+def test_macd_chart_rendering_and_analysis():
+    print("\n" + "="*60)
+    print("TEST 19: MACD Chart Rendering & Analysis Check")
+    print("="*60)
+
+    from src.tools.chart_tools import plot_macd_chart
+    from unittest.mock import patch
+    import pandas as pd
+
+    # Mock daily prices query to return a dummy price series (50 points)
+    dates = pd.date_range(end="2026-06-01", periods=50).strftime("%Y-%m-%d").tolist()
+    # Simple trend: upward then downward to generate crossovers
+    prices = [100.0 + i * 1.5 for i in range(25)] + [137.5 - i * 2.0 for i in range(25)]
+    
+    mock_df = pd.DataFrame({
+        "trade_date": dates,
+        "close": prices
+    })
+
+    with patch("src.db.pool.query_df", return_value=mock_df):
+        output = plot_macd_chart.invoke({"symbol": "MOCKSYM", "days": 30})
+        
+        # Verify chart title and label indicators are in output
+        assert "MOCKSYM" in output
+        # Verify our new technical analysis block is present
+        assert "📊 MACD Technical Analysis: MOCKSYM" in output
+        assert "Close Price:" in output
+        assert "EMA-12 / EMA-26:" in output
+        assert "MACD Line:" in output
+        assert "Signal Line:" in output
+        assert "Histogram (Diff):" in output
+        assert "Crossover State:" in output
+        
+    # Verify the fallback plan dynamically appends the MACD step
+    from src.commands.chat_cmd import _build_fallback_plan
+    plan_with_macd = _build_fallback_plan("INFY MACD", "india_equity")
+    assert "plot_macd_chart" in plan_with_macd
+    assert "Plot MACD chart and analyze momentum" in plan_with_macd
+
+    plan_without_macd = _build_fallback_plan("INFY fundamentals", "india_equity")
+    assert "plot_macd_chart" not in plan_without_macd
+    assert "Plot MACD chart and analyze momentum" not in plan_without_macd
+
+    print("  ✓ MACD chart rendering and mathematical analysis check passed")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -827,6 +873,7 @@ if __name__ == "__main__":
         test_company_resolver_interactive,
         test_resolver_turn_level_caching_and_rewriting,
         test_chat_cmd_pre_resolution,
+        test_macd_chart_rendering_and_analysis,
     ]
     passed = 0
     failed = 0

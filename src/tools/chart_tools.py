@@ -871,7 +871,69 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
         plt.xticks(tick_idx, tick_lbl)
 
-        return _build(plt)
+        chart_str = _build(plt)
+
+        # Compute technical analysis metrics
+        ema12_val = view["ema12"].iloc[-1]
+        ema26_val = view["ema26"].iloc[-1]
+
+        # 1. Crossover state & history
+        is_bullish = last_macd > last_sig
+        crossover_label = "BULLISH (MACD Line > Signal Line)" if is_bullish else "BEARISH (MACD Line < Signal Line)"
+
+        crossover_days_ago = None
+        crossover_date = None
+        for i in range(len(view) - 2, -1, -1):
+            prev_bullish = view["macd"].iloc[i] > view["signal"].iloc[i]
+            if prev_bullish != is_bullish:
+                crossover_days_ago = len(view) - 1 - i
+                crossover_date = view["trade_date"].iloc[i+1]
+                break
+
+        # 2. Histogram Momentum Trend
+        hist_trend = "strengthening"
+        if len(view) >= 3:
+            h1 = view["hist"].iloc[-2]
+            h2 = view["hist"].iloc[-1]
+            if abs(h2) > abs(h1):
+                hist_trend = "strengthening / expanding"
+            else:
+                hist_trend = "weakening / contracting"
+
+        # 3. Price vs EMAs Alignment
+        if last_close > ema12_val and last_close > ema26_val:
+            ema_alignment = "Bullish (Price > EMA-12 > EMA-26)" if ema12_val > ema26_val else "Price above both EMAs"
+        elif last_close < ema12_val and last_close < ema26_val:
+            ema_alignment = "Bearish (Price < EMA-12 < EMA-26)" if ema12_val < ema26_val else "Price below both EMAs"
+        else:
+            ema_alignment = "Mixed (Price between EMA-12 and EMA-26)"
+
+        import re
+        analysis_lines = [
+            "",
+            "════════════════════════════════════════════════════════════════════════════════",
+            f"📊 MACD Technical Analysis: {sym}",
+            "════════════════════════════════════════════════════════════════════════════════",
+            f"• Close Price:      ₹{last_close:.2f}",
+            f"• EMA-12 / EMA-26:  ₹{ema12_val:.2f} / ₹{ema26_val:.2f}  ({ema_alignment})",
+            f"• MACD Line:        {last_macd:+.4f}",
+            f"• Signal Line:      {last_sig:+.4f}",
+            f"• Histogram (Diff): {last_hist:+.4f}  (Momentum is {hist_trend})",
+        ]
+
+        if crossover_days_ago is not None:
+            price_at_crossover = view["close"].iloc[-crossover_days_ago]
+            pct_chg = ((last_close - price_at_crossover) / price_at_crossover) * 100
+            analysis_lines.append(
+                f"• Crossover State:  {crossover_label} since {crossover_date} "
+                f"({crossover_days_ago} trading days ago; price change: {pct_chg:+.2f}%)"
+            )
+        else:
+            analysis_lines.append(f"• Crossover State:  {crossover_label} (No crossover in the last {days} trading days)")
+
+        analysis_lines.append("════════════════════════════════════════════════════════════════════════════════")
+
+        return chart_str + "\n" + "\n".join(analysis_lines)
     except ImportError as exc:
         return str(exc)
     except Exception as exc:
