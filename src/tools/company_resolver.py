@@ -508,6 +508,33 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     return info
 
 
+def _score_quote(query: str, quote: dict) -> float:
+    """
+    Score a quote candidate based on its name and symbol match with the query.
+    Direct symbol match gets the highest score (2.0).
+    Otherwise, we score based on word overlap of the cleaned name.
+    """
+    symbol = quote.get("symbol", "")
+    clean_sym = re.sub(r"\.(NS|BO|BSE)$", "", symbol, flags=re.I).upper()
+    q_upper = query.strip().upper()
+
+    if clean_sym == q_upper:
+        return 2.0
+
+    q_clean = query.lower().strip()
+    suffixes = {"ltd", "limited", "co", "corp", "corporation", "inc", "incorporated", "plc", "company", "companies"}
+
+    q_words = [w for w in re.findall(r"[a-z0-9&]+", q_clean) if w not in suffixes]
+    if not q_words:
+        return 0.0
+
+    name = (quote.get("shortname") or quote.get("longname") or "").lower()
+    name_words = [w for w in re.findall(r"[a-z0-9&]+", name) if w not in suffixes]
+
+    matched_words = [w for w in q_words if w in name_words]
+    return len(matched_words) / len(q_words)
+
+
 def _resolve_company_info_impl(query: str) -> dict:
     """
     Core resolver implementation.
@@ -621,6 +648,10 @@ def _resolve_company_info_impl(query: str) -> dict:
             elif e in _US_CODES:
                 us_quotes.append(q)
 
+        # Sort candidate lists by name overlap score descending to prioritize best match
+        indian_quotes.sort(key=lambda q: _score_quote(query, q), reverse=True)
+        us_quotes.sort(key=lambda q: _score_quote(query, q), reverse=True)
+
         for quote in indian_quotes + us_quotes:
             sym          = quote.get("symbol", "")
             exch_code    = quote.get("exchange", "")
@@ -692,6 +723,9 @@ def _resolve_company_info_impl(query: str) -> dict:
                         llm_sym
                     )
                     continue
+
+            # Sort quotes by match score descending to prioritize best match
+            quotes_in.sort(key=lambda q: _score_quote(query, q), reverse=True)
 
             for q_item in quotes_in:
                 s = q_item.get("symbol", "")
