@@ -410,6 +410,8 @@ class _SubAgent:
     def __init__(self) -> None:
         self._agent: Any = None
         self._llm: Any = None
+        import os
+        self._built_caveman_level: str | None = os.environ.get("CAVEMAN_LEVEL")
 
     def _build(self, llm_override: Any = None) -> None:
         """Lazily build the LangGraph ReAct agent.
@@ -471,10 +473,11 @@ class _SubAgent:
             # ToolNode runs all tool calls returned in a single AIMessage concurrently
             # via its internal ThreadPoolExecutor — no extra configuration required.
             tool_node = ToolNode(tools)
+            from src.utils.caveman import get_caveman_prompt
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT + NO_LLM_CALC_RULE,
+                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE,
             )
             logger.info("%s: agent built with parallel ToolNode (%d tools)", self.__class__.__name__, len(tools))
         except Exception as exc:
@@ -495,8 +498,11 @@ class _SubAgent:
             LangChain callbacks list (e.g. [RichConsoleCallbackHandler()]) for
             verbose tool-call tracing.  Passed directly to agent.invoke().
         """
-        if self._agent is None:
+        import os
+        current_caveman = os.environ.get("CAVEMAN_LEVEL")
+        if self._agent is None or current_caveman != getattr(self, "_built_caveman_level", None):
             self._build(llm_override=llm_override)
+            self._built_caveman_level = current_caveman
         if self._agent is None:
             return self._confirm_fallback(question)
 
@@ -656,16 +662,17 @@ class _SubAgent:
                             pass  # non-critical — fall through to normal LLM
 
                         combined = "\n\n---\n\n".join(tool_sections[:10])
+                        from src.utils.caveman import get_caveman_prompt
+                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + "\n\n" + (
+                            "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
+                            "- Write ONLY the sections for which you have actual tool output data.\n"
+                            "- OMIT any section entirely if no tool data was collected for it.\n"
+                            "- NEVER write '(Data pending)', 'N/A', or placeholder text.\n"
+                            "- Do not mention step limits, recursion, or missing data.\n"
+                            "- Be concise and factual — only report what the tools returned."
+                        )
                         synth = synth_llm.invoke([
-                            SystemMessage(content=(
-                                self.SYSTEM_PROMPT + NO_LLM_CALC_RULE + "\n\n"
-                                "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
-                                "- Write ONLY the sections for which you have actual tool output data.\n"
-                                "- OMIT any section entirely if no tool data was collected for it.\n"
-                                "- NEVER write '(Data pending)', 'N/A', or placeholder text.\n"
-                                "- Do not mention step limits, recursion, or missing data.\n"
-                                "- Be concise and factual — only report what the tools returned."
-                            )),
+                            SystemMessage(content=sys_prompt),
                             HumanMessage(content=f"Question: {question}\n\nData collected:\n{combined}"),
                         ])
                         # Print extended-thinking blocks if present
@@ -873,8 +880,9 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
                 f"Never invent numbers — use only the data provided.\n\n"
                 f"--- DATA ---\n{truncated}"
             )
+            from src.utils.caveman import get_caveman_prompt
             res = llm.invoke([
-                SystemMessage(content="You are a concise Indian equity research analyst."),
+                SystemMessage(content="You are a concise Indian equity research analyst." + get_caveman_prompt()),
                 HumanMessage(content=synthesis_prompt),
             ])
             synthesis = str(res.content).strip()

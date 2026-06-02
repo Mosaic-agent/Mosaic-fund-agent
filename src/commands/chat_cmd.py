@@ -931,6 +931,7 @@ _HELP_MD = """
 | `/ml` | ML model status — LightGBM prediction, GARCH vol, anomaly regime |
 | `/deepdive TICKER` | US stock SEC 10-K deep-dive (e.g. `/deepdive ADSK`) |
 | `/macro` | Live macro events + COMEX + FII/DII institutional flows |
+| `/caveman [level]` | Toggle Caveman mode (`lite`/`full`/`ultra`/`wenyan`/`off`) |
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
 | `/clear` | Reset session memory — next question starts a fresh thread |
 | `/help` | This help text |
@@ -1085,6 +1086,20 @@ def _dispatch_slash(
             f"Use `/cache clear` to wipe all cached responses."
         ), thread_id
 
+    # ── /caveman [level] ───────────────────────────────────────────────────
+    if name == "caveman":
+        import os
+        level = parts[1].lower() if len(parts) > 1 else "full"
+        if level in ("off", "stop", "normal", "disabled"):
+            os.environ.pop("CAVEMAN_LEVEL", None)
+            return "Caveman mode **disabled**. Reverted to normal prose.", thread_id
+        else:
+            valid_levels = ("lite", "full", "ultra", "wenyan", "wenyan-lite", "wenyan-full", "wenyan-ultra")
+            if level not in valid_levels:
+                return f"Invalid caveman level. Valid levels: {', '.join(valid_levels)} or 'off'.", thread_id
+            os.environ["CAVEMAN_LEVEL"] = level
+            return f"Caveman mode **enabled** (level: `{level}`). Less waffle, more speed.", thread_id
+
     # Unknown
     return f"Unknown command: `/{name}` — type `/help` for the full list.", thread_id
 
@@ -1140,10 +1155,13 @@ def run_chat_loop(console: Console | None = None) -> None:
     while True:
         # ── Read input ─────────────────────────────────────────────────────
         try:
+            import os
+            _caveman_level = os.environ.get("CAVEMAN_LEVEL")
+            _prompt_prefix = f"You (🪨 {_caveman_level}): " if _caveman_level else "You: "
             if _pt_session is not None:
-                raw = _pt_session.prompt("You: ").strip()
+                raw = _pt_session.prompt(_prompt_prefix).strip()
             else:
-                raw = input("You: ").strip()
+                raw = input(_prompt_prefix).strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Goodbye.[/dim]")
             break
@@ -1161,6 +1179,12 @@ def run_chat_loop(console: Console | None = None) -> None:
         if raw.lower() in ("quit", "exit", "bye", "q"):
             console.print("[dim]Goodbye.[/dim]")
             break
+
+        if raw.lower() in ("stop caveman", "normal mode"):
+            import os
+            os.environ.pop("CAVEMAN_LEVEL", None)
+            console.print("[yellow]Caveman mode disabled. Reverted to normal prose.[/yellow]\n")
+            continue
 
         # ── Slash commands ─────────────────────────────────────────────────
         if raw.startswith("/"):

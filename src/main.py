@@ -183,6 +183,12 @@ def analyze(
 @app.command()
 def ask(
     question: str = typer.Argument(..., help="Natural language question about your portfolio."),
+    caveman: str = typer.Option(
+        None,
+        "--caveman",
+        "-c",
+        help="Enable caveman mode with specific intensity (lite, full, ultra, wenyan, off).",
+    ),
 ) -> None:
     """
     Ask the Mosaic-fund-agent a free-form question using ReAct reasoning.
@@ -196,6 +202,10 @@ def ask(
 
     if not _check_config():
         raise typer.Exit(code=1)
+
+    if caveman:
+        import os
+        os.environ["CAVEMAN_LEVEL"] = caveman
 
     from src.agents.mosaic_fund_agent import MosaicFundAgent
 

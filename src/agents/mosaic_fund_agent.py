@@ -174,6 +174,8 @@ class MosaicFundAgent:
 
     def __init__(self, checkpointer: Any = None) -> None:
         self._checkpointer = checkpointer
+        import os
+        self._built_caveman_level = os.environ.get("CAVEMAN_LEVEL")
         # Install LLM response cache globally before building the LLM instances.
         from src.utils.llm_cache import setup_llm_cache
         setup_llm_cache()
@@ -378,10 +380,11 @@ class MosaicFundAgent:
                 effective_window,
             )
             return None
+        from src.utils.caveman import get_caveman_prompt
         kwargs: dict[str, Any] = dict(
             model=self._llm,
             tools=ALL_TOOLS,
-            prompt=AGENT_SYSTEM_PROMPT,
+            prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
         )
         if self._checkpointer is not None:
             kwargs["checkpointer"] = self._checkpointer
@@ -536,6 +539,12 @@ class MosaicFundAgent:
         import os
         import re
 
+        # Re-build agent if Caveman level changed
+        current_caveman = os.environ.get("CAVEMAN_LEVEL")
+        if current_caveman != getattr(self, "_built_caveman_level", None):
+            self._agent = self._build_agent()
+            self._built_caveman_level = current_caveman
+
         # Heuristic for weak models: if question looks like a deep-dive request, trigger it manually
         clean_question = question
         if "[End of context]\n" in question:
@@ -581,8 +590,10 @@ class MosaicFundAgent:
             logger.info("ask: no tool-calling agent (low context window) — direct LLM fallback")
             try:
                 llm = self._pick_llm(question)
+                from src.utils.caveman import get_caveman_prompt
+                compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                 res = llm.invoke([
-                    SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                    SystemMessage(content=compact_prompt),
                     HumanMessage(content=question),
                 ])
                 return str(res.content)
@@ -631,8 +642,10 @@ class MosaicFundAgent:
                 logger.warning("Model does not support tools. Falling back to direct LLM Q&A. Error: %s", exc)
                 try:
                     llm = self._pick_llm(question)
+                    from src.utils.caveman import get_caveman_prompt
+                    compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                     res = llm.invoke([
-                        SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                        SystemMessage(content=compact_prompt),
                         HumanMessage(content=question),
                     ])
                     return str(res.content)
@@ -658,6 +671,12 @@ class MosaicFundAgent:
         """
         import os
         import re
+
+        # Re-build agent if Caveman level changed
+        current_caveman = os.environ.get("CAVEMAN_LEVEL")
+        if current_caveman != getattr(self, "_built_caveman_level", None):
+            self._agent = self._build_agent()
+            self._built_caveman_level = current_caveman
         from langchain_core.messages import HumanMessage
         from src.agents.intent_router import route_intent_llm
         from src.agents.sub_agents import get_subagent
@@ -712,8 +731,10 @@ class MosaicFundAgent:
             try:
                 from langchain_core.messages import SystemMessage
                 llm = self._pick_llm(question)
+                from src.utils.caveman import get_caveman_prompt
+                compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                 res = llm.invoke([
-                    SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                    SystemMessage(content=compact_prompt),
                     HumanMessage(content=question),
                 ])
                 return str(res.content)
@@ -766,8 +787,10 @@ class MosaicFundAgent:
                 try:
                     from langchain_core.messages import SystemMessage
                     llm = self._pick_llm(question)
+                    from src.utils.caveman import get_caveman_prompt
+                    compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                     res = llm.invoke([
-                        SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                        SystemMessage(content=compact_prompt),
                         HumanMessage(content=question),
                     ])
                     return str(res.content)
