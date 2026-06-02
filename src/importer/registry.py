@@ -130,17 +130,95 @@ US_STOCKS: list[tuple[str, str]] = [
     ("ADSK",  "ADSK"),   # Autodesk Inc. — NASDAQ
 ]
 
-# Broad indices
+# ── Indices (Yahoo Finance) ────────────────────────────────────────────────────
+# Only indices verified to return data from Yahoo Finance.
+# For NSE indices NOT on Yahoo Finance, see NSE_ONLY_INDICES below.
 INDICES: list[tuple[str, str]] = [
-    ("NIFTY50",    "^NSEI"),
-    ("SENSEX",     "^BSESN"),
-    ("BANKNIFTY",  "^NSEBANK"),
-    ("NIFTYMID",   "^NSEMDCP50"),
-    ("SP500",      "^GSPC"),
-    ("NASDAQ",     "^IXIC"),
-    ("DOWJONES",   "^DJI"),
-    ("US10Y",      "^TNX"),      # US 10-year Treasury yield — real rate / gold headwind signal
-    ("US13W",      "^IRX"),      # US 13-week T-bill yield  — yield-curve spread (10Y − 13W)
+    # ── Indian — Broad Market ──────────────────────────────────────────────
+    ("NIFTY50",        "^NSEI"),
+    ("NIFTYNEXT50",    "^NSMIDCP"),           # Nifty Next 50
+    ("NIFTY100",       "^CNX100"),
+    ("NIFTY200",       "^CNX200"),
+    ("NIFTY500",       "^CRSLDX"),            # Nifty 500
+    ("NIFTYMID",       "^NSEMDCP50"),         # Nifty Midcap 50
+    ("NIFTYSC",        "^CNXSC"),             # Nifty Smallcap composite
+
+    # ── Indian — Sectoral ──────────────────────────────────────────────────
+    ("BANKNIFTY",      "^NSEBANK"),
+    ("NIFTYPSUBANK",   "^CNXPSUBANK"),
+    ("NIFTYIT",        "^CNXIT"),
+    ("NIFTYPHARMA",    "^CNXPHARMA"),
+    ("NIFTYAUTO",      "^CNXAUTO"),
+    ("NIFTYFMCG",      "^CNXFMCG"),
+    ("NIFTYFINSRV",    "^CNXFIN"),            # Nifty Financial Services
+    ("NIFTYMETAL",     "^CNXMETAL"),
+    ("NIFTYMEDIA",     "^CNXMEDIA"),
+    ("NIFTYREALTY",    "^CNXREALTY"),
+
+    # ── Indian — Thematic ──────────────────────────────────────────────────
+    ("NIFTYENERGY",    "^CNXENERGY"),
+    ("NIFTYINFRA",     "^CNXINFRA"),
+    ("NIFTYCMDTY",     "^CNXCMDT"),           # Nifty Commodities
+    ("NIFTYSERVICE",   "^CNXSERVICE"),        # Nifty Services Sector
+    ("NIFTYCONSUMP",   "^CNXCONSUM"),         # Nifty India Consumption
+    ("NIFTYPSE",       "^CNXPSE"),
+    ("NIFTYMNC",       "^CNXMNC"),
+
+    # ── Volatility ─────────────────────────────────────────────────────────
+    ("INDIAVIX",       "^INDIAVIX"),
+
+    # ── Global ─────────────────────────────────────────────────────────────
+    ("SENSEX",         "^BSESN"),
+    ("SP500",          "^GSPC"),
+    ("NASDAQ",         "^IXIC"),
+    ("DOWJONES",       "^DJI"),
+    ("US10Y",          "^TNX"),               # US 10-year Treasury yield
+    ("US13W",          "^IRX"),               # US 13-week T-bill yield
+]
+
+# ── NSE-only indices (no Yahoo Finance ticker) ────────────────────────────────
+# Fetched via nselib.capital_market.index_data().
+# Format: (internal_symbol, nse_api_index_name)
+NSE_ONLY_INDICES: list[tuple[str, str]] = [
+    # ── Broad Market (cap-based) ───────────────────────────────────────────
+    ("NIFTYMIDCAP100",   "NIFTY MIDCAP 100"),
+    ("NIFTYMIDCAP150",   "NIFTY MIDCAP 150"),
+    ("NIFTYSC50",        "NIFTY SMALLCAP 50"),
+    ("NIFTYSC100",       "NIFTY SMALLCAP 100"),
+    ("NIFTYSC250",       "NIFTY SMALLCAP 250"),
+    ("NIFTYMICRO250",    "NIFTY MICROCAP 250"),
+    ("NIFTYTOTALMARKET", "NIFTY TOTAL MARKET"),
+    ("NIFTYLARGEMID250", "NIFTY LARGEMIDCAP 250"),
+    ("NIFTYMIDSMALL400", "NIFTY MIDSMALLCAP 400"),
+
+    # ── Sectoral ───────────────────────────────────────────────────────────
+    ("NIFTYPVTBANK",     "NIFTY PRIVATE BANK"),
+    ("NIFTYFINSRVEXBK",  "NIFTY FINANCIAL SERVICES EX-BANK"),
+    ("NIFTYCONSDUR",     "NIFTY CONSUMER DURABLES"),
+    ("NIFTYHEALTHCARE",  "NIFTY HEALTHCARE INDEX"),
+    ("NIFTYOILGAS",      "NIFTY OIL & GAS"),
+    ("NIFTYCEMENT",      "NIFTY CEMENT"),
+    ("NIFTYCHEMICALS",   "NIFTY CHEMICALS"),
+
+    # ── Thematic ───────────────────────────────────────────────────────────
+    ("NIFTYEV",          "NIFTY EV & NEW AGE AUTOMOTIVE"),
+    ("NIFTYDEFENCE",     "NIFTY INDIA DEFENCE"),
+    ("NIFTYRAILWAY",     "NIFTY INDIA RAILWAYS PSU"),
+    ("NIFTYCPSE",        "NIFTY CPSE"),
+    ("NIFTYHOUSING",     "NIFTY HOUSING"),
+    ("NIFTYDIGITAL",     "NIFTY INDIA DIGITAL"),
+    ("NIFTYIPO",         "NIFTY IPO"),
+    ("NIFTYREITS",       "NIFTY REITS & REALTY"),
+
+    # ── Strategy / Factor ──────────────────────────────────────────────────
+    ("NIFTY100ESG",       "NIFTY100 ESG"),
+    ("NIFTY100ESGENH",    "NIFTY100 ENHANCED ESG"),
+    ("NIFTY100ESGSECLDR", "NIFTY100 ESG SECTOR LEADERS"),
+    ("NIFTY50SHARIAH",    "NIFTY50 SHARIAH"),
+    ("NIFTY500SHARIAH",   "NIFTY500 SHARIAH"),
+    ("NIFTYLOWVOL50",     "NIFTY LOW VOLATILITY 50"),
+    ("NIFTYALPHA50",      "NIFTY ALPHA 50"),
+    ("NIFTY100QUALITY30", "NIFTY100 QUALITY 30"),
 ]
 
 # MFAPI.in scheme codes for MF NAV import
@@ -178,12 +256,13 @@ MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
 # ── Registry lookup ────────────────────────────────────────────────────────────
 
 CATEGORY_MAP: dict[str, list[tuple[str, str]]] = {
-    "stocks":      STOCKS,
-    "etfs":        ETFS,
-    "commodities": COMMODITIES,
-    "indices":     INDICES,
-    "fx_rates":    FX_PAIRS,
-    "us_stocks":   US_STOCKS,
+    "stocks":       STOCKS,
+    "etfs":         ETFS,
+    "commodities":  COMMODITIES,
+    "indices":      INDICES,
+    "nse_indices":  NSE_ONLY_INDICES,
+    "fx_rates":     FX_PAIRS,
+    "us_stocks":    US_STOCKS,
 }
 
 # Symbols for which NSE live iNAV snapshots are captured

@@ -372,6 +372,39 @@ class IMFWEOFetcher(Fetcher):
         return date(max_year, 12, 31)
 
 
+# ── nselib NSE indices (no Yahoo Finance ticker) ────────────────────────────
+
+class NseIndexFetcher(Fetcher):
+    """
+    Daily OHLCV for NSE indices via nselib.capital_market.index_data().
+
+    For indices not available on Yahoo Finance (midcap/smallcap variants,
+    sectoral, thematic, strategy/factor indices).
+    Stores data in daily_prices with category='indices'.
+    """
+    overlap_days = 3
+
+    def __init__(self, symbols: list[tuple[str, str]]) -> None:
+        self.category    = "indices"
+        self.symbols     = symbols           # (internal_symbol, nse_api_index_name)
+        self.source_name = "nselib_index"
+        self.symbol_key  = "NSE_INDICES"
+        self.description = f"nselib index data ({len(symbols)} indices)"
+
+    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        from src.importer.fetchers.nse_index_fetcher import fetch_nse_indices
+        return fetch_nse_indices(self.symbols, from_date, to_date)
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_prices(rows)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("close") and r["close"] > 0]
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["trade_date"] for r in rows)
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 # Maps CLI category name → Fetcher instance.
 # The orchestrator loops over this — adding a new source = one line here.
@@ -380,6 +413,7 @@ def _build_registry() -> dict[str, Fetcher]:
     from src.importer.registry import (
         get_symbols_for_categories,
         MF_SCHEME_CODES,
+        NSE_ONLY_INDICES,
     )
     sym_map = get_symbols_for_categories(["stocks", "etfs", "commodities", "indices"])
 
@@ -390,6 +424,7 @@ def _build_registry() -> dict[str, Fetcher]:
         else:
             registry[cat] = YFinanceFetcher(cat, sym_list) # global symbols
 
+    registry["nse_indices"] = NseIndexFetcher(NSE_ONLY_INDICES)
     registry["mf"]      = MFNavFetcher(MF_SCHEME_CODES)
     registry["fii_dii"] = FIIDIIFetcher()
     registry["fx_rates"] = FXRatesFetcher()

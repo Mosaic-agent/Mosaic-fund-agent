@@ -192,7 +192,7 @@ with tab_import:
             "stocks":       "50 NSE large/mid-caps (Yahoo Finance)",
             "etfs":         "15 NSE ETFs — OHLCV (Yahoo Finance)",
             "commodities":  "Gold, Silver, Oil futures (Yahoo Finance)",
-            "indices":      "Nifty50, Sensex, S&P500, etc. (Yahoo Finance)",
+            "indices":      "Nifty50, Sensex, S&P500, Bank Nifty, etc. (Yahoo Finance + nselib)",
             "mf":           "ETF NAV history from MFAPI.in (AMFI official)",
             "inav":         "Live iNAV snapshot from NSE API",
             "cot":          "CFTC COT Gold — hedge fund & commercial positioning (weekly)",

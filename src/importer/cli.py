@@ -149,6 +149,33 @@ def run_import(
             ))
             continue
 
+        # ── NSE-only indices via nselib ────────────────────────────────────
+        if category == "nse_indices":
+            from src.importer.fetchers.nse_index_fetcher import fetch_nse_indices
+
+            if full_reimport:
+                from_date = today - timedelta(days=lookback_days)
+            else:
+                wm = ch.get_watermark("nselib_index", "NSE_INDICES") if not dry_run else None
+                from_date = (wm - timedelta(days=_OVERLAP_DAYS)) if wm else (today - timedelta(days=lookback_days))
+
+            console.print(f"  [dim]Fetching via nselib {from_date} → {today}…[/dim]")
+            rows = fetch_nse_indices(symbol_list, from_date, today)
+            inserted = ch.insert_prices(rows, dry_run=dry_run)
+            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
+
+            if not dry_run and rows:
+                symbols_seen = {r["symbol"] for r in rows}
+                for sym in symbols_seen:
+                    sym_dates = [r["trade_date"] for r in rows if r["symbol"] == sym]
+                    if sym_dates:
+                        ch.set_watermark("nselib_index", sym, max(sym_dates))
+
+            summary_rows.append((
+                category, "nselib", inserted, from_date.isoformat(), today.isoformat(),
+            ))
+            continue
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
