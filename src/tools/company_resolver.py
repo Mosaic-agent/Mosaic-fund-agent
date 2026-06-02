@@ -620,6 +620,70 @@ def _score_quote(query: str, quote: dict) -> float:
     return len(matched_words) / len(q_words)
 
 
+def _select_quote_from_candidates(query: str, candidates: list[dict]) -> dict | None:
+    """
+    Given a list of candidate quotes and the original query:
+    1. Score all candidates using _score_quote.
+    2. Identify if there are multiple high-scoring matches.
+    3. If running in an interactive CLI session and multiple matches exist,
+       prompt the user to choose between them (deduplicated by company symbol).
+    4. Otherwise, return the highest-scoring candidate.
+    """
+    if not candidates:
+        return None
+
+    # Calculate scores for all candidates
+    scored = []
+    for q in candidates:
+        score = _score_quote(query, q)
+        if score >= 0.4:
+            scored.append((score, q))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if not scored:
+        return candidates[0]
+
+    max_score = scored[0][0]
+
+    # Check for ambiguity: multiple candidates with high scores (or within 0.05 of the max score)
+    high_score_candidates = []
+    if max_score < 2.0:
+        high_score_candidates = [
+            q for score, q in scored
+            if score >= 0.9 or (max_score - score) <= 0.05
+        ]
+
+    import sys
+    import os
+    is_interactive = (sys.stdin.isatty() or os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1") and 'pytest' not in sys.modules and 'unittest' not in sys.modules
+
+    if len(high_score_candidates) > 1 and is_interactive:
+        # De-duplicate by symbol (e.g. ignore .BO vs .NS duplicates to avoid listing same company twice)
+        seen_symbols = set()
+        unique_candidates = []
+        for q in high_score_candidates:
+            sym = q.get("symbol", "")
+            clean = re.sub(r"\.(NS|BO|BSE)$", "", sym, flags=re.I).upper()
+            if clean not in seen_symbols:
+                seen_symbols.add(clean)
+                unique_candidates.append(q)
+
+        if len(unique_candidates) > 1:
+            import sys
+            sys.stdout.write(f"\nMultiple matches found for '{query}':\n")
+            for i, q in enumerate(unique_candidates, 1):
+                name = q.get("shortname") or q.get("longname") or q.get("symbol")
+                sys.stdout.write(f"  {i}. {name} ({q.get('symbol')} on {q.get('exchange')})\n")
+            sys.stdout.write(f"Select an option (1-{len(unique_candidates)}) or press Enter to choose the first option: ")
+            sys.stdout.flush()
+            sel = sys.stdin.readline().strip()
+            if sel.isdigit() and 1 <= int(sel) <= len(unique_candidates):
+                return unique_candidates[int(sel) - 1]
+            return unique_candidates[0]
+
+    return scored[0][1]
+
+
 def _correct_spelling_via_db(query: str) -> str | None:
     """
     Query ClickHouse mf_holdings to find a security name with a low ngramDistance
@@ -767,11 +831,9 @@ def _resolve_company_info_impl(query: str) -> dict:
             elif e in _US_CODES:
                 us_quotes.append(q)
 
-        # Sort candidate lists by name overlap score descending to prioritize best match
-        indian_quotes.sort(key=lambda q: _score_quote(query, q), reverse=True)
-        us_quotes.sort(key=lambda q: _score_quote(query, q), reverse=True)
-
-        for quote in indian_quotes + us_quotes:
+        # Select the best quote candidate, resolving ambiguity if necessary
+        quote = _select_quote_from_candidates(query, indian_quotes + us_quotes)
+        if quote:
             sym          = quote.get("symbol", "")
             exch_code    = quote.get("exchange", "")
             display_name = quote.get("shortname") or quote.get("longname") or sym
@@ -843,10 +905,9 @@ def _resolve_company_info_impl(query: str) -> dict:
                     )
                     continue
 
-            # Sort quotes by match score descending to prioritize best match
-            quotes_in.sort(key=lambda q: _score_quote(query, q), reverse=True)
-
-            for q_item in quotes_in:
+            # Select the best quote candidate, resolving ambiguity if necessary
+            q_item = _select_quote_from_candidates(query, quotes_in)
+            if q_item:
                 s = q_item.get("symbol", "")
                 e = q_item.get("exchange", "")
                 if (e in _INDIAN_CODES or s.endswith(".NS") or s.endswith(".BO")):
