@@ -128,6 +128,9 @@ SYMBOL_TO_COMPANY: dict[str, str] = {
     "NETFIT": "Nippon India ETF Nifty IT",
     "BANKBEES": "Nippon India Banking ETF",
     "PSUBNKBEES": "Nippon India ETF PSU Bank",
+    "WELSPUNLIV": "Welspun Living",
+    "WELENT": "Welspun Enterprises",
+    "WELCORP": "Welspun Corp",
 }
 
 # ── Lookup helpers ─────────────────────────────────────────────────────────────

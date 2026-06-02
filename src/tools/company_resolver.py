@@ -403,6 +403,10 @@ _ALIAS: dict[str, str] = {
     "balaji amines": "BALAMINES",
     "gujarat fluorochemicals": "FLUOROCHEM",
     "gfl": "FLUOROCHEM",
+    "welspun living": "WELSPUNLIV",
+    "welspun india": "WELSPUNLIV",
+    "welspun enterprises": "WELENT",
+    "welspun corp": "WELCORP",
 }
 
 
@@ -573,6 +577,25 @@ def _resolve_company_info_impl(query: str) -> dict:
                 or q.get("symbol", "").endswith((".NS", ".BO"))
             ]
             if actionable:
+                # If this query was the LLM-suggested symbol and it differs from the original query,
+                # ensure that at least one of the actionable quotes has a clean symbol exactly matching llm_sym.
+                # If not, the LLM suggested an incorrect ticker. We discard it and fall back to the original query.
+                if yq == llm_sym and llm_sym != query:
+                    has_exact_match = False
+                    for q in actionable:
+                        s = q.get("symbol", "")
+                        clean = re.sub(r"\.(NS|BO|BSE)$", "", s, flags=re.I)
+                        if clean.upper() == llm_sym.upper():
+                            has_exact_match = True
+                            break
+                    if not has_exact_match:
+                        log.info(
+                            "resolve_company: LLM suggested %r but no exact symbol match was found in Yahoo quotes. "
+                            "Proceeding to original query %r",
+                            llm_sym, query
+                        )
+                        continue
+
                 quotes = candidates
                 log.info("resolve_company: Yahoo search found %d quotes for query %r", len(quotes), yq)
                 break
@@ -654,6 +677,22 @@ def _resolve_company_info_impl(query: str) -> dict:
                 if q.get("quoteType") in ("EQUITY", "STOCK")
                 and not q.get("symbol", "").startswith("^")
             ]
+            if yq == llm_sym and llm_sym != query:
+                has_exact_match = False
+                for q in quotes_in:
+                    s = q.get("symbol", "")
+                    clean = re.sub(r"\.(NS|BO|BSE)$", "", s, flags=re.I)
+                    if clean.upper() == llm_sym.upper():
+                        has_exact_match = True
+                        break
+                if not has_exact_match:
+                    log.info(
+                        "resolve_company (IN): LLM suggested %r but no exact symbol match was found. "
+                        "Skipping to next query.",
+                        llm_sym
+                    )
+                    continue
+
             for q_item in quotes_in:
                 s = q_item.get("symbol", "")
                 e = q_item.get("exchange", "")
