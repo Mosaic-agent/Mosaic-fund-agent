@@ -458,7 +458,7 @@ def print_macro_theme_report(report: MacroThemeReport) -> None:
     if report.net_etf_signal:
         tbl = Table(box=box.SIMPLE, show_header=True)
         tbl.add_column("ETF", style="cyan")
-        tbl.add_column("Net Signal", justify="right")
+        tbl.add_column("Headline Impact Index", justify="right")
         tbl.add_column("Action", justify="center")
         tbl.add_column("Strength")
 
@@ -473,6 +473,13 @@ def print_macro_theme_report(report: MacroThemeReport) -> None:
             bar = "█" * abs(score) if score != 0 else "─"
             tbl.add_row(etf, f"{score:+d}", f"[{color}]{action}[/{color}]", f"[{color.split()[-1]}]{bar}[/]")
         console.print(tbl)
+        console.print(
+            "[bold yellow]⚠ Heuristic Disclaimer:[/bold yellow] [dim]Headline Impact Index represents narrative volume "
+            "scores based on Google News RSS indexing and qualitative event classification. Mapped asset relationships are historical averages "
+            "and highly context-dependent in reality (e.g., markets often rally during wars, gold and equities can rise together, and "
+            "rate cuts can be bearish if driven by recession fears). It does not represent backtested statistical signals, return expectations, "
+            "or model forecasts. For quantitative volatility-scaled sizing, refer to the GOLDBEES ML pipeline.[/dim]\n"
+        )
 
     # 4. Macro Fundamentals panel (World Bank actuals + IMF WEO forecasts)
     mf = report.macro_fundamentals

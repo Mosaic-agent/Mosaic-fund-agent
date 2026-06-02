@@ -403,6 +403,10 @@ _ALIAS: dict[str, str] = {
     "balaji amines": "BALAMINES",
     "gujarat fluorochemicals": "FLUOROCHEM",
     "gfl": "FLUOROCHEM",
+    "welspun living": "WELSPUNLIV",
+    "welspun india": "WELSPUNLIV",
+    "welspun enterprises": "WELENT",
+    "welspun corp": "WELCORP",
 }
 
 
@@ -474,6 +478,47 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     return None
 
 
+def _get_llm_suggestions(query: str) -> list[dict]:
+    """
+    Use the LLM to suggest the top 3 matching company names and their ticker symbols
+    for a given query. Returns a list of dicts: [{'name': '...', 'symbol': '...'}].
+    """
+    llm = _get_resolver_llm()
+    if llm is None:
+        return []
+    try:
+        from langchain_core.messages import HumanMessage
+        prompt = (
+            "You are a stock market expert.\n"
+            f"The user is searching for a stock with query: \"{query}\".\n"
+            "Suggest the top 3 most likely listed company names and their exact exchange ticker symbols (prefer NSE for Indian stocks, NYSE/NASDAQ for US stocks).\n"
+            "Format your reply as a simple list of 3 entries, each in the format:\n"
+            "COMPANY_NAME | TICKER\n"
+            "Do not include any other text, markdown formatting, or numbering."
+        )
+        raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+        suggestions = []
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # Strip list indicators like '1.', '-', etc.
+            line = re.sub(r"^[0-9\-.\s]+", "", line)
+            if "|" in line:
+                parts = line.split("|")
+                name = parts[0].strip()
+                sym = parts[1].strip()
+                sym_clean = re.sub(r"[^A-Z0-9&]", "", sym.upper())
+                if sym_clean and name:
+                    suggestions.append({"name": name, "symbol": sym_clean})
+            if len(suggestions) >= 3:
+                break
+        return suggestions
+    except Exception as exc:
+        log.warning("_get_llm_suggestions failed: %s", exc)
+        return []
+
+
 def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     """
     Core resolver — not a LangChain tool, call from Python directly.
@@ -482,6 +527,49 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     canonical trading symbol with market classification.
     """
     info = _resolve_company_info_impl(query)
+
+    # Interactive confirmation loop
+    import sys
+    if sys.stdin.isatty() and 'pytest' not in sys.modules and 'unittest' not in sys.modules and info and not info.get("error"):
+        company_desc = f"{info['company_name']} ({info['symbol']} on {info['exchange']})"
+        sys.stdout.write(f"\n[Resolver] Resolved '{query}' to '{company_desc}'. Is this correct? [Y/n]: ")
+        sys.stdout.flush()
+        ans = sys.stdin.readline().strip().lower()
+        if ans not in ('', 'y', 'yes'):
+            sys.stdout.write("Please enter the correct company name: ")
+            sys.stdout.flush()
+            new_query = sys.stdin.readline().strip()
+            if new_query:
+                # Suggest matching names using LLM
+                suggestions = _get_llm_suggestions(new_query)
+                if suggestions:
+                    sys.stdout.write("\nMatching companies found using LLM:\n")
+                    for i, sug in enumerate(suggestions, 1):
+                        sys.stdout.write(f"  {i}. {sug['name']} ({sug['symbol']})\n")
+                    sys.stdout.write("Select an option (1-3) or press Enter to search for your input directly: ")
+                    sys.stdout.flush()
+                    sel = sys.stdin.readline().strip()
+                    if sel.isdigit() and 1 <= int(sel) <= len(suggestions):
+                        chosen = suggestions[int(sel) - 1]
+                        log.info("resolve_company: user selected suggestion %s (%s)", chosen['name'], chosen['symbol'])
+                        info = _resolve_company_info_impl(chosen['symbol'])
+                    else:
+                        info = _resolve_company_info_impl(new_query)
+                else:
+                    info = _resolve_company_info_impl(new_query)
+            else:
+                return {
+                    "error": "User cancelled resolution.",
+                    "symbol": None,
+                    "nse_symbol": None,
+                    "yf_symbol": None,
+                    "exchange": None,
+                    "market": None,
+                    "company_name": None,
+                    "currency": None,
+                    "source": "cancelled",
+                }
+
     # Check and auto-import if requested and resolved successfully to an Indian symbol
     if auto_import and info and not info.get("error"):
         sym = info.get("symbol")
@@ -502,6 +590,67 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
             except Exception as e:
                 log.warning("Auto-import check failed for %s: %s", sym, e)
     return info
+
+
+def _score_quote(query: str, quote: dict) -> float:
+    """
+    Score a quote candidate based on its name and symbol match with the query.
+    Direct symbol match gets the highest score (2.0).
+    Otherwise, we score based on word overlap of the cleaned name.
+    """
+    symbol = quote.get("symbol", "")
+    clean_sym = re.sub(r"\.(NS|BO|BSE)$", "", symbol, flags=re.I).upper()
+    q_upper = query.strip().upper()
+
+    if clean_sym == q_upper:
+        return 2.0
+
+    q_clean = query.lower().strip()
+    suffixes = {"ltd", "limited", "co", "corp", "corporation", "inc", "incorporated", "plc", "company", "companies"}
+
+    q_words = [w for w in re.findall(r"[a-z0-9&]+", q_clean) if w not in suffixes]
+    if not q_words:
+        return 0.0
+
+    name = (quote.get("shortname") or quote.get("longname") or "").lower()
+    name_words = [w for w in re.findall(r"[a-z0-9&]+", name) if w not in suffixes]
+
+    matched_words = [w for w in q_words if w in name_words]
+    return len(matched_words) / len(q_words)
+
+
+def _correct_spelling_via_db(query: str) -> str | None:
+    """
+    Query ClickHouse mf_holdings to find a security name with a low ngramDistance
+    to the query. Returns the corrected name if found, else None.
+    """
+    try:
+        from src.db.pool import query_df
+        q_clean = query.lower().strip()
+        suffixes = {"ltd", "limited", "co", "corp", "corporation", "inc", "incorporated", "plc", "company", "companies"}
+        words = [w for w in re.findall(r"[a-z0-9&]+", q_clean) if w not in suffixes]
+        if not words:
+            return None
+        core_query = " ".join(words)
+        core_query_escaped = core_query.replace("'", "''")
+
+        sql = f"""
+            SELECT DISTINCT security_name, ngramDistance(lower(security_name), '{core_query_escaped}') as dist
+            FROM market_data.mf_holdings FINAL
+            ORDER BY dist ASC
+            LIMIT 1
+        """
+        df = query_df(sql)
+        if not df.empty:
+            row = df.iloc[0]
+            dist = row['dist']
+            corrected = row['security_name']
+            corrected = re.sub(r"\*+$", "", corrected).strip()
+            if dist <= 0.65:
+                return corrected
+    except Exception as e:
+        log.debug("_correct_spelling_via_db: ClickHouse query failed: %s", e)
+    return None
 
 
 def _resolve_company_info_impl(query: str) -> dict:
@@ -573,6 +722,25 @@ def _resolve_company_info_impl(query: str) -> dict:
                 or q.get("symbol", "").endswith((".NS", ".BO"))
             ]
             if actionable:
+                # If this query was the LLM-suggested symbol and it differs from the original query,
+                # ensure that at least one of the actionable quotes has a clean symbol exactly matching llm_sym.
+                # If not, the LLM suggested an incorrect ticker. We discard it and fall back to the original query.
+                if yq == llm_sym and llm_sym != query:
+                    has_exact_match = False
+                    for q in actionable:
+                        s = q.get("symbol", "")
+                        clean = re.sub(r"\.(NS|BO|BSE)$", "", s, flags=re.I)
+                        if clean.upper() == llm_sym.upper():
+                            has_exact_match = True
+                            break
+                    if not has_exact_match:
+                        log.info(
+                            "resolve_company: LLM suggested %r but no exact symbol match was found in Yahoo quotes. "
+                            "Proceeding to original query %r",
+                            llm_sym, query
+                        )
+                        continue
+
                 quotes = candidates
                 log.info("resolve_company: Yahoo search found %d quotes for query %r", len(quotes), yq)
                 break
@@ -597,6 +765,10 @@ def _resolve_company_info_impl(query: str) -> dict:
                 indian_quotes.append(q)
             elif e in _US_CODES:
                 us_quotes.append(q)
+
+        # Sort candidate lists by name overlap score descending to prioritize best match
+        indian_quotes.sort(key=lambda q: _score_quote(query, q), reverse=True)
+        us_quotes.sort(key=lambda q: _score_quote(query, q), reverse=True)
 
         for quote in indian_quotes + us_quotes:
             sym          = quote.get("symbol", "")
@@ -654,6 +826,25 @@ def _resolve_company_info_impl(query: str) -> dict:
                 if q.get("quoteType") in ("EQUITY", "STOCK")
                 and not q.get("symbol", "").startswith("^")
             ]
+            if yq == llm_sym and llm_sym != query:
+                has_exact_match = False
+                for q in quotes_in:
+                    s = q.get("symbol", "")
+                    clean = re.sub(r"\.(NS|BO|BSE)$", "", s, flags=re.I)
+                    if clean.upper() == llm_sym.upper():
+                        has_exact_match = True
+                        break
+                if not has_exact_match:
+                    log.info(
+                        "resolve_company (IN): LLM suggested %r but no exact symbol match was found. "
+                        "Skipping to next query.",
+                        llm_sym
+                    )
+                    continue
+
+            # Sort quotes by match score descending to prioritize best match
+            quotes_in.sort(key=lambda q: _score_quote(query, q), reverse=True)
+
             for q_item in quotes_in:
                 s = q_item.get("symbol", "")
                 e = q_item.get("exchange", "")
@@ -740,6 +931,12 @@ def _resolve_company_info_impl(query: str) -> dict:
             "currency":     "INR",
             "source":       "fallback_unverified",
         }
+
+    # ── 5. Spell-check fallback via ClickHouse ──────────────────────────
+    corrected = _correct_spelling_via_db(query)
+    if corrected and corrected.lower() != query.lower():
+        log.info("resolve_company: spelling corrector fell back to resolved name %r", corrected)
+        return _resolve_company_info_impl(corrected)
 
     return {
         "error": f"Could not resolve symbol/company for query: {query}",

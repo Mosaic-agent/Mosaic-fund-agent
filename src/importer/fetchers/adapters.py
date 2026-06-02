@@ -27,6 +27,113 @@ from src.importer.base_fetcher import Fetcher
 log = logging.getLogger(__name__)
 
 
+# ── nselib OHLCV — NSE direct, Yahoo Finance fallback ───────────────────────
+
+class NSElibFetcher(Fetcher):
+    """
+    Daily OHLCV for NSE-listed ETFs via nselib (direct NSE source, no auth).
+
+    Falls back to Yahoo Finance per symbol when nselib returns no data.
+    Accepts the same (nse_symbol, yahoo_ticker) tuple format as YFinanceFetcher.
+    """
+    overlap_days = 3
+
+    def __init__(self, category: str, symbols: list[tuple[str, str]]) -> None:
+        self.category    = category
+        self.symbols     = symbols
+        self.source_name = "nselib"
+        self.symbol_key  = category.upper()
+        self.description = f"nselib OHLCV — {category} ({len(symbols)} symbols)"
+
+    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        from src.importer.fetchers.nselib_fetcher import fetch_nselib_ohlcv
+        from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv as yf_fetch
+
+        nse_rows = fetch_nselib_ohlcv(self.symbols, self.category, from_date, to_date)
+
+        covered = {r["symbol"] for r in nse_rows}
+        missing = [(nse, yf) for nse, yf in self.symbols if nse not in covered]
+
+        if missing:
+            log.info(
+                "%s: nselib missing %d symbol(s) — falling back to yfinance: %s",
+                self.category, len(missing), [s[0] for s in missing[:5]],
+            )
+            nse_rows.extend(yf_fetch(missing, self.category, from_date, to_date))
+
+        return nse_rows
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_prices(rows)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("close") and r["close"] > 0]
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["trade_date"] for r in rows)
+
+
+# ── Shoonya OHLCV — NSE primary, Yahoo Finance fallback ─────────────────────
+
+class ShoonyaFetcher(Fetcher):
+    """
+    Daily OHLCV for NSE-listed symbols via Shoonya brokerage API.
+
+    Falls back transparently to Yahoo Finance per symbol when:
+      - Shoonya credentials are not configured
+      - Shoonya returns no data for a symbol
+      - The symbol is non-NSE (global indices, FX, US ETFs) — those always
+        go to Yahoo Finance
+
+    Same (nse_symbol, yahoo_ticker) tuple interface as YFinanceFetcher.
+    """
+    overlap_days = 3
+
+    def __init__(self, category: str, symbols: list[tuple[str, str]]) -> None:
+        self.category    = category
+        self.symbols     = symbols
+        self.source_name = "shoonya"
+        self.symbol_key  = category.upper()
+        self.description = f"Shoonya OHLCV — {category} ({len(symbols)} symbols)"
+
+    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        from src.importer.fetchers.shoonya_fetcher import fetch_shoonya_ohlcv
+        from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv as yf_fetch_ohlcv
+
+        rows = fetch_shoonya_ohlcv(self.symbols, self.category, from_date, to_date)
+        covered = {r["symbol"] for r in rows}
+        missing = [(nse, yf) for nse, yf in self.symbols if nse not in covered]
+
+        # For NSE-listed categories: try nselib before falling back to yfinance
+        if missing and self.category in {"etfs", "stocks"}:
+            from src.importer.fetchers.nselib_fetcher import fetch_nselib_ohlcv
+            nse_rows = fetch_nselib_ohlcv(missing, self.category, from_date, to_date)
+            rows.extend(nse_rows)
+            covered = {r["symbol"] for r in rows}
+            missing = [(nse, yf) for nse, yf in self.symbols if nse not in covered]
+            if nse_rows:
+                log.info("%s: nselib covered %d symbol(s) as Shoonya fallback", self.category, len(nse_rows))
+
+        # Final fallback: yfinance for anything still missing
+        if missing:
+            log.info(
+                "%s: falling back to yfinance for %d symbol(s): %s",
+                self.category, len(missing), [s[0] for s in missing[:5]],
+            )
+            rows.extend(yf_fetch_ohlcv(missing, self.category, from_date, to_date))
+
+        return rows
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_prices(rows)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("close") and r["close"] > 0]
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["trade_date"] for r in rows)
+
+
 # ── yfinance OHLCV (stocks / ETFs / commodities / indices) ──────────────────
 
 class YFinanceFetcher(Fetcher):
@@ -278,7 +385,10 @@ def _build_registry() -> dict[str, Fetcher]:
 
     registry: dict[str, Fetcher] = {}
     for cat, sym_list in sym_map.items():
-        registry[cat] = YFinanceFetcher(cat, sym_list)
+        if cat in {"etfs", "stocks"}:
+            registry[cat] = ShoonyaFetcher(cat, sym_list)  # Shoonya → nselib (etfs) → yfinance
+        else:
+            registry[cat] = YFinanceFetcher(cat, sym_list) # global symbols
 
     registry["mf"]      = MFNavFetcher(MF_SCHEME_CODES)
     registry["fii_dii"] = FIIDIIFetcher()

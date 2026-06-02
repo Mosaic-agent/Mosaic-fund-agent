@@ -17,6 +17,9 @@ httpx-sse>=0.4.0                 # SSE support for MCP streaming
 
 # ── Zerodha / Indian Market Data ──────────────────────────────────────────────
 yfinance>=0.2.40                 # Yahoo Finance – free EOD/historical data (.NS/.BO)
+nselib>=2.5.0                     # NSE direct OHLCV for Indian ETFs (no auth required)
+NorenRestApiPy>=0.0.22           # Shoonya (Finvasia) brokerage API – NSE OHLCV for stocks
+pyotp>=2.9.0                     # TOTP generation for automated Shoonya 2FA login
 pandas>=2.2.0                    # Data manipulation for financial time series
 numpy>=1.26.0                    # Numerical computations
 openpyxl>=3.1.0                  # Excel parsing support for pandas (.xlsx)

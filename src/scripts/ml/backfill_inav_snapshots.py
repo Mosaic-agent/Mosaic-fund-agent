@@ -60,11 +60,17 @@ def backfill():
             continue
 
         insert_data = []
+        skipped = 0
         for trade_date, market_price, inav in rows:
-            # Create a UTC datetime for 10:00 AM (roughly market hours)
+            if not inav or inav <= 0:
+                skipped += 1
+                continue
+            prem_disc = (market_price - inav) / inav * 100
+            # Skip rows where premium is physically impossible (bad NAV data)
+            if abs(prem_disc) > 75:
+                skipped += 1
+                continue
             snapshot_at = datetime.combine(trade_date, datetime.min.time()).replace(hour=10)
-            prem_disc = ((market_price - inav) / inav * 100) if inav else 0.0
-            
             insert_data.append([
                 sym,
                 snapshot_at,
@@ -73,6 +79,8 @@ def backfill():
                 round(prem_disc, 4),
                 "Historical_Backfill"
             ])
+        if skipped:
+            logger.warning(f"  ⚠ Skipped {skipped} rows with bad NAV data for {sym}")
 
         if insert_data:
             client.insert(

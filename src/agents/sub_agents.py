@@ -410,6 +410,8 @@ class _SubAgent:
     def __init__(self) -> None:
         self._agent: Any = None
         self._llm: Any = None
+        import os
+        self._built_caveman_level: str | None = os.environ.get("CAVEMAN_LEVEL")
 
     def _build(self, llm_override: Any = None) -> None:
         """Lazily build the LangGraph ReAct agent.
@@ -471,10 +473,11 @@ class _SubAgent:
             # ToolNode runs all tool calls returned in a single AIMessage concurrently
             # via its internal ThreadPoolExecutor — no extra configuration required.
             tool_node = ToolNode(tools)
+            from src.utils.caveman import get_caveman_prompt
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT + NO_LLM_CALC_RULE,
+                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE,
             )
             logger.info("%s: agent built with parallel ToolNode (%d tools)", self.__class__.__name__, len(tools))
         except Exception as exc:
@@ -495,8 +498,11 @@ class _SubAgent:
             LangChain callbacks list (e.g. [RichConsoleCallbackHandler()]) for
             verbose tool-call tracing.  Passed directly to agent.invoke().
         """
-        if self._agent is None:
+        import os
+        current_caveman = os.environ.get("CAVEMAN_LEVEL")
+        if self._agent is None or current_caveman != getattr(self, "_built_caveman_level", None):
             self._build(llm_override=llm_override)
+            self._built_caveman_level = current_caveman
         if self._agent is None:
             return self._confirm_fallback(question)
 
@@ -656,16 +662,17 @@ class _SubAgent:
                             pass  # non-critical — fall through to normal LLM
 
                         combined = "\n\n---\n\n".join(tool_sections[:10])
+                        from src.utils.caveman import get_caveman_prompt
+                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + "\n\n" + (
+                            "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
+                            "- Write ONLY the sections for which you have actual tool output data.\n"
+                            "- OMIT any section entirely if no tool data was collected for it.\n"
+                            "- NEVER write '(Data pending)', 'N/A', or placeholder text.\n"
+                            "- Do not mention step limits, recursion, or missing data.\n"
+                            "- Be concise and factual — only report what the tools returned."
+                        )
                         synth = synth_llm.invoke([
-                            SystemMessage(content=(
-                                self.SYSTEM_PROMPT + NO_LLM_CALC_RULE + "\n\n"
-                                "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
-                                "- Write ONLY the sections for which you have actual tool output data.\n"
-                                "- OMIT any section entirely if no tool data was collected for it.\n"
-                                "- NEVER write '(Data pending)', 'N/A', or placeholder text.\n"
-                                "- Do not mention step limits, recursion, or missing data.\n"
-                                "- Be concise and factual — only report what the tools returned."
-                            )),
+                            SystemMessage(content=sys_prompt),
                             HumanMessage(content=f"Question: {question}\n\nData collected:\n{combined}"),
                         ])
                         # Print extended-thinking blocks if present
@@ -873,8 +880,9 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
                 f"Never invent numbers — use only the data provided.\n\n"
                 f"--- DATA ---\n{truncated}"
             )
+            from src.utils.caveman import get_caveman_prompt
             res = llm.invoke([
-                SystemMessage(content="You are a concise Indian equity research analyst."),
+                SystemMessage(content="You are a concise Indian equity research analyst." + get_caveman_prompt()),
                 HumanMessage(content=synthesis_prompt),
             ])
             synthesis = str(res.content).strip()
@@ -1132,14 +1140,17 @@ class MacroSubAgent(_SubAgent):
         "Use `run_whale_tracker` to track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear, Energy, Infra) across multi-asset funds. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL` and "
         "`market_data.cot_gold FINAL` for institutional positioning data. "
-        "Score interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
+        "Net article flow index interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
         "| ≤−16 = strong bearish.\n\n"
+        "## Index stats (valuation & breadth)\n"
+        "Use `run_market_indicators` to fetch the index valuation (weighted P/E, P/B), market breadth (% of stocks above 50/200 DMA, Advances/Declines), and macro stress indicators (rupee stress DXY deviation, gold ETF SPDR GLD tonnes flow, sector rotation rank). "
+        "When asked about general market health, daily overview, or index valuations, ALWAYS run `run_market_indicators` and integrate this quantitative context with `run_macro_scanner` output.\n\n"
         "## Geopolitical / country news\n"
         "When the query is about a country or geopolitical event (Iran, Russia, crude oil, "
         "sanctions, war, etc.), call `search_financial_news` with a focused query such as "
         "'Iran oil sanctions Indian market impact' to fetch live news articles. "
-        "Then call `run_macro_scanner` to get the ETF impact scores. "
-        "Present both: news table first, then ETF impact scores.\n\n"
+        "Then call `run_macro_scanner` to get the ETF net article flows. "
+        "Present both: news table first, then ETF net article flows.\n\n"
         "## Charts\n"
         "If the user asks for a chart, visualisation, or trend:\n"
         "- FII/DII flow trend → `plot_fii_dii_chart(days)`\n"
@@ -1156,6 +1167,7 @@ class MacroSubAgent(_SubAgent):
             run_comex_analysis,
             query_clickhouse_db,
             run_whale_tracker,
+            run_market_indicators,
         )
         from src.tools.news_search import search_financial_news, get_db_news
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
@@ -1164,6 +1176,7 @@ class MacroSubAgent(_SubAgent):
             run_comex_analysis,
             query_clickhouse_db,
             run_whale_tracker,
+            run_market_indicators,
             search_financial_news,
             get_db_news,
             plot_fii_dii_chart,

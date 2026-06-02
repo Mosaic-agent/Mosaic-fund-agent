@@ -78,9 +78,9 @@ MACRO_THEMES: list[dict] = [
             "MAFANG":     -1,   # Tech risk-off
         },
         "transmission": (
-            "War/conflict → investors flee to safe havens (Gold ↑) and sell risky "
-            "assets (equities ↓). Oil supply disruption raises inflation → RBI may "
-            "delay rate cuts → bond prices fall. INR weakens → imported inflation."
+            "War/conflict → safe-haven demand typically lifts Gold, but historical equity response "
+            "is highly context-dependent (markets often rally during conflicts after initial volatility). "
+            "Oil supply disruption risk raises inflation, leading to central bank pauses/hikes and currency pressure."
         ),
         "conviction": "HIGH",
     },
@@ -110,9 +110,9 @@ MACRO_THEMES: list[dict] = [
             "MON100":     -1,   # Rate hike → Nasdaq ↓ (duration risk)
         },
         "transmission": (
-            "Rate CUT: bond prices ↑ (GILT5YBEES ↑), real yield falls → Gold ↑, "
-            "cheaper credit → equities ↑. Rate HIKE: opposite. "
-            "RBI pause → status quo; watch for language on inflation path."
+            "Rate CUT: bond prices ↑ (GILT5YBEES ↑) and real yields fall (Gold ↑). "
+            "Equities may rise due to cheaper credit, but rate cuts can be bearish if driven by severe "
+            "recession fears. Rate HIKE: opposite. RBI pause/pivot: watch language on the inflation path."
         ),
         "conviction": "HIGH",
     },
@@ -387,6 +387,16 @@ class QuantOverlay:
     garch_vol_pct: float | None = None       # annualised GARCH vol for GOLDBEES
     data_as_of: str | None = None
     macro_fundamentals: MacroFundamentals = field(default_factory=MacroFundamentals)
+    nifty50_pe: float | None = None
+    nifty50_pb: float | None = None
+    nifty50_pct_above_50dma: float | None = None
+    nifty50_pct_above_200dma: float | None = None
+    nifty50_ad_ratio: float | None = None
+    nifty500_pe: float | None = None
+    nifty500_pb: float | None = None
+    nifty500_pct_above_50dma: float | None = None
+    nifty500_pct_above_200dma: float | None = None
+    nifty500_ad_ratio: float | None = None
 
 
 @dataclass
@@ -622,15 +632,48 @@ def _fetch_quant_overlay() -> QuantOverlay:
             except Exception:
                 return None
 
-        with ThreadPoolExecutor(max_workers=4) as ex:
+        def _index_indicators():
+            try:
+                with _pool.acquire() as cl:
+                    max_date_df = cl.query_df("SELECT max(trade_date) AS m FROM market_data.index_indicators FINAL")
+                    max_date = max_date_df["m"].iloc[0] if not max_date_df.empty else None
+                    
+                    import pandas as pd
+                    from datetime import date
+                    import subprocess
+                    import sys
+                    
+                    # check staleness
+                    is_stale = True
+                    if max_date is not None:
+                        last_dt = pd.Timestamp(max_date).date()
+                        days_old = (date.today() - last_dt).days
+                        is_stale = (days_old > 3) if date.today().weekday() == 0 else (days_old > 1)
+                        
+                    if is_stale or max_date is None:
+                        log.info("Index indicators are stale or missing. Regenerating index metrics...")
+                        subprocess.run([sys.executable, "src/scripts/portfolio/market_indicators.py"], capture_output=True)
+                        
+                    return cl.query_df("""
+                        SELECT index_symbol, pe_ratio, pb_ratio, pct_above_50dma, pct_above_200dma, ad_ratio
+                        FROM market_data.index_indicators FINAL
+                        WHERE trade_date = (SELECT max(trade_date) FROM market_data.index_indicators FINAL)
+                    """)
+            except Exception as e:
+                log.warning(f"Failed to query index indicators: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=5) as ex:
             f_fii    = ex.submit(_fii)
             f_prices = ex.submit(_prices)
             f_garch  = ex.submit(_garch)
             f_macro  = ex.submit(_fetch_macro_fundamentals)
+            f_index  = ex.submit(_index_indicators)
             fii_df        = f_fii.result()
             price_df      = f_prices.result()
             garch_vol_raw = f_garch.result()
             macro_funds   = f_macro.result()
+            index_df      = f_index.result()
 
         fii_net = float(fii_df["fii_net_5d"].iloc[0]) if not fii_df.empty else None
         dii_net = float(fii_df["dii_net_5d"].iloc[0]) if not fii_df.empty else None
@@ -651,6 +694,24 @@ def _fetch_quant_overlay() -> QuantOverlay:
                          else price_df["trade_date"].iloc[-1])[:10]
         garch_vol   = round(garch_vol_raw, 1) if garch_vol_raw is not None else None
 
+        n50_pe = n50_pb = n50_above50 = n50_above200 = n50_ad = None
+        n500_pe = n500_pb = n500_above50 = n500_above200 = n500_ad = None
+        if index_df is not None and not index_df.empty:
+            for _, r in index_df.iterrows():
+                sym = r["index_symbol"]
+                if sym == "NIFTY50":
+                    n50_pe = float(r["pe_ratio"])
+                    n50_pb = float(r["pb_ratio"])
+                    n50_above50 = float(r["pct_above_50dma"])
+                    n50_above200 = float(r["pct_above_200dma"])
+                    n50_ad = float(r["ad_ratio"])
+                elif sym == "NIFTY500":
+                    n500_pe = float(r["pe_ratio"])
+                    n500_pb = float(r["pb_ratio"])
+                    n500_above50 = float(r["pct_above_50dma"])
+                    n500_above200 = float(r["pct_above_200dma"])
+                    n500_ad = float(r["ad_ratio"])
+
         return QuantOverlay(
             fii_net_5d_cr          = round(fii_net, 1) if fii_net is not None else None,
             dii_net_5d_cr          = round(dii_net, 1) if dii_net is not None else None,
@@ -660,6 +721,16 @@ def _fetch_quant_overlay() -> QuantOverlay:
             garch_vol_pct          = garch_vol,
             data_as_of             = data_date,
             macro_fundamentals     = macro_funds,
+            nifty50_pe             = n50_pe,
+            nifty50_pb             = n50_pb,
+            nifty50_pct_above_50dma  = n50_above50,
+            nifty50_pct_above_200dma = n50_above200,
+            nifty50_ad_ratio       = n50_ad,
+            nifty500_pe            = n500_pe,
+            nifty500_pb            = n500_pb,
+            nifty500_pct_above_50dma  = n500_above50,
+            nifty500_pct_above_200dma = n500_above200,
+            nifty500_ad_ratio      = n500_ad,
         )
     except Exception as exc:
         log.debug("Quant overlay unavailable: %s", exc)
@@ -936,7 +1007,7 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
         sorted_etfs = sorted(net.items(), key=lambda x: -x[1])
         tbl2 = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
         tbl2.add_column("ETF",    style="cyan",  width=16)
-        tbl2.add_column("Net Score", justify="right", width=10)
+        tbl2.add_column("Net Article Flow", justify="right", width=20)
         tbl2.add_column("Signal",  width=16)
         tbl2.add_column("Bar", no_wrap=True)
 
@@ -959,10 +1030,16 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
     strong_thresh = max(4, max_score // 2)
     mod_thresh    = max(2, max_score // 4)
     console.print(
-        f"\n[dim]Net score = article-count × impact-weight, summed across all themes "
+        f"\n[dim]Net article flow = article-count × impact-weight, summed across all themes "
         f"(max ≈ ±{max_score} with {n_themes} active themes, max_per_theme={max_per_theme}).  "
         f"≥+{strong_thresh} = strong bullish  |  ≥+{mod_thresh} = moderate  |  "
         f"≤-{strong_thresh} = strong bearish[/dim]"
+    )
+    console.print(
+        f"[bold yellow]⚠ Heuristic Disclaimer:[/bold yellow] [dim]Net article flow is a qualitative headline volume indicator, "
+        f"not a quantitative forecast. Mapped asset relationships are historical averages and highly context-dependent in reality "
+        f"(e.g., markets often rally during wars, gold and equities can rise together, and rate cuts can be bearish if driven by recession fears). "
+        f"It lacks statistical significance, backtests, or model hit rates. For backtested signals, use the GOLDBEES ML pipeline.[/dim]"
     )
 
     # ── Quant overlay (ClickHouse ground truth) ───────────────────────────────
@@ -971,6 +1048,8 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
         q.fii_net_5d_cr is not None,
         q.goldbees_close is not None,
         q.garch_vol_pct is not None,
+        q.nifty50_pe is not None,
+        q.nifty500_pe is not None,
     ])
     if has_quant:
         console.print()
@@ -997,6 +1076,23 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
             lines.append(
                 f"  FII 5d net [{fii_col}]{q.fii_net_5d_cr:+,.0f} Cr[/{fii_col}]{dii_str}"
             )
+
+        # ── Index Indicators (Nifty 50 / 500 Breadth and Valuation) ───────────
+        if q.nifty50_pe is not None or q.nifty500_pe is not None:
+            parts = []
+            if q.nifty50_pe is not None:
+                parts.append(
+                    f"Nifty 50: PE {q.nifty50_pe:.1f} | PB {q.nifty50_pb:.2f} | "
+                    f"A50d {q.nifty50_pct_above_50dma:.1f}% | A200d {q.nifty50_pct_above_200dma:.1f}% | "
+                    f"AD {q.nifty50_ad_ratio:.2f}"
+                )
+            if q.nifty500_pe is not None:
+                parts.append(
+                    f"Nifty 500: PE {q.nifty500_pe:.1f} | PB {q.nifty500_pb:.2f} | "
+                    f"A50d {q.nifty500_pct_above_50dma:.1f}% | A200d {q.nifty500_pct_above_200dma:.1f}% | "
+                    f"AD {q.nifty500_ad_ratio:.2f}"
+                )
+            lines.append("  Index Stats  " + "\n               ".join(parts))
 
         # ── Macro Fundamentals (World Bank / IMF WEO) ─────────────────────────
         mf = q.macro_fundamentals

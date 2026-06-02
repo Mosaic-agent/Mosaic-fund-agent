@@ -99,6 +99,11 @@ class Observer(ABC):
         return f"{self.__class__.__name__}(async={self.async_ok})"
 
 
+def _make_daemon_thread() -> None:
+    """Ensure ThreadPoolExecutor worker threads are daemon threads so python doesn't hang on exit."""
+    threading.current_thread().daemon = True
+
+
 # ── EventBus ──────────────────────────────────────────────────────────────────
 
 class EventBus:
@@ -112,7 +117,8 @@ class EventBus:
     def __init__(self, max_workers: int = 4) -> None:
         self._observers: dict[str, list[Observer]] = {}
         self._pool      = ThreadPoolExecutor(max_workers=max_workers,
-                                             thread_name_prefix="event-worker")
+                                             thread_name_prefix="event-worker",
+                                             initializer=_make_daemon_thread)
         self._lock      = threading.Lock()
 
     def subscribe(self, observer: Observer) -> None:

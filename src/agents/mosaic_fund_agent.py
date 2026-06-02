@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS
 
 
+def _make_daemon_thread() -> None:
+    import threading
+    threading.current_thread().daemon = True
+
+
 class RichConsoleCallbackHandler(BaseCallbackHandler):
     """Callback handler to print intermediate LLM steps and tool calls beautifully in the console."""
 
@@ -147,6 +152,14 @@ AGENT_SYSTEM_PROMPT_COMPACT = (
     "NEVER compute any number yourself — only narrate numbers returned by tools."
 )
 
+_CONN_TROUBLESHOOTING = (
+    "\n\n**💡 Troubleshooting Local Connection Refused:**\n"
+    "1. Verify your local LLM server (Ollama, LM Studio) is running and active.\n"
+    "2. If running inside Docker, you must set `LLM_BASE_URL` in your `.env` to connect to the host machine:\n"
+    "   - For Ollama on macOS/Windows: `http://host.docker.internal:11434/v1`\n"
+    "   - For Ollama on Linux: `http://172.17.0.1:11434/v1`"
+)
+
 
 def _get_message_text(content: Any) -> str:
     """Extract string content from LangChain message content, which could be a list of blocks."""
@@ -174,6 +187,8 @@ class MosaicFundAgent:
 
     def __init__(self, checkpointer: Any = None) -> None:
         self._checkpointer = checkpointer
+        import os
+        self._built_caveman_level = os.environ.get("CAVEMAN_LEVEL")
         # Install LLM response cache globally before building the LLM instances.
         from src.utils.llm_cache import setup_llm_cache
         setup_llm_cache()
@@ -378,10 +393,11 @@ class MosaicFundAgent:
                 effective_window,
             )
             return None
+        from src.utils.caveman import get_caveman_prompt
         kwargs: dict[str, Any] = dict(
             model=self._llm,
             tools=ALL_TOOLS,
-            prompt=AGENT_SYSTEM_PROMPT,
+            prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
         )
         if self._checkpointer is not None:
             kwargs["checkpointer"] = self._checkpointer
@@ -445,7 +461,7 @@ class MosaicFundAgent:
             task = progress.add_task(
                 f"Analyzing {len(holdings)} holdings in parallel…", total=len(holdings)
             )
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5, initializer=_make_daemon_thread) as pool:
                 future_map = {pool.submit(analyze_holding, h): h for h in holdings}
                 for future in concurrent.futures.as_completed(future_map):
                     holding = future_map[future]
@@ -536,6 +552,12 @@ class MosaicFundAgent:
         import os
         import re
 
+        # Re-build agent if Caveman level changed
+        current_caveman = os.environ.get("CAVEMAN_LEVEL")
+        if current_caveman != getattr(self, "_built_caveman_level", None):
+            self._agent = self._build_agent()
+            self._built_caveman_level = current_caveman
+
         # Heuristic for weak models: if question looks like a deep-dive request, trigger it manually
         clean_question = question
         if "[End of context]\n" in question:
@@ -581,12 +603,31 @@ class MosaicFundAgent:
             logger.info("ask: no tool-calling agent (low context window) — direct LLM fallback")
             try:
                 llm = self._pick_llm(question)
+                from src.utils.caveman import get_caveman_prompt
+                compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                 res = llm.invoke([
-                    SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                    SystemMessage(content=compact_prompt),
                     HumanMessage(content=question),
                 ])
                 return str(res.content)
             except Exception as exc:
+                err_msg = str(exc).lower()
+                is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
+                if is_connection_error and self._cloud_llm is not None and llm != self._cloud_llm:
+                    logger.warning("Local LLM direct query failed. Trying cloud LLM fallback...")
+                    try:
+                        from src.utils.caveman import get_caveman_prompt
+                        compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
+                        res = self._cloud_llm.invoke([
+                            SystemMessage(content=compact_prompt),
+                            HumanMessage(content=question),
+                        ])
+                        return str(res.content)
+                    except Exception as cloud_exc:
+                        logger.error("Cloud direct query fallback failed: %s", cloud_exc)
+                if is_connection_error:
+                    logger.error("Local LLM connection failed: %s", exc)
+                    return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
                 logger.error("ask: direct LLM fallback failed: %s", exc)
                 return f"Error: {exc}"
 
@@ -596,7 +637,7 @@ class MosaicFundAgent:
             if os.getenv("VERBOSE") == "1":
                 config["callbacks"] = [RichConsoleCallbackHandler()]
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1, initializer=_make_daemon_thread) as _ex:
                 _fut = _ex.submit(self._agent.invoke, {"messages": messages}, config)
                 try:
                     result = _fut.result(timeout=120)
@@ -627,18 +668,56 @@ class MosaicFundAgent:
             return str(content) if content else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
+            is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
+            if is_connection_error and self._cloud_llm is not None and self._llm != self._cloud_llm:
+                logger.warning("Connection to local LLM failed. Falling back to cloud LLM...")
+                try:
+                    from src.utils.caveman import get_caveman_prompt
+                    temp_cloud_agent = create_react_agent(
+                        model=self._cloud_llm,
+                        tools=ALL_TOOLS,
+                        prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+                    )
+                    result = temp_cloud_agent.invoke(
+                        {"messages": [HumanMessage(content=question)]},
+                        config=config,
+                    )
+                    msgs = result.get("messages", [])
+                    return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
+                except Exception as cloud_exc:
+                    logger.error("Cloud LLM fallback failed: %s", cloud_exc)
+            
             if any(term in err_msg for term in ["does not support tool", "tool binding", "not support tool"]):
                 logger.warning("Model does not support tools. Falling back to direct LLM Q&A. Error: %s", exc)
                 try:
                     llm = self._pick_llm(question)
+                    from src.utils.caveman import get_caveman_prompt
+                    compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                     res = llm.invoke([
-                        SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                        SystemMessage(content=compact_prompt),
                         HumanMessage(content=question),
                     ])
                     return str(res.content)
                 except Exception as fallback_exc:
+                    fb_err = str(fallback_exc).lower()
+                    is_fb_conn_error = any(term in fb_err for term in ["connection refused", "connecterror", "connection error", "api connection"])
+                    if is_fb_conn_error and self._cloud_llm is not None and llm != self._cloud_llm:
+                        logger.warning("Fallback LLM failed due to connection. Trying cloud LLM...")
+                        try:
+                            res = self._cloud_llm.invoke([
+                                SystemMessage(content=compact_prompt),
+                                HumanMessage(content=question),
+                            ])
+                            return str(res.content)
+                        except Exception as cloud_exc:
+                            logger.error("Fallback cloud LLM query failed: %s", cloud_exc)
+                    if is_fb_conn_error:
+                        return f"Error: {fallback_exc}{_CONN_TROUBLESHOOTING}"
                     logger.error("Fallback LLM query failed: %s", fallback_exc)
                     return f"Error: {fallback_exc}"
+            
+            if is_connection_error:
+                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
             logger.error("Agent query failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
@@ -658,6 +737,12 @@ class MosaicFundAgent:
         """
         import os
         import re
+
+        # Re-build agent if Caveman level changed
+        current_caveman = os.environ.get("CAVEMAN_LEVEL")
+        if current_caveman != getattr(self, "_built_caveman_level", None):
+            self._agent = self._build_agent()
+            self._built_caveman_level = current_caveman
         from langchain_core.messages import HumanMessage
         from src.agents.intent_router import route_intent_llm
         from src.agents.sub_agents import get_subagent
@@ -712,8 +797,10 @@ class MosaicFundAgent:
             try:
                 from langchain_core.messages import SystemMessage
                 llm = self._pick_llm(question)
+                from src.utils.caveman import get_caveman_prompt
+                compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                 res = llm.invoke([
-                    SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                    SystemMessage(content=compact_prompt),
                     HumanMessage(content=question),
                 ])
                 return str(res.content)
@@ -761,18 +848,56 @@ class MosaicFundAgent:
             return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
+            is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
+            if is_connection_error and self._cloud_llm is not None and self._llm != self._cloud_llm:
+                logger.warning("Connection to local LLM failed. Falling back to cloud LLM...")
+                try:
+                    from src.utils.caveman import get_caveman_prompt
+                    temp_cloud_agent = create_react_agent(
+                        model=self._cloud_llm,
+                        tools=ALL_TOOLS,
+                        prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+                    )
+                    result = temp_cloud_agent.invoke(
+                        {"messages": [HumanMessage(content=question)]},
+                        config=config,
+                    )
+                    msgs = result.get("messages", [])
+                    return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
+                except Exception as cloud_exc:
+                    logger.error("Cloud LLM fallback failed: %s", cloud_exc)
+            
             if any(term in err_msg for term in ["does not support tool", "tool binding", "not support tool"]):
                 logger.warning("chat: model doesn't support tools, falling back to direct LLM. Error: %s", exc)
                 try:
                     from langchain_core.messages import SystemMessage
                     llm = self._pick_llm(question)
+                    from src.utils.caveman import get_caveman_prompt
+                    compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
                     res = llm.invoke([
-                        SystemMessage(content=AGENT_SYSTEM_PROMPT_COMPACT),
+                        SystemMessage(content=compact_prompt),
                         HumanMessage(content=question),
                     ])
                     return str(res.content)
                 except Exception as fb_exc:
+                    fb_err = str(fb_exc).lower()
+                    is_fb_conn_error = any(term in fb_err for term in ["connection refused", "connecterror", "connection error", "api connection"])
+                    if is_fb_conn_error and self._cloud_llm is not None and llm != self._cloud_llm:
+                        logger.warning("Fallback LLM failed due to connection. Trying cloud LLM...")
+                        try:
+                            res = self._cloud_llm.invoke([
+                                SystemMessage(content=compact_prompt),
+                                HumanMessage(content=question),
+                            ])
+                            return str(res.content)
+                        except Exception as cloud_exc:
+                            logger.error("Fallback cloud LLM query failed: %s", cloud_exc)
+                    if is_fb_conn_error:
+                        return f"Error: {fb_exc}{_CONN_TROUBLESHOOTING}"
                     return f"Error: {fb_exc}"
+            
+            if is_connection_error:
+                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
             logger.error("chat() failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
