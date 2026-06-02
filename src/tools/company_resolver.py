@@ -531,7 +531,7 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
     # Interactive confirmation loop
     import sys
     import os
-    if (sys.stdin.isatty() or os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1") and 'pytest' not in sys.modules and 'unittest' not in sys.modules and info and not info.get("error"):
+    if os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1" and info and not info.get("error"):
         company_desc = f"{info['company_name']} ({info['symbol']} on {info['exchange']})"
         sys.stdout.write(f"\n[Resolver] Resolved '{query}' to '{company_desc}'. Is this correct? [Y/n]: ")
         sys.stdout.flush()
@@ -655,7 +655,7 @@ def _select_quote_from_candidates(query: str, candidates: list[dict]) -> dict | 
 
     import sys
     import os
-    is_interactive = (sys.stdin.isatty() or os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1") and 'pytest' not in sys.modules and 'unittest' not in sys.modules
+    is_interactive = os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1"
 
     if len(high_score_candidates) > 1 and is_interactive:
         # De-duplicate by symbol (e.g. ignore .BO vs .NS duplicates to avoid listing same company twice)
