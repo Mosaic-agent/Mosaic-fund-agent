@@ -277,6 +277,11 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] NSE regular session close time (IST, 24h HH:MM)
     market_close: str = Field(default="15:30", description="NSE market close time IST")
 
+    def __init__(self, **values):
+        super().__init__(**values)
+        if "$$" in self.shoonya_password:
+            self.shoonya_password = self.shoonya_password.replace("$$", "$")
+
     def validate_sensitive_fields(self) -> list[str]:
         """
         Returns a list of warnings for any SENSITIVE fields that are missing.

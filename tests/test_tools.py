@@ -164,6 +164,11 @@ def test_config_masking():
     for w in warnings2:
         print(f"    [SENSITIVE warning] {w[:70]}...")
 
+    # Verify Shoonya password escaping unescapes double-dollar signs
+    s3 = Settings(shoonya_password="my_pass$$word")
+    assert s3.shoonya_password == "my_pass$word"
+    print("  ✓ Shoonya password unescapes double-dollar signs successfully")
+
 
 def test_inav_fetcher():
     print("\n" + "="*60)
