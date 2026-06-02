@@ -152,6 +152,14 @@ AGENT_SYSTEM_PROMPT_COMPACT = (
     "NEVER compute any number yourself — only narrate numbers returned by tools."
 )
 
+_CONN_TROUBLESHOOTING = (
+    "\n\n**💡 Troubleshooting Local Connection Refused:**\n"
+    "1. Verify your local LLM server (Ollama, LM Studio) is running and active.\n"
+    "2. If running inside Docker, you must set `LLM_BASE_URL` in your `.env` to connect to the host machine:\n"
+    "   - For Ollama on macOS/Windows: `http://host.docker.internal:11434/v1`\n"
+    "   - For Ollama on Linux: `http://172.17.0.1:11434/v1`"
+)
+
 
 def _get_message_text(content: Any) -> str:
     """Extract string content from LangChain message content, which could be a list of blocks."""
@@ -603,6 +611,23 @@ class MosaicFundAgent:
                 ])
                 return str(res.content)
             except Exception as exc:
+                err_msg = str(exc).lower()
+                is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
+                if is_connection_error and self._cloud_llm is not None and llm != self._cloud_llm:
+                    logger.warning("Local LLM direct query failed. Trying cloud LLM fallback...")
+                    try:
+                        from src.utils.caveman import get_caveman_prompt
+                        compact_prompt = AGENT_SYSTEM_PROMPT_COMPACT + get_caveman_prompt()
+                        res = self._cloud_llm.invoke([
+                            SystemMessage(content=compact_prompt),
+                            HumanMessage(content=question),
+                        ])
+                        return str(res.content)
+                    except Exception as cloud_exc:
+                        logger.error("Cloud direct query fallback failed: %s", cloud_exc)
+                if is_connection_error:
+                    logger.error("Local LLM connection failed: %s", exc)
+                    return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
                 logger.error("ask: direct LLM fallback failed: %s", exc)
                 return f"Error: {exc}"
 
@@ -643,6 +668,25 @@ class MosaicFundAgent:
             return str(content) if content else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
+            is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
+            if is_connection_error and self._cloud_llm is not None and self._llm != self._cloud_llm:
+                logger.warning("Connection to local LLM failed. Falling back to cloud LLM...")
+                try:
+                    from src.utils.caveman import get_caveman_prompt
+                    temp_cloud_agent = create_react_agent(
+                        model=self._cloud_llm,
+                        tools=ALL_TOOLS,
+                        prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+                    )
+                    result = temp_cloud_agent.invoke(
+                        {"messages": [HumanMessage(content=question)]},
+                        config=config,
+                    )
+                    msgs = result.get("messages", [])
+                    return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
+                except Exception as cloud_exc:
+                    logger.error("Cloud LLM fallback failed: %s", cloud_exc)
+            
             if any(term in err_msg for term in ["does not support tool", "tool binding", "not support tool"]):
                 logger.warning("Model does not support tools. Falling back to direct LLM Q&A. Error: %s", exc)
                 try:
@@ -655,8 +699,25 @@ class MosaicFundAgent:
                     ])
                     return str(res.content)
                 except Exception as fallback_exc:
+                    fb_err = str(fallback_exc).lower()
+                    is_fb_conn_error = any(term in fb_err for term in ["connection refused", "connecterror", "connection error", "api connection"])
+                    if is_fb_conn_error and self._cloud_llm is not None and llm != self._cloud_llm:
+                        logger.warning("Fallback LLM failed due to connection. Trying cloud LLM...")
+                        try:
+                            res = self._cloud_llm.invoke([
+                                SystemMessage(content=compact_prompt),
+                                HumanMessage(content=question),
+                            ])
+                            return str(res.content)
+                        except Exception as cloud_exc:
+                            logger.error("Fallback cloud LLM query failed: %s", cloud_exc)
+                    if is_fb_conn_error:
+                        return f"Error: {fallback_exc}{_CONN_TROUBLESHOOTING}"
                     logger.error("Fallback LLM query failed: %s", fallback_exc)
                     return f"Error: {fallback_exc}"
+            
+            if is_connection_error:
+                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
             logger.error("Agent query failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
@@ -787,6 +848,25 @@ class MosaicFundAgent:
             return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
+            is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
+            if is_connection_error and self._cloud_llm is not None and self._llm != self._cloud_llm:
+                logger.warning("Connection to local LLM failed. Falling back to cloud LLM...")
+                try:
+                    from src.utils.caveman import get_caveman_prompt
+                    temp_cloud_agent = create_react_agent(
+                        model=self._cloud_llm,
+                        tools=ALL_TOOLS,
+                        prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+                    )
+                    result = temp_cloud_agent.invoke(
+                        {"messages": [HumanMessage(content=question)]},
+                        config=config,
+                    )
+                    msgs = result.get("messages", [])
+                    return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
+                except Exception as cloud_exc:
+                    logger.error("Cloud LLM fallback failed: %s", cloud_exc)
+            
             if any(term in err_msg for term in ["does not support tool", "tool binding", "not support tool"]):
                 logger.warning("chat: model doesn't support tools, falling back to direct LLM. Error: %s", exc)
                 try:
@@ -800,7 +880,24 @@ class MosaicFundAgent:
                     ])
                     return str(res.content)
                 except Exception as fb_exc:
+                    fb_err = str(fb_exc).lower()
+                    is_fb_conn_error = any(term in fb_err for term in ["connection refused", "connecterror", "connection error", "api connection"])
+                    if is_fb_conn_error and self._cloud_llm is not None and llm != self._cloud_llm:
+                        logger.warning("Fallback LLM failed due to connection. Trying cloud LLM...")
+                        try:
+                            res = self._cloud_llm.invoke([
+                                SystemMessage(content=compact_prompt),
+                                HumanMessage(content=question),
+                            ])
+                            return str(res.content)
+                        except Exception as cloud_exc:
+                            logger.error("Fallback cloud LLM query failed: %s", cloud_exc)
+                    if is_fb_conn_error:
+                        return f"Error: {fb_exc}{_CONN_TROUBLESHOOTING}"
                     return f"Error: {fb_exc}"
+            
+            if is_connection_error:
+                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
             logger.error("chat() failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
