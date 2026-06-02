@@ -616,6 +616,71 @@ def test_company_resolver_false_positives():
     print("  ✓ Local Indian lookup false-positive check — ALL CHECKS PASSED")
 
 
+def test_company_resolver_interactive():
+    print("\n" + "="*60)
+    print("TEST 16: Company Resolver Interactive Prompts Check")
+    print("="*60)
+
+    import os
+    import io
+    from unittest.mock import patch
+    from src.tools.company_resolver import resolve_company_info
+
+    # Mock implementation of _resolve_company_info_impl
+    mock_info = {
+        "symbol": "MOCKSYM",
+        "nse_symbol": "MOCKSYM",
+        "yf_symbol": "MOCKSYM.NS",
+        "exchange": "NSE",
+        "market": "India",
+        "company_name": "Mock Company",
+        "currency": "INR",
+        "source": "mock"
+    }
+
+    mock_info_corrected = {
+        "symbol": "CORRECTED",
+        "nse_symbol": "CORRECTED",
+        "yf_symbol": "CORRECTED.NS",
+        "exchange": "NSE",
+        "market": "India",
+        "company_name": "Corrected Company",
+        "currency": "INR",
+        "source": "mock"
+    }
+
+    # Simulate environment where interactive prompt is enabled
+    with patch.dict(os.environ, {"MOSAIC_INTERACTIVE_CHAT": "1"}):
+        # Case 1: User confirms the resolution (inputs 'y')
+        mock_stdin = io.StringIO("y\n")
+        mock_stdout = io.StringIO()
+        with patch("sys.stdin", mock_stdin), patch("sys.stdout", mock_stdout), \
+             patch("src.tools.company_resolver._resolve_company_info_impl", return_value=mock_info):
+            info = resolve_company_info("mock", auto_import=False)
+            assert info["symbol"] == "MOCKSYM"
+            prompt_output = mock_stdout.getvalue()
+            assert "Is this correct? [Y/n]:" in prompt_output
+            print("  ✓ User confirms resolution (inputs 'y') works")
+
+        # Case 2: User rejects resolution and enters new query, selecting an LLM suggestion
+        mock_stdin = io.StringIO("n\ncorrected_input\n1\n")
+        mock_stdout = io.StringIO()
+        mock_suggestions = [{"name": "Corrected Company", "symbol": "CORRECTED"}]
+        with patch("sys.stdin", mock_stdin), patch("sys.stdout", mock_stdout), \
+             patch("src.tools.company_resolver._resolve_company_info_impl") as mock_impl, \
+             patch("src.tools.company_resolver._get_llm_suggestions", return_value=mock_suggestions):
+            mock_impl.side_effect = lambda q: mock_info if q == "mock" else mock_info_corrected
+            info = resolve_company_info("mock", auto_import=False)
+            assert info["symbol"] == "CORRECTED"
+            prompt_output = mock_stdout.getvalue()
+            assert "Please enter the correct company name:" in prompt_output
+            assert "Matching companies found using LLM:" in prompt_output
+            assert "1. Corrected Company (CORRECTED)" in prompt_output
+            print("  ✓ User rejects, enters new query, and selects LLM suggestion works")
+
+    print("  ✓ Company Resolver Interactive Prompts check — ALL CHECKS PASSED")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -633,6 +698,7 @@ if __name__ == "__main__":
         test_nse_inav_fetcher_importer_correction,
         test_auto_import_missing_symbol,
         test_company_resolver_false_positives,
+        test_company_resolver_interactive,
     ]
     passed = 0
     failed = 0
