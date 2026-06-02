@@ -1205,6 +1205,38 @@ def _dispatch_slash(
     return f"Unknown command: `/{name}` — type `/help` for the full list.", thread_id
 
 
+def extract_company_subject(question: str, intent: str) -> str | None:
+    """Extract a candidate company name from the query if it targets stock/news research."""
+    import re
+    from src.agents.sub_agents import _GENERAL_RESEARCH_RE
+    
+    clean = question.strip().rstrip("?.")
+    
+    # If it is news intent, strip news-related prefixes/suffixes
+    if intent == "news":
+        clean = re.sub(r"\b(latest\s+)?news(\s+(for|on|about|of))?\b", "", clean, flags=re.I)
+        clean = re.sub(r"\bheadlines(\s+(for|on|about|of))?\b", "", clean, flags=re.I)
+        clean = clean.strip()
+        
+    m = _GENERAL_RESEARCH_RE.search(clean)
+    if m:
+        subj = m.group(1).strip().rstrip("?.")
+        # Strip leading prepositions (e.g. "on HDFC Bank" -> "HDFC Bank")
+        subj = re.sub(r"^(on|about|for|of|to)\s+", "", subj, flags=re.I)
+        if len(subj.split()) <= 4:
+            return subj
+            
+    # For short queries, check if it's a potential company name
+    if len(clean.split()) <= 3:
+        # Avoid resolving generic commands or common non-company queries
+        if clean.lower() not in ("quit", "exit", "bye", "q", "help", "/help", "/prompts", "/goal", "/schedule", "/grill-me"):
+            # Skip numbers or dates
+            if not clean.isdigit():
+                return clean
+            
+    return None
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def run_chat_loop(console: Console | None = None) -> None:
@@ -1338,6 +1370,28 @@ def run_chat_loop(console: Console | None = None) -> None:
                 _intent = _at_intent
             else:
                 _intent = route_intent(raw)
+
+            # ── Pre-resolve company name if applicable ──────────────────────
+            # This allows the interactive prompt to run and get user confirmation
+            # BEFORE the AI planner generates its plan, ensuring the visual plan
+            # panel contains the correct symbol/company.
+            _subject = extract_company_subject(raw, _intent)
+            if _subject and _intent in ("india_equity", "research", "deepdive", "news"):
+                try:
+                    from src.tools.company_resolver import resolve_company_info
+                    _info = resolve_company_info(_subject, auto_import=True)
+                    if _info and not _info.get("error") and _info.get("symbol"):
+                        _symbol = _info["symbol"]
+                        # Replace the subject in our raw query with the resolved symbol
+                        # (e.g. "tata" becomes "TATAPOWER")
+                        import re
+                        raw = re.sub(r'\b' + re.escape(_subject) + r'\b', _symbol, raw, flags=re.I)
+                        logger.info("Chat pre-resolved company subject '%s' to '%s'", _subject, _symbol)
+                        # Re-calculate intent on the cleaned query to be precise
+                        if not _at_intent:
+                            _intent = route_intent(raw)
+                except Exception as exc:
+                    logger.debug("Chat pre-resolution failed: %s", exc)
 
             _LABEL_MAP = {
                 "intl_etf":     "intl ETF agent",
