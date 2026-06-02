@@ -1216,6 +1216,10 @@ def run_chat_loop(console: Console | None = None) -> None:
     if console is None:
         console = Console()
 
+    # Set environment variable to indicate interactive session for resolver prompts
+    import os
+    os.environ["MOSAIC_INTERACTIVE_CHAT"] = "1"
+
     # Build agent with in-session memory
     from langgraph.checkpoint.memory import MemorySaver
     from src.agents.mosaic_fund_agent import MosaicFundAgent

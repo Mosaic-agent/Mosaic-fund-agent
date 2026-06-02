@@ -530,7 +530,8 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
 
     # Interactive confirmation loop
     import sys
-    if sys.stdin.isatty() and 'pytest' not in sys.modules and 'unittest' not in sys.modules and info and not info.get("error"):
+    import os
+    if (sys.stdin.isatty() or os.environ.get("MOSAIC_INTERACTIVE_CHAT") == "1") and 'pytest' not in sys.modules and 'unittest' not in sys.modules and info and not info.get("error"):
         company_desc = f"{info['company_name']} ({info['symbol']} on {info['exchange']})"
         sys.stdout.write(f"\n[Resolver] Resolved '{query}' to '{company_desc}'. Is this correct? [Y/n]: ")
         sys.stdout.flush()
