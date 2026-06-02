@@ -535,6 +535,40 @@ def _score_quote(query: str, quote: dict) -> float:
     return len(matched_words) / len(q_words)
 
 
+def _correct_spelling_via_db(query: str) -> str | None:
+    """
+    Query ClickHouse mf_holdings to find a security name with a low ngramDistance
+    to the query. Returns the corrected name if found, else None.
+    """
+    try:
+        from src.db.pool import query_df
+        q_clean = query.lower().strip()
+        suffixes = {"ltd", "limited", "co", "corp", "corporation", "inc", "incorporated", "plc", "company", "companies"}
+        words = [w for w in re.findall(r"[a-z0-9&]+", q_clean) if w not in suffixes]
+        if not words:
+            return None
+        core_query = " ".join(words)
+        core_query_escaped = core_query.replace("'", "''")
+
+        sql = f"""
+            SELECT DISTINCT security_name, ngramDistance(lower(security_name), '{core_query_escaped}') as dist
+            FROM market_data.mf_holdings FINAL
+            ORDER BY dist ASC
+            LIMIT 1
+        """
+        df = query_df(sql)
+        if not df.empty:
+            row = df.iloc[0]
+            dist = row['dist']
+            corrected = row['security_name']
+            corrected = re.sub(r"\*+$", "", corrected).strip()
+            if dist <= 0.65:
+                return corrected
+    except Exception as e:
+        log.debug("_correct_spelling_via_db: ClickHouse query failed: %s", e)
+    return None
+
+
 def _resolve_company_info_impl(query: str) -> dict:
     """
     Core resolver implementation.
@@ -813,6 +847,12 @@ def _resolve_company_info_impl(query: str) -> dict:
             "currency":     "INR",
             "source":       "fallback_unverified",
         }
+
+    # ── 5. Spell-check fallback via ClickHouse ──────────────────────────
+    corrected = _correct_spelling_via_db(query)
+    if corrected and corrected.lower() != query.lower():
+        log.info("resolve_company: spelling corrector fell back to resolved name %r", corrected)
+        return _resolve_company_info_impl(corrected)
 
     return {
         "error": f"Could not resolve symbol/company for query: {query}",
