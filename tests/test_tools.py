@@ -649,9 +649,12 @@ def test_company_resolver_interactive():
         "source": "mock"
     }
 
+    from src.tools.company_resolver import clear_turn_resolutions
+
     # Simulate environment where interactive prompt is enabled
     with patch.dict(os.environ, {"MOSAIC_INTERACTIVE_CHAT": "1"}):
         # Case 1: User confirms the resolution (inputs 'y')
+        clear_turn_resolutions()
         mock_stdin = io.StringIO("y\n")
         mock_stdout = io.StringIO()
         with patch("sys.stdin", mock_stdin), patch("sys.stdout", mock_stdout), \
@@ -663,6 +666,7 @@ def test_company_resolver_interactive():
             print("  ✓ User confirms resolution (inputs 'y') works")
 
         # Case 2: User rejects resolution and enters new query, selecting an LLM suggestion
+        clear_turn_resolutions()
         mock_stdin = io.StringIO("n\ncorrected_input\n1\n")
         mock_stdout = io.StringIO()
         mock_suggestions = [{"name": "Corrected Company", "symbol": "CORRECTED"}]
@@ -679,6 +683,92 @@ def test_company_resolver_interactive():
             print("  ✓ User rejects, enters new query, and selects LLM suggestion works")
 
     print("  ✓ Company Resolver Interactive Prompts check — ALL CHECKS PASSED")
+
+
+def test_resolver_turn_level_caching_and_rewriting():
+    print("\n" + "="*60)
+    print("TEST 17: Company Resolver Turn-Level Caching & Query Rewriting")
+    print("="*60)
+
+    import os
+    import io
+    from unittest.mock import patch
+    from src.tools.company_resolver import (
+        resolve_company_info,
+        clear_turn_resolutions,
+        rewrite_delegation_question,
+        _is_exact_symbol_match
+    )
+
+    mock_info = {
+        "symbol": "TATAPOWER",
+        "nse_symbol": "TATAPOWER",
+        "yf_symbol": "TATAPOWER.NS",
+        "exchange": "NSE",
+        "market": "India",
+        "company_name": "Tata Power Company",
+        "currency": "INR",
+        "source": "mock"
+    }
+
+    # 1. Test exact symbol match helper
+    assert _is_exact_symbol_match("TATAPOWER", mock_info) is True
+    assert _is_exact_symbol_match("tatapower", mock_info) is True
+    assert _is_exact_symbol_match("TATAPOWER.NS", mock_info) is True
+    assert _is_exact_symbol_match("TATAPOWER:NSE", mock_info) is True
+    assert _is_exact_symbol_match("TATASTEEL", mock_info) is False
+
+    # 2. Test turn resolutions cache and prompting bypass
+    clear_turn_resolutions()
+
+    # Simulate environment where interactive prompt is enabled
+    with patch.dict(os.environ, {"MOSAIC_INTERACTIVE_CHAT": "1"}):
+        # Case A: Exact symbol match query - should bypass prompt without sys.stdin reading
+        mock_stdin = io.StringIO("") # EOF if read
+        with patch("sys.stdin", mock_stdin), \
+             patch("src.tools.company_resolver._resolve_company_info_impl", return_value=mock_info):
+            info = resolve_company_info("TATAPOWER", auto_import=False)
+            assert info["symbol"] == "TATAPOWER"
+            print("  ✓ Exact symbol match query bypassed prompt successfully")
+
+        # Case B: First time resolving non-exact match query (e.g. "tata") -> prompts user.
+        # User rejects default and enters correct name ("tata power") selecting it.
+        mock_stdin = io.StringIO("n\ntata power\n1\n")
+        mock_stdout = io.StringIO()
+        mock_suggestions = [{"name": "Tata Power Company", "symbol": "TATAPOWER"}]
+        mock_info_steel = {**mock_info, "symbol": "TATASTEEL", "company_name": "Tata Steel"}
+        with patch("sys.stdin", mock_stdin), patch("sys.stdout", mock_stdout), \
+             patch("src.tools.company_resolver._resolve_company_info_impl") as mock_impl, \
+             patch("src.tools.company_resolver._get_llm_suggestions", return_value=mock_suggestions):
+            mock_impl.side_effect = lambda q: mock_info_steel if q == "tata" else mock_info
+            info = resolve_company_info("tata", auto_import=False)
+            assert info["symbol"] == "TATAPOWER"
+            print("  ✓ Initial prompt, correction, and tracking worked")
+
+        # Case C: Same query resolved again in the same turn -> should bypass prompt!
+        mock_stdin = io.StringIO("") # EOF if read
+        with patch("sys.stdin", mock_stdin), \
+             patch("src.tools.company_resolver._resolve_company_info_impl", return_value=mock_info):
+            info = resolve_company_info("tata", auto_import=False)
+            assert info["symbol"] == "TATAPOWER"
+            print("  ✓ Repeated query in the same turn bypassed prompt successfully")
+
+    # 3. Test delegation query rewriting
+    # We corrected "tata" (original query) to "TATAPOWER" and default symbol "TATASTEEL" to "TATAPOWER".
+    q = "Research Tata Group (TATA) — provide a full investment note covering fundamentals, MF ownership, and outlook."
+    rewritten = rewrite_delegation_question(q)
+    assert "TATAPOWER" in rewritten
+    assert "Tata Group" not in rewritten  # since "Tata" word is replaced by "TATAPOWER"
+    assert "TATASTEEL" not in rewritten
+    print("  ✓ Delegation query rewriting successfully modified query to use corrected symbol")
+
+    # Clear cache and verify it resets
+    clear_turn_resolutions()
+    q_reset = "Research Tata Group (TATA)"
+    assert rewrite_delegation_question(q_reset) == q_reset
+    print("  ✓ Turn resolutions cache clearing worked")
+
+    print("  ✓ Company Resolver Turn-Level Caching & Query Rewriting — ALL CHECKS PASSED")
 
 
 if __name__ == "__main__":
@@ -699,6 +789,7 @@ if __name__ == "__main__":
         test_auto_import_missing_symbol,
         test_company_resolver_false_positives,
         test_company_resolver_interactive,
+        test_resolver_turn_level_caching_and_rewriting,
     ]
     passed = 0
     failed = 0

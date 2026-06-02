@@ -739,6 +739,12 @@ class MosaicFundAgent:
         import re
 
         # Re-build agent if Caveman level changed
+        try:
+            from src.tools.company_resolver import clear_turn_resolutions
+            clear_turn_resolutions()
+        except Exception:
+            pass
+
         current_caveman = os.environ.get("CAVEMAN_LEVEL")
         if current_caveman != getattr(self, "_built_caveman_level", None):
             self._agent = self._build_agent()
