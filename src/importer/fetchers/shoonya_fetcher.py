@@ -39,6 +39,39 @@ _SESSION_TTL_HOURS = 20  # Shoonya tokens last ~24h; refresh conservatively
 
 def _load_cached_session() -> dict | None:
     """Return cached session dict if it exists and is not stale."""
+    # 1. Try ClickHouse database first
+    try:
+        from src.db.pool import query_df
+        import pandas as pd
+        df = query_df(
+            """
+            SELECT userid, susertoken, access_token, accountid, saved_at
+            FROM market_data.shoonya_session FINAL
+            LIMIT 1
+            """
+        )
+        if not df.empty:
+            row = df.iloc[0]
+            saved_at = pd.to_datetime(row["saved_at"]).to_pydatetime()
+            if datetime.now() - saved_at <= timedelta(hours=_SESSION_TTL_HOURS):
+                session = {
+                    "userid": str(row["userid"]),
+                    "susertoken": str(row["susertoken"]),
+                    "access_token": str(row["access_token"]),
+                    "accountid": str(row["accountid"]),
+                    "saved_at": saved_at.isoformat()
+                }
+                # Sync back to local file if missing or stale
+                _SESSION_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                _SESSION_CACHE.write_text(json.dumps(session))
+                log.debug("Shoonya: loaded active session from ClickHouse")
+                return session
+            else:
+                log.debug("Shoonya: session in ClickHouse has expired")
+    except Exception as exc:
+        log.debug("Shoonya: failed to load session from ClickHouse (%s)", exc)
+
+    # 2. Fallback to local file cache
     try:
         if not _SESSION_CACHE.exists():
             return None
@@ -46,15 +79,50 @@ def _load_cached_session() -> dict | None:
         saved_at = datetime.fromisoformat(data.get("saved_at", "2000-01-01"))
         if datetime.now() - saved_at > timedelta(hours=_SESSION_TTL_HOURS):
             return None
+        log.debug("Shoonya: loaded active session from local file cache")
         return data
     except Exception:
         return None
 
 
 def _save_session(session: dict) -> None:
+    # 1. Save to local file cache
     _SESSION_CACHE.parent.mkdir(parents=True, exist_ok=True)
     session["saved_at"] = datetime.now().isoformat()
     _SESSION_CACHE.write_text(json.dumps(session))
+
+    # 2. Save to ClickHouse database
+    try:
+        from src.db.pool import execute
+        execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_data.shoonya_session (
+                userid        String,
+                susertoken    String,
+                access_token  String,
+                accountid     String,
+                saved_at      DateTime
+            ) ENGINE = ReplacingMergeTree(saved_at)
+            ORDER BY userid
+            """
+        )
+        saved_at_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        execute(
+            """
+            INSERT INTO market_data.shoonya_session (userid, susertoken, access_token, accountid, saved_at)
+            VALUES (%(userid)s, %(susertoken)s, %(access_token)s, %(accountid)s, %(saved_at)s)
+            """,
+            {
+                "userid": str(session.get("userid", "")),
+                "susertoken": str(session.get("susertoken", "")),
+                "access_token": str(session.get("access_token", "")),
+                "accountid": str(session.get("accountid", "")),
+                "saved_at": saved_at_dt,
+            }
+        )
+        log.info("Shoonya: saved session to ClickHouse")
+    except Exception as exc:
+        log.warning("Shoonya: failed to save session to ClickHouse (%s)", exc)
 
 
 def get_shoonya_api():
