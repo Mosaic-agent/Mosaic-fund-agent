@@ -26,6 +26,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 ### 3. Volatility Management & Capital Preservation
 *   **Smart Sizing (Risk Governor):** Dynamically scales position weights using continuous inverse-volatility scaling blended with the Kelly Criterion, protecting capital during high-stress regimes.
 *   **Market Anomaly Detection:** Utilizes standard GARCH(1,1) residuals and Isolation Forests to classify true market volatility regimes (e.g., "Flash Crash", "Blow-off Top").
+*   **Risk Governor Parameter Optimizer:** Features a grid-search parameter sweep script to tune volatility targets, trend filter windows/multipliers, and drawdown brakes to maximize historical Sharpe ratios.
 
 ### 4. Institutional Flow & "Whale" Tracking
 *   **AMC Smart Money Tracker:** Scrapes and analyzes monthly portfolio disclosures across major Indian AMCs (DSP, Nippon India, ICICI Prudential) to reverse-engineer professional fund conviction.
@@ -231,6 +232,16 @@ python src/main.py import --category etfs --category mf
 python src/main.py import --category fii_dii    # FII/DII flows
 ```
 
+### Custom Date Range Charts & Imports
+Both the EOD import (`import_symbol_data`) and charting (`plot_price_chart`) tools support custom date ranges (years, year ranges, months, explicit dates). The dynamic routing planner automatically extracts these parameters and injects them as start/end date hints:
+```bash
+# E.g. Ask the agent to import custom periods (defaults to Shoonya for stocks/ETFs)
+python src/main.py ask "import GOLDBEES 2019"
+
+# E.g. Ask the agent to plot custom periods
+python src/main.py ask "show goldbees price of 2026 to 2019"
+```
+
 *Note: For the `stocks` and `us_stocks` categories, the importer automatically switches to a high-concurrency mode running parallel symbol fetches (up to 5 concurrent workers) that pull prices, earnings, insider trades, and valuations. This parallel run is staggered with random jitter delays to avoid rate-limiting blocks. You can also invoke the parallel script directly:*
 ```bash
 python src/scripts/portfolio/import_stocks_parallel.py --workers 5
@@ -335,6 +346,7 @@ src/
   scripts/
     goldbees_report.py          GOLDBEES investment pipeline report with LLM recommendation
     portfolio/import_stocks_parallel.py  High-concurrency parallel stock data importer
+    portfolio/optimize_risk_governor.py  Risk Governor parameter grid-search optimizer
     db/fix_bad_data.py          Deduplication, watermark alignment, and invalid data repair script
 scripts/
   save_portfolio_holdings.py         Backup CNC holdings to ClickHouse
