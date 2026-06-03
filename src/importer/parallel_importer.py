@@ -59,7 +59,12 @@ def import_single_stock(symbol: str, ticker: str, category: str, lookback_days: 
                     from_date = wm - timedelta(days=3)  # 3 days overlap
 
             # 1. Prices
-            prices = fetch_ohlcv([(symbol, ticker)], category, from_date, today)
+            if category in ("stocks", "etfs"):
+                from src.importer.fetchers.adapters import ShoonyaFetcher
+                fetcher = ShoonyaFetcher(category, [(symbol, ticker)])
+                prices = fetcher.fetch(from_date, today)
+            else:
+                prices = fetch_ohlcv([(symbol, ticker)], category, from_date, today)
             if prices:
                 if not dry_run:
                     inserted_prices = ch.insert_prices(prices)
