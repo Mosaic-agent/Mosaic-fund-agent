@@ -411,6 +411,7 @@ def _get_plan_llm() -> "Any":
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
+                request_timeout=30,  # Prevent permanent hangs on local endpoint
                 **kw,
             )
         elif settings.llm_provider == "anthropic":
@@ -434,6 +435,7 @@ def _get_plan_llm() -> "Any":
             _plan_llm = ChatOpenAI(
                 model=settings.llm_model,
                 api_key=settings.openai_api_key,
+                request_timeout=15,  # Prevent permanent hangs on cloud endpoint
                 **kw,
             )
     except Exception as exc:
