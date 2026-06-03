@@ -222,17 +222,8 @@ class Settings(BaseSettings):
     # [SENSITIVE] Shoonya login password
     shoonya_password: str = Field(default="", description="Shoonya password")
 
-    # [SENSITIVE] Shoonya vendor code (provided by Shoonya/Noren team)
-    shoonya_vendor_code: str = Field(default="", description="Shoonya vendor code")
-
     # [SENSITIVE] Shoonya API secret (generated from Prism)
     shoonya_api_secret: str = Field(default="", description="Shoonya API secret")
-
-    # [SENSITIVE] TOTP secret key for automated 2FA (base32 string from Shoonya app)
-    shoonya_totp_secret: str = Field(default="", description="Shoonya TOTP secret (base32)")
-
-    # [NON-SENSITIVE] Device IMEI or MAC address registered with Shoonya
-    shoonya_imei: str = Field(default="", description="Shoonya IMEI / MAC address")
 
     # ── ClickHouse (historical data importer) ────────────────────────────────
 
