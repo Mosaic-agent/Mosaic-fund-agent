@@ -388,6 +388,66 @@ _ALIAS: dict[str, str] = {
     # Telecom
     "bharti airtel": "BHARTIARTL",
     "airtel": "BHARTIARTL",
+    # ── Broad Market & Sectoral/Thematic/Strategy Indices ──
+    "nifty 50": "^NSEI",
+    "nifty": "^NSEI",
+    "nifty50": "^NSEI",
+    "nifty next 50": "^NSMIDCP",
+    "niftynext50": "^NSMIDCP",
+    "nifty 100": "^CNX100",
+    "nifty100": "^CNX100",
+    "nifty 500": "MONIFTY500",
+    "nifty500": "MONIFTY500",
+    "nifty midcap 50": "^NSEMDCP50",
+    "nifty midcap 100": "MID150BEES",
+    "nifty midcap 150": "MID150BEES",
+    "nifty smallcap 50": "SMALL250",
+    "nifty smallcap 100": "SMALL250",
+    "nifty smallcap 250": "SMALL250",
+    "nifty bank": "^NSEBANK",
+    "bank nifty": "^NSEBANK",
+    "niftybank": "^NSEBANK",
+    "banknifty": "^NSEBANK",
+    "nifty psu bank": "^CNXPSUBANK",
+    "nifty psubank": "^CNXPSUBANK",
+    "nifty private bank": "^NSEBANK",
+    "nifty it": "^CNXIT",
+    "niftyit": "^CNXIT",
+    "nifty pharma": "^CNXPHARMA",
+    "niftypharma": "^CNXPHARMA",
+    "nifty auto": "^CNXAUTO",
+    "niftyauto": "^CNXAUTO",
+    "nifty fmcg": "^CNXFMCG",
+    "niftyfmcg": "^CNXFMCG",
+    "nifty metal": "^CNXMETAL",
+    "niftymetal": "^CNXMETAL",
+    "nifty realty": "^CNXREALTY",
+    "niftyrealty": "^CNXREALTY",
+    "nifty media": "^CNXMEDIA",
+    "niftymedia": "^CNXMEDIA",
+    "nifty energy": "^CNXENERGY",
+    "niftyenergy": "^CNXENERGY",
+    "nifty infrastructure": "^CNXINFRA",
+    "nifty infra": "^CNXINFRA",
+    "nifty financial services": "^CNXFIN",
+    "nifty finance": "^CNXFIN",
+    "nifty financial": "^CNXFIN",
+    "nifty services": "^CNXSERVICE",
+    "nifty services sector": "^CNXSERVICE",
+    "nifty cpse": "CPSEETF",
+    "cpse": "CPSEETF",
+    "nifty pse": "^CNXPSE",
+    "niftypse": "^CNXPSE",
+    "nifty commodities": "^CNXCMDT",
+    "nifty consumption": "^CNXCONSUM",
+    "india vix": "^INDIAVIX",
+    "vix": "^INDIAVIX",
+    "sensex": "^BSESN",
+    "s&p 500": "^GSPC",
+    "sp500": "^GSPC",
+    "nasdaq": "^IXIC",
+    "dow jones": "^DJI",
+    "dowjones": "^DJI",
     # Nippon India ETF "BeES" family — both concatenated and spaced forms
     "goldbees": "GOLDBEES",
     "gold bees": "GOLDBEES",
@@ -800,14 +860,29 @@ def _resolve_company_info_impl(query: str) -> dict:
     """
     Core resolver implementation.
     """
+    # If the query itself is a caret-prefixed index, resolve immediately
+    if query.strip().startswith("^"):
+        sym = query.strip().upper()
+        return {
+            "symbol":       sym,
+            "nse_symbol":   sym,
+            "yf_symbol":    sym,
+            "exchange":     "NSE",
+            "market":       "India",
+            "company_name": sym,
+            "currency":     "INR",
+            "source":       "local_map",
+        }
+
     # ── 1. Fast local lookup (no network) ─────────────────────────────────
     local_sym = _local_indian_lookup(query)
     if local_sym:
         name = SYMBOL_TO_COMPANY.get(local_sym, local_sym)
+        yf_symbol = local_sym if local_sym.startswith("^") else f"{local_sym}.NS"
         return {
             "symbol":       local_sym,
             "nse_symbol":   local_sym,
-            "yf_symbol":    f"{local_sym}.NS",
+            "yf_symbol":    yf_symbol,
             "exchange":     "NSE",
             "market":       "India",
             "company_name": name,
@@ -824,10 +899,11 @@ def _resolve_company_info_impl(query: str) -> dict:
         local_from_llm = _local_indian_lookup(llm_sym)
         if local_from_llm:
             name = SYMBOL_TO_COMPANY.get(local_from_llm, local_from_llm)
+            yf_symbol = local_from_llm if local_from_llm.startswith("^") else f"{local_from_llm}.NS"
             return {
                 "symbol":       local_from_llm,
                 "nse_symbol":   local_from_llm,
-                "yf_symbol":    f"{local_from_llm}.NS",
+                "yf_symbol":    yf_symbol,
                 "exchange":     "NSE",
                 "market":       "India",
                 "company_name": name,

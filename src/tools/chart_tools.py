@@ -58,28 +58,44 @@ def _build(plt: Any) -> str:
 
 
 @tool
-def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
+def plot_price_chart(
+    symbol: str,
+    days: int = 60,
+    category: str = "",
+    start_date: str = "",
+    end_date: str = "",
+) -> str:
     """
     Plot a price (close) trend chart for any NSE symbol from ClickHouse.
     Renders as an ASCII line chart directly in the terminal.
 
     Args:
-        symbol:   NSE symbol — e.g. GOLDBEES, NIFTYBEES, RELIANCE, LICI
-        days:     Number of trading days to show (default 60)
-        category: 'etfs', 'stocks', 'indices', 'commodities' — leave blank to
-                  auto-detect from the database (recommended)
+        symbol:     NSE symbol — e.g. GOLDBEES, NIFTYBEES, RELIANCE, LICI
+        days:       Number of trading days to show (default 60). Ignored if start_date is set.
+        category:   'etfs', 'stocks', 'indices', 'commodities' — leave blank to auto-detect
+        start_date: Optional start date in YYYY-MM-DD format (e.g. '2019-01-01')
+        end_date:   Optional end date in YYYY-MM-DD format (e.g. '2019-12-31')
 
-    Example: plot_price_chart("GOLDBEES", days=90)
+    Example: plot_price_chart("GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")
     """
     try:
         from src.db.pool import query_df
         cat_filter = f"AND category = '{category}'" if category else ""
+        if start_date:
+            date_filter = f"AND trade_date >= '{start_date}'"
+            if end_date:
+                date_filter += f" AND trade_date <= '{end_date}'"
+            days_desc = f"{start_date} to {end_date or 'today'}"
+        else:
+            date_filter = f"AND trade_date >= today() - {days}"
+            days_desc = f"{days}d"
+
         df = query_df(f"""
             SELECT trade_date,
                    toFloat64(argMax(close, imported_at)) AS close
             FROM market_data.daily_prices FINAL
             WHERE symbol = '{symbol.upper()}' {cat_filter}
-              AND trade_date >= today() - {days}
+              {date_filter}
             GROUP BY trade_date
             ORDER BY trade_date ASC
         """)
@@ -95,18 +111,26 @@ def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
                 clean_symbol = clean_symbol[:-3]
                 exchange = "BSE"
 
-            if days <= 30:
-                yf_period = "1mo"
-            elif days <= 90:
-                yf_period = "3mo"
-            elif days <= 180:
-                yf_period = "6mo"
-            elif days <= 365:
-                yf_period = "1y"
+            if start_date:
+                hist = fetch_price_history(
+                    clean_symbol,
+                    exchange,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             else:
-                yf_period = "2y"
+                if days <= 30:
+                    yf_period = "1mo"
+                elif days <= 90:
+                    yf_period = "3mo"
+                elif days <= 180:
+                    yf_period = "6mo"
+                elif days <= 365:
+                    yf_period = "1y"
+                else:
+                    yf_period = "2y"
+                hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
 
-            hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
             if not hist:
                 return f"No price data found for {symbol} (tried ClickHouse and Yahoo Finance fallback)."
 
@@ -123,7 +147,7 @@ def plot_price_chart(symbol: str, days: int = 60, category: str = "") -> str:
         plt.clear_figure()
         xs = list(range(len(prices)))
         plt.plot(xs, prices, label=symbol)
-        plt.title(f"{symbol} — {days}d price  |  {chg:+.1f}%  |  {spark}")
+        plt.title(f"{symbol} — {days_desc} price  |  {chg:+.1f}%  |  {spark}")
         plt.ylabel("Price (₹)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
         # Set ~5 evenly-spaced date labels so plotext doesn't auto-generate

@@ -39,6 +39,39 @@ _SESSION_TTL_HOURS = 20  # Shoonya tokens last ~24h; refresh conservatively
 
 def _load_cached_session() -> dict | None:
     """Return cached session dict if it exists and is not stale."""
+    # 1. Try ClickHouse database first
+    try:
+        from src.db.pool import query_df
+        import pandas as pd
+        df = query_df(
+            """
+            SELECT userid, susertoken, access_token, accountid, saved_at
+            FROM market_data.shoonya_session FINAL
+            LIMIT 1
+            """
+        )
+        if not df.empty:
+            row = df.iloc[0]
+            saved_at = pd.to_datetime(row["saved_at"]).to_pydatetime()
+            if datetime.now() - saved_at <= timedelta(hours=_SESSION_TTL_HOURS):
+                session = {
+                    "userid": str(row["userid"]),
+                    "susertoken": str(row["susertoken"]),
+                    "access_token": str(row["access_token"]),
+                    "accountid": str(row["accountid"]),
+                    "saved_at": saved_at.isoformat()
+                }
+                # Sync back to local file if missing or stale
+                _SESSION_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                _SESSION_CACHE.write_text(json.dumps(session))
+                log.debug("Shoonya: loaded active session from ClickHouse")
+                return session
+            else:
+                log.debug("Shoonya: session in ClickHouse has expired")
+    except Exception as exc:
+        log.debug("Shoonya: failed to load session from ClickHouse (%s)", exc)
+
+    # 2. Fallback to local file cache
     try:
         if not _SESSION_CACHE.exists():
             return None
@@ -46,23 +79,58 @@ def _load_cached_session() -> dict | None:
         saved_at = datetime.fromisoformat(data.get("saved_at", "2000-01-01"))
         if datetime.now() - saved_at > timedelta(hours=_SESSION_TTL_HOURS):
             return None
+        log.debug("Shoonya: loaded active session from local file cache")
         return data
     except Exception:
         return None
 
 
 def _save_session(session: dict) -> None:
+    # 1. Save to local file cache
     _SESSION_CACHE.parent.mkdir(parents=True, exist_ok=True)
     session["saved_at"] = datetime.now().isoformat()
     _SESSION_CACHE.write_text(json.dumps(session))
 
+    # 2. Save to ClickHouse database
+    try:
+        from src.db.pool import execute
+        execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_data.shoonya_session (
+                userid        String,
+                susertoken    String,
+                access_token  String,
+                accountid     String,
+                saved_at      DateTime
+            ) ENGINE = ReplacingMergeTree(saved_at)
+            ORDER BY userid
+            """
+        )
+        saved_at_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        execute(
+            """
+            INSERT INTO market_data.shoonya_session (userid, susertoken, access_token, accountid, saved_at)
+            VALUES (%(userid)s, %(susertoken)s, %(access_token)s, %(accountid)s, %(saved_at)s)
+            """,
+            {
+                "userid": str(session.get("userid", "")),
+                "susertoken": str(session.get("susertoken", "")),
+                "access_token": str(session.get("access_token", "")),
+                "accountid": str(session.get("accountid", "")),
+                "saved_at": saved_at_dt,
+            }
+        )
+        log.info("Shoonya: saved session to ClickHouse")
+    except Exception as exc:
+        log.warning("Shoonya: failed to save session to ClickHouse (%s)", exc)
+
 
 def get_shoonya_api():
     """
-    Return an authenticated ShoonyaApiPy instance.
+    Return an authenticated ShoonyaApiPy instance using OAuth flow.
 
-    Tries the cached session first; falls back to a fresh login using
-    credentials from config.settings.  Returns None if Shoonya is not
+    Tries the cached session first; falls back to prompting for a fresh login
+    using credentials from config.settings. Returns None if Shoonya is not
     configured or login fails.
     """
     try:
@@ -72,76 +140,99 @@ def get_shoonya_api():
             def __init__(self):
                 NorenApi.__init__(
                     self,
-                    host="https://api.shoonya.com/NorenWClientTP",
+                    host="https://api.shoonya.com/NorenWClientAPI",
                     websocket="wss://api.shoonya.com/NorenWSTP/",
                 )
     except ImportError:
-        log.debug("NorenRestApiPy not installed — skipping Shoonya")
+        log.debug("NorenRestApiPy/NorenRestApiOAuth not installed — skipping Shoonya")
         return None
 
     from config.settings import settings
 
     user    = getattr(settings, "shoonya_user_id",    "")
     pwd     = getattr(settings, "shoonya_password",   "")
-    vc      = getattr(settings, "shoonya_vendor_code","")
     secret  = getattr(settings, "shoonya_api_secret", "")
-    imei    = getattr(settings, "shoonya_imei",        "")
-    totp_s  = getattr(settings, "shoonya_totp_secret", "")
 
-    if not all([user, pwd, vc, secret]):
+    if not all([user, secret]):
         log.debug("Shoonya credentials not configured — skipping")
         return None
+
+    # Strip _U suffix for API requests/session keys (Shoonya expects numeric ID like FN203617)
+    user_clean = user.replace("_U", "")
 
     api = ShoonyaApiPy()
 
     # Try cached session
     cached = _load_cached_session()
-    if cached and cached.get("susertoken"):
+    if cached and cached.get("susertoken") and cached.get("access_token"):
+        cached_user = cached.get("userid", user_clean)
         try:
-            api.set_session(userid=user, password=pwd, usertoken=cached["susertoken"])
-            log.debug("Shoonya: reused cached session for %s", user)
-            return api
+            api.set_session(
+                userid=cached_user,
+                password=pwd,
+                usertoken=cached["susertoken"],
+                accesstoken=cached["access_token"]
+            )
+            api.injectOAuthHeader(cached["access_token"], cached_user, cached_user)
+            
+            # Verify session is alive
+            limits = api.get_limits()
+            if limits and limits.get("stat") == "Ok":
+                log.debug("Shoonya: reused cached session for %s", cached_user)
+                return api
+            else:
+                log.debug("Shoonya: cached session expired, re-authenticating")
         except Exception as exc:
-            log.debug("Shoonya: cached session invalid (%s), re-logging in", exc)
+            log.debug("Shoonya: cached session invalid (%s), re-authenticating", exc)
 
-    # Resolve 2FA code: static PIN (numeric ≤ 8 digits) or base32 TOTP secret
-    totp_code = ""
-    if not totp_s:
-        log.warning("SHOONYA_TOTP_SECRET not set — cannot automate Shoonya login")
+    # Resolve interactive code prompt
+    import sys
+    if not sys.stdin.isatty():
+        log.warning("Shoonya session expired and terminal is not interactive. Cannot perform OAuth login.")
         return None
-    if totp_s.strip().isdigit() and len(totp_s.strip()) <= 8:
-        # Static PIN — pass through directly
-        totp_code = totp_s.strip()
-    else:
-        try:
-            import pyotp  # type: ignore
-            totp_code = pyotp.TOTP(totp_s).now()
-        except ImportError:
-            log.warning("pyotp not installed — cannot generate TOTP for Shoonya login")
-            return None
-        except Exception as exc:
-            log.warning("TOTP generation failed: %s", exc)
-            return None
+
+    login_url = f"https://api.shoonya.com/OAuthlogin/investor-entry-level/login?api_key={user}&route_to={user}"
+    print("\n" + "=" * 60)
+    print("SHOONYA OAUTH LOGIN REQUIRED")
+    print(f"Please open this URL in your browser:\n{login_url}")
+    print("Log in with your password and TOTP, and authorize.")
+    print("Copy the 'code' parameter from the final redirect URL (even if it shows a 404 error).")
+    print("=" * 60 + "\n")
 
     try:
-        ret = api.login(
-            userid=user,
-            password=pwd,
-            twoFA=totp_code,
-            vendor_code=vc,
-            api_secret=secret,
-            imei=imei or "mac",
+        auth_code = input("Enter OAuth Code: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        log.warning("OAuth login interrupted by user")
+        return None
+
+    if not auth_code:
+        log.warning("OAuth code cannot be empty")
+        return None
+
+    try:
+        result = api.getAccessToken(
+            authcode=auth_code,
+            Secret_Code=secret,
+            client_id=user,
+            UID=user
         )
-        if ret and ret.get("stat") == "Ok":
-            _save_session({"susertoken": ret["susertoken"]})
-            log.info("Shoonya: logged in successfully as %s", user)
+        if result is not None:
+            asc_tok, usrid, ref_tok, actid = result
+            _save_session({
+                "susertoken": asc_tok,
+                "access_token": asc_tok,
+                "userid": usrid,
+                "accountid": actid
+            })
+            log.info("Shoonya: authenticated successfully via OAuth as %s", usrid)
             return api
         else:
-            log.warning("Shoonya login failed: %s", ret)
+            log.warning("Shoonya OAuth token generation failed")
             return None
     except Exception as exc:
-        log.warning("Shoonya login error: %s", exc)
+        log.warning("Shoonya OAuth login error: %s", exc)
         return None
+
 
 
 def fetch_shoonya_ohlcv(
@@ -186,6 +277,11 @@ def fetch_shoonya_ohlcv(
             continue
 
         for bar in data:
+            if isinstance(bar, str):
+                try:
+                    bar = json.loads(bar)
+                except Exception:
+                    continue
             if not isinstance(bar, dict):
                 continue
             try:
@@ -223,8 +319,8 @@ def fetch_shoonya_ohlcv(
 
 
 def _parse_shoonya_date(raw: str) -> date | None:
-    """Parse Shoonya date strings: 'DD-MM-YYYY HH:MM:SS' or 'DD-MM-YYYY'."""
-    for fmt in ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y"):
+    """Parse Shoonya date strings: 'DD-MM-YYYY HH:MM:SS', 'DD-MM-YYYY', 'DD-MMM-YYYY', etc."""
+    for fmt in ("%d-%m-%Y %H:%M:%S", "%d-%m-%Y", "%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
         try:
             return datetime.strptime(raw.strip(), fmt).date()
         except ValueError:

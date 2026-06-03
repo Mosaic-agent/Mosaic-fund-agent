@@ -74,6 +74,9 @@ def run_import(
     from src.importer.clickhouse import ClickHouseImporter
     from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
     from src.importer.fetchers.mfapi_fetcher import fetch_all_nav
+    from config.settings import settings
+
+    shoonya_active = bool(settings.shoonya_user_id and settings.shoonya_api_secret)
 
     if console is None:
         console = Console()
@@ -142,7 +145,7 @@ def run_import(
             
             summary_rows.append((
                 category,
-                "yfinance_parallel",
+                "shoonya_parallel" if (category == "stocks" and shoonya_active) else "yfinance_parallel",
                 inserted,
                 (today - timedelta(days=lookback_days)).isoformat(),
                 today.isoformat(),
@@ -208,7 +211,12 @@ def run_import(
                 from_date = earliest or (today - timedelta(days=lookback_days))
 
             progress.update(task, description=f"Downloading {category} {from_date}→{today}…")
-            rows = fetch_ohlcv(symbol_list, category, from_date, today)
+            if category in ("stocks", "etfs"):
+                from src.importer.fetchers.adapters import ShoonyaFetcher
+                fetcher = ShoonyaFetcher(category, symbol_list)
+                rows = fetcher.fetch(from_date, today)
+            else:
+                rows = fetch_ohlcv(symbol_list, category, from_date, today)
 
         inserted = ch.insert_prices(rows, dry_run=dry_run)
         console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
@@ -223,7 +231,7 @@ def run_import(
 
         summary_rows.append((
             category,
-            "yfinance",
+            "shoonya" if (category == "etfs" and shoonya_active) else "yfinance",
             inserted,
             from_date.isoformat(),
             today.isoformat(),
