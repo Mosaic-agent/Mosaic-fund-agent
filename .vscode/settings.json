@@ -13,6 +13,10 @@
         "/^source \\.venv/bin/activate$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^cd /Users/dhiraj\\.thakur/project/ofin-agent && python3 -c \"\nimport nselib\\.capital_market as cm\nimport pandas as pd\ndf = cm\\.market_watch_all_indices\\(\\)\nprint\\(f'Columns: \\{list\\(df\\.columns\\)\\}'\\)\nprint\\(f'Total indices: \\{len\\(df\\)\\}'\\)\nprint\\(\\)\n# Print all index names\nif 'index' in df\\.columns:\n    col = 'index'\nelif 'Index Name' in df\\.columns:\n    col = 'Index Name'\nelse:\n    col = df\\.columns\\[0\\]\nprint\\(f'Using column: \\{col\\}'\\)\nfor name in sorted\\(df\\[col\\]\\.tolist\\(\\)\\):\n    print\\(name\\)\n\" 2>&1\n$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
