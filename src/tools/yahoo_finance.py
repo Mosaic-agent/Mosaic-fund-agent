@@ -106,14 +106,18 @@ def fetch_price_history(
     symbol: str,
     exchange: str = "NSE",
     period: str = "3mo",
+    start_date: str = "",
+    end_date: str = "",
 ) -> list[dict[str, Any]]:
     """
     Fetch historical OHLCV data for an Indian stock.
 
     Args:
-        symbol:   Zerodha trading symbol e.g. 'RELIANCE'
-        exchange: 'NSE' (default) or 'BSE'
-        period:   yfinance period string: '1mo', '3mo', '6mo', '1y'
+        symbol:     Zerodha trading symbol e.g. 'RELIANCE'
+        exchange:   'NSE' (default) or 'BSE'
+        period:     yfinance period string: '1mo', '3mo', '6mo', '1y'
+        start_date: Optional start date in YYYY-MM-DD format (e.g. '2019-01-01')
+        end_date:   Optional end date in YYYY-MM-DD format (e.g. '2019-12-31')
 
     Returns:
         List of dicts with date, open, high, low, close, volume.
@@ -121,7 +125,10 @@ def fetch_price_history(
     yf_symbol = _build_yf_symbol(symbol, exchange)
     try:
         ticker = yf.Ticker(yf_symbol)
-        hist = ticker.history(period=period)
+        if start_date:
+            hist = ticker.history(start=start_date, end=end_date or None)
+        else:
+            hist = ticker.history(period=period)
         if hist.empty:
             return []
         records = []
