@@ -1533,7 +1533,7 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - `UNKNOWN_SYMBOL` → skip the import; use `get_yahoo_finance_data` for price data
    Do NOT call for every ETF in a broad scan — only for the 1–3 primary symbols the
    user explicitly named.
-   - If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES'), call `import_symbol_data(symbol)` instead of `run_data_engineering_importer`.
+   - If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES'), call `import_symbol_data(symbol)` instead of `run_data_engineering_importer`. When the user specifies a particular year (e.g. '2019'), date, or month range, parse the dates and pass them as `start_date` (format YYYY-MM-DD) and `end_date` (format YYYY-MM-DD) parameters to `import_symbol_data` and `plot_price_chart` (e.g. for year 2019, `start_date='2019-01-01'` and `end_date='2019-12-31'`).
    - Only call `run_data_engineering_importer(category='stocks')` when the user asks to import ALL stocks generically without naming a specific one.
 
 1. **Entity resolution** — Call `resolve_company(query)` to get the NSE/BSE ticker, exchange, and full name. Note that company symbols can change, demerge, or be newly listed; always rely on `resolve_company` rather than hardcoding symbols, and check if its output contains an "error" field before running further tools.

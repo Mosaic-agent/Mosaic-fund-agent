@@ -325,7 +325,11 @@ Examples:
   "import HNGSNGBEES 1 year"     → 1. Symbol-specific import → import_symbol_data(symbol="HNGSNGBEES", days=365)
   "import GOLDBEES 6 months"     → 1. Symbol-specific import → import_symbol_data(symbol="GOLDBEES", days=180)
   "import RELIANCE 2 years"      → 1. Symbol-specific import → import_symbol_data(symbol="RELIANCE", days=730)
-NOTE: ONE symbol + custom range → import_symbol_data(symbol, days) | bulk category → run_data_engineering_importer(category)
+  "import GOLDBEES 2019"         → 1. Symbol-specific import → import_symbol_data(symbol="GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")
+  "show goldbees price of 2026 to 2019" → 1. import_symbol_data(symbol="GOLDBEES", start_date="2019-01-01", end_date="2026-12-31")  2. plot_price_chart("GOLDBEES", start_date="2019-01-01", end_date="2026-12-31")
+  "goldbees 2019"                → 1. import_symbol_data(symbol="GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")  2. plot_price_chart("GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")
+  "goldbees trend in 2019"       → 1. import_symbol_data(symbol="GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")  2. plot_price_chart("GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")
+NOTE: ONE symbol + custom range → import_symbol_data(symbol, days, start_date, end_date) | plot_price_chart(symbol, days, start_date, end_date) | bulk category → run_data_engineering_importer(category)
   "show my portfolio"            → 1. fetch_portfolio_holdings()  2. analyze_portfolio_with_llm(...)
 
 ═══════════════════════════════════════════════
