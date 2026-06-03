@@ -389,6 +389,7 @@ IMPORTANT: Always include chart tools as explicit numbered plan steps when visua
 If a chart is requested but no specific chart tool exists in the list above, route to the `code` or `research` agent and plan to write Python code to build/plot the chart using `plotext` at run time.
 Example: "5. Plot 90-day price trend → plot_price_chart('GOLDBEES', 90)"
 
+Today's Date: {today}
 User query: \"{query}\"\
 """
 
@@ -440,6 +441,67 @@ def _get_plan_llm() -> "Any":
     return _plan_llm
 
 
+def parse_query_date_range(query: str) -> tuple[str, str]:
+    """
+    Dynamically extract date ranges (years, year ranges, month ranges, explicit dates)
+    from a user query to help guide planning.
+    """
+    import re
+    import calendar
+    from datetime import datetime, date
+    
+    query_clean = query.lower().strip()
+    
+    # 1. Match year ranges: "YYYY to YYYY", "YYYY-YYYY", etc.
+    range_match = re.search(r'\b(20\d{2})\s*(?:to|and|-)\s*(20\d{2})\b', query_clean)
+    if range_match:
+        y1, y2 = int(range_match.group(1)), int(range_match.group(2))
+        start_year = min(y1, y2)
+        end_year = max(y1, y2)
+        return f"{start_year}-01-01", f"{end_year}-12-31"
+        
+    # 2. Match month and year: e.g. "June 2019", "jun 2019", "06/2019", "06-2019"
+    months_pattern = r'\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b'
+    month_year_match = re.search(months_pattern + r'\s+(20\d{2})\b', query_clean)
+    if month_year_match:
+        m_name = month_year_match.group(1)
+        year = int(month_year_match.group(2))
+        months_map = {
+            'jan': 1, 'january': 1, 'feb': 2, 'february': 2, 'mar': 3, 'march': 3,
+            'apr': 4, 'april': 4, 'may': 5, 'jun': 6, 'june': 6, 'jul': 7, 'july': 7,
+            'aug': 8, 'august': 8, 'sep': 9, 'september': 9, 'oct': 10, 'october': 10,
+            'nov': 11, 'november': 11, 'dec': 12, 'december': 12
+        }
+        m_num = months_map[m_name]
+        _, last_day = calendar.monthrange(year, m_num)
+        return f"{year}-{m_num:02d}-01", f"{year}-{m_num:02d}-{last_day:02d}"
+        
+    # 3. Match single year: "2019", "in 2019", "of 2019"
+    year_match = re.search(r'\b(20\d{2})\b', query_clean)
+    if year_match:
+        year = year_match.group(1)
+        # Verify it's not part of a date format like YYYY-MM-DD or YYYY-MM
+        if not re.search(r'\b20\d{2}-\d{2}-\d{2}\b', query_clean) and not re.search(r'\b20\d{2}-\d{2}\b', query_clean):
+            return f"{year}-01-01", f"{year}-12-31"
+            
+    # 4. Match explicit dates: YYYY-MM-DD to YYYY-MM-DD
+    date_matches = re.findall(r'\b(20\d{2}-\d{2}-\d{2})\b', query_clean)
+    if len(date_matches) >= 2:
+        d1, d2 = date_matches[0], date_matches[1]
+        try:
+            dt1 = datetime.strptime(d1, "%Y-%m-%d").date()
+            dt2 = datetime.strptime(d2, "%Y-%m-%d").date()
+            if dt1 > dt2:
+                d1, d2 = d2, d1
+            return d1, d2
+        except ValueError:
+            pass
+    elif len(date_matches) == 1:
+        return date_matches[0], ""
+        
+    return "", ""
+
+
 def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tuple[str, str, str | None]:
     """
     Ask the LLM to produce a specific execution plan for *question*.
@@ -460,7 +522,23 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
     if llm is not None:
         try:
             from langchain_core.messages import HumanMessage
-            prompt = _PLANNER_PROMPT.format(query=question[:300])
+            from datetime import date
+            today_str = date.today().strftime("%Y-%m-%d")
+            prompt = _PLANNER_PROMPT.format(today=today_str, query=question[:300])
+            
+            # Dynamic Date range detection system hint
+            start_date, end_date = parse_query_date_range(question)
+            if start_date:
+                prompt += (
+                    f"\n[SYSTEM HINT - DYNAMIC DATE RANGE DETECTED]\n"
+                    f"The user query implies a specific date boundary:\n"
+                    f"  - start_date: '{start_date}'\n"
+                    f"  - end_date: '{end_date or ''}'\n"
+                    f"In your generated plan, make sure all tool calls like `import_symbol_data(...)` "
+                    f"and `plot_price_chart(...)` use these exact dates as parameters "
+                    f"(e.g. `import_symbol_data(symbol='...', start_date='{start_date}', end_date='{end_date}')` "
+                    f"and `plot_price_chart('...', start_date='{start_date}', end_date='{end_date}')`).\n"
+                )
             raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
 
             # Parse AGENT line — honour lock if set
@@ -514,12 +592,26 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
 def _build_fallback_plan(question: str, intent: str) -> str:
     """Static template plan — used when the LLM planner is unavailable."""
     subject = question.strip()
+    sym = None
     try:
         from src.tools.company_resolver import _local_indian_lookup
         sym = _local_indian_lookup(subject)
         subject = sym if sym else " ".join(question.split()[:4]) + ("…" if len(question.split()) > 4 else "")
     except Exception:
         subject = " ".join(question.split()[:4])
+
+    # Dynamic date range checking for fallback
+    start_date, end_date = parse_query_date_range(question)
+    if (sym or subject.upper() in {"GOLDBEES", "NIFTYBEES", "BANKBEES", "SILVERBEES"}) and start_date:
+        resolved_sym = sym or subject.upper()
+        steps = [
+            f"import_symbol_data(symbol='{resolved_sym}', start_date='{start_date}', end_date='{end_date}')",
+            f"plot_price_chart('{resolved_sym}', start_date='{start_date}', end_date='{end_date}')"
+        ]
+        return "\n".join(
+            f"  [cyan]{i}.[/cyan] {s}"
+            for i, s in enumerate(steps, 1)
+        )
 
     steps = _INTENT_STEPS.get(intent, _INTENT_STEPS["main"])
     if intent == "india_equity" and "macd" in question.lower():

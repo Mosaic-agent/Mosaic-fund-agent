@@ -66,5 +66,36 @@ class TestCustomImport(unittest.TestCase):
         mock_importer_instance.insert_prices.assert_called_once()
         self.assertIn("Imported NIFTY50: 1 rows inserted", res)
 
+class TestQueryDateRangeParser(unittest.TestCase):
+    def test_parse_single_year(self):
+        from src.commands.chat_cmd import parse_query_date_range
+        start, end = parse_query_date_range("goldbees 2019")
+        self.assertEqual(start, "2019-01-01")
+        self.assertEqual(end, "2019-12-31")
+
+    def test_parse_year_range(self):
+        from src.commands.chat_cmd import parse_query_date_range
+        start, end = parse_query_date_range("nifty 2019 to 2026")
+        self.assertEqual(start, "2019-01-01")
+        self.assertEqual(end, "2026-12-31")
+
+    def test_parse_month_year(self):
+        from src.commands.chat_cmd import parse_query_date_range
+        start, end = parse_query_date_range("reliance june 2019")
+        self.assertEqual(start, "2019-06-01")
+        self.assertEqual(end, "2019-06-30")
+
+    def test_parse_explicit_dates(self):
+        from src.commands.chat_cmd import parse_query_date_range
+        start, end = parse_query_date_range("import goldbees 2019-06-01 to 2019-06-15")
+        self.assertEqual(start, "2019-06-01")
+        self.assertEqual(end, "2019-06-15")
+
+    def test_parse_no_dates(self):
+        from src.commands.chat_cmd import parse_query_date_range
+        start, end = parse_query_date_range("import goldbees")
+        self.assertEqual(start, "")
+        self.assertEqual(end, "")
+
 if __name__ == '__main__':
     unittest.main()
