@@ -221,15 +221,35 @@ def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx
     return _run_cmd_streaming(args)
 
 
-def import_symbol_data_impl(symbol: str, days: int = 365) -> str:
+def import_symbol_data_impl(
+    symbol: str,
+    days: int = 365,
+    start_date: str = "",
+    end_date: str = "",
+) -> str:
     """
     Core implementation to import price history for a specific symbol.
     """
-    from datetime import date, timedelta
+    from datetime import date, timedelta, datetime
 
     sym = symbol.strip().upper()
-    to_date = date.today()
-    from_date = to_date - timedelta(days=max(days, 1))
+    if start_date:
+        try:
+            from_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+        except ValueError:
+            return f"Invalid start_date format: {start_date}. Expected YYYY-MM-DD."
+        if end_date:
+            try:
+                to_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+            except ValueError:
+                return f"Invalid end_date format: {end_date}. Expected YYYY-MM-DD."
+        else:
+            to_date = date.today()
+        days_desc = f"{start_date} to {end_date or 'today'}"
+    else:
+        to_date = date.today()
+        from_date = to_date - timedelta(days=max(days, 1))
+        days_desc = f"{days} days"
 
     # Build lookup: nse_symbol → (yahoo_ticker, category)
     try:
@@ -286,13 +306,18 @@ def import_symbol_data_impl(symbol: str, days: int = 365) -> str:
         yahoo_ticker, category = _lookup[sym]
 
     sys.stdout.write(
-        f"  Importing {sym} ({yahoo_ticker}) | {from_date} → {to_date} ({days} days)\n"
+        f"  Importing {sym} ({yahoo_ticker}) | {from_date} → {to_date} ({days_desc})\n"
     )
     sys.stdout.flush()
 
     try:
-        from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
-        rows = fetch_ohlcv([(sym, yahoo_ticker)], category, from_date, to_date)
+        if category in ("stocks", "etfs"):
+            from src.importer.fetchers.adapters import ShoonyaFetcher
+            fetcher = ShoonyaFetcher(category, [(sym, yahoo_ticker)])
+            rows = fetcher.fetch(from_date, to_date)
+        else:
+            from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
+            rows = fetch_ohlcv([(sym, yahoo_ticker)], category, from_date, to_date)
     except Exception as exc:
         return f"Fetch error for {sym}: {exc}"
 
@@ -331,7 +356,12 @@ def import_symbol_data_impl(symbol: str, days: int = 365) -> str:
 
 
 @tool
-def import_symbol_data(symbol: str, days: int = 365) -> str:
+def import_symbol_data(
+    symbol: str,
+    days: int = 365,
+    start_date: str = "",
+    end_date: str = "",
+) -> str:
     """
     Import price history for a SPECIFIC NSE symbol. This is the PREFERRED tool when the user
     names a particular stock/ETF to import — e.g. "import ADVENZYMES", "refresh GOLDBEES data",
@@ -340,12 +370,13 @@ def import_symbol_data(symbol: str, days: int = 365) -> str:
     For bulk category imports (all ETFs, all stocks), use run_data_engineering_importer instead.
 
     Args:
-        symbol: NSE symbol to import (e.g. "ADVENZYMES", "GOLDBEES", "RELIANCE", "NIFTY50").
-                Uppercased automatically. Covers ETFs, stocks, commodities, and indices.
-        days:   Calendar days of history back from today.
-                365=1 year · 730=2 years · 180=6 months · 90=3 months · 30=1 month
+        symbol:     NSE symbol to import (e.g. "ADVENZYMES", "GOLDBEES", "RELIANCE", "NIFTY50").
+                    Uppercased automatically. Covers ETFs, stocks, commodities, and indices.
+        days:       Calendar days of history back from today. Ignored if start_date is set.
+        start_date: Optional start date in YYYY-MM-DD format (e.g. '2019-01-01')
+        end_date:   Optional end date in YYYY-MM-DD format (e.g. '2019-12-31')
     """
-    return import_symbol_data_impl(symbol, days)
+    return import_symbol_data_impl(symbol, days, start_date, end_date)
 
 
 @tool
