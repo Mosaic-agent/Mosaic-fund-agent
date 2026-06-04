@@ -368,3 +368,40 @@ class MarketDataRepository:
             r[0]: {"composite_score": float(r[1]), "action": str(r[2]), "anomaly_flag": str(r[3])}
             for r in rows
         }
+
+    def ml_prediction_asof(self, as_of) -> "dict | None":
+        """Most recent ML prediction on or before `as_of` (str YYYY-MM-DD or date)."""
+        rows = self._q(
+            f"SELECT expected_return_pct, prob_up, regime_signal, cv_auc_mean, as_of "
+            f"FROM market_data.ml_predictions FINAL "
+            f"WHERE as_of <= '{as_of}' "
+            f"ORDER BY as_of DESC LIMIT 1"
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "expected_return_pct": float(r[0]),
+            "prob_up":             float(r[1]),
+            "regime_signal":       str(r[2]),
+            "cv_auc_mean":         float(r[3]),
+            "as_of":               str(r[4]),
+        }
+
+    def signal_composite_asof(self, symbol: str, as_of) -> "dict | None":
+        """Most recent composite signal for `symbol` on or before `as_of`."""
+        rows = self._q(
+            f"SELECT etf_symbol, composite_score, action, anomaly_flag, as_of "
+            f"FROM market_data.signal_composite FINAL "
+            f"WHERE etf_symbol = '{symbol}' AND as_of <= '{as_of}' "
+            f"ORDER BY as_of DESC LIMIT 1"
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "composite_score": float(r[1]),
+            "action":          str(r[2]),
+            "anomaly_flag":    str(r[3]),
+            "as_of":           str(r[4]),
+        }

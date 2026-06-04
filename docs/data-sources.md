@@ -6,7 +6,9 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 
 | What | Source | Notes |
 |---|---|---|
-| Stock / ETF / commodity OHLCV | Yahoo Finance `.NS`, `GC=F`, etc. | Free, subject to rate-limiting on high concurrency (handled via staggered jitter delays in the parallel stock importer) |
+| Stock / ETF / commodity OHLCV | Shoonya (primary for NSE) / Yahoo Finance (fallback) | Shoonya API used as primary daily EOD reader for Indian stocks/ETFs (requires API key & TOTP); Yahoo Finance `.NS` as fallback and for commodities (`GC=F`) |
+| Live quotes & tick streams | Shoonya API / WebSocket | Used during market hours for real-time stock/ETF prices (requires Shoonya API login) |
+| Currency exchange rates (FX) | Yahoo Finance | Free, daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD. Used in macro and anomaly models |
 | ETF iNAV — live | NSE API | Free, 15-second refresh (9:15 AM – 3:30 PM IST) |
 | ETF iNAV — historic / NAV | MFAPI.in (AMFI official) | Free |
 | COMEX spot prices | gold-api.com | Free with API key |
@@ -22,9 +24,12 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | CFTC COT (hedge fund positioning) | publicreporting.cftc.gov | Free, no auth |
 | Central bank gold reserves | IMF IFS REST API | Free, no auth |
 | Gold ETF AUM flows | Yahoo Finance (totalAssets) | Free |
-| Fund portfolio holdings | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series |
+| Fund portfolio holdings (Morningstar) | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series for AMCs not covered below |
 | DSP Multi Asset historical holdings | dspim.com portfolio ZIP archives | 31-month backfill (Sep 2023–Mar 2026) via `scripts/import_dsp_history.py`; one-time run |
+| Nippon India holdings | nipponindiamf.com | Dynamic monthly XLS discovery & import from 2024 onward via `src/scripts/fund_imports/` |
+| ICICI Prudential / Index holdings | icicipruamc.com | Monthly PDF/XLS parsing & import via `src/scripts/fund_imports/` |
 | FII / DII institutional flows | Sensibull oxide API | Free, no auth; ~6 months rolling daily + 7+ years monthly |
+| Expert Macro Tweets | Nitter RSS proxies | Free, scrapes Twitter (X) updates of macro experts (e.g. Ritesh Jain) for pre-market sentiment |
 
 ## Portfolio & Brokerage
 

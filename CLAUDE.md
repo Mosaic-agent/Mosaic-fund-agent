@@ -92,10 +92,10 @@ CLI (src/main.py)
 | Importer | `src/importer/` | Delta-sync pipeline: Fetcher adapters → ClickHouse |
 | Fetcher ABC | `src/importer/base_fetcher.py` | Adapter interface: `fetch()`, `validate()`, `insert()`, `max_date()` |
 | Fetcher Adapters | `src/importer/fetchers/adapters.py` | 5 concrete adapters + `FETCHER_REGISTRY` keyed by CLI category |
-| Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish |
+| Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
-| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`) |
+| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`). `run_composite_anomaly(df, df_cot, df_fx)` → per-date `regime`, `final_z`, `garch_vol`; requires full OHLCV + ≥60 rows |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
@@ -252,7 +252,8 @@ Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks when blocked. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL. ML models cached to `output/.cache/ml_models/` keyed by `(max_trade_date, n_rows, n_splits, horizon)` — auto-invalidated by `ModelCacheInvalidator` when new price data arrives.
 - **Output files:** Reports written to `./output/` as JSON.
-- **Repository pattern:** `MarketDataRepository` (`src/db/repository.py`) is the single access point for all ClickHouse reads. Use `repo.fii_dii_5d()`, `repo.ohlcv()`, `repo.latest_ml_prediction()` etc. — never write raw SQL in signal/ML code.
+- **Repository pattern:** `MarketDataRepository` (`src/db/repository.py`) is the single access point for all ClickHouse reads. Use `repo.fii_dii_5d()`, `repo.ohlcv()`, `repo.latest_ml_prediction()`, `repo.ml_prediction_asof(date)`, `repo.signal_composite_asof(symbol, date)` etc. — never write raw SQL in signal/ML code. The `*_asof(date)` variants are point-in-time queries used for historical anomaly context.
+- **Anomaly explanation pipeline:** `explain_price_anomalies` (`src/tools/skills_tools.py`) calls `run_composite_anomaly` (`src/ml/anomaly.py`) on full OHLCV history, then filters flagged dates to the report window. This ensures GARCH `regime` + `final_z` appear in the anomaly table alongside news correlation. COT is loaded only for gold symbols (`cot_gold` table). Falls back to naive `max(2.0, 2.5×std)` threshold if <60 rows or `arch` not installed.
 - **Strategy pattern:** Signal sources (`src/agents/signal_sources.py`) implement `SignalSource` ABC. The aggregator loops over `score_sources` list — add a new pillar by subclassing `SignalSource` and appending to the list.
 - **Adapter pattern:** Data fetchers (`src/importer/fetchers/adapters.py`) implement `Fetcher` ABC. `MarketDataRepository.run_fetcher()` handles watermarks, dry-run, and event publishing. Add a new source by subclassing `Fetcher` and registering in `FETCHER_REGISTRY`.
 - **Observer pattern:** `EventBus` (`src/events/bus.py`) fires `DataImportedEvent` after every live `run_fetcher()` insert. Four built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async). Register with `setup_observers()` at startup.

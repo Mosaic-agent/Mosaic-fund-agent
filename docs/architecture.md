@@ -227,15 +227,38 @@ Each tool is a standalone function that returns a dict or DataFrame. No database
 
 ### AnomalyDetector (`anomaly.py`)
 
-Three-stage composite pipeline:
+Three-stage composite pipeline — public API: `run_composite_anomaly(df, df_cot=None, df_fx=None)`:
 
 1. **Robust Z-score** — MAD-based, resistant to fat tails in gold returns
 2. **GARCH(1,1) standardised residuals** — isolates true price shocks from routine volatility clustering
-3. **Isolation Forest** — cross-asset feature confirmation
+3. **Isolation Forest** — cross-asset feature confirmation (USDINR, COT crowding)
 
-Regime labels output: `Crowded Long`, `Strong Trend`, `Flash Crash`, `Volatile Breakout`, `Blow-off Top`, `Normal`
+Requires full OHLCV (`open/high/low/close/volume`) and ≥60 rows. Returns `(df_result, df_flagged, garch_loglik)` where `df_result` carries per-date `regime`, `final_z`, `garch_vol`, `cot_pct_oi`, `usdinr_logret`.
+
+Regime labels: `⚡ Flash Crash / Black Swan`, `🔥 Volatile Breakout`, `⚠️ Crowded Long (Squeeze Risk)`, `🧨 Blow-off Top (Weak)`, `📈 Strong Trend (HODL)`, `✅ Normal`.
 
 Fire rate ~5% (vs. Random Forest's spurious 21% prior to GARCH replacement).
+
+### explain_price_anomalies (`src/tools/skills_tools.py`)
+
+The **anomaly explanation tool** bridges the ML pipeline with news/event correlation:
+
+1. Fetches full OHLCV history (ClickHouse → yfinance fallback)
+2. Loads COT (`cot_gold` — gold only) + USDINR FX as cross-asset features
+3. Runs `run_composite_anomaly` on full history; filters flagged dates to the `days` window
+4. Per anomaly date: surfaces GARCH **regime** + **Final Z** in the summary table and detail section
+5. Queries `search_financial_news` per date; flags neutral-news + large-move divergence (policy surprise signal)
+6. Calls `ml_prediction_asof` + `signal_composite_asof` (repo) to show what the ML model and composite signal said *on* that date — enabling confirmed vs. contradicted signal analysis
+7. Appends COMEX futures price chart (GC=F / SI=F for gold/silver) and GARCH vol chart
+
+Graceful fallback: if <60 rows or `arch` missing, falls back to naive `max(2.0, 2.5×std)` threshold — report always renders, regime columns show `—`.
+
+Cross-asset loading pattern (copied from `src/ui/app.py`):
+```python
+# COT (gold only): SELECT report_date, mm_net, open_interest FROM market_data.cot_gold
+# FX (always):     SELECT symbol, trade_date, toFloat64(close) AS close
+#                  FROM market_data.fx_rates FINAL WHERE symbol = 'USDINR'
+```
 
 ---
 
@@ -356,6 +379,22 @@ Every fetcher checks `import_watermarks.(source, symbol).last_date` before fetch
 
 ### 2. Repository Pattern (`src/db/repository.py`)
 `MarketDataRepository` is the single access point for all ClickHouse reads. Centralises `FINAL` usage, typed return shapes, and the `run_fetcher()` orchestration loop. All signal sources and ML code read through the repo — never raw SQL strings scattered across files.
+
+Key read methods:
+
+| Method | Returns | Table |
+|---|---|---|
+| `fii_dii_5d()` | `(fii_net, dii_net)` floats | `fii_dii_flows` |
+| `ohlcv(symbol, category)` | Full OHLCV DataFrame | `daily_prices` |
+| `latest_close(symbols, category)` | `{symbol: close}` | `daily_prices` |
+| `latest_ml_prediction()` | Latest ML row dict | `ml_predictions` |
+| `ml_prediction_asof(as_of)` | ML row dict ≤ date, or None | `ml_predictions` |
+| `latest_signal_composite(symbols)` | `{symbol: {score, action, flag}}` | `signal_composite` |
+| `signal_composite_asof(symbol, as_of)` | Signal row dict ≤ date, or None | `signal_composite` |
+| `inav_latest_and_history(symbols)` | Latest iNAV + 30d history | `inav_snapshots` |
+| `run_fetcher(fetcher)` | `FetchResult` | Orchestrates watermark + insert + events |
+
+The `*_asof(date)` variants enable **point-in-time queries** — used by `explain_price_anomalies` to surface what the ML model and composite signal said on each anomaly date, without contaminating the report with future information.
 
 ### 3. Agent Architecture (Multi-Agent Orchestrator)
 

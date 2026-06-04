@@ -1072,6 +1072,7 @@ class SignalSubAgent(_SubAgent):
         "prob_up, expected_return_pct, regime_signal, and weights.blended_50 verbatim. "
         "Use `run_risk_governor_analysis` for GARCH volatility-targeted position sizing. "
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
+        "Use `explain_price_anomalies` to scan price history for return outliers (magnitude >= 2%) and query news on those dates to find their causes. Whenever you call this tool to explain anomalies, you MUST also call `plot_price_chart` in parallel to visually display the price trend.\n"
         "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
@@ -1100,6 +1101,7 @@ class SignalSubAgent(_SubAgent):
             run_premium_alerts,
             get_live_inav,
             query_clickhouse_db,
+            explain_price_anomalies,
         )
         from src.tools.chart_tools import (
             plot_price_chart, plot_signal_scores, plot_multi_price_chart,
@@ -1115,6 +1117,7 @@ class SignalSubAgent(_SubAgent):
             run_premium_alerts,
             get_live_inav,
             query_clickhouse_db,
+            explain_price_anomalies,
             plot_price_chart,
             plot_signal_scores,
             plot_signal_breakdown,
@@ -1314,6 +1317,8 @@ class NewsSubAgent(_SubAgent):
         "  1. Call `get_db_news(category='gold', sentiment='')` to query ClickHouse.\n\n"
         "**ETF category scan** ('latest etf news', 'etf news sentiment'):\n"
         "  1. Call `run_etf_news_sentiment` for a full multi-category scan.\n\n"
+        "**Price anomaly explanation** ('explain anomalies for GOLDBEES', 'why did the price spike/drop'):\n"
+        "  1. Call `explain_price_anomalies(symbol)` to scan price return outliers and query historical news on those dates.\n\n"
         "## Output format\n"
         "Always present results as a Markdown table:\n"
         "| Title | Source | Date | Sentiment |\n\n"
@@ -1331,7 +1336,7 @@ class NewsSubAgent(_SubAgent):
         from src.tools.company_resolver import resolve_company
         from src.tools.news_search import get_stock_news, search_financial_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
-        from src.tools.skills_tools import run_etf_news_sentiment
+        from src.tools.skills_tools import run_etf_news_sentiment, explain_price_anomalies
         return [
             resolve_company,
             get_stock_news,
@@ -1339,6 +1344,7 @@ class NewsSubAgent(_SubAgent):
             search_financial_news,
             get_db_news,
             run_etf_news_sentiment,
+            explain_price_anomalies,
         ]
 
 

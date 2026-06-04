@@ -1,6 +1,6 @@
 # Agent Architecture
 
-> Last updated: 2026-06-01
+> Last updated: 2026-06-04
 
 This document details the multi-agent orchestration layer of the Mosaic Fund Agent platform. For the broader system architecture (data pipeline, ClickHouse schema, ML, tools), see [architecture.md](architecture.md).
 
@@ -129,9 +129,10 @@ class _SubAgent:
 
 ### SignalSubAgent
 
-- **Purpose:** ETF composite scores, ML prediction, Kelly weights, GARCH vol-targeting, iNAV
-- **Tools (~14):** `run_daily_signal_composite`, `run_goldbees_pipeline`, `run_risk_governor_analysis`, `run_etf_news_sentiment`, `run_premium_alerts`, `get_live_inav`, `query_clickhouse_db`, 5× `plot_*` chart tools
+- **Purpose:** ETF composite scores, ML prediction, Kelly weights, GARCH vol-targeting, iNAV, and anomaly explanation
+- **Tools (~15):** `run_daily_signal_composite`, `run_goldbees_pipeline`, `run_risk_governor_analysis`, `run_etf_news_sentiment`, `run_premium_alerts`, `get_live_inav`, `query_clickhouse_db`, `explain_price_anomalies`, 5× `plot_*` chart tools
 - **Rule:** Never invent composite scores or regime labels — only narrate tool output
+- **Anomaly tool:** `explain_price_anomalies` calls `run_composite_anomaly` (GARCH + IF + MAD-Z) on full OHLCV history, surfaces per-date `regime` + `Final Z`, correlates news, and appends ML forward context (`ml_prediction_asof`, `signal_composite_asof`) — always invoke `plot_price_chart` in parallel
 
 ### MacroSubAgent
 
@@ -321,6 +322,34 @@ CLI ask()
           Step 2: Tool returns {prob_up, regime_signal, weights, ...}
           Step 3: LLM narrates tool output (no computation)
         → Markdown response
+```
+
+### `ask "explain GOLDBEES price anomalies"`
+
+```
+CLI ask()
+ → intent: "signal"
+ → SignalSubAgent.run(question)
+    → LangGraph ReAct stream
+      Step 1: LLM emits two parallel tool calls:
+              explain_price_anomalies(symbol="GOLDBEES", days=60)
+              plot_price_chart(symbol="GOLDBEES", days=60)
+      Step 2a: explain_price_anomalies
+               → fetch full OHLCV (ClickHouse, yfinance fallback)
+               → fetch COT (cot_gold) + USDINR FX in parallel
+               → run_composite_anomaly(df, df_cot, df_fx)
+                   GARCH(1,1) + Isolation Forest + MAD-Z
+                   → df_flagged: dates where final_z_abs > 2.5
+                   → df_result:  per-date regime + final_z + garch_vol
+               → filter flagged to last 60 days
+               → per anomaly date:
+                   search_financial_news(query, target_date)
+                   ml_prediction_asof(date)      ← what ML expected
+                   signal_composite_asof(date)   ← confirmed vs contradicted
+               → append COMEX GC=F chart + GARCH vol chart
+      Step 2b: plot_price_chart → ASCII price chart with 🔴 anomaly markers
+      Step 3: LLM synthesises regime narrative + news correlation
+    → Markdown report with table, per-date detail, charts
 ```
 
 ### `ask "research RELIANCE"`

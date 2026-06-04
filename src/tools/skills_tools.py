@@ -1,224 +1,53 @@
 """
 src/tools/skills_tools.py
 ─────────────────────────
-LangChain tool wrappers around the core skills and scripts of the Mosaic-agent.
-Allows the ReAct agent to run goldbees reports, macro scanning, signal aggregator,
-ETF news sentiment, DSP Multi-Asset imports, and risk governor calculations.
+Core skill tools for the Mosaic-agent ReAct agents.
+
+What lives here: general-purpose tools that don't fit a tighter domain —
+ClickHouse query, symbol import, iNAV lookup, premium alerts, deep-dive,
+and the shared subprocess helpers (_run_cmd, _run_cmd_streaming).
+
+Shell-command runners (run_goldbees_pipeline, run_macro_scanner, …) →
+    src/tools/runners.py
+
+Gold/GARCH domain tools (explain_price_anomalies, run_risk_governor_analysis) →
+    src/tools/market/gold.py
+
+Both modules are re-exported here for backward compatibility.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import sys
-import subprocess
-from typing import Any
+import logging
 from langchain_core.tools import tool
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.tools._subprocess import (  # shared helpers — no circular dep
+    PROJECT_ROOT,
+    _run_cmd,
+    _run_cmd_streaming,
+    _clean_terminal_output,
+)
 
+logger = logging.getLogger(__name__)
 
-def _clean_terminal_output(text: str) -> str:
-    """Removes terminal box-drawing characters and excessive blank lines to make tool output easier for LLMs to read."""
-    # Characters to remove or replace
-    replacements = {
-        "█": "#", "░": ".", "▒": ".", "▓": "#",
-        "■": "*", "▲": "^", "▼": "v"
-    }
-    
-    lines = []
-    for line in text.splitlines():
-        # Specific replacements
-        for char, replacement in replacements.items():
-            line = line.replace(char, replacement)
-        
-        # Clean all Unicode box-drawing characters (U+2500 to U+257F block)
-        cleaned_chars = []
-        for char in line:
-            val = ord(char)
-            if 0x2500 <= val <= 0x257F:
-                if char in ("─", "━", "═", "┄", "┅", "┈", "┉", "╌", "╍"):
-                    cleaned_chars.append("-")
-                else:
-                    cleaned_chars.append("")
-            else:
-                cleaned_chars.append(char)
-        line = "".join(cleaned_chars)
-        
-        # Strip trailing/leading spaces
-        line = line.strip()
-        
-        # Skip empty lines if they were just box drawings or blank
-        if line and not all(c in "-_ " for c in line):
-            lines.append(line)
-            
-    return "\n".join(lines)
-
-
-def _run_cmd(args: list[str]) -> str:
-    """Helper to run a command via subprocess from the project root with the correct Python interpreter."""
-    env = os.environ.copy()
-    env["ALLOW_LOCAL_RUN"] = "1"
-
-    # Ensure project root is in PYTHONPATH
-    if "PYTHONPATH" in env:
-        env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env["PYTHONPATH"]
-    else:
-        env["PYTHONPATH"] = PROJECT_ROOT
-
-    cmd = [sys.executable] + args
-    try:
-        res = subprocess.run(
-            cmd,
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=300,
-        )
-        output = res.stdout
-        if res.stderr:
-            output += "\n--- STDERR ---\n" + res.stderr
-        return _clean_terminal_output(output)
-    except Exception as e:
-        return f"Error executing command {' '.join(cmd)}: {e}"
-
-
-# Pre-compiled ANSI escape code stripper used by streaming output
-import re as _re
-_ANSI_STRIP_RE = _re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b[()][A-Z0-9=><]|\x1b[ABCDEF78]")
-
-
-def _run_cmd_streaming(args: list[str]) -> str:
-    """
-    Like _run_cmd but prints each output line to the terminal as the subprocess
-    runs, giving live progress. Used for long-running operations like data import.
-    Returns the full collected output as a string when done.
-    """
-    env = os.environ.copy()
-    env["ALLOW_LOCAL_RUN"] = "1"
-    env["NO_COLOR"] = "1"       # tell Rich / Typer inside subprocess to skip ANSI codes
-    env["TERM"] = "dumb"        # further signal: no colour support
-    if "PYTHONPATH" in env:
-        env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env["PYTHONPATH"]
-    else:
-        env["PYTHONPATH"] = PROJECT_ROOT
-
-    cmd = [sys.executable] + args
-    collected: list[str] = []
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=PROJECT_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=env,
-            bufsize=1,          # line-buffered
-        )
-        for raw_line in iter(proc.stdout.readline, ""):
-            # Strip ANSI codes left over despite NO_COLOR
-            stripped = _ANSI_STRIP_RE.sub("", raw_line).rstrip()
-            # Apply box-drawing cleanup (shared with _run_cmd)
-            cleaned = _clean_terminal_output(stripped)
-            if cleaned:
-                sys.stdout.write(f"  {cleaned}\n")
-                sys.stdout.flush()
-                collected.append(cleaned)
-        proc.wait()
-        rc = proc.returncode
-    except Exception as exc:
-        return f"Import error: {exc}\n" + "\n".join(collected)
-
-    result = "\n".join(collected) if collected else "Import completed (no output)."
-    if rc != 0:
-        result += f"\n[Process exited with code {rc}]"
-    return result
-
-
-@tool
-def run_goldbees_pipeline() -> str:
-    """
-    Run the GOLDBEES pipeline report script.
-    This prints the pre-baked gold recommendation block, including ML prediction probability,
-    Risk Governor and Kelly weights, and iNAV premium.
-    Use this when asked for GOLDBEES recommendation, today's gold signal, or what to do with GOLDBEES.
-    """
-    return _run_cmd(["src/scripts/goldbees_report.py"])
-
-
-@tool
-def run_daily_signal_composite(save: bool = True) -> str:
-    """
-    Run the composite signal aggregator to compute scores for all 18 ETFs.
-    Combines macro events, news sentiment, NAV Z-scores, FII/DII flows, ML predictions, and anomaly regimes.
-    Use this when asked for ETF buy/sell recommendations, composite scores, or signal dashboard.
-    """
-    args = ["src/main.py", "signals"]
-    if save:
-        args.append("--save")
-    return _run_cmd(args)
-
-
-@tool
-def run_macro_scanner(max_themes: int = 3) -> str:
-    """
-    Scan live macro and geopolitical events, mapping their directional impact to Indian ETFs.
-    Use this when asked about active macro themes, geopolitical risks, crude oil/INR shocks, or Fed/RBI policy events.
-    """
-    return _run_cmd(["src/main.py", "macro", "--max", str(max_themes)])
-
-
-@tool
-def run_etf_news_sentiment(max_articles: int = 3, save: bool = True) -> str:
-    """
-    Fetch and tag the latest news articles by ETF category with sentiment scores.
-    Use this when asked for ETF news, sentiment trends, or saving ETF news.
-    """
-    args = ["src/main.py", "etf-news", "--max", str(max_articles)]
-    if save:
-        args.append("--save")
-    return _run_cmd(args)
-
-
-@tool
-def run_dsp_multi_asset_importer() -> str:
-    """
-    Import and backfill DSP Multi Asset Allocation Fund holdings history into the ClickHouse database.
-    Use this when asked to import or update DSP holdings data.
-    """
-    return _run_cmd(["src/scripts/dsp/import_all_dsp_equity.py"])
-
-
-@tool
-def run_data_engineering_importer(category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates,inav", full: bool = False, symbol: str = "") -> str:
-    """
-    Trigger the historical ClickHouse data engineering pipeline to import and sync BULK data.
-    Use ONLY for bulk category imports — e.g. "import all stocks", "refresh ETFs", "sync everything".
-
-    IMPORTANT: If the user names a SPECIFIC symbol (e.g. "import ADVENZYMES", "refresh GOLDBEES"),
-    do NOT use this tool — use `import_symbol_data(symbol)` instead.
-    This tool imports ALL symbols in a category, which is slow and wasteful when only one is needed.
-
-    If called with a symbol anyway, it will auto-redirect to import_symbol_data for that symbol.
-
-    Args:
-        category: Comma-separated list of categories to import.
-                  Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav.
-        full: If True, performs a full backfill ignoring watermarks.
-        symbol: (optional) If a specific symbol is provided, redirects to import_symbol_data.
-    """
-    # Safety net: if caller passed a specific symbol, redirect to per-symbol import
-    if symbol and symbol.strip():
-        return import_symbol_data_impl(symbol.strip().upper())
-
-    args = ["src/main.py", "import"]
-    if full:
-        args.append("--full")
-    else:
-        args.extend(["--category", category])
-    return _run_cmd_streaming(args)
+# ── Runner tools (shell-command wrappers) — defined in runners.py ─────────────
+# Re-exported here so existing `from src.tools.skills_tools import X` calls
+# keep working without change.
+from src.tools.runners import (  # noqa: E402
+    run_goldbees_pipeline,
+    run_daily_signal_composite,
+    run_macro_scanner,
+    run_etf_news_sentiment,
+    run_dsp_multi_asset_importer,
+    run_data_engineering_importer,
+    run_comex_analysis,
+    run_whale_tracker,
+    run_dsp_multi_asset_comparison,
+    run_fund_mom_returns,
+    run_market_indicators,
+)
 
 
 def import_symbol_data_impl(
@@ -379,53 +208,11 @@ def import_symbol_data(
     return import_symbol_data_impl(symbol, days, start_date, end_date)
 
 
-@tool
-def run_risk_governor_analysis() -> str:
-    """
-    Compute GARCH-based position sizing and volatility targeting decision for GOLDBEES.
-    Use this when asked about GOLDBEES position sizing, GARCH volatility, risk targeting, or risk model output.
-    """
-    python_code = """
-import sys; sys.path.insert(0,'.')
-from src.tools.risk_governor import compute_position_weight, explain_decision, vol_target_for
-from src.db.pool import get_pool
-import pandas as pd, warnings
-warnings.filterwarnings('ignore')
-try:
-    price_df = get_pool().query_df('''
-        SELECT trade_date,
-               toFloat64(argMax(open,   imported_at)) AS open,
-               toFloat64(argMax(high,   imported_at)) AS high,
-               toFloat64(argMax(low,    imported_at)) AS low,
-               toFloat64(argMax(close,  imported_at)) AS close,
-               toFloat64(argMax(volume, imported_at)) AS volume
-        FROM market_data.daily_prices
-        WHERE symbol='GOLDBEES' AND category='etfs'
-        GROUP BY trade_date ORDER BY trade_date DESC LIMIT 300
-    ''')
-    price_df['trade_date'] = pd.to_datetime(price_df['trade_date'])
-    price_df = price_df.sort_values('trade_date').reset_index(drop=True)
-    from src.ml.anomaly import run_composite_anomaly
-    df_r, _, _ = run_composite_anomaly(price_df)
-    garch_vol = float(df_r['garch_vol'].dropna().iloc[-1])
-    regime    = str(df_r['regime'].iloc[-1])
-    latest    = float(df_r['close'].iloc[-1])
-    ema50     = float(price_df['close'].ewm(span=50, adjust=False).mean().iloc[-1])
-    below_ema = latest < ema50
-except Exception as e:
-    garch_vol = 16.5; regime = '✅ Normal'; below_ema = False
-    print(f'Warning: using defaults ({e})')
-
-vol_target = vol_target_for('GOLDBEES')
-d = compute_position_weight(
-    garch_annual_vol_pct=garch_vol,
-    regime=regime,
-    vol_target_pct=vol_target,
-    price_below_ema50=below_ema,
+# ── Gold/GARCH domain tools — defined in market/gold.py ──────────────────────
+from src.tools.market.gold import (  # noqa: E402
+    run_risk_governor_analysis,
+    explain_price_anomalies,
 )
-print(explain_decision(d))
-"""
-    return _run_cmd(["-c", python_code])
 
 
 @tool
@@ -520,174 +307,6 @@ def query_clickhouse_db(sql_query: str) -> str:
             f"SQL attempted:\n```sql\n{clean_query}\n```"
         )
         return f"Error executing ClickHouse query: {e}{hint}"
-
-
-def _summarize_whale_tracker_output(output: str) -> str:
-    """Parses raw whale tracker output and appends a concise summary of main accumulation/trim actions as Markdown tables."""
-    accumulations = []
-    trims = []
-    
-    current_fund = ""
-    for line in output.splitlines():
-        line_str = line.strip()
-        if "Multi Asset" in line_str:
-            current_fund = line_str.split("(")[0].strip()
-            
-        # Parse lines containing changes
-        if "%" in line_str and ("+" in line_str or "-" in line_str):
-            parts = line_str.split()
-            if len(parts) >= 5:
-                change_str = parts[-1].rstrip("%")
-                try:
-                    change_val = float(change_str)
-                    pct_indices = [i for i, p in enumerate(parts) if "%" in p]
-                    if len(pct_indices) >= 2:
-                        prev_pct_idx = pct_indices[-2]
-                        theme_idx = 1 if parts[0].startswith(("🥇", "🥈", "⚛️", "🛢️", "🏗️")) else 0
-                        theme = " ".join(parts[:theme_idx+1])
-                        security = " ".join(parts[theme_idx+1:prev_pct_idx])
-                        
-                        if change_val > 0.05:
-                            accumulations.append((change_val, security, theme, current_fund))
-                        elif change_val < -0.05:
-                            trims.append((change_val, security, theme, current_fund))
-                except ValueError:
-                    continue
-                    
-    # Sort by absolute change magnitude
-    accumulations.sort(key=lambda x: x[0], reverse=True)
-    trims.sort(key=lambda x: x[0])
-    
-    summary = "\n\n### 🐋 Whale Tracker Concise Summary\n\n"
-    summary += "#### Top Accumulations (Increasing Weight)\n\n"
-    summary += "| Fund | Theme | Security | Change |\n"
-    summary += "| :--- | :--- | :--- | ---: |\n"
-    if accumulations:
-        for change_val, security, theme, fund in accumulations[:5]:
-            summary += f"| {fund} | {theme} | {security} | {change_val:+.2f}% |\n"
-    else:
-        summary += "| None detected | | | |\n"
-        
-    summary += "\n#### Top Trims (Reducing Weight)\n\n"
-    summary += "| Fund | Theme | Security | Change |\n"
-    summary += "| :--- | :--- | :--- | ---: |\n"
-    if trims:
-        for change_val, security, theme, fund in trims[:5]:
-            summary += f"| {fund} | {theme} | {security} | {change_val:+.2f}% |\n"
-    else:
-        summary += "| None detected | | | |\n"
-
-    # Extract sector/theme trend allocations if present in the output
-    if "Unified Macro Theme Allocations" in output:
-        sub = output.split("Unified Macro Theme Allocations")[1]
-        if "High-Conviction Equity Cross-Ownership" in sub:
-            sub = sub.split("High-Conviction Equity Cross-Ownership")[0]
-            
-        themes = []
-        latest_weights = []
-        flow_changes = []
-        
-        for line in sub.splitlines():
-            if "%" in line:
-                line_clean = line
-                for emoji in ["🥈", "🥇", "⚛️", "🛢️", "🏗️"]:
-                    line_clean = line_clean.replace(emoji, "")
-                parts = line_clean.split()
-                if len(parts) >= 4:
-                    theme_name = parts[0]
-                    if theme_name in ["Silver", "Gold", "Nuclear/Grid", "Energy", "Infra"]:
-                        try:
-                            latest_w = float(parts[-2].replace("%", "").strip())
-                            flow_c = float(parts[-1].replace("%", "").strip())
-                            themes.append(theme_name)
-                            latest_weights.append(latest_w)
-                            flow_changes.append(flow_c)
-                        except ValueError:
-                            pass
-        
-        if themes:
-            try:
-                import plotext as plt
-                import re
-                ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-                
-                # Plot Combined Latest Weights
-                plt.clear_figure()
-                plt.bar(themes, latest_weights, orientation="horizontal")
-                plt.title("Combined Latest Weights by Sector/Theme (%)")
-                plt.plot_size(70, 15)
-                latest_chart = plt.build()
-                latest_chart_clean = ansi_escape.sub("", latest_chart)
-                
-                # Plot Net Flow Change
-                plt.clear_figure()
-                plt.bar(themes, flow_changes, orientation="horizontal")
-                plt.title("Net Flow Change by Sector/Theme (%)")
-                plt.plot_size(70, 15)
-                flow_chart = plt.build()
-                flow_chart_clean = ansi_escape.sub("", flow_chart)
-                
-                summary += "\n\n#### Combined Latest Weights by Sector/Theme (%)\n"
-                summary += f"```text\n{latest_chart_clean}\n```\n"
-                summary += "\n\n#### Net Flow Change by Sector/Theme (%)\n"
-                summary += f"```text\n{flow_chart_clean}\n```\n"
-            except Exception as e:
-                summary += f"\n\n*(Note: Could not generate ASCII charts: {e})*\n"
-                
-    return summary
-
-
-@tool
-def run_whale_tracker() -> str:
-    """
-    Track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear/Grid, Energy, Infra)
-    across all 7 major multi-asset funds: Nippon India, DSP Multi Asset, DSP Omni FoF, Bajaj, Quant, and ICICI.
-    Use this to identify what large institutional multi-asset funds are accumulating or trimming.
-    """
-    raw_output = _run_cmd(["src/scripts/market/whale_tracker.py"])
-    return _summarize_whale_tracker_output(raw_output)
-
-
-@tool
-def run_dsp_multi_asset_comparison() -> str:
-    """
-    Run a comparative analysis between DSP Multi Asset Allocation Fund (Standard) and DSP Multi Asset Omni FoF.
-    Compares asset class weights, structures, taxation, and Netra Quant framework strategies.
-    """
-    return _run_cmd(["src/scripts/dsp/compare_dsp_multi_asset.py"])
-
-
-@tool
-def run_fund_mom_returns(scheme_code: str | None = None, search_query: str | None = None, months: int = 12) -> str:
-    """
-    Analyze Month-over-Month (MoM) NAV returns for any Indian mutual fund.
-    You must provide either a scheme_code or a search_query.
-    Args:
-        scheme_code: The scheme code of the fund (e.g., '152056' for DSP Multi Asset).
-        search_query: Search string to look up the fund scheme code if not known (e.g., 'DSP Multi Asset').
-        months: Number of months of history to fetch (default 12).
-    """
-    if not scheme_code and not search_query:
-        return "Error: You must provide either scheme_code or search_query."
-    
-    args = ["src/scripts/portfolio/fund_mom_returns.py", "--months", str(months)]
-    if scheme_code:
-        args.extend(["--scheme", str(scheme_code)])
-    elif search_query:
-        args.extend(["--search", search_query])
-        
-    return _run_cmd(args)
-
-
-@tool
-def run_comex_analysis() -> str:
-    """
-    Run COMEX commodity pre-market signal analysis.
-    This fetches live spot prices from gold-api.com for Gold (XAU), Silver (XAG), Copper (HG),
-    compares against previous-day Yahoo Finance futures closes, and classifies signals.
-    Use this when asked for COMEX gold/silver/copper prices, COMEX signals, or commodity pre-market trends.
-    """
-    return _run_cmd(["src/main.py", "comex"])
 
 
 @tool
@@ -823,25 +442,6 @@ def run_premium_alerts(
     return _run_cmd(args)
 
 
-# Unified list of core skill tools
-SKILLS_TOOLS = [
-    run_goldbees_pipeline,
-    run_daily_signal_composite,
-    run_macro_scanner,
-    run_etf_news_sentiment,
-    run_dsp_multi_asset_importer,
-    run_data_engineering_importer,
-    import_symbol_data,
-    run_risk_governor_analysis,
-    query_clickhouse_db,
-    run_whale_tracker,
-    run_dsp_multi_asset_comparison,
-    run_fund_mom_returns,
-    run_comex_analysis,
-    run_premium_alerts,
-]
-
-
 @tool
 def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: bool = False) -> str:
     """
@@ -897,34 +497,28 @@ def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: b
     return f"Deep-dive analysis executed.\n\nCommand Log:\n{cmd_output}{preview}"
 
 
-@tool
-def run_market_indicators() -> str:
-    """
-    Run the index valuation, market breadth, sector rotation, and macro indicators scorecard.
-    Use this when the user asks for Nifty 50 or Nifty 500 P/E, P/B ratios, market breadth (Advances/Declines,
-    percentage of stocks above 50/200 DMA), sector rotation rankings, rupee stress (USDINR deviation),
-    or gold ETF (SPDR GLD) whale flows.
-    """
-    return _run_cmd(["src/scripts/portfolio/market_indicators.py"])
-
-
-# Unified list of core skill tools
+# ── Canonical tool list ────────────────────────────────────────────────────────
+# Single source of truth — all other lists are subsets of this.
 SKILLS_TOOLS = [
+    # Runners (shell wrappers) — defined in runners.py, re-exported above
     run_goldbees_pipeline,
     run_daily_signal_composite,
     run_macro_scanner,
     run_etf_news_sentiment,
     run_dsp_multi_asset_importer,
     run_data_engineering_importer,
-    import_symbol_data,
-    get_live_inav,
-    run_risk_governor_analysis,
-    query_clickhouse_db,
+    run_comex_analysis,
     run_whale_tracker,
     run_dsp_multi_asset_comparison,
     run_fund_mom_returns,
-    run_comex_analysis,
+    run_market_indicators,
+    # Gold/GARCH domain — defined in market/gold.py, re-exported above
+    run_risk_governor_analysis,
+    explain_price_anomalies,
+    # General-purpose tools defined in this file
+    import_symbol_data,
+    get_live_inav,
+    query_clickhouse_db,
     run_premium_alerts,
     run_deepdive_analysis,
-    run_market_indicators,
 ]

@@ -93,3 +93,54 @@ The cache is in-memory only and does not persist across processes. It is cleared
 - ≥ 60 rows per symbol in ClickHouse
 - Run `python src/main.py import --category etfs` (or any category) first
 - Cross-asset enrichment (COT + USDINR) fetched automatically if available
+
+---
+
+## Anomaly Explanation Tool (`explain_price_anomalies`)
+
+The agent's anomaly explanation capability (`src/tools/skills_tools.py`) is built on top of `run_composite_anomaly`. It bridges the ML detection layer with news/event correlation and forward model context.
+
+### Pipeline
+
+```
+Full OHLCV history (ClickHouse → yfinance fallback)
+  + COT (cot_gold, gold-only) + USDINR FX (fx_rates)
+      ↓
+run_composite_anomaly(df, df_cot, df_fx)
+  → df_result: regime + final_z + garch_vol per date
+  → df_flagged: rows where final_z_abs > 2.5
+      ↓
+Filter to recent `days` window
+      ↓
+Per anomaly date:
+  • GARCH regime + Final Z (table + detail)
+  • search_financial_news (target date)
+  • Neutral-news + large-move divergence flag
+  • ml_prediction_asof(date)       ← forward ML expectation as-of that date
+  • signal_composite_asof(date)    ← was composite BUY/HOLD before the shock?
+      ↓
+Append: COMEX futures chart (GC=F / SI=F) + GARCH vol chart
+```
+
+### Regime → Narrative mapping
+
+| Regime | Implication for GOLDBEES |
+|---|---|
+| ⚡ Flash Crash / Black Swan | Unexpected shock — GARCH residual fired, not trend. Consider exit / hedge. |
+| 🔥 Volatile Breakout | Both trend and residual extreme — directional, but fragile. |
+| ⚠️ Crowded Long (Squeeze Risk) | Speculator crowding (COT) + positive return — reversal risk elevated. |
+| 🧨 Blow-off Top (Weak) | Thin-volume rally — low conviction. |
+| 📈 Strong Trend (HODL) | High trend Z, low residual — predictable, hold position. |
+| ✅ Normal | No action. |
+
+### Divergence signal
+When `|daily_return| ≥ 3%` and the news sentiment is `NEUTRAL`, the tool flags:
+> ⚠️ **Divergence signal:** Neutral news sentiment on a high-magnitude move — possible policy surprise or pre-positioning before public announcement.
+
+The May 2026 India import duty hike on gold (+5.72% GOLDBEES, neutral news) is the canonical example.
+
+### Graceful fallback
+If `len(df) < 60` or the `arch` library is not installed, the composite pipeline is skipped and the tool falls back to a naive `threshold = max(2.0, 2.5 × std)` detection. The report still renders; regime columns show `—` and detection method is noted as "naive threshold".
+
+### Forward context (point-in-time)
+`MarketDataRepository.ml_prediction_asof(date)` and `signal_composite_asof(symbol, date)` are used to surface what the ML model expected (5d direction) and whether the composite signal (BUY / HOLD / SELL) confirmed or contradicted the shock — without leaking future information.
