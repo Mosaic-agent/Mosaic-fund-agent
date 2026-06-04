@@ -927,6 +927,8 @@ def test_explain_price_anomalies():
         anomaly_date_str = dates[3].strftime("%Y-%m-%d")
         assert anomaly_date_str in output
         assert "Mocked News" in output
+        assert "Correlated COMEX Futures Price Chart" in output
+        assert "GC=F" in output
         
         # Check that search_financial_news.invoke was called with the correct args dict
         mock_search.invoke.assert_called_with({"query": "gold price India custom duty import tax", "max_results": 3, "target_date": anomaly_date_str})

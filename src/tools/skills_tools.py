@@ -1080,6 +1080,26 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
             output.append(f"  ❌ News search failed: {exc}")
         output.append("\n" + "─" * 40 + "\n")
         
+    # Append COMEX price chart if it's a Gold or Silver ETF to help create correlation
+    comex_symbol = None
+    if "GOLD" in symbol_upper:
+        comex_symbol = "GC=F"
+    elif "SILVER" in symbol_upper:
+        comex_symbol = "SI=F"
+
+    if comex_symbol:
+        try:
+            from src.tools.chart_tools import plot_price_chart
+            comex_chart = plot_price_chart.invoke({"symbol": comex_symbol, "days": days})
+            output.append("### 📈 Correlated COMEX Futures Price Chart:")
+            output.append(f"To assist in visual correlation, here is the price chart for the underlying COMEX futures contract (**{comex_symbol}**):\n")
+            output.append("```text")
+            output.append(comex_chart)
+            output.append("```")
+            output.append("\n" + "─" * 40 + "\n")
+        except Exception as e:
+            logger.warning("Failed to append COMEX chart for %s: %s", symbol_upper, e)
+
     return "\n".join(output)
 
 

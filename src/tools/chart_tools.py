@@ -169,7 +169,10 @@ def plot_price_chart(
             logger.warning("Failed to plot price anomalies on chart: %s", exc)
 
         plt.title(f"{symbol} — {days_desc} price  |  {chg:+.1f}%  |  {spark}")
-        plt.ylabel("Price (₹)")
+        if symbol.upper().endswith("=F") or "=F" in symbol.upper():
+            plt.ylabel("Price ($)")
+        else:
+            plt.ylabel("Price (₹)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
         # Set ~5 evenly-spaced date labels so plotext doesn't auto-generate
         # raw integer ticks that overflow into a second panel below the chart.
