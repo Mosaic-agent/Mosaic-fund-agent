@@ -147,6 +147,27 @@ def plot_price_chart(
         plt.clear_figure()
         xs = list(range(len(prices)))
         plt.plot(xs, prices, label=symbol)
+        
+        # Overlay return anomalies (magnitude >= max(2.0, 2.5 * std_dev))
+        try:
+            import pandas as pd
+            s_prices = pd.Series(prices)
+            returns = s_prices.pct_change() * 100
+            std_ret = returns.std()
+            threshold = max(2.0, 2.5 * std_ret) if not pd.isna(std_ret) else 2.0
+            
+            anomaly_xs = []
+            anomaly_ys = []
+            for idx, ret_val in enumerate(returns):
+                if not pd.isna(ret_val) and abs(ret_val) >= threshold:
+                    anomaly_xs.append(idx)
+                    anomaly_ys.append(prices[idx])
+            
+            if anomaly_xs:
+                plt.scatter(anomaly_xs, anomaly_ys, color="red", marker="x", label="Anomaly")
+        except Exception as exc:
+            logger.warning("Failed to plot price anomalies on chart: %s", exc)
+
         plt.title(f"{symbol} — {days_desc} price  |  {chg:+.1f}%  |  {spark}")
         plt.ylabel("Price (₹)")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
