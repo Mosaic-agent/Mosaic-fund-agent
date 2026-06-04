@@ -1072,7 +1072,7 @@ class SignalSubAgent(_SubAgent):
         "prob_up, expected_return_pct, regime_signal, and weights.blended_50 verbatim. "
         "Use `run_risk_governor_analysis` for GARCH volatility-targeted position sizing. "
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
-        "Use `explain_price_anomalies` to scan price history for return outliers (magnitude >= 2%) and query news on those dates to find their causes. "
+        "Use `explain_price_anomalies` to scan price history for return outliers (magnitude >= 2%) and query news on those dates to find their causes. Whenever you call this tool to explain anomalies, you MUST also call `plot_price_chart` in parallel to visually display the price trend.\n"
         "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "

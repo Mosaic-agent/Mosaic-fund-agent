@@ -913,6 +913,7 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
     """
     Scan price history for GOLDBEES or any asset to identify return anomalies (daily return outlier shocks > 2%)
     in the last N days, automatically query historical news for those dates, and explain the causes.
+    Always call `plot_price_chart` in parallel with this tool to visually display the price trend.
     Use this when the user asks to explain GOLDBEES price anomalies, chart spikes, or sudden drops.
     """
     import pandas as pd
