@@ -441,6 +441,97 @@
       .pipeline-step { min-width: unset; border-radius: var(--radius) !important; margin-left: 0 !important; margin-bottom: 8px; }
       .pipe-arrow { display: none; }
     }
+
+    /* ── Interactive "try asking" widget ────────────────────────── */
+    .try-label {
+      font-size: 13px; color: var(--text-dim);
+      margin: 64px 0 14px; text-align: center;
+      text-transform: uppercase; letter-spacing: 1.5px;
+    }
+    .try-label b { color: var(--gold); font-weight: 600; }
+    .query-chips {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      justify-content: center; margin-bottom: 20px;
+    }
+    .chip {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 22px; padding: 9px 18px;
+      font-size: 13.5px; font-weight: 500; color: var(--text-dim);
+      cursor: pointer; transition: all 0.18s;
+      font-family: inherit;
+      display: inline-flex; align-items: center; gap: 7px;
+    }
+    .chip:hover { border-color: var(--text-dim); color: var(--white); }
+    .chip.active {
+      background: rgba(245,166,35,0.12);
+      border-color: var(--gold); color: var(--gold);
+    }
+    .chip .chip-ico { font-size: 14px; }
+
+    .term-body { min-height: 340px; position: relative; }
+    .term-cmd-line { margin-bottom: 4px; }
+    .term-caret {
+      display: inline-block; width: 8px; height: 15px;
+      background: var(--teal); vertical-align: text-bottom;
+      animation: blink 1s step-end infinite; margin-left: 2px;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    .term-output { opacity: 0; transition: opacity 0.35s ease; }
+    .term-output.show { opacity: 1; }
+    .term-thinking { color: var(--text-muted); font-style: italic; }
+
+    /* ── "Pick your path" chooser ───────────────────────────────── */
+    .paths-section {
+      border-bottom: 1px solid var(--border);
+      background: var(--bg1);
+    }
+    .paths-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 20px; margin-top: 40px;
+    }
+    @media (max-width: 760px) { .paths-grid { grid-template-columns: 1fr; } }
+    .path-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 28px 26px;
+      transition: border-color 0.2s, transform 0.2s;
+      display: block; color: inherit;
+    }
+    .path-card:hover { border-color: var(--gold); transform: translateY(-3px); color: inherit; }
+    .path-num {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: rgba(245,166,35,0.12); color: var(--gold);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 15px; margin-bottom: 16px;
+    }
+    .path-card h3 { font-size: 18px; color: var(--white); margin-bottom: 8px; font-weight: 600; }
+    .path-card p  { font-size: 14px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; }
+    .path-go { font-size: 13px; font-weight: 600; color: var(--gold); }
+
+    /* ── Copy button on code blocks ─────────────────────────────── */
+    .qs-body { position: relative; }
+    .copy-btn {
+      position: absolute; top: 30px; right: 30px;
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text-dim); border-radius: 6px;
+      padding: 4px 10px; font-size: 11px; font-family: inherit;
+      cursor: pointer; transition: all 0.15s; z-index: 2;
+    }
+    .copy-btn:hover { color: var(--white); border-color: var(--text-dim); }
+    .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+    /* ── Scroll reveal ──────────────────────────────────────────── */
+    .reveal {
+      opacity: 0; transform: translateY(18px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .reveal { opacity: 1; transform: none; transition: none; }
+      .term-caret, .term-output { animation: none; transition: none; }
+    }
+
+    /* ── Active nav link ────────────────────────────────────────── */
+    .nav-links a.active { color: var(--gold); }
   </style>
 </head>
 <body>
@@ -507,7 +598,15 @@
       </div>
     </div>
 
-    <!-- Terminal demo -->
+    <!-- Interactive "try asking" widget -->
+    <div class="try-label">👆 Click a question to see <b>Mosaic</b> answer it</div>
+    <div class="query-chips" id="chips">
+      <button class="chip active" data-q="anomaly"><span class="chip-ico">🔍</span>Explain GOLDBEES anomalies</button>
+      <button class="chip" data-q="exposure"><span class="chip-ico">📊</span>Am I overexposed to IT?</button>
+      <button class="chip" data-q="premium"><span class="chip-ico">💰</span>Which ETFs trade at a premium?</button>
+      <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>What should I do with GOLDBEES?</button>
+    </div>
+
     <div class="terminal-wrap">
       <div class="term-bar">
         <span class="term-dot red"></span>
@@ -515,27 +614,44 @@
         <span class="term-dot grn"></span>
         <span class="term-title">mosaic — bash</span>
       </div>
-      <div class="term-body">
-        <div><span class="prompt">$</span> <span class="cmd">python src/main.py ask "explain GOLDBEES anomalies over 30 days"</span></div>
-        <div class="out">Routing → <span class="hi">signal agent</span> (confidence 0.98)</div>
-        <br />
-        <div class="section-header">🔍 Price Anomaly &amp; News Correlation Report: GOLDBEES</div>
-        <div class="out">Detected <span class="hi">1 anomaly</span> — GARCH composite (Final Z &gt; 2.5)</div>
-        <br />
-        <div class="out dim">┌──────────┬──────────┬─────────┬───────────────────────┬─────────┐</div>
-        <div class="out dim">│ Date     │ Return   │ Vol 20d │ Regime                │ Final Z │</div>
-        <div class="out dim">├──────────┼──────────┼─────────┼───────────────────────┼─────────┤</div>
-        <div class="out">│ <span class="hi">26-05-13</span> │ <span class="hi-green">+5.72%</span>   │ 1.94%   │ <span class="hi">🔥 Volatile Breakout</span>  │ <span class="hi">+3.81</span>   │</div>
-        <div class="out dim">└──────────┴──────────┴─────────┴───────────────────────┴─────────┘</div>
-        <br />
-        <div class="section-header">📰 News on 2026-05-13</div>
-        <div class="out">"Government <span class="hi">doubles import duty</span> on gold &amp; silver…" · Sentiment: NEUTRAL</div>
-        <div class="out hi-red">  ⚠ Divergence: neutral news on high-magnitude move → policy surprise</div>
-        <br />
-        <div class="section-header">📡 What the models said on this date</div>
-        <div class="out">ML 5d: <span class="hi-green">WATCH_LONG</span> | prob_up=<span class="hi">64%</span> | expected_return=<span class="hi-green">+1.8%</span> → continuation</div>
-        <div class="out">Composite: <span class="hi-green">BUY</span> (score=71) → <span class="hi-green">✅ signal confirmed the shock</span></div>
+      <div class="term-body" id="term">
+        <div class="term-cmd-line">
+          <span class="prompt">$</span> <span class="cmd" id="termCmd"></span><span class="term-caret" id="caret"></span>
+        </div>
+        <div class="term-output" id="termOut"></div>
       </div>
+    </div>
+    <p style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:14px">
+      Illustrative output. Every number is computed in Python/SQL from your live ClickHouse data — never invented by the LLM.
+    </p>
+  </div>
+</section>
+
+<!-- ── PICK YOUR PATH ─────────────────────────────────────────────── -->
+<section class="section paths-section" id="paths">
+  <div class="container">
+    <div class="section-label" style="text-align:center">Three ways to use it</div>
+    <h2 class="section-title" style="text-align:center;max-width:none">However you like to work</h2>
+
+    <div class="paths-grid">
+      <a href="#quickstart" class="path-card">
+        <div class="path-num">1</div>
+        <h3>🖥️ Visual Dashboard</h3>
+        <p>One-click Docker launch opens a Streamlit hub — charts, data syncs, and signal summaries. No code, no setup.</p>
+        <span class="path-go">Start with Docker →</span>
+      </a>
+      <a href="#quickstart" class="path-card">
+        <div class="path-num">2</div>
+        <h3>💬 Just ask</h3>
+        <p>Type plain-English questions. An intent router sends them to the right specialist agent and narrates a grounded answer.</p>
+        <span class="path-go">See example questions →</span>
+      </a>
+      <a href="#features" class="path-card">
+        <div class="path-num">3</div>
+        <h3>⚡ Power CLI</h3>
+        <p>Direct commands and scripts for signals, imports, backtests, and GARCH position sizing. Built for quants.</p>
+        <span class="path-go">Explore capabilities →</span>
+      </a>
     </div>
   </div>
 </section>
@@ -983,6 +1099,183 @@ http://localhost:8501</pre>
     </div>
   </div>
 </footer>
+
+<script>
+/* ── Interactive "ask Mosaic" terminal ──────────────────────────── */
+const QUERIES = {
+  anomaly: {
+    cmd: 'ask "explain GOLDBEES anomalies over 30 days"',
+    out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> (confidence 0.98)…</div>
+<br/>
+<div class="section-header">🔍 Price Anomaly &amp; News Correlation Report: GOLDBEES</div>
+<div class="out">Detected <span class="hi">1 anomaly</span> — GARCH composite (Final Z &gt; 2.5)</div>
+<br/>
+<div class="out dim">┌──────────┬─────────┬─────────┬───────────────────────┬─────────┐</div>
+<div class="out dim">│ Date     │ Return  │ Vol 20d │ Regime                │ Final Z │</div>
+<div class="out dim">├──────────┼─────────┼─────────┼───────────────────────┼─────────┤</div>
+<div class="out">│ <span class="hi">26-05-13</span> │ <span class="hi-green">+5.72%</span>  │ 1.94%   │ <span class="hi">🔥 Volatile Breakout</span>  │ <span class="hi">+3.81</span>   │</div>
+<div class="out dim">└──────────┴─────────┴─────────┴───────────────────────┴─────────┘</div>
+<br/>
+<div class="section-header">📰 News on 2026-05-13</div>
+<div class="out">"Government <span class="hi">doubles import duty</span> on gold &amp; silver…" · NEUTRAL</div>
+<div class="out hi-red">  ⚠ Divergence: neutral news on a high-magnitude move → policy surprise</div>
+<br/>
+<div class="section-header">📡 What the models said on this date</div>
+<div class="out">ML 5d: <span class="hi-green">WATCH_LONG</span> | prob_up=<span class="hi">64%</span> | exp_return=<span class="hi-green">+1.8%</span></div>
+<div class="out">Composite: <span class="hi-green">BUY</span> (score=71) → <span class="hi-green">✅ signal confirmed the shock</span></div>`
+  },
+  exposure: {
+    cmd: 'ask "am I overexposed to IT sector?"',
+    out: `<div class="out term-thinking">Routing → <span class="hi">portfolio orchestrator</span> · reading Zerodha holdings…</div>
+<br/>
+<div class="section-header">📊 Sector Exposure — Live CNC Holdings</div>
+<br/>
+<div class="out dim">┌────────────────┬──────────┬──────────┐</div>
+<div class="out dim">│ Sector         │ Weight   │ vs Nifty │</div>
+<div class="out dim">├────────────────┼──────────┼──────────┤</div>
+<div class="out">│ <span class="hi">Information Tech</span>│ <span class="hi-red">31.4%</span>    │ <span class="hi-red">+13.2%</span>   │</div>
+<div class="out">│ Financials     │ 22.1%    │ −5.8%    │</div>
+<div class="out">│ Energy         │ 14.0%    │ +1.1%    │</div>
+<div class="out">│ FMCG           │ 9.3%     │ −0.4%    │</div>
+<div class="out dim">└────────────────┴──────────┴──────────┘</div>
+<br/>
+<div class="out hi-red">⚠ Yes — IT is <span class="hi">31.4%</span> of your book vs ~18% in the Nifty 50.</div>
+<div class="out">   Top concentration: TCS (12.1%), INFY (9.4%), HCLTECH (6.0%).</div>
+<div class="out">   A single IT-sector shock would move your portfolio ~1.7× the index.</div>`
+  },
+  premium: {
+    cmd: 'ask "which ETFs trade at a premium?"',
+    out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> · live iNAV snapshots…</div>
+<br/>
+<div class="section-header">💰 iNAV Premium / Discount — International ETFs</div>
+<br/>
+<div class="out dim">┌────────────┬──────────┬───────────┬──────────────┐</div>
+<div class="out dim">│ ETF        │ Price/NAV│ Z-score   │ Signal       │</div>
+<div class="out dim">├────────────┼──────────┼───────────┼──────────────┤</div>
+<div class="out">│ <span class="hi">MAFANG</span>     │ <span class="hi-red">+6.8%</span>    │ +2.1σ     │ <span class="hi-red">RICH</span>         │</div>
+<div class="out">│ MON100     │ +3.2%    │ +0.9σ     │ neutral      │</div>
+<div class="out">│ HNGSNGBEES │ <span class="hi-green">−1.4%</span>    │ <span class="hi-green">−1.7σ</span>     │ <span class="hi-green">🟢 BUY</span>       │</div>
+<div class="out dim">└────────────┴──────────┴───────────┴──────────────┘</div>
+<br/>
+<div class="out"><span class="hi">MAFANG</span> trades <span class="hi-red">6.8% above</span> NAV — SEBI overseas-cap scarcity premium.</div>
+<div class="out hi-green">HNGSNGBEES at −1.4% (−1.7σ) is the cheapest entry right now.</div>`
+  },
+  signal: {
+    cmd: 'python src/scripts/goldbees_report.py',
+    out: `<div class="out term-thinking">Reading ml_predictions · weight_checkpoints · signal_composite…</div>
+<br/>
+<div class="section-header">🪙 GOLDBEES Pipeline — 2026-06-04</div>
+<br/>
+<div class="out">ML forecast (5d):   prob_up = <span class="hi">0.64</span>   exp_return = <span class="hi-green">+1.8%</span></div>
+<div class="out">Confidence band:    [<span class="dim">−0.9%</span>, <span class="dim">+4.5%</span>]   cv_auc = 0.58 · hit = 61%</div>
+<div class="out">Regime signal:      <span class="hi-green">WATCH_LONG</span></div>
+<br/>
+<div class="out dim">─ Position weights ──────────────────────────────</div>
+<div class="out">Risk Governor (RG):     <span class="dim">0.91</span></div>
+<div class="out">Kelly-optimal:          <span class="dim">0.38</span></div>
+<div class="out">▶ <span class="hi">blended_50 (recommended)</span>:  <span class="hi-green">0.64</span></div>
+<div class="out">  blended_30 (conservative): 0.54</div>
+<br/>
+<div class="out">GARCH vol = 16.5% (target 15%) → mild de-risk. Trend &gt; EMA50.</div>`
+  }
+};
+
+(function () {
+  const cmdEl = document.getElementById('termCmd');
+  const outEl = document.getElementById('termOut');
+  const caret = document.getElementById('caret');
+  const chips = document.querySelectorAll('#chips .chip');
+  let typeTimer = null, current = null;
+
+  function run(key) {
+    if (key === current) return;
+    current = key;
+    const q = QUERIES[key];
+    clearTimeout(typeTimer);
+    outEl.classList.remove('show');
+    outEl.innerHTML = '';
+    cmdEl.textContent = '';
+    caret.style.display = 'inline-block';
+
+    const full = q.cmd;
+    let i = 0;
+    (function type() {
+      if (i <= full.length) {
+        cmdEl.textContent = full.slice(0, i);
+        i++;
+        typeTimer = setTimeout(type, 22);
+      } else {
+        // brief pause, then reveal output
+        typeTimer = setTimeout(() => {
+          caret.style.display = 'none';
+          outEl.innerHTML = q.out;
+          requestAnimationFrame(() => outEl.classList.add('show'));
+        }, 280);
+      }
+    })();
+  }
+
+  chips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      chips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      run(chip.dataset.q);
+    });
+  });
+
+  // Auto-run the first query once the hero is visible
+  const hero = document.querySelector('.terminal-wrap');
+  const heroObs = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) { run('anomaly'); heroObs.disconnect(); }
+  }, { threshold: 0.3 });
+  heroObs.observe(hero);
+})();
+
+/* ── Copy-to-clipboard on code blocks ───────────────────────────── */
+document.querySelectorAll('.qs-body').forEach(body => {
+  const pre = body.querySelector('pre.code-block');
+  if (!pre) return;
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(pre.innerText).then(() => {
+      btn.textContent = '✓ Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1600);
+    });
+  });
+  body.appendChild(btn);
+});
+
+/* ── Scroll reveal ──────────────────────────────────────────────── */
+const revealEls = document.querySelectorAll(
+  '.why-card, .feature-card, .agent-card, .pipeline-step, .qs-card, .doc-link, .path-card, .section-title, .section-body'
+);
+revealEls.forEach(el => el.classList.add('reveal'));
+const revObs = new IntersectionObserver((entries) => {
+  entries.forEach((e, idx) => {
+    if (e.isIntersecting) {
+      // small stagger for grouped cards
+      setTimeout(() => e.target.classList.add('in'), (e.target.dataset.delay || 0));
+      revObs.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+revealEls.forEach((el, i) => { el.dataset.delay = (i % 4) * 70; revObs.observe(el); });
+
+/* ── Active nav link on scroll ──────────────────────────────────── */
+const navLinks = document.querySelectorAll('.nav-links a[href^="#"]');
+const sections = [...navLinks].map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+const navObs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id));
+    }
+  });
+}, { rootMargin: '-45% 0px -50% 0px' });
+sections.forEach(s => navObs.observe(s));
+</script>
 
 </body>
 </html>
