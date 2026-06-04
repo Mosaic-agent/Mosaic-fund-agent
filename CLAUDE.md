@@ -92,7 +92,7 @@ CLI (src/main.py)
 | Importer | `src/importer/` | Delta-sync pipeline: Fetcher adapters → ClickHouse |
 | Fetcher ABC | `src/importer/base_fetcher.py` | Adapter interface: `fetch()`, `validate()`, `insert()`, `max_date()` |
 | Fetcher Adapters | `src/importer/fetchers/adapters.py` | 5 concrete adapters + `FETCHER_REGISTRY` keyed by CLI category |
-| Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish |
+| Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
 | ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`) |

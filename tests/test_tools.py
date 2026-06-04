@@ -903,42 +903,119 @@ def test_explain_price_anomalies():
     print("="*60)
 
     from src.tools.skills_tools import explain_price_anomalies
-    from unittest.mock import patch
+    from unittest.mock import patch, MagicMock
     import pandas as pd
 
-    # Create mock price dataframe where index 3 has a return anomaly: 6.5% spike
-    dates = pd.date_range(end="2026-06-03", periods=10, freq="D")
-    prices = [100.0, 100.0, 100.0, 106.5, 106.5, 106.5, 106.5, 106.5, 106.5, 106.5]
-    volumes = [10000.0] * 10
+    # Full OHLCV mock — 65 rows so len(df) >= 60 check passes; spike at index 63
+    # (within the 30-day window when dates end 2026-06-03)
+    dates = pd.date_range(end="2026-06-03", periods=65, freq="D")
+    prices = [100.0] * 63 + [106.5] + [106.5]  # spike at index 63
+    volumes = [10000.0] * 65
     mock_df = pd.DataFrame({
         "trade_date": dates,
-        "close": prices,
-        "volume": volumes
+        "open":   prices,
+        "high":   prices,
+        "low":    prices,
+        "close":  prices,
+        "volume": volumes,
     })
 
+    # Build mock run_composite_anomaly output carrying regime + final_z
+    anomaly_date = dates[63]
+    mock_df_result = mock_df.copy()
+    mock_df_result["daily_return"]  = mock_df_result["close"].pct_change() * 100
+    mock_df_result["range_pct"]     = 0.0
+    mock_df_result["z_robust"]      = [0.0] * 63 + [3.5] + [0.0]
+    mock_df_result["z_volume"]      = 0.0
+    mock_df_result["residual"]      = 0.0
+    mock_df_result["z_resid"]       = 0.0
+    mock_df_result["z_resid_abs"]   = 0.0
+    mock_df_result["if_confidence"] = 0.0
+    mock_df_result["if_label"]      = 1
+    mock_df_result["final_z"]       = [0.0] * 63 + [3.5] + [0.0]
+    mock_df_result["final_z_abs"]   = [0.0] * 63 + [3.5] + [0.0]
+    mock_df_result["regime"]        = ["✅ Normal"] * 63 + ["🔥 Volatile Breakout"] + ["✅ Normal"]
+    mock_df_flagged = mock_df_result[mock_df_result["final_z_abs"] > 2.5].copy()
+
+    mock_ml_pred = {
+        "expected_return_pct": -1.2,
+        "prob_up": 0.38,
+        "regime_signal": "WATCH_SHORT",
+        "cv_auc_mean": 0.61,
+        "as_of": anomaly_date.strftime("%Y-%m-%d"),
+    }
+    mock_sig = {
+        "composite_score": 42.0,
+        "action": "HOLD",
+        "anomaly_flag": "ANOMALY",
+        "as_of": anomaly_date.strftime("%Y-%m-%d"),
+    }
+
     with patch("src.db.pool.query_df", return_value=mock_df), \
-         patch("src.tools.news_search.search_financial_news") as mock_search:
-        
+         patch("src.ml.anomaly.run_composite_anomaly",
+               return_value=(mock_df_result, mock_df_flagged, -500.0)) as mock_composite, \
+         patch("src.tools.news_search.search_financial_news") as mock_search, \
+         patch("src.db.repository.MarketDataRepository.ml_prediction_asof",
+               return_value=mock_ml_pred), \
+         patch("src.db.repository.MarketDataRepository.signal_composite_asof",
+               return_value=mock_sig):
+
         mock_search.invoke.return_value = "Mocked News: Custom duty increased to 15%"
-        
+
         output = explain_price_anomalies.invoke({"symbol": "GOLDBEES", "days": 30})
-        
-        # Verify the report contents
+
+        # Core report structure
         assert "Price Anomaly & News Correlation Report" in output
         assert "GOLDBEES" in output
-        anomaly_date_str = dates[3].strftime("%Y-%m-%d")
+        anomaly_date_str = anomaly_date.strftime("%Y-%m-%d")
         assert anomaly_date_str in output
         assert "Mocked News" in output
+
+        # GARCH composite columns
+        assert "Regime" in output
+        assert "🔥 Volatile Breakout" in output
+        assert "Final Z" in output
+
+        # COMEX chart triggered for gold
         assert "Correlated COMEX Futures Price Chart" in output
         assert "GC=F" in output
+
+        # Existing table columns still present
         assert "20d Volatility" in output
         assert "Volume (Spike)" in output
         assert "10.0k" in output
-        
-        # Check that search_financial_news.invoke was called with the correct args dict
-        mock_search.invoke.assert_called_with({"query": "gold price India custom duty import tax", "max_results": 3, "target_date": anomaly_date_str})
-        
-    # Test for a stock symbol (e.g. TATAPOWER) and mock earnings / results query.
+
+        # Forward ML/signal context
+        assert "What the models said" in output
+        assert "WATCH_SHORT" in output
+        assert "HOLD" in output
+
+        # Detection method label
+        assert "GARCH composite" in output
+
+        # Correct news query
+        mock_search.invoke.assert_called_with({
+            "query": "gold price India custom duty import tax",
+            "max_results": 3,
+            "target_date": anomaly_date_str,
+        })
+
+    # --- Fallback test: composite raises → naive threshold, no crash, no regime ------
+    with patch("src.db.pool.query_df", return_value=mock_df), \
+         patch("src.ml.anomaly.run_composite_anomaly",
+               side_effect=Exception("arch not installed")), \
+         patch("src.tools.news_search.search_financial_news") as mock_search2:
+
+        mock_search2.invoke.return_value = "Mocked fallback news"
+
+        output_fallback = explain_price_anomalies.invoke({"symbol": "GOLDBEES", "days": 30})
+
+        assert "Price Anomaly & News Correlation Report" in output_fallback
+        assert "naive threshold" in output_fallback
+        # Regime column still present in header but shows "—" (no composite data)
+        assert "Regime" in output_fallback
+
+    # --- Stock symbol test (TATAPOWER) ------------------------------------------
     mock_quarterly = {
         "symbol": "TATAPOWER",
         "period": "Quarter Ending Mar 2026",
@@ -954,16 +1031,21 @@ def test_explain_price_anomalies():
     }
 
     with patch("src.db.pool.query_df", return_value=mock_df), \
-         patch("src.tools.news_search.search_financial_news") as mock_search, \
+         patch("src.ml.anomaly.run_composite_anomaly",
+               return_value=(mock_df_result, mock_df_flagged, -500.0)), \
+         patch("src.tools.news_search.search_financial_news") as mock_search3, \
          patch("src.tools.inav_fetcher.is_etf", return_value=False), \
-         patch("src.tools.earnings_scraper.get_quarterly_results") as mock_earnings:
-        
-        mock_search.invoke.return_value = "Mocked News: Company quarterly results announced with higher profit"
+         patch("src.tools.earnings_scraper.get_quarterly_results") as mock_earnings, \
+         patch("src.db.repository.MarketDataRepository.ml_prediction_asof",
+               return_value=None), \
+         patch("src.db.repository.MarketDataRepository.signal_composite_asof",
+               return_value=None):
+
+        mock_search3.invoke.return_value = "Mocked News: Company quarterly results announced with higher profit"
         mock_earnings.invoke.return_value = mock_quarterly
-        
+
         output_stock = explain_price_anomalies.invoke({"symbol": "TATAPOWER", "days": 30})
-        
-        # Verify the stock report contains quarterly results block
+
         assert "Price Anomaly & News Correlation Report" in output_stock
         assert "TATAPOWER" in output_stock
         assert "Correlated Quarterly Financial Results" in output_stock
@@ -974,7 +1056,7 @@ def test_explain_price_anomalies():
         assert "Net Profit" in output_stock
         assert "₹1416.00 Cr" in output_stock
         assert "+8.42% YoY" in output_stock
-        
+
     print("  ✓ Explain price anomalies unit test passed")
 
 

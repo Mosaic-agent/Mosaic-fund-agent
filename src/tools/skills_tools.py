@@ -927,22 +927,25 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
 
     symbol_upper = symbol.strip().upper()
     exchange_val = (exchange or "NSE").strip().upper()
-    
-    # 1. Fetch price history and volume from ClickHouse (with fallback to yfinance)
+
+    # 1. Fetch full OHLCV from ClickHouse (GARCH needs open/high/low/close/volume + ≥60 rows)
     df = pd.DataFrame()
     try:
         q = f"""
             SELECT trade_date,
-                   toFloat64(argMax(close, imported_at)) AS close,
+                   toFloat64(argMax(open,   imported_at)) AS open,
+                   toFloat64(argMax(high,   imported_at)) AS high,
+                   toFloat64(argMax(low,    imported_at)) AS low,
+                   toFloat64(argMax(close,  imported_at)) AS close,
                    toFloat64(argMax(volume, imported_at)) AS volume
-            FROM market_data.daily_prices
+            FROM market_data.daily_prices FINAL
             WHERE symbol = '{symbol_upper}'
             GROUP BY trade_date ORDER BY trade_date ASC
         """
         df = query_df(q)
     except Exception as e:
         logger.warning("ClickHouse query failed, falling back to yfinance: %s", e)
-        
+
     if df.empty:
         try:
             import yfinance as yf
@@ -953,41 +956,114 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
                 ticker_sym = f"{symbol_upper}{suffix}"
             hist = yf.Ticker(ticker_sym).history(period="2y")
             if not hist.empty:
-                df = hist.reset_index()[["Date", "Close", "Volume"]]
-                df.columns = ["trade_date", "close", "volume"]
+                df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
+                df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
                 df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.tz_localize(None)
         except Exception as e:
             return f"Error: Could not retrieve price history for {symbol_upper}: {e}"
-            
+
     if df.empty:
         return f"Error: Price history for {symbol_upper} is empty."
-        
+
     df = df.sort_values("trade_date").reset_index(drop=True)
     df["volume"] = df["volume"].fillna(0.0)
-    df["daily_return"] = df["close"].pct_change() * 100
-    
-    # Calculate rolling indicators on the full dataset before slicing
+    # Display rolling indicators computed on the full series before any slicing
+    df["daily_return"]  = df["close"].pct_change() * 100
     df["volatility_20d"] = df["daily_return"].rolling(20, min_periods=1).std()
-    df["volume_ma20"] = df["volume"].rolling(20, min_periods=1).mean()
-    
-    # Calculate cutoff
+    df["volume_ma20"]    = df["volume"].rolling(20, min_periods=1).mean()
+
     cutoff_date = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=days)
-    df_recent = df[df["trade_date"] >= cutoff_date].copy()
-    
-    if df_recent.empty:
+
+    if df[df["trade_date"] >= cutoff_date].empty:
         return f"No price data found in the last {days} days for {symbol_upper}."
-        
-    # Calculate standard deviation threshold based on recent returns
-    std_ret = df_recent["daily_return"].std()
-    threshold = max(2.0, 2.5 * std_ret) if not pd.isna(std_ret) else 2.0
-    
-    anomalies = df_recent[df_recent["daily_return"].abs() >= threshold].copy()
+
+    # 2. Try the GARCH composite pipeline (needs ≥60 rows + arch library)
+    # Runs on FULL history so GARCH has a long series; then flags are filtered to the window.
+    composite_ok = False
+    regime_map: dict = {}   # trade_date (Timestamp) → regime label
+    finalz_map: dict = {}   # trade_date (Timestamp) → final_z float
+    threshold = 2.5         # default display threshold when composite succeeds
+
+    is_gold = "GOLD" in symbol_upper
+
+    try:
+        if len(df) < 60:
+            raise ValueError(f"Only {len(df)} rows — need ≥60 for GARCH")
+
+        # Load cross-asset features used by the composite pipeline (gold only for COT)
+        df_cot: "pd.DataFrame | None" = None
+        df_fx:  "pd.DataFrame | None" = None
+
+        if is_gold:
+            try:
+                _cot = query_df("SELECT report_date, mm_net, open_interest FROM market_data.cot_gold")
+                if not _cot.empty:
+                    _cot["report_date"] = pd.to_datetime(_cot["report_date"])
+                    df_cot = _cot
+            except Exception as _e:
+                logger.warning("COT fetch failed (non-fatal): %s", _e)
+
+        try:
+            _fx = query_df(
+                "SELECT symbol, trade_date, toFloat64(close) AS close "
+                "FROM market_data.fx_rates FINAL WHERE symbol = 'USDINR'"
+            )
+            if not _fx.empty:
+                _fx["trade_date"] = pd.to_datetime(_fx["trade_date"])
+                df_fx = _fx
+        except Exception as _e:
+            logger.warning("FX fetch failed (non-fatal): %s", _e)
+
+        from src.ml.anomaly import run_composite_anomaly
+        df_result, df_flagged, _ = run_composite_anomaly(
+            df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
+            df_cot=df_cot,
+            df_fx=df_fx,
+        )
+
+        for _, r in df_result.iterrows():
+            ts = pd.Timestamp(r["trade_date"]).normalize()
+            regime_map[ts] = r.get("regime", "—")
+            finalz_map[ts] = r.get("final_z")
+
+        # Filter flagged dates to the recent window
+        recent_flagged = df_flagged[
+            pd.to_datetime(df_flagged["trade_date"]) >= cutoff_date
+        ]["trade_date"].apply(lambda d: pd.Timestamp(d).normalize())
+        anomalies = df[df["trade_date"].apply(
+            lambda d: pd.Timestamp(d).normalize()
+        ).isin(set(recent_flagged))].copy()
+        composite_ok = True
+
+    except Exception as _e:
+        logger.warning("Composite anomaly failed, using naive threshold fallback: %s", _e)
+        df_recent = df[df["trade_date"] >= cutoff_date].copy()
+        std_ret = df_recent["daily_return"].std()
+        threshold = max(2.0, 2.5 * std_ret) if not pd.isna(std_ret) else 2.0
+        anomalies = df_recent[df_recent["daily_return"].abs() >= threshold].copy()
+
     if anomalies.empty:
-        return f"No price anomalies (daily return magnitude >= {threshold:.2f}%) detected for {symbol_upper} in the last {days} days."
-        
+        detection_note = (
+            "GARCH composite (Final Z > 2.5)" if composite_ok
+            else f"naive threshold ({threshold:.2f}%)"
+        )
+        return (
+            f"No price anomalies detected for {symbol_upper} in the last {days} days "
+            f"({detection_note})."
+        )
+
     anomalies = anomalies.sort_values("trade_date", ascending=False)
-    
-    # Check if stock and retrieve quarterly results
+
+    # 3. Pre-load repo readers for forward ML/signal context (Part B)
+    repo = None
+    try:
+        from src.db.pool import get_pool
+        from src.db.repository import MarketDataRepository
+        repo = MarketDataRepository(get_pool())
+    except Exception as _e:
+        logger.warning("Could not initialise repository for forward context: %s", _e)
+
+    # 4. Check if stock; fetch quarterly results for earnings correlation
     is_stock = False
     quarterly_results = None
     try:
@@ -1015,30 +1091,35 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         else:
             return f"{vol:,.0f}"
 
+    detection_method = "GARCH composite (Final Z > 2.5)" if composite_ok else f"naive threshold (≥{threshold:.2f}%)"
     output = []
     output.append(f"### 🔍 Price Anomaly & News Correlation Report: {symbol_upper}")
-    output.append(f"Detected **{len(anomalies)}** anomaly dates in the last {days} days (threshold: return magnitude >= {threshold:.2f}%):\n")
-    
-    # Construct summary table
-    output.append("| Date | Close Price (₹) | Daily Return (%) | 20d Volatility | Volume (Spike) | News Search Query |")
-    output.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
-    
+    output.append(f"Detected **{len(anomalies)}** anomaly dates in the last {days} days ({detection_method}):\n")
+
+    # Summary table — includes Regime + Final Z when composite succeeded
+    output.append("| Date | Close Price (₹) | Daily Return (%) | 20d Volatility | Volume (Spike) | Regime | Final Z | News Search Query |")
+    output.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
+
     anomaly_queries = []
     for _, row in anomalies.iterrows():
-        t_date = row["trade_date"]
-        date_str = t_date.strftime("%Y-%m-%d")
-        daily_ret = row["daily_return"]
-        close_px = row["close"]
-        vol_20d = row["volatility_20d"]
-        volume = row["volume"]
-        vol_ma = row["volume_ma20"]
-        vol_ratio = volume / vol_ma if vol_ma > 0 else 1.0
-        
-        vol_str = format_volume(volume)
+        t_date     = row["trade_date"]
+        t_date_key = pd.Timestamp(t_date).normalize()
+        date_str   = t_date_key.strftime("%Y-%m-%d")
+        daily_ret  = row["daily_return"]
+        close_px   = row["close"]
+        vol_20d    = row["volatility_20d"]
+        volume     = row["volume"]
+        vol_ma     = row["volume_ma20"]
+        vol_ratio  = volume / vol_ma if vol_ma > 0 else 1.0
+
+        vol_str      = format_volume(volume)
         vol_spike_str = f"{vol_str} ({vol_ratio:.1f}x)"
-        vol_20d_str = f"{vol_20d:.2f}%" if not pd.isna(vol_20d) else "N/A"
-        
-        # Determine best search query for the asset type
+        vol_20d_str  = f"{vol_20d:.2f}%" if not pd.isna(vol_20d) else "N/A"
+
+        regime  = regime_map.get(t_date_key, "—")
+        fz_val  = finalz_map.get(t_date_key)
+        fz_str  = f"{fz_val:+.2f}" if fz_val is not None else "N/A"
+
         company_name = get_company_name(symbol_upper)
         if "GOLD" in symbol_upper:
             query = "gold price India custom duty import tax"
@@ -1048,69 +1129,110 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
             query = "Nifty stock market India news"
         else:
             query = f"{company_name or symbol_upper} stock news"
-            
-        output.append(f"| {date_str} | {close_px:.2f} | {daily_ret:+.2f}% | {vol_20d_str} | {vol_spike_str} | `{query}` |")
-        anomaly_queries.append((date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, query))
-        
+
+        output.append(
+            f"| {date_str} | {close_px:.2f} | {daily_ret:+.2f}% | {vol_20d_str} | {vol_spike_str} | {regime} | {fz_str} | `{query}` |"
+        )
+        anomaly_queries.append((date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, regime, fz_str, query))
+
     output.append("\n" + "─" * 40 + "\n")
     output.append("### 📰 Detailed Date-by-Date News Correlation:\n")
-    
-    for date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, query in anomaly_queries:
+
+    for date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, regime, fz_str, query in anomaly_queries:
         output.append(f"#### 📅 Date: **{date_str}** | Close: ₹{close_px:.2f} | Daily Return: **{daily_ret:+.2f}%**")
+        if regime != "—":
+            output.append(f"- **GARCH Regime:** {regime}")
+        if fz_str != "N/A":
+            output.append(f"- **Composite Final Z:** {fz_str}")
         output.append(f"- **20-Day Rolling Daily Volatility:** {vol_20d_str}")
         output.append(f"- **Trading Volume:** {vol_spike_str}")
         output.append(f"*Searching news for: \"{query}\" on {date_str}...*")
-        
+
         try:
             news_output = search_financial_news.invoke({"query": query, "max_results": 3, "target_date": date_str})
             if "No news found" in news_output:
                 fallback_query = f"{symbol_upper} share price news"
                 news_output = search_financial_news.invoke({"query": fallback_query, "max_results": 3, "target_date": date_str})
             output.append(news_output)
-            
-            # Check if news contains earnings keywords and append quarterly results if available
+
+            # Flag neutral-news + large-move divergence (policy surprise / pre-positioning)
+            if abs(daily_ret) >= 3.0 and "neutral" in news_output.lower():
+                output.append(
+                    "\n> ⚠️ **Divergence signal:** Neutral news sentiment on a high-magnitude move — "
+                    "possible policy surprise or pre-positioning before public announcement."
+                )
+
+            # Earnings correlation for stocks
             if quarterly_results:
                 news_lower = news_output.lower()
                 earnings_keywords = ["result", "earning", "profit", "revenue", "q1", "q2", "q3", "q4", "sales"]
                 if any(kw in news_lower for kw in earnings_keywords):
                     output.append("\n**📊 Correlated Quarterly Financial Results:**")
                     output.append(f"- **Reporting Period:** {quarterly_results.get('period', 'N/A')}")
-                    
+
                     rev_yoy = quarterly_results.get('revenue_yoy_pct')
-                    rev_cr = quarterly_results.get('revenue_cr')
+                    rev_cr  = quarterly_results.get('revenue_cr')
                     rev_str = f"₹{rev_cr:.2f} Cr" if isinstance(rev_cr, (int, float)) else str(rev_cr)
                     if isinstance(rev_yoy, (int, float)):
                         output.append(f"- **Revenue:** {rev_str} ({rev_yoy:+.2f}% YoY)")
                     else:
                         output.append(f"- **Revenue:** {rev_str} ({rev_yoy} YoY)")
-                        
+
                     prof_yoy = quarterly_results.get('profit_yoy_pct')
-                    prof_cr = quarterly_results.get('net_profit_cr')
+                    prof_cr  = quarterly_results.get('net_profit_cr')
                     prof_str = f"₹{prof_cr:.2f} Cr" if isinstance(prof_cr, (int, float)) else str(prof_cr)
                     if isinstance(prof_yoy, (int, float)):
                         output.append(f"- **Net Profit:** {prof_str} ({prof_yoy:+.2f}% YoY)")
                     else:
                         output.append(f"- **Net Profit:** {prof_str} ({prof_yoy} YoY)")
-                        
-                    eps = quarterly_results.get('eps')
+
+                    eps     = quarterly_results.get('eps')
                     eps_yoy = quarterly_results.get('eps_yoy_pct')
-                    if isinstance(eps, (int, float)):
-                        eps_str = f"₹{eps:.2f}"
-                    else:
-                        eps_str = str(eps)
+                    eps_str = f"₹{eps:.2f}" if isinstance(eps, (int, float)) else str(eps)
                     if isinstance(eps_yoy, (int, float)):
                         output.append(f"- **EPS:** {eps_str} ({eps_yoy:+.2f}% YoY)")
                     else:
                         output.append(f"- **EPS:** {eps_str} ({eps_yoy} YoY)")
-                        
+
                     if quarterly_results.get('guidance'):
                         output.append(f"- **Guidance:** {quarterly_results.get('guidance')}")
                     output.append(f"- **Source:** [Screener/Yahoo]({quarterly_results.get('source_url', '#')})")
+
         except Exception as exc:
             output.append(f"  ❌ News search failed: {exc}")
+
+        # Part B — forward ML/signal context as-of each anomaly date
+        if repo is not None:
+            try:
+                ml_pred = repo.ml_prediction_asof(date_str)
+                sig     = repo.signal_composite_asof(symbol_upper, date_str)
+                if ml_pred or sig:
+                    output.append("\n**📡 What the models said on this date:**")
+                if ml_pred:
+                    signal_label = ml_pred.get("regime_signal", "N/A")
+                    prob         = ml_pred.get("prob_up", 0.0)
+                    exp_ret      = ml_pred.get("expected_return_pct", 0.0)
+                    # Characterise expected direction for narration
+                    direction = "mean-reversion (bearish 5d expectation)" if exp_ret < 0 else "continuation (bullish 5d expectation)"
+                    output.append(
+                        f"- **ML (5d forecast):** `{signal_label}` | prob_up={prob:.0%} | "
+                        f"expected_return={exp_ret:+.2f}% → {direction}"
+                    )
+                if sig:
+                    action     = sig.get("action", "N/A")
+                    score      = sig.get("composite_score", 0.0)
+                    anom_flag  = sig.get("anomaly_flag", "")
+                    confirmed  = action in ("BUY", "WATCH_LONG")
+                    verdict    = "✅ Signal confirmed shock" if confirmed else "⚠️ Signal contradicted by shock"
+                    output.append(
+                        f"- **Composite signal:** `{action}` (score={score:.1f}, anomaly_flag={anom_flag}) — {verdict}"
+                    )
+            except Exception as _e:
+                logger.warning("Forward context lookup failed for %s on %s: %s", symbol_upper, date_str, _e)
+
         output.append("\n" + "─" * 40 + "\n")
-        
-    # Append COMEX price chart if it's a Gold or Silver ETF to help create correlation
+
+    # Append COMEX price chart if it's a Gold or Silver ETF
     comex_symbol = None
     if "GOLD" in symbol_upper:
         comex_symbol = "GC=F"
@@ -1130,7 +1252,7 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         except Exception as e:
             logger.warning("Failed to append COMEX chart for %s: %s", symbol_upper, e)
 
-    # Append GARCH Volatility Chart if GARCH data exists
+    # Append GARCH Volatility Chart if GARCH data exists in weight_checkpoints
     try:
         from src.tools.chart_tools import plot_garch_volatility_chart
         garch_chart = plot_garch_volatility_chart.invoke({"symbol": symbol_upper, "days": days})
