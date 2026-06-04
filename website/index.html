@@ -853,7 +853,7 @@
       <button class="chip" data-q="macro"><span class="chip-ico">🌍</span>Show macro</button>
       <button class="chip" data-q="premium"><span class="chip-ico">💰</span>Which ETFs trade at a premium?</button>
       <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>Today's GOLDBEES signal</button>
-      <button class="chip" data-q="exposure"><span class="chip-ico">📊</span>Am I overexposed to IT?</button>
+      <button class="chip" data-q="prompts"><span class="chip-ico">📖</span>/prompts</button>
     </div>
 
     <div class="terminal-wrap">
@@ -1555,24 +1555,47 @@ const QUERIES = {
 <span class="ax">      └────────────────────────────────────────────────────────────────┘</span>
 <span class="ax">           May-04       May-13 <span class="marker">↑spike</span>      May-27       Jun-04</span></div>`
   },
-  exposure: {
-    cmd: 'am I overexposed to IT sector?',
-    out: `<div class="out term-thinking">→ intent: <span class="hi">portfolio</span> · reading live Zerodha holdings…</div>
+  prompts: {
+    cmd: '/prompts',
+    out: `<div class="out dim">Browsing prompt library — 8 categories · type any prompt to run it</div>
 <br/>
-<div class="section-header">📊 Sector Exposure — Live CNC Holdings</div>
-<br/>
-<div class="out dim">┌────────────────┬──────────┬──────────┐</div>
-<div class="out dim">│ Sector         │ Weight   │ vs Nifty │</div>
-<div class="out dim">├────────────────┼──────────┼──────────┤</div>
-<div class="out">│ <span class="hi">Information Tech</span>│ <span class="hi-red">31.4%</span>    │ <span class="hi-red">+13.2%</span>   │</div>
-<div class="out">│ Financials     │ 22.1%    │ −5.8%    │</div>
-<div class="out">│ Energy         │ 14.0%    │ +1.1%    │</div>
-<div class="out">│ FMCG           │ 9.3%     │ −0.4%    │</div>
-<div class="out dim">└────────────────┴──────────┴──────────┘</div>
-<br/>
-<div class="out hi-red">⚠ Yes — IT is <span class="hi">31.4%</span> of your book vs ~18% in the Nifty 50.</div>
-<div class="out">   Top concentration: TCS (12.1%), INFY (9.4%), HCLTECH (6.0%).</div>
-<div class="out">   A single IT-sector shock would move your portfolio ~1.7× the index.</div>`
+<div class="ascii-chart"><span class="title">SIGNAL</span>
+<span class="ax">┌──────────────────────────────────────────┬──────────────────────────────────────────┐</span>
+<span class="ax">│ Prompt                                   │ What it does                             │</span>
+<span class="ax">├──────────────────────────────────────────┼──────────────────────────────────────────┤</span>
+<span class="ax">│</span> <span class="hi-green">goldbees signal</span>                          <span class="ax">│</span> Full ML pipeline — prob_up, Kelly, regime<span class="ax"> │</span>
+<span class="ax">│</span> composite score for all etfs             <span class="ax">│</span> Signal aggregator: 18 ETFs scored 0–100  <span class="ax">│</span>
+<span class="ax">│</span> inav premium alert                       <span class="ax">│</span> Scarcity premium Z-score alerts          <span class="ax">│</span>
+<span class="ax">│</span> plot signal breakdown GOLDBEES           <span class="ax">│</span> Pillar weights: macro/sentiment/flow/ML  <span class="ax">│</span>
+<span class="ax">└──────────────────────────────────────────┴──────────────────────────────────────────┘</span>
+<span class="title">ML</span>
+<span class="ax">┌──────────────────────────────────────────┬──────────────────────────────────────────┐</span>
+<span class="ax">│</span> <span class="hi-green">show GARCH chart</span>                         <span class="ax">│</span> GARCH vol trend vs vol-target line       <span class="ax">│</span>
+<span class="ax">│</span> goldbees ml prediction                   <span class="ax">│</span> LightGBM 5d forecast + confidence band   <span class="ax">│</span>
+<span class="ax">│</span> plot GARCH volatility last 180 days      <span class="ax">│</span> Historical volatility trend              <span class="ax">│</span>
+<span class="ax">└──────────────────────────────────────────┴──────────────────────────────────────────┘</span>
+<span class="title">MACRO</span>
+<span class="ax">┌──────────────────────────────────────────┬──────────────────────────────────────────┐</span>
+<span class="ax">│</span> <span class="hi-green">macro scan</span>                               <span class="ax">│</span> Live geopolitical events → ETF scores    <span class="ax">│</span>
+<span class="ax">│</span> comex gold today                         <span class="ax">│</span> COMEX pre-market gold/silver/copper      <span class="ax">│</span>
+<span class="ax">│</span> fii flows this week                      <span class="ax">│</span> FII/DII institutional net flows          <span class="ax">│</span>
+<span class="ax">│</span> plot fii dii chart                       <span class="ax">│</span> 30-day net flow trend chart              <span class="ax">│</span>
+<span class="ax">└──────────────────────────────────────────┴──────────────────────────────────────────┘</span>
+<span class="title">EQUITY</span>
+<span class="ax">┌──────────────────────────────────────────┬──────────────────────────────────────────┐</span>
+<span class="ax">│</span> analyse HDFC bank                        <span class="ax">│</span> Price, P/E, earnings, MF holdings, news  <span class="ax">│</span>
+<span class="ax">│</span> DSP fund holdings for infosys            <span class="ax">│</span> Cross-fund institutional ownership       <span class="ax">│</span>
+<span class="ax">│</span> compare ICICI with HDFC bank             <span class="ax">│</span> Side-by-side valuation and momentum      <span class="ax">│</span>
+<span class="ax">└──────────────────────────────────────────┴──────────────────────────────────────────┘</span>
+<span class="title">CHART · CODE · DATABASE · INTL_ETF · IMPORT</span>
+<span class="ax">┌──────────────────────────────────────────┬──────────────────────────────────────────┐</span>
+<span class="ax">│</span> plot GOLDBEES last 30 days               <span class="ax">│</span> Price trend line chart                   <span class="ax">│</span>
+<span class="ax">│</span> international ETF performance            <span class="ax">│</span> 3-yr return, vol, Sharpe for 6 ETFs      <span class="ax">│</span>
+<span class="ax">│</span> write a script to plot 90-day returns    <span class="ax">│</span> Generate + save analysis script          <span class="ax">│</span>
+<span class="ax">│</span> import today's data                      <span class="ax">│</span> Delta sync all categories                <span class="ax">│</span>
+<span class="ax">│</span> SELECT close FROM daily_prices LIMIT 10  <span class="ax">│</span> Direct SQL against ClickHouse            <span class="ax">│</span>
+<span class="ax">└──────────────────────────────────────────┴──────────────────────────────────────────┘</span></div>
+<div class="out dim" style="margin-top:6px">Usage: type any prompt above, or <span style="color:var(--teal)">/prompts signal</span> to filter by category.</div>`
   },
   macro: {
     cmd: 'show macro',
