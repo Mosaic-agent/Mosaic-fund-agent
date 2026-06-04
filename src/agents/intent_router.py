@@ -150,7 +150,8 @@ def _get_router_llm() -> Any | None:
                     api_key=settings.openai_api_key,
                     temperature=0,
                     max_tokens=50,
-                    request_timeout=30,
+                    request_timeout=120,
+                    timeout=120,
                 )
             else:
                 return ChatOpenAI(

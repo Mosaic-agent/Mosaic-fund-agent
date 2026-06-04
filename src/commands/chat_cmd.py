@@ -417,7 +417,8 @@ def _get_plan_llm() -> "Any":
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
-                request_timeout=30,  # Prevent permanent hangs on local endpoint
+                request_timeout=120,  # Prevent permanent hangs on local endpoint
+                timeout=120,
                 **kw,
             )
         elif settings.llm_provider == "anthropic":
