@@ -389,6 +389,25 @@
     }
     .flow-orch h4 { font-size: 15px; font-weight: 600; color: var(--white); margin-bottom: 4px; }
     .flow-orch p  { font-size: 13px; color: var(--text-dim); }
+    .flow-orch-row { display: flex; gap: 14px; align-items: stretch; }
+    .flow-orch-row .flow-orch { flex: 1; }
+    .flow-cache {
+      flex: 0 0 210px;
+      background: var(--bg2); border: 1px dashed var(--teal-dim);
+      border-radius: var(--radius); padding: 16px 18px;
+      display: flex; flex-direction: column; justify-content: center; text-align: left;
+      animation: cacheGlow 3s ease-in-out infinite;
+    }
+    .flow-cache .cache-title { font-size: 13px; font-weight: 600; color: var(--teal); }
+    .flow-cache .cache-meta  { font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.5; }
+    @keyframes cacheGlow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(0,212,170,0.0); }
+      50%      { box-shadow: 0 0 16px -3px rgba(0,212,170,0.30); }
+    }
+    @media (max-width: 760px) {
+      .flow-orch-row { flex-direction: column; }
+      .flow-cache { flex: auto; }
+    }
 
     /* Layer 4 — surfaces */
     .flow-surfaces {
@@ -1045,7 +1064,8 @@
     <h2 class="section-title">How it works</h2>
     <p class="section-body">
       Data lands in a local lake, fans out to four quant engines, converges in a
-      multi-agent orchestrator, and surfaces wherever you work.
+      multi-agent orchestrator — backed by a SQLite LLM cache so repeat questions
+      are free — and surfaces wherever you work.
     </p>
 
     <div class="flow">
@@ -1113,9 +1133,15 @@
       </div>
 
       <!-- Layer 3 — orchestrator -->
-      <div class="flow-orch">
-        <h4>🧠 Multi-Agent Orchestrator <span style="color:var(--text-muted);font-weight:400">(LangGraph ReAct)</span></h4>
-        <p>LLM intent router → specialist sub-agent guild (10 agents) · budget + tracing middleware auto-attached</p>
+      <div class="flow-orch-row">
+        <div class="flow-orch">
+          <h4>🧠 Multi-Agent Orchestrator <span style="color:var(--text-muted);font-weight:400">(LangGraph ReAct)</span></h4>
+          <p>LLM intent router → specialist sub-agent guild (10 agents) · budget + tracing middleware auto-attached</p>
+        </div>
+        <div class="flow-cache">
+          <div class="cache-title">⚡ SQLite LLM cache</div>
+          <div class="cache-meta">output/.cache · 24h TTL<br/>repeat questions return instantly</div>
+        </div>
       </div>
 
       <div class="flow-conn">
