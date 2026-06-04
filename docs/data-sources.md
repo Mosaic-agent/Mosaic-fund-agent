@@ -24,8 +24,10 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | CFTC COT (hedge fund positioning) | publicreporting.cftc.gov | Free, no auth |
 | Central bank gold reserves | IMF IFS REST API | Free, no auth |
 | Gold ETF AUM flows | Yahoo Finance (totalAssets) | Free |
-| Fund portfolio holdings | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series |
+| Fund portfolio holdings (Morningstar) | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series for AMCs not covered below |
 | DSP Multi Asset historical holdings | dspim.com portfolio ZIP archives | 31-month backfill (Sep 2023–Mar 2026) via `scripts/import_dsp_history.py`; one-time run |
+| Nippon India holdings | nipponindiamf.com | Dynamic monthly XLS discovery & import from 2024 onward via `src/scripts/fund_imports/` |
+| ICICI Prudential / Index holdings | icicipruamc.com | Monthly PDF/XLS parsing & import via `src/scripts/fund_imports/` |
 | FII / DII institutional flows | Sensibull oxide API | Free, no auth; ~6 months rolling daily + 7+ years monthly |
 | Expert Macro Tweets | Nitter RSS proxies | Free, scrapes Twitter (X) updates of macro experts (e.g. Ritesh Jain) for pre-market sentiment |
 
