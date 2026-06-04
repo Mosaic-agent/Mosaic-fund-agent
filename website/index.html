@@ -25,13 +25,14 @@
       --gold-dim:  #b37a1a;
       --teal:      #00d4aa;
       --teal-dim:  #009977;
+      --teal-lt:   #4fe3c5;
       --blue:      #4d9fff;
       --blue-dim:  #2d6abf;
       --red:       #ff5e57;
       --green:     #4caf7d;
       --text:      #cdd9e5;
       --text-dim:  #768390;
-      --text-muted:#4a5568;
+      --text-muted:#6b7888;
       --white:     #e6edf3;
       --radius:    10px;
       --radius-lg: 16px;
@@ -49,7 +50,7 @@
     }
 
     a { color: var(--teal); text-decoration: none; }
-    a:hover { color: var(--gold); }
+    a:hover { color: var(--teal-lt); text-decoration: underline; }
 
     code, pre, .mono {
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -887,8 +888,8 @@
 <!-- ── PICK YOUR PATH ─────────────────────────────────────────────── -->
 <section class="section paths-section" id="paths">
   <div class="container">
-    <div class="section-label" style="text-align:center">Three ways to use it</div>
-    <h2 class="section-title" style="text-align:center;max-width:none">However you like to work</h2>
+    <div class="section-label">Three ways to use it</div>
+    <h2 class="section-title">However you like to work</h2>
 
     <div class="paths-grid">
       <a href="#quickstart" class="path-card">
@@ -916,9 +917,9 @@
 <!-- ── DASHBOARD SHOWCASE ─────────────────────────────────────────── -->
 <section class="section" id="dashboard">
   <div class="container">
-    <div class="section-label" style="text-align:center">The Dashboard</div>
-    <h2 class="section-title" style="text-align:center;max-width:none">One window into every market</h2>
-    <p class="section-body" style="margin:0 auto;text-align:center">
+    <div class="section-label">The Dashboard</div>
+    <h2 class="section-title">One window into every market</h2>
+    <p class="section-body">
       Launch with a single <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:14px">./run.sh</code>
       and the full Streamlit hub opens at <b style="color:var(--text)">localhost:8501</b> — 12 tabs over your live
       ClickHouse data. No Python, no notebooks, no glue code.
@@ -992,7 +993,7 @@
 </section>
 
 <!-- ── WHY ───────────────────────────────────────────────────────── -->
-<section class="section" id="why" style="border-top:1px solid var(--border)">
+<section class="section arch-bg" id="why">
   <div class="container">
     <div class="section-label">The Problem</div>
     <h2 class="section-title">Why another tool?</h2>
@@ -1038,7 +1039,7 @@
 </section>
 
 <!-- ── HOW IT WORKS ──────────────────────────────────────────────── -->
-<section class="section arch-bg" id="how">
+<section class="section" id="how">
   <div class="container">
     <div class="section-label">Architecture</div>
     <h2 class="section-title">How it works</h2>
@@ -1133,21 +1134,21 @@
     </div>
 
     <div class="stack-row" style="margin-top:40px">
-      <div class="stack-pill"><span class="dot" style="background:#4d9fff"></span>Python 3.11+</div>
-      <div class="stack-pill"><span class="dot" style="background:#f5a623"></span>ClickHouse</div>
-      <div class="stack-pill"><span class="dot" style="background:#00d4aa"></span>LangGraph ReAct</div>
-      <div class="stack-pill"><span class="dot" style="background:#e06c75"></span>LightGBM</div>
-      <div class="stack-pill"><span class="dot" style="background:#98c379"></span>GARCH + arch</div>
-      <div class="stack-pill"><span class="dot" style="background:#c678dd"></span>Isolation Forest</div>
-      <div class="stack-pill"><span class="dot" style="background:#56b6c2"></span>Streamlit</div>
-      <div class="stack-pill"><span class="dot" style="background:#f5a623"></span>Ollama / Gemma 4</div>
-      <div class="stack-pill"><span class="dot" style="background:#61afef"></span>OpenAI / Anthropic</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--blue)"></span>Python 3.11+</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--gold)"></span>ClickHouse</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>LangGraph ReAct</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--red)"></span>LightGBM</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--green)"></span>GARCH + arch</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>Isolation Forest</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--blue)"></span>Streamlit</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--gold)"></span>Ollama / Gemma 4</div>
+      <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>OpenAI / Anthropic</div>
     </div>
   </div>
 </section>
 
 <!-- ── FEATURES ──────────────────────────────────────────────────── -->
-<section class="section" id="features">
+<section class="section arch-bg" id="features">
   <div class="container">
     <div class="section-label">Capabilities</div>
     <h2 class="section-title">Built for every layer of the decision</h2>
@@ -1235,7 +1236,7 @@
 </section>
 
 <!-- ── AGENTS ────────────────────────────────────────────────────── -->
-<section class="section arch-bg" id="agents">
+<section class="section" id="agents">
   <div class="container">
     <div class="section-label">Multi-Agent System</div>
     <h2 class="section-title">A guild of specialist analysts</h2>
@@ -1306,7 +1307,7 @@
 </section>
 
 <!-- ── QUICK START ───────────────────────────────────────────────── -->
-<section class="section" id="quickstart">
+<section class="section arch-bg" id="quickstart">
   <div class="container">
     <div class="section-label">Get Started</div>
     <h2 class="section-title">Two commands. That's it.</h2>
@@ -1398,7 +1399,7 @@ http://localhost:8501
 </section>
 
 <!-- ── DOCS ──────────────────────────────────────────────────────── -->
-<section class="section-sm arch-bg" id="docs">
+<section class="section-sm" id="docs">
   <div class="container">
     <div class="section-label">Documentation</div>
     <h2 class="section-title">Learn the system</h2>
