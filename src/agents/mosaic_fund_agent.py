@@ -41,6 +41,7 @@ from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
 from src.tools.skills_tools import SKILLS_TOOLS
 from src.tools.newsapi_search import get_newsapi_stock_news
 from src.tools.chart_tools import CHART_TOOLS
+from src.tools.shoonya_tools import SHOONYA_TOOLS
 from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.panel import Panel
@@ -49,7 +50,7 @@ from rich.markdown import Markdown
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS
+ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS + SHOONYA_TOOLS
 
 
 def _make_daemon_thread() -> None:
