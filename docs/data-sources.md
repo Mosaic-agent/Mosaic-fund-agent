@@ -7,6 +7,7 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | What | Source | Notes |
 |---|---|---|
 | Stock / ETF / commodity OHLCV | Yahoo Finance `.NS`, `GC=F`, etc. | Free, subject to rate-limiting on high concurrency (handled via staggered jitter delays in the parallel stock importer) |
+| Currency exchange rates (FX) | Yahoo Finance | Free, daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD. Used in macro and anomaly models |
 | ETF iNAV — live | NSE API | Free, 15-second refresh (9:15 AM – 3:30 PM IST) |
 | ETF iNAV — historic / NAV | MFAPI.in (AMFI official) | Free |
 | COMEX spot prices | gold-api.com | Free with API key |
@@ -25,6 +26,7 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | Fund portfolio holdings | Morningstar sal-service API (direct) | Current snapshot; run monthly to build time-series |
 | DSP Multi Asset historical holdings | dspim.com portfolio ZIP archives | 31-month backfill (Sep 2023–Mar 2026) via `scripts/import_dsp_history.py`; one-time run |
 | FII / DII institutional flows | Sensibull oxide API | Free, no auth; ~6 months rolling daily + 7+ years monthly |
+| Expert Macro Tweets | Nitter RSS proxies | Free, scrapes Twitter (X) updates of macro experts (e.g. Ritesh Jain) for pre-market sentiment |
 
 ## Portfolio & Brokerage
 
