@@ -23,7 +23,13 @@ Mosaic closes that gap. It continuously syncs **13+ data sources** into a **loca
 - **Explanation** — anomaly detection that correlates price shocks with news, COMEX futures, COT positioning, and what the models predicted next
 - **Conversation** — ask plain-English questions; a guild of specialised LLM agents route, research, and answer
 
-Whether you're a **retail investor** wanting a visual dashboard, a **trader** watching pre-market commodities, or a **quant** backtesting volatility regimes — Mosaic turns scattered market data into clear, risk-adjusted decisions you can interrogate.
+### Who it's for
+
+| | Persona | What you get |
+|---|---|---|
+| 🧑‍💻 | **Retail investor** | *"What should I buy today? Am I overexposed?"* — one-click dashboard + plain-English ask, composite 0–100 scores, premium alerts, and clear BUY / HOLD / AVOID. No spreadsheets, no jargon. |
+| 🏦 | **Fund manager / AMC treasurer** | Track institutional flows, reverse-engineer DSP / Nippon / ICICI conviction from monthly disclosures, map macro themes to positioning, and size with the GARCH Risk Governor. *The signal design was shaped by a working AMC treasurer.* |
+| ⚡ | **Quant engineer** | Walk-forward LightGBM, GARCH + Isolation Forest, Kelly sizing, raw ClickHouse SQL. Add a signal pillar in one class, backtest it, ship it — all via `./mosaic.sh`. |
 
 > **Not financial advice.** This is a personal research tool. Always verify before acting on any output. Licensed under the [Apache License 2.0](LICENSE).
 
