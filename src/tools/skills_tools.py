@@ -905,7 +905,7 @@ def run_market_indicators() -> str:
     percentage of stocks above 50/200 DMA), sector rotation rankings, rupee stress (USDINR deviation),
     or gold ETF (SPDR GLD) whale flows.
     """
-    return _run_cmd([sys.executable, "src/scripts/portfolio/market_indicators.py"])
+    return _run_cmd(["src/scripts/portfolio/market_indicators.py"])
 
 
 # Unified list of core skill tools

@@ -83,6 +83,8 @@ def _build_sparkline(values: list[float], width: int = 20) -> str:
     Build a Unicode block sparkline from a list of floats.
     Positive = block above midline, negative = below. Normalised to 8 levels.
     """
+    import math
+    values = [v for v in values if v is not None and not math.isnan(v)]
     if not values:
         return ""
     lo, hi = min(values), max(values)
@@ -145,12 +147,14 @@ def _fetch_yahoo_closes(symbol: str, from_date: str, to_date: str) -> dict[str, 
     Returns:
         Dict mapping "YYYY-MM-DD" → close price.
     """
+    import math
     try:
         ticker = yf.Ticker(f"{symbol}.NS")
         hist = ticker.history(start=from_date, end=to_date, interval="1d")
         return {
             str(idx.date()): round(float(row["Close"]), 4)
             for idx, row in hist.iterrows()
+            if not math.isnan(row["Close"])
         }
     except Exception as exc:
         logger.debug("Yahoo close fetch failed for %s: %s", symbol, exc)
