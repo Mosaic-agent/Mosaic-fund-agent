@@ -641,6 +641,8 @@
     .term-output { opacity: 0; transition: opacity 0.35s ease; }
     .term-output.show { opacity: 1; }
     .term-thinking { color: var(--text-muted); font-style: italic; }
+    .term-body .boot-rule { color: var(--text-muted); opacity: 0.4; margin: 10px 0; font-size: 11px; overflow: hidden; white-space: nowrap; }
+    .term-body .prompt { white-space: nowrap; }
 
     /* ── "Pick your path" chooser ───────────────────────────────── */
     .paths-section {
@@ -833,13 +835,13 @@
       </div>
     </div>
 
-    <!-- Interactive "try asking" widget -->
-    <div class="try-label">👆 Click a question to see <b>Mosaic</b> answer it</div>
+    <!-- Interactive REPL demo -->
+    <div class="try-label">👆 Click a question — watch Mosaic <b>route &amp; answer</b> it live</div>
     <div class="query-chips" id="chips">
       <button class="chip active" data-q="anomaly"><span class="chip-ico">🔍</span>Explain GOLDBEES anomalies</button>
       <button class="chip" data-q="exposure"><span class="chip-ico">📊</span>Am I overexposed to IT?</button>
       <button class="chip" data-q="premium"><span class="chip-ico">💰</span>Which ETFs trade at a premium?</button>
-      <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>What should I do with GOLDBEES?</button>
+      <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>Today's GOLDBEES signal</button>
     </div>
 
     <div class="terminal-wrap">
@@ -847,17 +849,25 @@
         <span class="term-dot red"></span>
         <span class="term-dot yel"></span>
         <span class="term-dot grn"></span>
-        <span class="term-title">mosaic — bash</span>
+        <span class="term-title">mosaic — interactive chat</span>
       </div>
       <div class="term-body" id="term">
+        <!-- static boot preamble -->
+        <div class="out dim">$ ./mosaic.sh</div>
+        <div class="out">Local Ollama detected · ClickHouse healthy · loading agent…</div>
+        <div class="out"><span class="hi-green">✔ Agent ready</span> — <span class="hi">mosaic-gemma4</span> @ ollama</div>
+        <div class="out dim">ML running: LightGBM 5d forecast · GARCH volatility · Isolation Forest anomaly</div>
+        <div class="boot-rule">────────────────────────────────────────────────────────</div>
+        <!-- live You: prompt -->
         <div class="term-cmd-line">
-          <span class="prompt">$</span> <span class="cmd" id="termCmd"></span><span class="term-caret" id="caret"></span>
+          <span class="prompt">You:</span> <span class="cmd" id="termCmd"></span><span class="term-caret" id="caret"></span>
         </div>
         <div class="term-output" id="termOut"></div>
       </div>
     </div>
     <p style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:14px">
-      Illustrative output. Every number is computed in Python/SQL from your live ClickHouse data — never invented by the LLM.
+      Real interactive REPL — no slash command needed, just type. Every number is computed in Python/SQL
+      from your live ClickHouse data, never invented by the LLM.
     </p>
   </div>
 </section>
@@ -1334,16 +1344,18 @@ http://localhost:8501
       </div>
 
       <div class="qs-card">
-        <div class="qs-header">💬 &nbsp;Ask in plain English</div>
+        <div class="qs-header">💬 &nbsp;Interactive chat (just type)</div>
         <div class="qs-body">
-          <pre class="code-block"><span class="p">$</span> ./mosaic.sh ask \
-  <span class="s">"explain GOLDBEES anomalies last 30 days"</span>
+          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px">Bare <code style="background:var(--bg3);padding:1px 6px;border-radius:4px">./mosaic.sh</code> opens a REPL — no slash command needed, auto-routes to the right agent.</p>
+          <pre class="code-block"><span class="p">$</span> ./mosaic.sh
+<span class="c">✔ Agent ready — mosaic-gemma4 @ ollama</span>
 
-<span class="p">$</span> ./mosaic.sh ask \
-  <span class="s">"am I overexposed to IT sector?"</span>
+<span class="p">You:</span> <span class="s">explain GOLDBEES anomalies</span>
+<span class="p">You:</span> <span class="s">am I overexposed to IT?</span>
+<span class="p">You:</span> <span class="s">/signals</span>   <span class="c"># or slash commands</span>
 
-<span class="p">$</span> ./mosaic.sh ask \
-  <span class="s">"which ETFs trade at a premium?"</span></pre>
+<span class="c"># one-shot mode also works</span>
+<span class="p">$</span> ./mosaic.sh ask <span class="s">"today's gold signal"</span></pre>
         </div>
       </div>
 
@@ -1488,8 +1500,8 @@ http://localhost:8501
 /* ── Interactive "ask Mosaic" terminal ──────────────────────────── */
 const QUERIES = {
   anomaly: {
-    cmd: 'ask "explain GOLDBEES anomalies over 30 days"',
-    out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> (confidence 0.98)…</div>
+    cmd: 'explain GOLDBEES anomalies over 30 days',
+    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.98) · routing to signal sub-agent…</div>
 <br/>
 <div class="section-header">🔍 Price Anomaly &amp; News Correlation Report: GOLDBEES</div>
 <div class="out">Detected <span class="hi">1 anomaly</span> — GARCH composite (Final Z &gt; 2.5)</div>
@@ -1509,8 +1521,8 @@ const QUERIES = {
 <div class="out">Composite: <span class="hi-green">BUY</span> (score=71) → <span class="hi-green">✅ signal confirmed the shock</span></div>`
   },
   exposure: {
-    cmd: 'ask "am I overexposed to IT sector?"',
-    out: `<div class="out term-thinking">Routing → <span class="hi">portfolio orchestrator</span> · reading Zerodha holdings…</div>
+    cmd: 'am I overexposed to IT sector?',
+    out: `<div class="out term-thinking">→ intent: <span class="hi">portfolio</span> · reading live Zerodha holdings…</div>
 <br/>
 <div class="section-header">📊 Sector Exposure — Live CNC Holdings</div>
 <br/>
@@ -1528,8 +1540,8 @@ const QUERIES = {
 <div class="out">   A single IT-sector shock would move your portfolio ~1.7× the index.</div>`
   },
   premium: {
-    cmd: 'ask "which ETFs trade at a premium?"',
-    out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> · live iNAV snapshots…</div>
+    cmd: 'which ETFs trade at a premium?',
+    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> · reading live iNAV snapshots…</div>
 <br/>
 <div class="section-header">💰 iNAV Premium / Discount — International ETFs</div>
 <br/>
@@ -1545,10 +1557,10 @@ const QUERIES = {
 <div class="out hi-green">HNGSNGBEES at −1.4% (−1.7σ) is the cheapest entry right now.</div>`
   },
   signal: {
-    cmd: 'python src/scripts/goldbees_report.py',
-    out: `<div class="out term-thinking">Reading ml_predictions · weight_checkpoints · signal_composite…</div>
+    cmd: "today's GOLDBEES signal",
+    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> · running GOLDBEES pipeline…</div>
 <br/>
-<div class="section-header">🪙 GOLDBEES Pipeline — 2026-06-04</div>
+<div class="section-header">🪙 GOLDBEES Pipeline — 2026-06-05</div>
 <br/>
 <div class="out">ML forecast (5d):   prob_up = <span class="hi">0.64</span>   exp_return = <span class="hi-green">+1.8%</span></div>
 <div class="out">Confidence band:    [<span class="dim">−0.9%</span>, <span class="dim">+4.5%</span>]   cv_auc = 0.58 · hit = 61%</div>
