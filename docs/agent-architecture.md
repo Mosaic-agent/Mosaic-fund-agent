@@ -1,6 +1,6 @@
 # Agent Architecture
 
-> Last updated: 2026-06-04
+> Last updated: 2026-06-05
 
 This document details the multi-agent orchestration layer of the Mosaic Fund Agent platform. For the broader system architecture (data pipeline, ClickHouse schema, ML, tools), see [architecture.md](architecture.md).
 
@@ -133,6 +133,7 @@ class _SubAgent:
 - **Tools (~15):** `run_daily_signal_composite`, `run_goldbees_pipeline`, `run_risk_governor_analysis`, `run_etf_news_sentiment`, `run_premium_alerts`, `get_live_inav`, `query_clickhouse_db`, `explain_price_anomalies`, 5× `plot_*` chart tools
 - **Rule:** Never invent composite scores or regime labels — only narrate tool output
 - **Anomaly tool:** `explain_price_anomalies` calls `run_composite_anomaly` (GARCH + IF + MAD-Z) on full OHLCV history, surfaces per-date `regime` + `Final Z`, correlates news, and appends ML forward context (`ml_prediction_asof`, `signal_composite_asof`) — always invoke `plot_price_chart` in parallel
+- **Fallback (`_fallback`):** keyword-routed programmatic path for local models that can't emit tool-call JSON. Detects intent from the question and calls tools directly — *anomaly/spike/crash* → `explain_price_anomalies` + `plot_price_chart`; *signal/pipeline/goldbees* → `run_goldbees_pipeline`; *composite/score* → `run_daily_signal_composite`. Extracts symbol + time window (`30 days`, `3 months`, `1 year`) from the prompt, then runs an optional single LLM synthesis pass over the tool output.
 
 ### MacroSubAgent
 
@@ -224,6 +225,22 @@ Both callbacks are **auto-attached** in `run_subagent_for()` — no per-agent wi
 callbacks = [TracingCallbackHandler(run_id, agent=intent), BudgetCallbackHandler()]
 answer = subagent.run(question, callbacks=callbacks)
 ```
+
+---
+
+## LLM Response Cache (SQLite)
+
+**File:** `src/utils/llm_cache.py`
+
+A **SQLite-backed cache** (`output/.cache/llm_cache.db`) stores LLM responses keyed by prompt hash, so identical questions return instantly without re-hitting the model.
+
+| Property | Value |
+|---|---|
+| Backend | SQLite (single-file, no server) |
+| TTL | 24h (configurable) |
+| Scope | Per-prompt response cache, distinct from the in-memory intent-router LRU and the joblib ML-model cache |
+
+This is the **second storage engine** in the platform: ClickHouse holds market data (the quant engines read it), SQLite holds LLM responses (the agent layer reads it). Cache state is shown at startup, e.g. `llm_cache: enabled · ttl=24h · live=178 entries · size=1228kB`.
 
 ---
 
@@ -435,6 +452,7 @@ graph TB
     subgraph "Data Layer"
         REPO["MarketDataRepository"]
         CH[("ClickHouse<br/>market_data<br/>26 tables")]
+        SQLITE[("SQLite<br/>LLM cache<br/>24h TTL")]
     end
 
     CLI --> IR
@@ -446,6 +464,7 @@ graph TB
     COMEX & NSENT --> T
     T --> REPO --> CH
     TRC --> CH
+    DD & IE & SIG & MAC & NEWS & CODE & DB & INTL & RES -.->|cache| SQLITE
 ```
 
 ---
