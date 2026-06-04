@@ -908,6 +908,121 @@ def run_market_indicators() -> str:
     return _run_cmd(["src/scripts/portfolio/market_indicators.py"])
 
 
+@tool
+def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int = 60) -> str:
+    """
+    Scan price history for GOLDBEES or any asset to identify return anomalies (daily return outlier shocks > 2%)
+    in the last N days, automatically query historical news for those dates, and explain the causes.
+    Use this when the user asks to explain GOLDBEES price anomalies, chart spikes, or sudden drops.
+    """
+    import pandas as pd
+    import numpy as np
+    from datetime import datetime
+    from src.db.pool import query_df
+    from src.tools.news_search import search_financial_news
+    from src.utils.symbol_mapper import get_company_name
+
+    symbol_upper = symbol.strip().upper()
+    exchange_val = (exchange or "NSE").strip().upper()
+    
+    # 1. Fetch price history from ClickHouse (with fallback to yfinance)
+    df = pd.DataFrame()
+    try:
+        q = f"""
+            SELECT trade_date, toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices
+            WHERE symbol = '{symbol_upper}'
+            GROUP BY trade_date ORDER BY trade_date ASC
+        """
+        df = query_df(q)
+    except Exception as e:
+        logger.warning("ClickHouse query failed, falling back to yfinance: %s", e)
+        
+    if df.empty:
+        try:
+            import yfinance as yf
+            suffix = ".BO" if exchange_val == "BSE" else ".NS"
+            ticker_sym = f"{symbol_upper}{suffix}"
+            hist = yf.Ticker(ticker_sym).history(period="2y")
+            if not hist.empty:
+                df = hist.reset_index()[["Date", "Close"]]
+                df.columns = ["trade_date", "close"]
+                df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.tz_localize(None)
+        except Exception as e:
+            return f"Error: Could not retrieve price history for {symbol_upper}: {e}"
+            
+    if df.empty:
+        return f"Error: Price history for {symbol_upper} is empty."
+        
+    df = df.sort_values("trade_date").reset_index(drop=True)
+    df["daily_return"] = df["close"].pct_change() * 100
+    
+    # Calculate cutoff
+    cutoff_date = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=days)
+    df_recent = df[df["trade_date"] >= cutoff_date].copy()
+    
+    if df_recent.empty:
+        return f"No price data found in the last {days} days for {symbol_upper}."
+        
+    # Calculate standard deviation threshold based on recent returns
+    std_ret = df_recent["daily_return"].std()
+    threshold = max(2.0, 2.5 * std_ret) if not pd.isna(std_ret) else 2.0
+    
+    anomalies = df_recent[df_recent["daily_return"].abs() >= threshold].copy()
+    if anomalies.empty:
+        return f"No price anomalies (daily return magnitude >= {threshold:.2f}%) detected for {symbol_upper} in the last {days} days."
+        
+    anomalies = anomalies.sort_values("trade_date", ascending=False)
+    
+    output = []
+    output.append(f"### 🔍 Price Anomaly & News Correlation Report: {symbol_upper}")
+    output.append(f"Detected **{len(anomalies)}** anomaly dates in the last {days} days (threshold: return magnitude >= {threshold:.2f}%):\n")
+    
+    # Construct summary table
+    output.append("| Date | Close Price (₹) | Daily Return (%) | News Search Query |")
+    output.append("| :--- | :--- | :--- | :--- |")
+    
+    anomaly_queries = []
+    for _, row in anomalies.iterrows():
+        t_date = row["trade_date"]
+        date_str = t_date.strftime("%Y-%m-%d")
+        daily_ret = row["daily_return"]
+        close_px = row["close"]
+        
+        # Determine best search query for the asset type
+        company_name = get_company_name(symbol_upper)
+        if "GOLD" in symbol_upper:
+            query = "gold price India custom duty import tax"
+        elif "SILVER" in symbol_upper:
+            query = "silver price India customs tax"
+        elif symbol_upper in ["NIFTYBEES", "BANKBEES", "JUNIORBEES", "MID150BEES"]:
+            query = "Nifty stock market India news"
+        else:
+            query = f"{company_name or symbol_upper} stock news"
+            
+        output.append(f"| {date_str} | {close_px:.2f} | {daily_ret:+.2f}% | `{query}` |")
+        anomaly_queries.append((date_str, close_px, daily_ret, query))
+        
+    output.append("\n" + "─" * 40 + "\n")
+    output.append("### 📰 Detailed Date-by-Date News Correlation:\n")
+    
+    for date_str, close_px, daily_ret, query in anomaly_queries:
+        output.append(f"#### 📅 Date: **{date_str}** | Close: ₹{close_px:.2f} | Daily Return: **{daily_ret:+.2f}%**")
+        output.append(f"*Searching news for: \"{query}\" on {date_str}...*")
+        
+        try:
+            news_output = search_financial_news.invoke({"query": query, "max_results": 3, "target_date": date_str})
+            if "No news found" in news_output:
+                fallback_query = f"{symbol_upper} share price news"
+                news_output = search_financial_news.invoke({"query": fallback_query, "max_results": 3, "target_date": date_str})
+            output.append(news_output)
+        except Exception as exc:
+            output.append(f"  ❌ News search failed: {exc}")
+        output.append("\n" + "─" * 40 + "\n")
+        
+    return "\n".join(output)
+
+
 # Unified list of core skill tools
 SKILLS_TOOLS = [
     run_goldbees_pipeline,
@@ -927,4 +1042,5 @@ SKILLS_TOOLS = [
     run_premium_alerts,
     run_deepdive_analysis,
     run_market_indicators,
+    explain_price_anomalies,
 ]

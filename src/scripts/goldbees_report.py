@@ -169,7 +169,19 @@ def main():
 
     skill = round(float(ml["cv_auc_mean"]) - 0.5, 3)
     inav_str = f"{inav_prem:+.2f}%" if inav_prem is not None else "N/A"
-    inav_alert = "  ⚠️  PREMIUM > +5% — do not enter" if (inav_prem or 0) > 5 else "  ✅ No premium alert"
+    if inav_prem is not None:
+        if inav_prem > 5.0:
+            inav_alert = "  ⚠️  CRITICAL PREMIUM > +5% — do not enter"
+        elif inav_prem >= 1.0:
+            inav_alert = "  ⚠️  ELEVATED PREMIUM > +1% — monitor drag"
+        elif inav_prem >= 0.8:
+            inav_alert = "  ⚠️  BORDERLINE PREMIUM (>0.8%) — monitor drag"
+        elif inav_prem < -1.0:
+            inav_alert = "  ✅ DISCOUNT — favorable entry"
+        else:
+            inav_alert = "  ✅ Fair Value (No premium alert)"
+    else:
+        inav_alert = "  ✅ No premium alert"
 
     rec = get_llm_recommendation(
         regime=regime,
@@ -207,7 +219,7 @@ def main():
   Expected return  : {float(ml['expected_return_pct']):+.2f}%  (5-day)
   Confidence band  : [{float(ml['confidence_low']):.2f}%, {float(ml['confidence_high']):.2f}%]
   Model AUC        : {float(ml['cv_auc_mean']):.3f}  (skill: {skill:+.3f})
-  Regime signal    : {ml['regime_signal']}
+  ML Signal (5d)   : {ml['regime_signal']}
 
   Position Weights
   ─────────────────

@@ -169,7 +169,7 @@ def run_drift_monitor(lookback_days: int = 90, auto_retrain: bool = True) -> Non
 
     # Filter for evaluations that occurred in the past (already realized)
     # Since horizon_days is 5 trading days (~7 calendar days), filter out recent records
-    eval_cutoff = datetime.now().date() - pd.Timedelta(days=7)
+    eval_cutoff = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=7)
     df_eval = df[df["as_of"] <= eval_cutoff].head(lookback_days).copy()
 
     if len(df_eval) < 5:

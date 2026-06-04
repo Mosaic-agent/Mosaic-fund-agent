@@ -897,6 +897,43 @@ def test_multi_price_chart_fallback():
     print("  ✓ Multi price chart fallback and index caret symbols handling passed")
 
 
+def test_explain_price_anomalies():
+    print("\n" + "="*60)
+    print("TEST 21: Explain Price Anomalies Tool Test")
+    print("="*60)
+
+    from src.tools.skills_tools import explain_price_anomalies
+    from unittest.mock import patch
+    import pandas as pd
+
+    # Create mock price dataframe where index 3 has a return anomaly: 6.5% spike
+    dates = pd.date_range(end="2026-06-03", periods=10, freq="D")
+    prices = [100.0, 100.0, 100.0, 106.5, 106.5, 106.5, 106.5, 106.5, 106.5, 106.5]
+    mock_df = pd.DataFrame({
+        "trade_date": dates,
+        "close": prices
+    })
+
+    with patch("src.db.pool.query_df", return_value=mock_df), \
+         patch("src.tools.news_search.search_financial_news") as mock_search:
+        
+        mock_search.invoke.return_value = "Mocked News: Custom duty increased to 15%"
+        
+        output = explain_price_anomalies.invoke({"symbol": "GOLDBEES", "days": 30})
+        
+        # Verify the report contents
+        assert "Price Anomaly & News Correlation Report" in output
+        assert "GOLDBEES" in output
+        anomaly_date_str = dates[3].strftime("%Y-%m-%d")
+        assert anomaly_date_str in output
+        assert "Mocked News" in output
+        
+        # Check that search_financial_news.invoke was called with the correct args dict
+        mock_search.invoke.assert_called_with({"query": "gold price India custom duty import tax", "max_results": 3, "target_date": anomaly_date_str})
+        
+    print("  ✓ Explain price anomalies unit test passed")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -919,6 +956,7 @@ if __name__ == "__main__":
         test_chat_cmd_pre_resolution,
         test_macd_chart_rendering_and_analysis,
         test_multi_price_chart_fallback,
+        test_explain_price_anomalies,
     ]
     passed = 0
     failed = 0
