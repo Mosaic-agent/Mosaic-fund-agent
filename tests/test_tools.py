@@ -909,9 +909,11 @@ def test_explain_price_anomalies():
     # Create mock price dataframe where index 3 has a return anomaly: 6.5% spike
     dates = pd.date_range(end="2026-06-03", periods=10, freq="D")
     prices = [100.0, 100.0, 100.0, 106.5, 106.5, 106.5, 106.5, 106.5, 106.5, 106.5]
+    volumes = [10000.0] * 10
     mock_df = pd.DataFrame({
         "trade_date": dates,
-        "close": prices
+        "close": prices,
+        "volume": volumes
     })
 
     with patch("src.db.pool.query_df", return_value=mock_df), \
@@ -929,6 +931,9 @@ def test_explain_price_anomalies():
         assert "Mocked News" in output
         assert "Correlated COMEX Futures Price Chart" in output
         assert "GC=F" in output
+        assert "20d Volatility" in output
+        assert "Volume (Spike)" in output
+        assert "10.0k" in output
         
         # Check that search_financial_news.invoke was called with the correct args dict
         mock_search.invoke.assert_called_with({"query": "gold price India custom duty import tax", "max_results": 3, "target_date": anomaly_date_str})

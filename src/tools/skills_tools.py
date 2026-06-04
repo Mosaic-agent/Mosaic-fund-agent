@@ -928,11 +928,13 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
     symbol_upper = symbol.strip().upper()
     exchange_val = (exchange or "NSE").strip().upper()
     
-    # 1. Fetch price history from ClickHouse (with fallback to yfinance)
+    # 1. Fetch price history and volume from ClickHouse (with fallback to yfinance)
     df = pd.DataFrame()
     try:
         q = f"""
-            SELECT trade_date, toFloat64(argMax(close, imported_at)) AS close
+            SELECT trade_date,
+                   toFloat64(argMax(close, imported_at)) AS close,
+                   toFloat64(argMax(volume, imported_at)) AS volume
             FROM market_data.daily_prices
             WHERE symbol = '{symbol_upper}'
             GROUP BY trade_date ORDER BY trade_date ASC
@@ -944,12 +946,15 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
     if df.empty:
         try:
             import yfinance as yf
-            suffix = ".BO" if exchange_val == "BSE" else ".NS"
-            ticker_sym = f"{symbol_upper}{suffix}"
+            if symbol_upper.endswith("=F") or "=F" in symbol_upper:
+                ticker_sym = symbol_upper
+            else:
+                suffix = ".BO" if exchange_val == "BSE" else ".NS"
+                ticker_sym = f"{symbol_upper}{suffix}"
             hist = yf.Ticker(ticker_sym).history(period="2y")
             if not hist.empty:
-                df = hist.reset_index()[["Date", "Close"]]
-                df.columns = ["trade_date", "close"]
+                df = hist.reset_index()[["Date", "Close", "Volume"]]
+                df.columns = ["trade_date", "close", "volume"]
                 df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.tz_localize(None)
         except Exception as e:
             return f"Error: Could not retrieve price history for {symbol_upper}: {e}"
@@ -958,7 +963,12 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         return f"Error: Price history for {symbol_upper} is empty."
         
     df = df.sort_values("trade_date").reset_index(drop=True)
+    df["volume"] = df["volume"].fillna(0.0)
     df["daily_return"] = df["close"].pct_change() * 100
+    
+    # Calculate rolling indicators on the full dataset before slicing
+    df["volatility_20d"] = df["daily_return"].rolling(20, min_periods=1).std()
+    df["volume_ma20"] = df["volume"].rolling(20, min_periods=1).mean()
     
     # Calculate cutoff
     cutoff_date = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=days)
@@ -995,13 +1005,23 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         except Exception as e:
             logger.warning("Failed to fetch quarterly results for %s: %s", symbol_upper, e)
 
+    def format_volume(vol: float) -> str:
+        if vol >= 10000000:
+            return f"{vol / 10000000:.2f} Cr"
+        elif vol >= 100000:
+            return f"{vol / 100000:.2f} L"
+        elif vol >= 1000:
+            return f"{vol / 1000:.1f}k"
+        else:
+            return f"{vol:,.0f}"
+
     output = []
     output.append(f"### 🔍 Price Anomaly & News Correlation Report: {symbol_upper}")
     output.append(f"Detected **{len(anomalies)}** anomaly dates in the last {days} days (threshold: return magnitude >= {threshold:.2f}%):\n")
     
     # Construct summary table
-    output.append("| Date | Close Price (₹) | Daily Return (%) | News Search Query |")
-    output.append("| :--- | :--- | :--- | :--- |")
+    output.append("| Date | Close Price (₹) | Daily Return (%) | 20d Volatility | Volume (Spike) | News Search Query |")
+    output.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
     
     anomaly_queries = []
     for _, row in anomalies.iterrows():
@@ -1009,6 +1029,14 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         date_str = t_date.strftime("%Y-%m-%d")
         daily_ret = row["daily_return"]
         close_px = row["close"]
+        vol_20d = row["volatility_20d"]
+        volume = row["volume"]
+        vol_ma = row["volume_ma20"]
+        vol_ratio = volume / vol_ma if vol_ma > 0 else 1.0
+        
+        vol_str = format_volume(volume)
+        vol_spike_str = f"{vol_str} ({vol_ratio:.1f}x)"
+        vol_20d_str = f"{vol_20d:.2f}%" if not pd.isna(vol_20d) else "N/A"
         
         # Determine best search query for the asset type
         company_name = get_company_name(symbol_upper)
@@ -1021,14 +1049,16 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         else:
             query = f"{company_name or symbol_upper} stock news"
             
-        output.append(f"| {date_str} | {close_px:.2f} | {daily_ret:+.2f}% | `{query}` |")
-        anomaly_queries.append((date_str, close_px, daily_ret, query))
+        output.append(f"| {date_str} | {close_px:.2f} | {daily_ret:+.2f}% | {vol_20d_str} | {vol_spike_str} | `{query}` |")
+        anomaly_queries.append((date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, query))
         
     output.append("\n" + "─" * 40 + "\n")
     output.append("### 📰 Detailed Date-by-Date News Correlation:\n")
     
-    for date_str, close_px, daily_ret, query in anomaly_queries:
+    for date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, query in anomaly_queries:
         output.append(f"#### 📅 Date: **{date_str}** | Close: ₹{close_px:.2f} | Daily Return: **{daily_ret:+.2f}%**")
+        output.append(f"- **20-Day Rolling Daily Volatility:** {vol_20d_str}")
+        output.append(f"- **Trading Volume:** {vol_spike_str}")
         output.append(f"*Searching news for: \"{query}\" on {date_str}...*")
         
         try:
@@ -1099,6 +1129,20 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
             output.append("\n" + "─" * 40 + "\n")
         except Exception as e:
             logger.warning("Failed to append COMEX chart for %s: %s", symbol_upper, e)
+
+    # Append GARCH Volatility Chart if GARCH data exists
+    try:
+        from src.tools.chart_tools import plot_garch_volatility_chart
+        garch_chart = plot_garch_volatility_chart.invoke({"symbol": symbol_upper, "days": days})
+        if "No GARCH data found" not in garch_chart:
+            output.append("### 📊 GARCH Annualised Volatility Chart:")
+            output.append(f"Here is the GARCH(1,1) annualised volatility trend for **{symbol_upper}** over the last {days} days:\n")
+            output.append("```text")
+            output.append(garch_chart)
+            output.append("```")
+            output.append("\n" + "─" * 40 + "\n")
+    except Exception as e:
+        logger.warning("Failed to append GARCH volatility chart for %s: %s", symbol_upper, e)
 
     return "\n".join(output)
 
