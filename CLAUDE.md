@@ -95,7 +95,7 @@ CLI (src/main.py)
 | Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
-| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`) |
+| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`). `run_composite_anomaly(df, df_cot, df_fx)` → per-date `regime`, `final_z`, `garch_vol`; requires full OHLCV + ≥60 rows |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
