@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mosaic — Quantitative Co-Pilot for Indian & Global Markets</title>
+  <meta name="description" content="ML-driven alpha, institutional flow tracking, and volatility-aware position sizing — all on a private, local-first data lake." />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── Reset & tokens ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0e14;
+      --bg1:       #0f1419;
+      --bg2:       #151c26;
+      --bg3:       #1c2736;
+      --border:    #1e2d3d;
+      --gold:      #f5a623;
+      --gold-dim:  #b37a1a;
+      --teal:      #00d4aa;
+      --teal-dim:  #009977;
+      --blue:      #4d9fff;
+      --blue-dim:  #2d6abf;
+      --red:       #ff5e57;
+      --green:     #4caf7d;
+      --text:      #cdd9e5;
+      --text-dim:  #768390;
+      --text-muted:#4a5568;
+      --white:     #e6edf3;
+      --radius:    10px;
+      --radius-lg: 16px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--teal); text-decoration: none; }
+    a:hover { color: var(--gold); }
+
+    code, pre, .mono {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    /* ── Layout helpers ─────────────────────────────────────────── */
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .section    { padding: 96px 0; }
+    .section-sm { padding: 64px 0; }
+
+    /* ── Navigation ─────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(10,14,20,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 0;
+    }
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 18px; font-weight: 700; color: var(--white);
+    }
+    .nav-logo .coin { font-size: 22px; }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a {
+      color: var(--text-dim); font-size: 14px; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--white); }
+    .nav-cta {
+      background: var(--gold); color: #000 !important;
+      padding: 7px 18px; border-radius: 6px; font-weight: 600 !important;
+      font-size: 13px !important;
+      transition: background 0.2s !important;
+    }
+    .nav-cta:hover { background: #d4891c !important; color: #000 !important; }
+
+    /* ── Hero ───────────────────────────────────────────────────── */
+    .hero {
+      padding: 120px 0 96px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(245,166,35,0.12) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.3);
+      border-radius: 20px; padding: 5px 14px;
+      font-size: 13px; font-weight: 500; color: var(--gold);
+      margin-bottom: 28px;
+    }
+    .badge .dot { width: 7px; height: 7px; background: var(--gold); border-radius: 50%; }
+    .hero h1 {
+      font-size: clamp(38px, 6vw, 72px);
+      font-weight: 700; line-height: 1.1;
+      color: var(--white); letter-spacing: -1.5px;
+      margin-bottom: 24px;
+    }
+    .hero h1 span { color: var(--gold); }
+    .hero-sub {
+      font-size: clamp(17px, 2.2vw, 20px);
+      color: var(--text-dim); max-width: 640px;
+      margin: 0 auto 40px;
+      line-height: 1.6;
+    }
+    .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--gold); color: #000;
+      padding: 13px 28px; border-radius: 8px;
+      font-weight: 700; font-size: 15px;
+      transition: background 0.2s, transform 0.1s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-primary:hover { background: #d4891c; color: #000; transform: translateY(-1px); }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 13px 28px; border-radius: 8px;
+      font-weight: 500; font-size: 15px;
+      transition: border-color 0.2s, color 0.2s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-outline:hover { border-color: var(--text-dim); color: var(--white); }
+
+    .hero-stats {
+      display: flex; justify-content: center; gap: 48px;
+      margin-top: 72px; flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat-num {
+      font-size: 32px; font-weight: 700;
+      color: var(--white); letter-spacing: -1px;
+    }
+    .stat-num span { color: var(--gold); }
+    .stat-label { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── Terminal demo ──────────────────────────────────────────── */
+    .terminal-wrap {
+      max-width: 860px; margin: 72px auto 0;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    }
+    .term-bar {
+      background: var(--bg2); padding: 12px 18px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .term-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .term-dot.red   { background: #ff5f56; }
+    .term-dot.yel   { background: #ffbd2e; }
+    .term-dot.grn   { background: #27c93f; }
+    .term-title { flex: 1; text-align: center; font-size: 12px; color: var(--text-muted); }
+    .term-body {
+      background: #0d1117;
+      padding: 24px 28px;
+      font-size: 13.5px; line-height: 1.8;
+      overflow-x: auto;
+    }
+    .term-body .prompt { color: var(--teal); }
+    .term-body .cmd    { color: var(--white); }
+    .term-body .out    { color: var(--text-dim); }
+    .term-body .hi     { color: var(--gold); font-weight: 600; }
+    .term-body .hi-green { color: var(--green); font-weight: 600; }
+    .term-body .hi-red   { color: var(--red); }
+    .term-body .hi-blue  { color: var(--blue); }
+    .term-body .section-header { color: var(--teal); font-weight: 600; }
+    .term-body .dim    { color: var(--text-muted); }
+
+    /* ── Section headings ───────────────────────────────────────── */
+    .section-label {
+      text-transform: uppercase; letter-spacing: 2px;
+      font-size: 12px; font-weight: 600;
+      color: var(--gold); margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 42px);
+      font-weight: 700; color: var(--white);
+      letter-spacing: -0.8px; line-height: 1.2;
+      margin-bottom: 16px;
+    }
+    .section-body {
+      font-size: 17px; color: var(--text-dim);
+      max-width: 600px; line-height: 1.7;
+    }
+
+    /* ── Why cards ──────────────────────────────────────────────── */
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px; margin-top: 56px;
+    }
+    .why-card {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .why-card:hover {
+      border-color: rgba(245,166,35,0.35);
+      transform: translateY(-2px);
+    }
+    .why-icon {
+      font-size: 32px; margin-bottom: 16px;
+    }
+    .why-card h3 {
+      font-size: 17px; font-weight: 600;
+      color: var(--white); margin-bottom: 10px;
+    }
+    .why-card p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+
+    /* ── Architecture pipeline ──────────────────────────────────── */
+    .arch-bg {
+      background: var(--bg1);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 48px 0;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    .pipeline-step {
+      flex: 1; min-width: 160px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 16px;
+      text-align: center;
+      position: relative;
+    }
+    .pipeline-step + .pipeline-step { margin-left: -1px; border-radius: 0; }
+    .pipeline-step:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+    .pipeline-step:last-child  { border-radius: 0 var(--radius) var(--radius) 0; }
+    .pipeline-step:hover { background: var(--bg3); z-index: 1; }
+    .pipe-arrow {
+      position: absolute; right: -12px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--gold); font-size: 18px; z-index: 2;
+    }
+    .pipe-num {
+      font-size: 11px; font-weight: 700;
+      color: var(--gold); letter-spacing: 1px;
+      text-transform: uppercase; margin-bottom: 8px;
+    }
+    .pipe-title {
+      font-size: 14px; font-weight: 600;
+      color: var(--white); margin-bottom: 8px;
+    }
+    .pipe-detail {
+      font-size: 12px; color: var(--text-dim); line-height: 1.5;
+    }
+
+    /* ── Features grid ──────────────────────────────────────────── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px; margin-top: 56px;
+    }
+    .feature-card {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: var(--teal-dim); }
+    .feature-card.gold:hover { border-color: var(--gold-dim); }
+    .feature-card.blue:hover { border-color: var(--blue-dim); }
+    .feat-tag {
+      display: inline-block; padding: 3px 10px;
+      border-radius: 4px; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.5px; text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .feat-tag.teal { background: rgba(0,212,170,0.1); color: var(--teal); }
+    .feat-tag.gold { background: rgba(245,166,35,0.1); color: var(--gold); }
+    .feat-tag.blue { background: rgba(77,159,255,0.1); color: var(--blue); }
+    .feat-tag.red  { background: rgba(255,94,87,0.1);  color: var(--red);  }
+    .feature-card h3 {
+      font-size: 18px; font-weight: 600;
+      color: var(--white); margin-bottom: 10px;
+    }
+    .feature-card p { font-size: 14px; color: var(--text-dim); line-height: 1.6; }
+    .feat-bullets { margin-top: 14px; list-style: none; }
+    .feat-bullets li {
+      font-size: 13px; color: var(--text-dim);
+      padding: 4px 0; padding-left: 18px; position: relative;
+    }
+    .feat-bullets li::before {
+      content: '→'; position: absolute; left: 0;
+      color: var(--gold); font-size: 12px;
+    }
+
+    /* ── Agent guild ────────────────────────────────────────────── */
+    .agents-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px; margin-top: 48px;
+    }
+    .agent-card {
+      background: var(--bg1); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+      display: flex; gap: 14px; align-items: flex-start;
+      transition: border-color 0.2s;
+    }
+    .agent-card:hover { border-color: rgba(77,159,255,0.4); }
+    .agent-icon { font-size: 26px; flex-shrink: 0; line-height: 1; }
+    .agent-card h4 { font-size: 14px; font-weight: 600; color: var(--white); margin-bottom: 6px; }
+    .agent-card p  { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+
+    /* ── Stack bar ──────────────────────────────────────────────── */
+    .stack-row {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin-top: 40px;
+    }
+    .stack-pill {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 6px 16px;
+      font-size: 13px; color: var(--text-dim);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .stack-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Quick start ────────────────────────────────────────────── */
+    .quickstart-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px; margin-top: 48px;
+    }
+    @media (max-width: 720px) {
+      .quickstart-grid { grid-template-columns: 1fr; }
+    }
+    .qs-card {
+      background: var(--bg1); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); overflow: hidden;
+    }
+    .qs-header {
+      background: var(--bg2); padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; color: var(--text-dim);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .qs-body { padding: 20px; }
+    pre.code-block {
+      background: #0d1117;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-size: 13px;
+      color: var(--text-dim);
+      overflow-x: auto;
+      line-height: 1.7;
+    }
+    pre.code-block .c  { color: var(--text-muted); } /* comment */
+    pre.code-block .kw { color: var(--blue); }        /* keyword */
+    pre.code-block .s  { color: var(--green); }       /* string */
+    pre.code-block .p  { color: var(--gold); }        /* prompt */
+
+    /* ── Docs table ─────────────────────────────────────────────── */
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 14px; margin-top: 40px;
+    }
+    .doc-link {
+      background: var(--bg1); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px;
+      display: flex; align-items: center; gap: 14px;
+      color: var(--text); transition: border-color 0.2s, color 0.2s;
+    }
+    .doc-link:hover { border-color: var(--teal-dim); color: var(--white); }
+    .doc-link .doc-icon { font-size: 20px; flex-shrink: 0; }
+    .doc-link-title { font-size: 14px; font-weight: 600; color: inherit; margin-bottom: 3px; }
+    .doc-link-desc  { font-size: 12px; color: var(--text-muted); }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      background: var(--bg1); padding: 48px 0 32px;
+    }
+    .footer-inner {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      flex-wrap: wrap; gap: 32px;
+      max-width: 1120px; margin: 0 auto; padding: 0 24px;
+    }
+    .footer-brand p { font-size: 13px; color: var(--text-muted); margin-top: 8px; max-width: 280px; }
+    .footer-links { display: flex; gap: 48px; flex-wrap: wrap; }
+    .footer-col h5 { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+    .footer-col a  { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+    .footer-col a:hover { color: var(--text); }
+    .footer-bottom {
+      max-width: 1120px; margin: 32px auto 0;
+      padding: 16px 24px 0;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+    }
+    .footer-bottom p { font-size: 12px; color: var(--text-muted); }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+    .lbadge {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 10px;
+      font-size: 11px; color: var(--text-muted);
+    }
+
+    /* ── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero { padding: 80px 0 64px; }
+      .hero-stats { gap: 32px; }
+      .pipeline { flex-direction: column; }
+      .pipeline-step { min-width: unset; border-radius: var(--radius) !important; margin-left: 0 !important; margin-bottom: 8px; }
+      .pipe-arrow { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAV ──────────────────────────────────────────────────────── -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">
+      <span class="coin">🪙</span>
+      <span>Mosaic</span>
+    </div>
+    <div class="nav-links">
+      <a href="#why">Why</a>
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#agents">Agents</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="#docs">Docs</a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" class="nav-cta">GitHub →</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ── HERO ─────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="container">
+    <div class="badge">
+      <span class="dot"></span>
+      Open Source · Python 3.11+ · Local-first
+    </div>
+
+    <h1>Your quantitative<br /><span>co-pilot</span> for Indian markets</h1>
+
+    <p class="hero-sub">
+      ML-driven alpha, institutional flow tracking, and volatility-aware position
+      sizing — all on a private, self-hosted data lake you control.
+    </p>
+
+    <div class="hero-actions">
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" class="btn-primary">
+        ★ Star on GitHub
+      </a>
+      <a href="#quickstart" class="btn-outline">
+        Quick Start →
+      </a>
+    </div>
+
+    <div class="hero-stats">
+      <div class="stat">
+        <div class="stat-num">13<span>+</span></div>
+        <div class="stat-label">Data sources synced</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">18<span>+</span></div>
+        <div class="stat-label">ETFs scored daily</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">26</div>
+        <div class="stat-label">ClickHouse tables</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num">10</div>
+        <div class="stat-label">Specialist AI agents</div>
+      </div>
+    </div>
+
+    <!-- Terminal demo -->
+    <div class="terminal-wrap">
+      <div class="term-bar">
+        <span class="term-dot red"></span>
+        <span class="term-dot yel"></span>
+        <span class="term-dot grn"></span>
+        <span class="term-title">mosaic — bash</span>
+      </div>
+      <div class="term-body">
+        <div><span class="prompt">$</span> <span class="cmd">python src/main.py ask "explain GOLDBEES anomalies over 30 days"</span></div>
+        <div class="out">Routing → <span class="hi">signal agent</span> (confidence 0.98)</div>
+        <br />
+        <div class="section-header">🔍 Price Anomaly &amp; News Correlation Report: GOLDBEES</div>
+        <div class="out">Detected <span class="hi">1 anomaly</span> — GARCH composite (Final Z &gt; 2.5)</div>
+        <br />
+        <div class="out dim">┌──────────┬──────────┬─────────┬───────────────────────┬─────────┐</div>
+        <div class="out dim">│ Date     │ Return   │ Vol 20d │ Regime                │ Final Z │</div>
+        <div class="out dim">├──────────┼──────────┼─────────┼───────────────────────┼─────────┤</div>
+        <div class="out">│ <span class="hi">26-05-13</span> │ <span class="hi-green">+5.72%</span>   │ 1.94%   │ <span class="hi">🔥 Volatile Breakout</span>  │ <span class="hi">+3.81</span>   │</div>
+        <div class="out dim">└──────────┴──────────┴─────────┴───────────────────────┴─────────┘</div>
+        <br />
+        <div class="section-header">📰 News on 2026-05-13</div>
+        <div class="out">"Government <span class="hi">doubles import duty</span> on gold &amp; silver…" · Sentiment: NEUTRAL</div>
+        <div class="out hi-red">  ⚠ Divergence: neutral news on high-magnitude move → policy surprise</div>
+        <br />
+        <div class="section-header">📡 What the models said on this date</div>
+        <div class="out">ML 5d: <span class="hi-green">WATCH_LONG</span> | prob_up=<span class="hi">64%</span> | expected_return=<span class="hi-green">+1.8%</span> → continuation</div>
+        <div class="out">Composite: <span class="hi-green">BUY</span> (score=71) → <span class="hi-green">✅ signal confirmed the shock</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── WHY ───────────────────────────────────────────────────────── -->
+<section class="section" id="why">
+  <div class="container">
+    <div class="section-label">The Problem</div>
+    <h2 class="section-title">Why another tool?</h2>
+    <p class="section-body">
+      Serious decisions need clean cross-asset data, models that quantify edge and risk,
+      and context that explains <em>why</em> something moved. Retail tools give you charts.
+      Terminals give you feeds. Neither gives you all three in one place — on your own machine.
+    </p>
+
+    <div class="why-grid">
+      <div class="why-card">
+        <div class="why-icon">🏠</div>
+        <h3>Your data, your machine</h3>
+        <p>All market data stays in a local ClickHouse instance. No third-party cloud sync, no API leakage — your portfolio intelligence is private.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🤖</div>
+        <h3>LLM-grounded, not hallucinated</h3>
+        <p>Every number the agent reports is first computed in Python or SQL. The LLM only narrates — never calculates. A hard architectural rule, enforced everywhere.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🌐</div>
+        <h3>Works offline with Ollama</h3>
+        <p>Runs fully locally via Ollama (Gemma 4). The orchestrator auto-switches to compact prompts and data injection paths for low-context local models.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🔬</div>
+        <h3>Forensic anomaly explanation</h3>
+        <p>Price shocks are classified by GARCH regime, correlated with news, mapped to COMEX/COT context, and cross-referenced with what the ML model predicted next.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🐋</div>
+        <h3>Institutional flow intelligence</h3>
+        <p>Reverse-engineer DSP, Nippon, and ICICI AMC conviction from monthly portfolio disclosures. 24+ months of cross-fund ownership = highest-quality single-name signal.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">⚖️</div>
+        <h3>Volatility-aware sizing</h3>
+        <p>GARCH(1,1) conditional vol feeds inverse-vol + Kelly position sizing. High-stress regimes automatically reduce position weights before you need to think about it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── HOW IT WORKS ──────────────────────────────────────────────── -->
+<section class="section arch-bg" id="how">
+  <div class="container">
+    <div class="section-label">Architecture</div>
+    <h2 class="section-title">How it works</h2>
+    <p class="section-body">
+      Five stages from raw market data to a narrated, risk-adjusted answer you can act on.
+    </p>
+
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="pipe-num">01</div>
+        <div class="pipe-title">Ingest</div>
+        <div class="pipe-detail">13+ sources via watermark delta-sync. Yahoo · NSE · CFTC · Morningstar · NewsAPI · World Bank</div>
+        <span class="pipe-arrow">›</span>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipe-num">02</div>
+        <div class="pipe-title">Store</div>
+        <div class="pipe-detail">ClickHouse ReplacingMergeTree. 26 tables, idempotent inserts, typed repo reads with FINAL.</div>
+        <span class="pipe-arrow">›</span>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipe-num">03</div>
+        <div class="pipe-title">Compute</div>
+        <div class="pipe-detail">LightGBM 5d forecast · GARCH anomaly + Isolation Forest · 6-pillar composite signals · Kelly sizing</div>
+        <span class="pipe-arrow">›</span>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipe-num">04</div>
+        <div class="pipe-title">Route</div>
+        <div class="pipe-detail">LLM intent router → specialist sub-agent guild (10 agents). Budget + tracing middleware auto-attached.</div>
+        <span class="pipe-arrow">›</span>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipe-num">05</div>
+        <div class="pipe-title">Surface</div>
+        <div class="pipe-detail">CLI tables · Streamlit dashboard · Conversational "ask" · Claude / Gemini MCP tools</div>
+      </div>
+    </div>
+
+    <div class="stack-row">
+      <div class="stack-pill"><span class="dot" style="background:#4d9fff"></span>Python 3.11+</div>
+      <div class="stack-pill"><span class="dot" style="background:#f5a623"></span>ClickHouse</div>
+      <div class="stack-pill"><span class="dot" style="background:#00d4aa"></span>LangGraph ReAct</div>
+      <div class="stack-pill"><span class="dot" style="background:#e06c75"></span>LightGBM</div>
+      <div class="stack-pill"><span class="dot" style="background:#98c379"></span>GARCH + arch</div>
+      <div class="stack-pill"><span class="dot" style="background:#c678dd"></span>Isolation Forest</div>
+      <div class="stack-pill"><span class="dot" style="background:#56b6c2"></span>Streamlit</div>
+      <div class="stack-pill"><span class="dot" style="background:#f5a623"></span>Ollama / Gemma 4</div>
+      <div class="stack-pill"><span class="dot" style="background:#61afef"></span>OpenAI / Anthropic</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FEATURES ──────────────────────────────────────────────────── -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-label">Capabilities</div>
+    <h2 class="section-title">Built for every layer of the decision</h2>
+
+    <div class="features-grid">
+
+      <div class="feature-card gold">
+        <span class="feat-tag gold">Signals</span>
+        <h3>6-Pillar Composite Scoring</h3>
+        <p>18+ ETFs scored 0–100 daily across six independent pillars run in parallel via ThreadPoolExecutor.</p>
+        <ul class="feat-bullets">
+          <li>Macro themes (8 live-news event clusters)</li>
+          <li>Capital flows (FII/DII 5-day rolling net)</li>
+          <li>Valuation (iNAV Z-score premium/discount)</li>
+          <li>Sentiment (NewsAPI + GNews ratio)</li>
+          <li>ML forecast (LightGBM expected return)</li>
+          <li>GARCH anomaly regime booster/dampener</li>
+        </ul>
+      </div>
+
+      <div class="feature-card">
+        <span class="feat-tag teal">Anomaly</span>
+        <h3>GARCH + Isolation Forest Detection</h3>
+        <p>Three-stage pipeline that fires on ~5% of days — not the 21% false-positive rate of a naive Random Forest.</p>
+        <ul class="feat-bullets">
+          <li>MAD robust Z-score (fat-tail resistant)</li>
+          <li>GARCH(1,1) Student-t standardised residuals</li>
+          <li>Cross-asset IF: USDINR + COT crowding</li>
+          <li>6 regime labels: Flash Crash → Crowded Long</li>
+          <li>News + COMEX + ML forward context per date</li>
+        </ul>
+      </div>
+
+      <div class="feature-card blue">
+        <span class="feat-tag blue">ML</span>
+        <h3>LightGBM 5-Day Forecast</h3>
+        <p>Walk-forward time-series CV with quantile regression for calibrated uncertainty bands.</p>
+        <ul class="feat-bullets">
+          <li>25+ alpha features (momentum, vol, COT, FX, seasonality)</li>
+          <li>80% confidence band via quantile regression</li>
+          <li>AUC + hit-ratio from walk-forward CV</li>
+          <li>Kelly Criterion position sizing from prob_up</li>
+          <li>Model cache auto-invalidated on new data</li>
+        </ul>
+      </div>
+
+      <div class="feature-card">
+        <span class="feat-tag red">Risk</span>
+        <h3>Volatility-Aware Position Sizing</h3>
+        <p>Real-time GARCH vol feeds an inverse-vol + Kelly blend. Regime overrides cut size during stress.</p>
+        <ul class="feat-bullets">
+          <li>w(t) = vol_target / σ_t × regime_mult × score_gate</li>
+          <li>blended_50: 50% RG + 50% Kelly (recommended)</li>
+          <li>blended_30: conservative (70% RG + 30% Kelly)</li>
+          <li>Grid-search parameter optimizer included</li>
+        </ul>
+      </div>
+
+      <div class="feature-card">
+        <span class="feat-tag teal">Research</span>
+        <h3>Indian &amp; US Equity Deep-Dives</h3>
+        <p>One command pulls price, earnings, cashflow, promoter trends, MF cross-ownership, and news in parallel.</p>
+        <ul class="feat-bullets">
+          <li>NSE/BSE: 3yr cashflow, QoQ shareholding delta</li>
+          <li>DSP/Nippon/ICICI AMC conviction cross-check</li>
+          <li>US: SEC 10-K/10-Q, XBRL, exec comp, job trends</li>
+          <li>Auto-symbol resolution with QIP dilution check</li>
+        </ul>
+      </div>
+
+      <div class="feature-card gold">
+        <span class="feat-tag gold">Flows</span>
+        <h3>Institutional Whale Tracking</h3>
+        <p>Reverse-engineer AMC tactical pivots from monthly portfolio disclosures across 7 multi-asset funds.</p>
+        <ul class="feat-bullets">
+          <li>DSP: 31-month history, 60+ funds</li>
+          <li>Nippon India: dynamic URL discovery 2024+</li>
+          <li>CFTC COT: COMEX gold + silver speculator positioning</li>
+          <li>FII/DII: daily cash + F&O participant flows</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── AGENTS ────────────────────────────────────────────────────── -->
+<section class="section arch-bg" id="agents">
+  <div class="container">
+    <div class="section-label">Multi-Agent System</div>
+    <h2 class="section-title">A guild of specialist analysts</h2>
+    <p class="section-body">
+      Rather than one LLM with 80 tools, an intent router dispatches to 10 specialist sub-agents,
+      each with a curated tool set, domain system prompt, and hard limits (20 tool calls / 30k tokens / 180s).
+    </p>
+
+    <div class="agents-grid">
+      <div class="agent-card">
+        <div class="agent-icon">📊</div>
+        <div>
+          <h4>SignalSubAgent</h4>
+          <p>GOLDBEES ML pipeline, composite ETF scores, GARCH vol, anomaly explanation.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">🇮🇳</div>
+        <div>
+          <h4>IndianEquityResearchSubAgent</h4>
+          <p>NSE/BSE stocks — parallel fetch of price, earnings, promoter, MF holdings, news.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">🌐</div>
+        <div>
+          <h4>MacroSubAgent</h4>
+          <p>COMEX pre-market, FII/DII flows, macro theme scanner, whale tracker.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">🇺🇸</div>
+        <div>
+          <h4>DeepDiveSubAgent</h4>
+          <p>SEC EDGAR 10-K/10-Q, XBRL financials, exec comp, Workday hiring trends.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">🌍</div>
+        <div>
+          <h4>IntlETFSubAgent</h4>
+          <p>MAFANG, Hang Seng, Nasdaq ETFs — scarcity premium vs NAV analysis.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">📰</div>
+        <div>
+          <h4>NewsSubAgent</h4>
+          <p>Multi-source sentiment aggregation — NewsAPI + GNews per symbol.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">💻</div>
+        <div>
+          <h4>CodeSubAgent</h4>
+          <p>Ad-hoc Python execution and raw ClickHouse SQL queries.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">🗄️</div>
+        <div>
+          <h4>DatabaseSubAgent</h4>
+          <p>Schema inspection, watermark status, import freshness checks.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── QUICK START ───────────────────────────────────────────────── -->
+<section class="section" id="quickstart">
+  <div class="container">
+    <div class="section-label">Get Started</div>
+    <h2 class="section-title">Up and running in minutes</h2>
+
+    <div class="quickstart-grid">
+      <div class="qs-card">
+        <div class="qs-header">🐳 &nbsp;Docker (one-click)</div>
+        <div class="qs-body">
+          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px">No Python setup needed. Just Docker Desktop.</p>
+          <pre class="code-block"><span class="c"># macOS / Linux</span>
+<span class="p">$</span> ./run.sh
+
+<span class="c"># Windows</span>
+<span class="p">></span> run.bat
+
+<span class="c"># Then open</span>
+http://localhost:8501</pre>
+        </div>
+      </div>
+
+      <div class="qs-card">
+        <div class="qs-header">🐍 &nbsp;Developer install</div>
+        <div class="qs-body">
+          <pre class="code-block"><span class="p">$</span> git clone https://github.com/Mosaic-agent/
+    Mosaic-fund-agent.git
+<span class="p">$</span> cd Mosaic-fund-agent
+<span class="p">$</span> python3 -m venv .venv
+<span class="p">$</span> source .venv/bin/activate
+<span class="p">$</span> pip install -r requirements.txt
+<span class="p">$</span> cp .env.example .env   <span class="c"># add API keys</span>
+<span class="p">$</span> docker compose up clickhouse -d</pre>
+        </div>
+      </div>
+
+      <div class="qs-card">
+        <div class="qs-header">📡 &nbsp;Import &amp; signal</div>
+        <div class="qs-body">
+          <pre class="code-block"><span class="c"># Sync ETF price data</span>
+<span class="p">$</span> python src/main.py import --category etfs
+
+<span class="c"># Run composite signals</span>
+<span class="p">$</span> python src/main.py signals --save
+
+<span class="c"># GOLDBEES ML pipeline</span>
+<span class="p">$</span> python src/scripts/goldbees_report.py</pre>
+        </div>
+      </div>
+
+      <div class="qs-card">
+        <div class="qs-header">💬 &nbsp;Ask anything</div>
+        <div class="qs-body">
+          <pre class="code-block"><span class="p">$</span> python src/main.py ask \
+  <span class="s">"explain GOLDBEES anomalies last 30 days"</span>
+
+<span class="p">$</span> python src/main.py ask \
+  <span class="s">"am I overexposed to IT sector?"</span>
+
+<span class="p">$</span> python src/main.py ask \
+  <span class="s">"which ETFs trade at a premium?"</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top:28px;font-size:14px;color:var(--text-muted)">
+      Minimum keys to get started: <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">OPENAI_API_KEY</code> &nbsp;
+      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">NEWSAPI_KEY</code> &nbsp;
+      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">GOLD_API_KEY</code> — or use Ollama for fully offline operation.
+    </p>
+  </div>
+</section>
+
+<!-- ── DOCS ──────────────────────────────────────────────────────── -->
+<section class="section-sm arch-bg" id="docs">
+  <div class="container">
+    <div class="section-label">Documentation</div>
+    <h2 class="section-title">Learn the system</h2>
+
+    <div class="docs-grid">
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/architecture.md" class="doc-link">
+        <span class="doc-icon">🏗️</span>
+        <div>
+          <div class="doc-link-title">Architecture</div>
+          <div class="doc-link-desc">Data flow, design patterns, ClickHouse schema, ML pipeline</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/agent-architecture.md" class="doc-link">
+        <span class="doc-icon">🤖</span>
+        <div>
+          <div class="doc-link-title">Agent Architecture</div>
+          <div class="doc-link-desc">Intent routing, 10 sub-agents, tracing, budget middleware</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/anomaly-detection.md" class="doc-link">
+        <span class="doc-icon">🔬</span>
+        <div>
+          <div class="doc-link-title">Anomaly Detection</div>
+          <div class="doc-link-desc">GARCH pipeline, regime classification, news correlation</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md" class="doc-link">
+        <span class="doc-icon">📈</span>
+        <div>
+          <div class="doc-link-title">ML Forecast</div>
+          <div class="doc-link-desc">LightGBM 25-feature set, quantile CI, walk-forward CV</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/user_guide.md" class="doc-link">
+        <span class="doc-icon">📖</span>
+        <div>
+          <div class="doc-link-title">User Guide</div>
+          <div class="doc-link-desc">Tutorials, CLI commands, database explorer, offline setup</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/configuration.md" class="doc-link">
+        <span class="doc-icon">⚙️</span>
+        <div>
+          <div class="doc-link-title">Configuration</div>
+          <div class="doc-link-desc">All .env settings, LLM providers, local model setup</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/import-schema.md" class="doc-link">
+        <span class="doc-icon">🗄️</span>
+        <div>
+          <div class="doc-link-title">Import Schema</div>
+          <div class="doc-link-desc">All categories, ClickHouse tables, cron schedules</div>
+        </div>
+      </a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/data-sources.md" class="doc-link">
+        <span class="doc-icon">🌐</span>
+        <div>
+          <div class="doc-link-title">Data Sources</div>
+          <div class="doc-link-desc">APIs, feeds, and scraping strategy for all 13+ sources</div>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="nav-logo" style="font-size:20px">
+        <span class="coin">🪙</span> Mosaic
+      </div>
+      <p>A personal quantitative research platform for Indian &amp; global markets. Not financial advice.</p>
+    </div>
+    <div class="footer-links">
+      <div class="footer-col">
+        <h5>Project</h5>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent">GitHub</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/README.md">README</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/LICENSE">License</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/CONTRIBUTING.md">Contributing</a>
+      </div>
+      <div class="footer-col">
+        <h5>Docs</h5>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/architecture.md">Architecture</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/anomaly-detection.md">Anomaly Detection</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md">ML Forecast</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/user_guide.md">User Guide</a>
+      </div>
+      <div class="footer-col">
+        <h5>Stack</h5>
+        <a href="https://clickhouse.com">ClickHouse</a>
+        <a href="https://python.langchain.com">LangGraph</a>
+        <a href="https://lightgbm.readthedocs.io">LightGBM</a>
+        <a href="https://ollama.com">Ollama</a>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>Apache 2.0 License · Not financial advice · Personal research tool</p>
+    <div class="badges">
+      <span class="lbadge">Python 3.11+</span>
+      <span class="lbadge">ClickHouse</span>
+      <span class="lbadge">LangGraph</span>
+      <span class="lbadge">Local-first</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
