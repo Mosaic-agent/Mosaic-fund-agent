@@ -318,6 +318,8 @@ class MosaicFundAgent:
             extra_body: dict = {"options": {"num_ctx": settings.llm_context_window}}
             if settings.llm_think:
                 extra_body["think"] = True
+            # Thinking mode needs a longer timeout — qwen3 reasoning can take 60-120s
+            request_timeout = 300 if settings.llm_think else 120
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
@@ -326,6 +328,7 @@ class MosaicFundAgent:
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_body=extra_body,
+                timeout=request_timeout,
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────

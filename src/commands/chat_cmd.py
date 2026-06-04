@@ -61,6 +61,12 @@ _FOLLOWUP_RE = re.compile(
     re.I,
 )
 
+# Short positive/negative confirmations responding to agent prompts/questions.
+_CONFIRMATION_RE = re.compile(
+    r"^(?:yes|y|no|n|sure|please|ok|okay|yeah|yep|nah|yup|go\s+ahead|do\s+it|indeed|fine|cancel|nevermind|of\s+course|sure\s+thing)\b",
+    re.I,
+)
+
 
 # ── prompt_toolkit input session ──────────────────────────────────────────────
 
@@ -1583,7 +1589,22 @@ def run_chat_loop(console: Console | None = None) -> None:
             # Short follow-up phrases like "compare with HDFC", "vs ICICI",
             # "what about SBIN" should stay on the same agent as the last turn
             # instead of falling through to main.
-            if _intent == "main" and _FOLLOWUP_RE.match(raw.strip()) and _conv_history:
+            # ALSO: Short answers/responses (like "yes", "no", "y", "n", "sure", "ok")
+            # or any response when the previous assistant message ended with a question
+            # should stay on the previous agent.
+            _is_followup = False
+            if _intent == "main" and _conv_history:
+                if _FOLLOWUP_RE.match(raw.strip()):
+                    _is_followup = True
+                elif _CONFIRMATION_RE.match(raw.strip()) and len(raw.split()) <= 4:
+                    _is_followup = True
+                else:
+                    _prev_raw, _prev_answer, _prev_intent = _conv_history[-1]
+                    _cleaned_answer = _prev_answer.strip().rstrip("`").strip().rstrip("*").strip()
+                    if _cleaned_answer.endswith("?") and len(raw.split()) <= 8:
+                        _is_followup = True
+
+            if _is_followup:
                 for _, _, _prev_intent in reversed(_conv_history):
                     if _prev_intent not in ("main", ""):
                         logger.info(
@@ -1641,7 +1662,7 @@ def run_chat_loop(console: Console | None = None) -> None:
                     os.environ["VERBOSE"] = _prev_verbose
 
             # Persist this turn — store the intent so follow-up routing can reuse it.
-            _conv_history.append((raw, answer[:600] + "…" if len(answer) > 600 else answer, _intent))
+            _conv_history.append((raw, answer, _intent))
 
             _print_answer(console, answer)
 
