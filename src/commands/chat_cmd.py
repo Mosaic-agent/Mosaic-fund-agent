@@ -1142,6 +1142,7 @@ _HELP_MD = """
 | `/macro` | Live macro events + COMEX + FII/DII institutional flows |
 | `/caveman [level]` | Toggle Caveman mode (`lite`/`full`/`ultra`/`wenyan`/`off`) |
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
+| `/telemetry` | View telemetry; `/telemetry on` or `off` toggles turn overlay |
 | `/clear` | Reset session memory — next question starts a fresh thread |
 | `/help` | This help text |
 | `quit` / `exit` / `q` | Exit the chat |
@@ -1294,6 +1295,24 @@ def _dispatch_slash(
             f"| DB size | {s['db_size_kb']} kB |\n\n"
             f"Use `/cache clear` to wipe all cached responses."
         ), thread_id
+
+    # ── /telemetry [on/off] ────────────────────────────────────────────────
+    if name == "telemetry":
+        sub_arg = parts[1].lower() if len(parts) > 1 else ""
+        if sub_arg in ("on", "enable", "start"):
+            import os
+            os.environ["MOSAIC_AUTO_TELEMETRY"] = "1"
+            console.print("[green]✓ Auto telemetry overlay enabled. Will display system stats after each query.[/green]\n")
+            return "", thread_id
+        elif sub_arg in ("off", "disable", "stop"):
+            import os
+            os.environ.pop("MOSAIC_AUTO_TELEMETRY", None)
+            console.print("[yellow]✓ Auto telemetry overlay disabled.[/yellow]\n")
+            return "", thread_id
+        else:
+            from src.scripts.portfolio.system_telemetry import get_dashboard_renderable
+            console.print(get_dashboard_renderable())
+            return "", thread_id
 
     # ── /caveman [level] ───────────────────────────────────────────────────
     if name == "caveman":
@@ -1676,6 +1695,14 @@ def run_chat_loop(console: Console | None = None) -> None:
                     sug.append(f"  [{i}] ", style="bold cyan")
                     sug.append(s + "\n", style="dim")
                 console.print(sug)
+
+            # ── Telemetry Overlay ──────────────────────────────────────────
+            if os.environ.get("MOSAIC_AUTO_TELEMETRY") == "1":
+                try:
+                    from src.scripts.portfolio.system_telemetry import get_compact_telemetry_renderable
+                    console.print(get_compact_telemetry_renderable())
+                except Exception as _te:
+                    logger.debug("telemetry overlay print failed: %s", _te)
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted.[/yellow]")

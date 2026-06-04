@@ -37,6 +37,25 @@ if [[ $# -eq 0 ]]; then
     exit 0
 fi
 
+# Start a lightweight background helper on the host to update the shared cache
+# so the containerised telemetry UI displays live host PC metrics.
+(
+    while true; do
+        OLLAMA_STATS=$(ps -ax -o pid,%cpu,%mem,comm | grep -i "ollama" | grep -v "grep" | grep -v "system_telemetry" 2>/dev/null)
+        if [ -n "$OLLAMA_STATS" ]; then
+            TOTAL_CPU=$(echo "$OLLAMA_STATS" | awk '{s+=$2} END {print s}')
+            TOTAL_MEM=$(echo "$OLLAMA_STATS" | awk '{s+=$3} END {print s}')
+            PIDS=$(echo "$OLLAMA_STATS" | awk '{print $1}' | tr '\n' ',' | sed 's/,$//')
+            echo "{\"cpu\": ${TOTAL_CPU:-0.0}, \"mem\": ${TOTAL_MEM:-0.0}, \"pids\": [${PIDS:-}], \"timestamp\": $(date +%s)}" > ./src/host_telemetry.json
+        else
+            echo "{\"cpu\": 0.0, \"mem\": 0.0, \"pids\": [], \"timestamp\": $(date +%s)}" > ./src/host_telemetry.json
+        fi
+        sleep 2
+    done
+) &
+TELEMETRY_PID=$!
+trap 'kill $TELEMETRY_PID 2>/dev/null; rm -f ./src/host_telemetry.json 2>/dev/null' EXIT INT TERM
+
 FIRST_ARG="$1"
 
 # If first arg is a python file, run it directly with python

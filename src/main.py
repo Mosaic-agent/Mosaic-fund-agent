@@ -1351,5 +1351,22 @@ def drift_monitor_cmd(
     run_drift_monitor(lookback_days=lookback, auto_retrain=retrain)
 
 
+@app.command(name="telemetry")
+def telemetry_cmd(
+    live: bool = typer.Option(False, "--live", "-l", help="Run in live update mode (refresh every 2s)."),
+    prompt: str = typer.Option(None, "--prompt", "-p", help="Submit a test prompt to the LLM to verify caching and latency.")
+) -> None:
+    """
+    Display live system telemetry dashboard.
+
+    Shows host RAM, local Ollama model engine/port/memory, active
+    Docker containers (CPU/Memory usage), ClickHouse table sizes,
+    and semantic LLM cache stats.
+    """
+    _setup_logging()
+    from src.scripts.portfolio.system_telemetry import render_dashboard
+    render_dashboard(live=live, prompt=prompt)
+
+
 if __name__ == "__main__":
     app()
