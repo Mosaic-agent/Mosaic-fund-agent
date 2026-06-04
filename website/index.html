@@ -850,9 +850,10 @@
     <div class="try-label">👆 Click a question — watch Mosaic <b>route &amp; answer</b> it live</div>
     <div class="query-chips" id="chips">
       <button class="chip active" data-q="anomaly"><span class="chip-ico">🔍</span>Explain GOLDBEES anomalies</button>
-      <button class="chip" data-q="exposure"><span class="chip-ico">📊</span>Am I overexposed to IT?</button>
+      <button class="chip" data-q="macro"><span class="chip-ico">🌍</span>Show macro</button>
       <button class="chip" data-q="premium"><span class="chip-ico">💰</span>Which ETFs trade at a premium?</button>
       <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>Today's GOLDBEES signal</button>
+      <button class="chip" data-q="exposure"><span class="chip-ico">📊</span>Am I overexposed to IT?</button>
     </div>
 
     <div class="terminal-wrap">
@@ -1573,6 +1574,41 @@ const QUERIES = {
 <div class="out">   Top concentration: TCS (12.1%), INFY (9.4%), HCLTECH (6.0%).</div>
 <div class="out">   A single IT-sector shock would move your portfolio ~1.7× the index.</div>`
   },
+  macro: {
+    cmd: 'show macro',
+    out: `<div class="out term-thinking">→ intent: <span class="hi">macro</span> (1.00) · run_macro_scanner + plot_fii_dii_chart…</div>
+<br/>
+<div class="section-header">🌍 Macro &amp; Geopolitical Event Scanner · 24 events · 8 themes · 2026-06-05</div>
+<br/>
+<div class="out"><span class="hi-red">⚔️ Geopolitical/War</span>  <span class="hi">HIGH</span>  · Iran, Ukraine conflict → safe-haven demand</div>
+<div class="out dim">  ↑ GOLDBEES SILVERBEES LIQUIDBEES  ↓ NIFTYBEES BANKBEES ITBEES MON100</div>
+<div class="out"><span class="hi-green">🏦 Central Bank (RBI)</span>  <span class="hi">HIGH</span>  · Rate pause · inflation messaging key</div>
+<div class="out dim">  ↑ GILT5YBEES GOLDBEES NIFTYBEES BANKBEES  ↓ MON100</div>
+<div class="out"><span class="hi">🛢️ Crude Oil</span>  <span class="hi">HIGH</span>  · Geopolitical tension → range-bound · stagflation risk</div>
+<div class="out dim">  ↑ GOLDBEES  ↓ NIFTYBEES BANKBEES AUTOBEES</div>
+<div class="out"><span class="hi">💱 INR/Currency</span>  MEDIUM  · Mixed: rupee +1 ₹ in 8 days, but conflicting signals</div>
+<div class="out dim">  ↑ ITBEES GOLDBEES SILVERBEES  ↓ NIFTYBEES BANKBEES HNGSNGBEES MAFANG</div>
+<br/>
+<div class="section-header">📊 Aggregated ETF Net Article Flow Signal</div>
+<div class="ascii-chart"><span class="ax">GOLDBEES   </span><span class="hi-green"> +21  BULLISH   ########</span>
+<span class="ax">SILVERBEES </span><span class="hi-green"> +12  BULLISH   ########</span>
+<span class="ax">LIQUIDBEES </span><span class="hi-green">  +9  BULLISH   ########</span>
+<span class="ax">CPSEETF    </span><span class="hi-green">  +3  BULLISH   ###</span>
+<span class="ax">GILT5YBEES </span><span class="ax">   0  NEUTRAL   -</span>
+<span class="ax">BANKBEES   </span><span class="hi-red">  -6  BEARISH   vvvvvv</span>
+<span class="ax">ITBEES     </span><span class="hi-red">  -6  BEARISH   vvvvvv</span>
+<span class="ax">NIFTYBEES  </span><span class="hi-red">  -9  BEARISH   vvvvvvvv</span>
+<span class="ax">MAFANG     </span><span class="hi-red"> -12  BEARISH   vvvvvvvv</span>
+<span class="ax">MON100     </span><span class="hi-red"> -15  BEARISH   vvvvvvvvvvvvvvv</span>
+<span class="ax dim">≥+12 = strong bullish  |  ≥+6 = moderate  |  ≤-12 = strong bearish</span></div>
+<br/>
+<div class="section-header">📐 Quant Overlay — ClickHouse ground truth 2026-06-04</div>
+<div class="out">GOLDBEES ₹<span class="hi">127.64</span>  -1.09% (5d)  EMA50: <span class="hi-green">above</span>  GARCH vol: <span class="hi">11.5%</span></div>
+<div class="out">Nifty 50: PE <span class="hi">20.0</span> | PB 2.83 | A50d 50% | A200d 44%  FII 5d: <span class="hi">+0 Cr</span>  DII: +0 Cr</div>
+<div class="out dim">India macro: GDP +7.6% (2025) · CPI +2.1% · IMF 2026 forecast: GDP +6.5%</div>
+<br/>
+<div class="out dim">Suggested: <span style="color:var(--teal);cursor:default">[1] comex gold today</span>  <span style="color:var(--teal);cursor:default">[2] plot fii dii chart</span>  <span style="color:var(--teal);cursor:default">[3] query fii flows last 30 days</span></div>`
+  },
   premium: {
     cmd: 'which ETFs trade at a premium?',
     out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.90) · calling run_premium_alerts…</div>
@@ -1597,21 +1633,29 @@ const QUERIES = {
   },
   signal: {
     cmd: "today's GOLDBEES signal",
-    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> · running GOLDBEES pipeline…</div>
+    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.98) · calling run_goldbees_pipeline…</div>
 <br/>
-<div class="section-header">🪙 GOLDBEES Pipeline — 2026-06-05</div>
+<div class="section-header">🥇 GOLDBEES Signal Report — 2026-06-04</div>
 <br/>
-<div class="out">ML forecast (5d):   prob_up = <span class="hi">0.64</span>   exp_return = <span class="hi-green">+1.8%</span></div>
-<div class="out">Confidence band:    [<span class="dim">−0.9%</span>, <span class="dim">+4.5%</span>]   cv_auc = 0.58 · hit = 61%</div>
-<div class="out">Regime signal:      <span class="hi-green">WATCH_LONG</span></div>
+<div class="out">Regime      <span class="hi">🔥 Volatile Breakout</span>     GARCH vol: <span class="hi">11.5%</span></div>
+<div class="out">Price       ₹<span class="hi">127.64</span> vs EMA50 ₹126.49 → <span class="hi-green">ABOVE</span></div>
+<div class="out">iNAV        <span class="hi">+0.96%</span>  <span class="hi-red">⚠ BORDERLINE PREMIUM (&gt;0.8%) — monitor drag</span></div>
 <br/>
-<div class="out dim">─ Position weights ──────────────────────────────</div>
-<div class="out">Risk Governor (RG):     <span class="dim">0.91</span></div>
-<div class="out">Kelly-optimal:          <span class="dim">0.38</span></div>
-<div class="out">▶ <span class="hi">blended_50 (recommended)</span>:  <span class="hi-green">0.64</span></div>
-<div class="out">  blended_30 (conservative): 0.54</div>
+<div class="out dim">─ ML Signal (5-day LightGBM) ────────────────────────────</div>
+<div class="out">prob_up         <span class="hi">0.5138</span>    <span class="dim">slightly favours up</span></div>
+<div class="out">exp_return      <span class="hi">+0.04%</span>    band [<span class="dim">−1.72%, +4.23%</span>]</div>
+<div class="out">cv_auc          <span class="hi-red">0.493</span>     <span class="hi-red">skill: −0.007 · no edge → Kelly disabled</span></div>
+<div class="out">ML signal       <span class="hi">HOLD</span></div>
 <br/>
-<div class="out">GARCH vol = 16.5% (target 15%) → mild de-risk. Trend &gt; EMA50.</div>`
+<div class="out dim">─ Position weights ──────────────────────────────────────</div>
+<div class="out">Rule-based (RG)       <span class="dim">75.0%</span>   <span class="dim">(vol-target sizing)</span></div>
+<div class="out">Kelly only            <span class="hi-red">0.0%</span>    <span class="dim">(disabled — no model skill)</span></div>
+<div class="out">▶ <span class="hi">blended_50 (recommended)</span>  <span class="hi-green">37.5%</span></div>
+<div class="out">  blended_70/30 (conservative) 52.5%</div>
+<br/>
+<div class="out">Composite score  <span class="hi">64/100</span> → <span class="hi-green">ACCUMULATE</span>  <span class="dim">(strong macro + EMA momentum, cautious ML)</span></div>
+<br/>
+<div class="out dim">Suggested: <span style="color:var(--teal);cursor:default">[1] Show GARCH chart for GOLDBEES</span>  <span style="color:var(--teal);cursor:default">[2] Plot iNAV premium chart</span>  <span style="color:var(--teal);cursor:default">[3] Run anomaly explanation</span></div>`
   }
 };
 
