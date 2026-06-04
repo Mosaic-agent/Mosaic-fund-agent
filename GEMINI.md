@@ -83,7 +83,8 @@ python tests/_backtest_anomaly.py
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame |
 | Importer | `src/importer/` | Delta-sync pipeline: fetchers → ClickHouse |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`) |
-| ML | `src/ml/` | LightGBM 5-day forecast, GARCH + Isolation Forest anomaly |
+| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest anomaly (`anomaly.py`). `run_composite_anomaly(df, df_cot, df_fx)` → per-date `regime`, `final_z`, `garch_vol`; requires full OHLCV + ≥60 rows |
+| Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()`. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings from `.env` |
 | UI | `src/ui/app.py` | Streamlit hub (5 tabs over ClickHouse) |
@@ -128,6 +129,8 @@ All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 - **Scraping fallbacks:** Screener.in is primary for earnings; BSE/Yahoo Finance are fallbacks. `fake-useragent` rotates user-agents.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
 - **Output files:** Reports written to `./output/` as JSON/HTML.
+- **Repository pattern:** `MarketDataRepository` (`src/db/repository.py`) is the single access point for all ClickHouse reads. Use `repo.ml_prediction_asof(date)` and `repo.signal_composite_asof(symbol, date)` for point-in-time queries (e.g. what the model said on a historical anomaly date). Never write raw SQL in signal/ML code.
+- **Anomaly explanation pipeline:** When asked to explain price spikes or anomalies for any symbol, use `explain_price_anomalies` (in `SignalSubAgent` tool set) **always in parallel with** `plot_price_chart`. The tool runs `run_composite_anomaly` (full GARCH + IF pipeline) on the entire price history, filters flagged dates to the report window, and surfaces GARCH `regime` + `Final Z` per date alongside news correlation and ML forward context. Gracefully falls back to naive threshold for <60 rows.
 - **Scripts subdirs:** `dsp/` (DSP AMC import + analysis), `fund_imports/` (factory-pattern AMC importers), `etf/` (ETF comparison, CAGR, risk), `ml/` (prediction backfill/eval), `portfolio/` (health checks, opportunity scan, MoM returns, parallel stock import), `market/` (macro, FII/DII, metals, sentiment), `db/` (ClickHouse backup/restore/sanity/repair).
 
 ## Critical: Grounding Rules — DO NOT Hallucinate
