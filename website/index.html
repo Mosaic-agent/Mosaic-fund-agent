@@ -1104,7 +1104,7 @@ http://localhost:8501</pre>
 /* ── Interactive "ask Mosaic" terminal ──────────────────────────── */
 const QUERIES = {
   anomaly: {
-    cmd: 'ask "explain GOLDBEES anomalies over 30 days"',
+    cmd: './mosaic.sh ask "explain GOLDBEES anomalies over 30 days"',
     out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> (confidence 0.98)…</div>
 <br/>
 <div class="section-header">🔍 Price Anomaly &amp; News Correlation Report: GOLDBEES</div>
@@ -1125,7 +1125,7 @@ const QUERIES = {
 <div class="out">Composite: <span class="hi-green">BUY</span> (score=71) → <span class="hi-green">✅ signal confirmed the shock</span></div>`
   },
   exposure: {
-    cmd: 'ask "am I overexposed to IT sector?"',
+    cmd: './mosaic.sh ask "am I overexposed to IT sector?"',
     out: `<div class="out term-thinking">Routing → <span class="hi">portfolio orchestrator</span> · reading Zerodha holdings…</div>
 <br/>
 <div class="section-header">📊 Sector Exposure — Live CNC Holdings</div>
@@ -1144,7 +1144,7 @@ const QUERIES = {
 <div class="out">   A single IT-sector shock would move your portfolio ~1.7× the index.</div>`
   },
   premium: {
-    cmd: 'ask "which ETFs trade at a premium?"',
+    cmd: './mosaic.sh ask "which ETFs trade at a premium?"',
     out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> · live iNAV snapshots…</div>
 <br/>
 <div class="section-header">💰 iNAV Premium / Discount — International ETFs</div>
@@ -1161,7 +1161,7 @@ const QUERIES = {
 <div class="out hi-green">HNGSNGBEES at −1.4% (−1.7σ) is the cheapest entry right now.</div>`
   },
   signal: {
-    cmd: 'python src/scripts/goldbees_report.py',
+    cmd: './mosaic.sh src/scripts/goldbees_report.py',
     out: `<div class="out term-thinking">Reading ml_predictions · weight_checkpoints · signal_composite…</div>
 <br/>
 <div class="section-header">🪙 GOLDBEES Pipeline — 2026-06-04</div>
