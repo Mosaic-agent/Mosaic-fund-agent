@@ -1,8 +1,28 @@
 # Architecture
 
-> Last updated: 2026-05-28
+> Last updated: 2026-06-04
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
+
+---
+
+## Design Philosophy
+
+The codebase is built on four patterns that keep it extensible and testable. Understanding these four is enough to navigate the whole system:
+
+| Pattern | Where | What it buys you |
+|---|---|---|
+| **Repository** | `src/db/repository.py` | One typed access point for every ClickHouse read. `FINAL` dedup, return shapes, and the `run_fetcher()` loop live here — no raw SQL scattered across signal/ML code. |
+| **Adapter** | `src/importer/fetchers/` | Every data source implements one `Fetcher` ABC (`fetch → validate → insert`). Add a source = one class + one registry entry. |
+| **Strategy** | `src/agents/signal_sources.py` | Each composite-score pillar is a `SignalSource` subclass. Add a pillar = one class + one list append; the aggregator runs them all in parallel. |
+| **Observer** | `src/events/bus.py` | A live import publishes one `DataImportedEvent`; cache-invalidation, ML re-prediction, signal refresh, and sanity checks all react independently. |
+
+Two cross-cutting rules:
+
+- **No LLM calculations** — every number is computed in Python/SQL; the LLM only narrates pre-computed results.
+- **Thin tools, fat logic** — `@tool` wrappers stay small (validate args, call a function, format output); business logic lives in `src/ml/`, `src/db/`, or dedicated tool modules so it's unit-testable without the agent loop.
+
+See [§ Design Patterns](#design-patterns) at the end for the full reference (code, method tables, and the multi-agent orchestrator).
 
 ---
 
@@ -53,7 +73,7 @@ src/
   main.py                 Typer CLI — 13 commands (analyze, import, signals, macro, …)
   agents/
     signal_aggregator.py  Composite score orchestrator — parallel Strategy sources
-    signal_sources.py     Strategy pattern: SignalSource ABC + 5 pillar classes
+    signal_sources.py     Strategy pattern: SignalSource ABC + 5 pillars + GARCHAnomalySource
   analyzers/              Per-asset and portfolio-level enrichment
   clients/
     mcp_client.py         Zerodha Kite MCP (JSON-RPC 2.0)
@@ -76,7 +96,13 @@ src/
     trend_predictor.py    LightGBM 5-day predictor + joblib model cache
     anomaly.py            Composite anomaly (Z + GARCH + Isolation Forest + _IF_CACHE)
   models/                 Pydantic data schemas
-  tools/                  Standalone signal functions (no side effects)
+  tools/                  @tool wrappers + standalone signal functions
+    skills_tools.py       General-purpose tools (query, import, iNAV, deep-dive) + SKILLS_TOOLS list
+    runners.py            Thin shell-command runners (run_goldbees_pipeline, run_macro_scanner, …)
+    market/gold.py        Gold/GARCH domain tools (explain_price_anomalies, run_risk_governor_analysis)
+    _subprocess.py        Shared subprocess helpers (no project imports — breaks circular deps)
+    chart_tools.py        plotext terminal charts (price, signal, GARCH vol, MACD, …)
+    <domain>.py           Per-domain signal functions (quant_scorecard, inav_fetcher, comex_fetcher, …)
   ui/
     app.py                Streamlit 5-tab data hub
   utils/                  Caching, symbol mapping, report loading, and terminal markdown renderer (markdown_renderer.py)
@@ -169,10 +195,18 @@ Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-i
 
 ## Tools (`src/tools/`)
 
-Each tool is a standalone function that returns a dict or DataFrame. No database writes, no side effects. Can be called independently or composed inside agents.
+Most tools are standalone functions returning a dict/DataFrame — no DB writes, no side effects — callable independently or composed inside agents. They group into three kinds:
+
+- **Domain signal functions** — the bulk: real computation per asset (quant scorecard, iNAV, COMEX, …).
+- **Runners** (`runners.py`) — thin `@tool` wrappers over CLI scripts via subprocess; zero business logic.
+- **Gold/GARCH domain** (`market/gold.py`) — `explain_price_anomalies`, `run_risk_governor_analysis`; real logic kept out of the junk-drawer.
+
+`SKILLS_TOOLS` in `skills_tools.py` is the single canonical list; it re-exports from `runners.py` and `market/gold.py` so existing imports keep working. Shared subprocess helpers live in `_subprocess.py` to avoid circular deps.
 
 | Tool | File | Signal Produced |
 |---|---|---|
+| **Explain Price Anomalies** | `market/gold.py` | GARCH-detected anomaly dates → regime + Final Z + news correlation + COMEX/COT context + forward ML/signal lookup |
+| **Risk Governor Analysis** | `market/gold.py` | GARCH vol-targeted position weight for GOLDBEES (inverse-vol × regime × score gate) |
 | **Quant Scorecard** | `quant_scorecard.py` | Gold + Silver 4-pillar 0–100 composite scores (Macro / Flows / Valuation / Momentum) |
 | **Macro Event Scanner** | `macro_event_scanner.py` | 8 macro themes → per-ETF impact direction (+1 / -1) + conviction, sourced from live news |
 | **iNAV Fetcher** | `inav_fetcher.py` | Live iNAV, market price, premium/discount % for any NSE ETF |
@@ -187,6 +221,7 @@ Each tool is a standalone function that returns a dict or DataFrame. No database
 | **Historic iNAV** | `historic_inav.py` | Historical iNAV snapshots for ETFs |
 | **Valuation Alerts** | `valuation_alerts.py` | P/E, yield, P/B ratio threshold crossings |
 | **Summarization** | `summarization.py` | LLM-generated risk and sentiment summaries per holding |
+| **Chart Tools** | `chart_tools.py` | plotext terminal charts — price (with 🔴 anomaly markers), signal scores, GARCH vol, MACD |
 | **Zerodha MCP Tools** | `zerodha_mcp_tools.py` | Holdings, positions, orders via Zerodha Kite MCP |
 
 ### Quant Scorecard Pillars (`quant_scorecard.py`)

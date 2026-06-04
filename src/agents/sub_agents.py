@@ -1129,6 +1129,88 @@ class SignalSubAgent(_SubAgent):
             get_shoonya_live_tick,
         ]
 
+    def _fallback(self, question: str) -> str:
+        """
+        Programmatic fallback for local models that cannot emit tool-call JSON.
+
+        Routes by keyword detection:
+          anomaly/spike/drop/crash  → explain_price_anomalies + plot_price_chart
+          signal/pipeline/goldbees  → run_goldbees_pipeline
+          composite/scores/etf      → run_daily_signal_composite
+        """
+        import re as _re
+        q = question.lower()
+
+        # ── Anomaly explanation path ──────────────────────────────────────────
+        if any(kw in q for kw in ("anomal", "spike", "crash", "drop", "outlier", "shock")):
+            # Extract symbol — default GOLDBEES for gold ETF queries
+            symbol = "GOLDBEES"
+            m = _re.search(r"\b([A-Z]{4,12}(?:BEES|ETF|GOLD|SILVER)?)\b", question.upper())
+            if m and m.group(1) not in ("OVER", "LAST", "DAYS", "SHOW", "FIND", "EXPLAIN", "ANALYSE", "ANALYZE"):
+                symbol = m.group(1)
+
+            # Extract time window — supports "30 days", "3 months", "1 year"
+            days = 30
+            dm = _re.search(r"(\d+)\s*(year|month|week|day|d\b)s?", q)
+            if dm:
+                n, unit = int(dm.group(1)), dm.group(2)
+                if unit.startswith("year"):
+                    days = n * 365
+                elif unit.startswith("month"):
+                    days = n * 30
+                elif unit.startswith("week"):
+                    days = n * 7
+                else:
+                    days = n
+                days = min(days, 730)  # cap at 2 years
+
+            logger.info("SignalSubAgent._fallback: anomaly path — %s %d days", symbol, days)
+
+            from src.tools.market.gold import explain_price_anomalies
+            from src.tools.chart_tools import plot_price_chart
+
+            price_chart = plot_price_chart.invoke({"symbol": symbol, "days": days})
+            anomaly_report = explain_price_anomalies.invoke({"symbol": symbol, "days": days})
+
+            parts = [f"## {symbol} — Price Chart ({days}d)\n```text\n{price_chart}\n```\n", anomaly_report]
+
+            # Optional LLM synthesis
+            if self._llm is not None:
+                try:
+                    from langchain_core.messages import SystemMessage, HumanMessage
+                    synthesis = self._llm.invoke([
+                        SystemMessage(content=(
+                            "You are a quant analyst. The tool output below contains a price anomaly report "
+                            "with GARCH regime labels, Final Z scores, news correlation, and ML forward context. "
+                            "Summarise the key anomalies, their regimes, and what the signal/model implied. "
+                            "Do NOT invent any numbers — only narrate what is in the report."
+                        )),
+                        HumanMessage(content=anomaly_report[:4000]),
+                    ])
+                    parts.append("\n---\n### Summary\n" + synthesis.content)
+                except Exception as _e:
+                    logger.warning("SignalSubAgent._fallback LLM synthesis failed: %s", _e)
+
+            return "\n\n".join(parts)
+
+        # ── GOLDBEES pipeline path ────────────────────────────────────────────
+        if any(kw in q for kw in ("signal", "pipeline", "goldbees", "recommendation", "buy", "sell", "weight")):
+            logger.info("SignalSubAgent._fallback: goldbees pipeline path")
+            from src.tools.skills_tools import run_goldbees_pipeline
+            return run_goldbees_pipeline.invoke({})
+
+        # ── Composite scores path ─────────────────────────────────────────────
+        if any(kw in q for kw in ("composite", "score", "etf", "signal composite")):
+            logger.info("SignalSubAgent._fallback: composite scores path")
+            from src.tools.skills_tools import run_daily_signal_composite
+            return run_daily_signal_composite.invoke({"save": False})
+
+        return (
+            "Your configured LLM does not support tool-calling for this query. "
+            "Try: 'explain GOLDBEES anomalies', 'run goldbees pipeline', or 'composite ETF scores'. "
+            "For full capability, set LLM_PROVIDER=openai or LLM_PROVIDER=anthropic in .env."
+        )
+
 
 # ── Macro sub-agent ────────────────────────────────────────────────────────────
 

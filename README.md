@@ -1,14 +1,96 @@
-# Mosaic
+<div align="center">
 
-> **An intelligent multi-asset investment co-pilot, quantitative research, and risk-management platform for Indian & global ETF/equity markets.**
+# 🪙 Mosaic
 
-Mosaic bridges the gap between machine-learning-driven alpha, institutional flow tracking, currency/tax optimization, and macroeconomic intelligence. By continuously syncing 13+ data sources into a local ClickHouse data lake, Mosaic computes real-time multi-pillar signals, models volatility regimes, and scales portfolio position sizing dynamically.
+### Your quantitative co-pilot for Indian & global markets
 
-Whether you are a retail investor looking for a simple visual dashboard, a trader tracking pre-market commodities, or a quant engineer backtesting volatility regimes, Mosaic turns complex market data into clear, risk-adjusted decisions.
+**ML-driven alpha · institutional flow tracking · volatility-aware position sizing — all on a private, local-first data lake.**
 
-> **Not financial advice.** This is a personal research tool. Always verify before acting on any output.
+![Python](https://img.shields.io/badge/python-3.11+-blue) ![ClickHouse](https://img.shields.io/badge/storage-ClickHouse-yellow) ![LLM](https://img.shields.io/badge/LLM-OpenAI%20%7C%20Anthropic%20%7C%20Ollama-green) ![License](https://img.shields.io/badge/license-Apache%202.0-lightgrey)
 
-Licensed under the [Apache License 2.0](LICENSE).
+</div>
+
+---
+
+## Why Mosaic?
+
+Serious market decisions need three things that rarely live in one place: **clean cross-asset data**, **models that quantify edge and risk**, and **context to explain *why* something moved**. Retail tools give you charts. Terminals give you data feeds. Neither tells you *"GOLDBEES jumped 5.7% on a GARCH 'Volatile Breakout' regime, the news was a neutral import-duty change, and the ML model had already flagged WATCH_LONG the day before."*
+
+Mosaic closes that gap. It continuously syncs **13+ data sources** into a **local ClickHouse data lake** (your data never leaves your machine), then layers on:
+
+- **Signals** — a 6-pillar composite score (0–100) across macro, flows, valuation, sentiment, ML, and volatility
+- **Risk** — GARCH(1,1) volatility regimes feeding inverse-vol + Kelly position sizing
+- **Explanation** — anomaly detection that correlates price shocks with news, COMEX futures, COT positioning, and what the models predicted next
+- **Conversation** — ask plain-English questions; a guild of specialised LLM agents route, research, and answer
+
+Whether you're a **retail investor** wanting a visual dashboard, a **trader** watching pre-market commodities, or a **quant** backtesting volatility regimes — Mosaic turns scattered market data into clear, risk-adjusted decisions you can interrogate.
+
+> **Not financial advice.** This is a personal research tool. Always verify before acting on any output. Licensed under the [Apache License 2.0](LICENSE).
+
+---
+
+## How It Works
+
+```
+                          ┌─────────────────────────────────────────────┐
+   13+ DATA SOURCES       │            LOCAL CLICKHOUSE LAKE             │
+   ─────────────────      │   daily_prices · mf_holdings · fii_dii      │
+   Yahoo · NSE · CFTC     │   cot_gold · fx_rates · ml_predictions      │
+   MFAPI · Morningstar ──▶│   signal_composite · inav_snapshots         │──┐
+   Zerodha Kite · NewsAPI │   ReplacingMergeTree · watermark delta-sync │  │
+   World Bank · IMF       └─────────────────────────────────────────────┘  │
+                                                                            │
+        ┌───────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+   │  SIGNALS     │   │  ML FORECAST │   │  VOLATILITY  │   │  ANOMALY     │
+   │  6 pillars   │   │  LightGBM 5d │   │  GARCH(1,1)  │   │  GARCH + IF  │
+   │  → 0–100     │   │  + quantile  │   │  + Kelly     │   │  + news +    │
+   │  composite   │   │  confidence  │   │  sizing      │   │  COMEX/COT   │
+   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
+          └──────────────────┴─────────┬────────┴──────────────────┘
+                                       ▼
+              ┌─────────────────────────────────────────────┐
+              │   MULTI-AGENT ORCHESTRATOR (LangGraph ReAct)  │
+              │   Intent Router → specialised sub-agent guild │
+              └─────────────────────────────────────────────┘
+                                       ▼
+        CLI  ·  Streamlit Dashboard  ·  Conversational "ask"  ·  MCP tools
+```
+
+**The flow:** data lands in ClickHouse via watermark-based delta sync → quant pipelines (signals, ML, volatility, anomaly) read through a single typed repository → an LLM intent router dispatches your question to the right specialist agent → you get a narrated, numerically-grounded answer in your terminal, the web hub, or via Claude/Gemini MCP tools.
+
+> **Numbers are never hallucinated.** Every figure an agent reports is computed in Python or SQL first; the LLM only narrates pre-computed results.
+
+---
+
+## See It In Action
+
+Ask why a holding moved — and get a forensic answer, not a guess:
+
+```bash
+python src/main.py ask "explain GOLDBEES anomalies over the last 30 days"
+```
+
+```
+🔍 Price Anomaly & News Correlation Report: GOLDBEES
+Detected 1 anomaly date in the last 30 days (GARCH composite, Final Z > 2.5):
+
+│ Date       │ Return  │ 20d Vol │ Volume (Spike) │ Regime              │ Final Z │
+│ 2026-05-13 │ +5.72%  │ 1.94%   │ 10.39 Cr (3.6x)│ 🔥 Volatile Breakout │ +3.81   │
+
+📰 News on 2026-05-13:  "Government doubles import duty on gold & silver…"  (NEUTRAL)
+   ⚠️ Divergence: neutral sentiment on a high-magnitude move → policy surprise
+
+📡 What the models said on this date:
+   ML (5d): WATCH_LONG | prob_up=64% | expected_return=+1.8% → continuation
+   Composite: BUY (score 71) → ✅ signal confirmed the shock
+
+📈 Correlated COMEX futures (GC=F) + GARCH volatility charts appended…
+```
+
+One command pulls the price shock, classifies its **GARCH regime**, finds the **news** that caused it, flags the **neutral-news-but-big-move divergence**, and tells you **what the ML model and composite signal predicted the day before** — all grounded in your local data.
 
 ---
 
@@ -82,7 +164,7 @@ Rather than passing raw user prompts to a single LLM with dozens of tools, Mosai
 ## 💻 Choose Your Experience
 
 ### 🟢 Non-Technical (The Web Hub & Agent)
-*   **Visual Dashboard:** Run the Streamlit Web UI ([app.py](file:///home/dt/project/Mosaic-fund-agent/src/ui/app.py)) with one click to view charts, run data syncs, and check signal summaries visually.
+*   **Visual Dashboard:** Run the Streamlit Web UI ([src/ui/app.py](src/ui/app.py)) with one click to view charts, run data syncs, and check signal summaries visually.
 *   **Conversational Assistant:** Ask questions in plain English (e.g., *"Am I overexposed to IT?"*, *"Which gold ETFs have the lowest premium?"*, *"Analyze Roku's R&D spend trend"*) and get immediate, written answers.
 
 ### 👑 Intermediate (The Command Line & Reports)
@@ -98,10 +180,10 @@ Rather than passing raw user prompts to a single LLM with dozens of tools, Mosai
 If you are not a developer or want to avoid setting up Python and installing libraries manually, you can run the entire stack (ClickHouse database, Streamlit Web Dashboard, and agents) with **Docker Desktop**:
 
 1. Install **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** and make sure it is running.
-2. Double-click **[run.sh](file:///home/dt/project/Mosaic-fund-agent/run.sh)** (macOS/Linux) or **[run.bat](file:///home/dt/project/Mosaic-fund-agent/run.bat)** (Windows).
+2. Double-click **[run.sh](run.sh)** (macOS/Linux) or **[run.bat](run.bat)** (Windows).
    - *First-run only:* This creates a `.env` file in the project folder. Open it in a text editor to add your API keys (like OpenAI, Zerodha login, etc.).
 3. Once configured, run the script again. It will automatically build the image, start the containers, and open the Web Dashboard at **http://localhost:8501** in your browser.
-4. To run individual CLI commands or scripts without installing Python locally, use the **[mosaic.sh](file:///home/dt/project/Mosaic-fund-agent/mosaic.sh)** (macOS/Linux) or **[mosaic.bat](file:///home/dt/project/Mosaic-fund-agent/mosaic.bat)** (Windows) wrappers:
+4. To run individual CLI commands or scripts without installing Python locally, use the **[mosaic.sh](mosaic.sh)** (macOS/Linux) or **[mosaic.bat](mosaic.bat)** (Windows) wrappers:
    - For standard CLI commands:
      ```bash
      ./mosaic.sh comex
@@ -112,9 +194,9 @@ If you are not a developer or want to avoid setting up Python and installing lib
      ```bash
      ./mosaic.sh src/scripts/goldbees_report.py
      ```
-5. To stop the application, double-click **[stop.sh](file:///home/dt/project/Mosaic-fund-agent/stop.sh)** (macOS/Linux) or **[stop.bat](file:///home/dt/project/Mosaic-fund-agent/stop.bat)** (Windows).
+5. To stop the application, double-click **[stop.sh](stop.sh)** (macOS/Linux) or **[stop.bat](stop.bat)** (Windows).
 
-See the detailed **[Docker Setup Guide](file:///home/dt/project/Mosaic-fund-agent/docs/docker_install_guide.md)** for platform-specific installation steps.
+See the detailed **[Docker Setup Guide](docs/docker_install_guide.md)** for platform-specific installation steps.
 
 ### Developer Install (Manual)
 
@@ -209,14 +291,6 @@ The orchestrator automatically detects low-context local models and switches to 
 ---
 
 ## Data Hub & Streamlit UI
-```bash
-python scripts/save_portfolio_holdings.py  # backup CNC holdings
-python scripts/backup_zerodha_account.py  # backup profile, margins, and orders
-```
-
----
-
-## Data Hub & Streamlit UI
 
 ```bash
 docker compose up -d                     # ClickHouse + UI together
@@ -225,6 +299,13 @@ python src/main.py ui                    # UI only (ClickHouse must already be r
 ```
 
 Open **http://localhost:8501**.
+
+### Broker backups
+
+```bash
+python scripts/save_portfolio_holdings.py  # backup CNC holdings
+python scripts/backup_zerodha_account.py   # backup profile, margins, and orders
+```
 
 ### Import data
 
