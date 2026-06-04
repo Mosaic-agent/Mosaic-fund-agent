@@ -141,7 +141,7 @@ def get_shoonya_api():
                 NorenApi.__init__(
                     self,
                     host="https://api.shoonya.com/NorenWClientAPI",
-                    websocket="wss://api.shoonya.com/NorenWSTP/",
+                    websocket="wss://api.shoonya.com/NorenWSAPI/",
                 )
     except ImportError:
         log.debug("NorenRestApiPy/NorenRestApiOAuth not installed — skipping Shoonya")
@@ -214,12 +214,13 @@ def get_shoonya_api():
             authcode=auth_code,
             Secret_Code=secret,
             client_id=user,
-            UID=user
+            UID=user_clean
         )
         if result is not None:
             asc_tok, usrid, ref_tok, actid = result
+            susertoken = getattr(api, '_NorenApi__susertoken', asc_tok)
             _save_session({
-                "susertoken": asc_tok,
+                "susertoken": susertoken,
                 "access_token": asc_tok,
                 "userid": usrid,
                 "accountid": actid

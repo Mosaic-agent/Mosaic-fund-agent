@@ -194,12 +194,14 @@ python src/main.py ask "which ETFs are trading at a premium?"
 
 Mosaic-agent is optimized for local execution using **Ollama**.
 
-1.  **Pull Gemma 4:** `ollama pull gemma4:latest`
+1.  **Pull Gemma 4:**
+    *   For general hardware: `ollama pull gemma4:latest`
+    *   For macOS (Apple Silicon, 16GB+ Unified Memory): `ollama pull gemma4:12b-mlx` (Requires Ollama version `v0.30.3` or higher)
 2.  **Create Mosaic Model:** `ollama create mosaic-gemma4 -f ollama/Modelfile`
 3.  **Configure `.env`:**
     ```env
     LLM_PROVIDER=openai
-    LLM_MODEL=mosaic-gemma4
+    LLM_MODEL=gemma4:12b-mlx  # Or mosaic-gemma4
     LLM_BASE_URL=http://localhost:11434/v1
     ```
 The orchestrator automatically detects low-context local models and switches to **high-density compact prompts** or **direct-data-injection** paths to maintain accuracy without cloud dependencies.

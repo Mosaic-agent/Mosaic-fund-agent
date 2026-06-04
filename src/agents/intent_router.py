@@ -142,13 +142,15 @@ def _get_router_llm() -> Any | None:
         try:
             from langchain_openai import ChatOpenAI
             if settings.llm_base_url:
+                # Custom/local base URL (e.g. Ollama/LM Studio) requires a longer timeout
+                # for the model to warm up or load into memory.
                 return ChatOpenAI(
                     model=settings.llm_model,
                     base_url=settings.llm_base_url,
                     api_key=settings.openai_api_key,
                     temperature=0,
                     max_tokens=50,
-                    request_timeout=5,
+                    request_timeout=30,
                 )
             else:
                 return ChatOpenAI(

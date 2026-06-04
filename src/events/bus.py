@@ -101,7 +101,10 @@ class Observer(ABC):
 
 def _make_daemon_thread() -> None:
     """Ensure ThreadPoolExecutor worker threads are daemon threads so python doesn't hang on exit."""
-    threading.current_thread().daemon = True
+    try:
+        threading.current_thread().daemon = True
+    except RuntimeError:
+        pass  # In Python 3.13+, daemon status cannot be set on active threads; ignore it.
 
 
 # ── EventBus ──────────────────────────────────────────────────────────────────

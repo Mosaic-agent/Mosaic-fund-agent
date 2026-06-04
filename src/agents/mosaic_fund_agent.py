@@ -41,6 +41,7 @@ from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
 from src.tools.skills_tools import SKILLS_TOOLS
 from src.tools.newsapi_search import get_newsapi_stock_news
 from src.tools.chart_tools import CHART_TOOLS
+from src.tools.shoonya_tools import SHOONYA_TOOLS
 from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.panel import Panel
@@ -49,12 +50,15 @@ from rich.markdown import Markdown
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS
+ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS + SHOONYA_TOOLS
 
 
 def _make_daemon_thread() -> None:
     import threading
-    threading.current_thread().daemon = True
+    try:
+        threading.current_thread().daemon = True
+    except RuntimeError:
+        pass  # In Python 3.13+, daemon status cannot be set on active threads; ignore it.
 
 
 class RichConsoleCallbackHandler(BaseCallbackHandler):
@@ -62,9 +66,58 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
 
     def __init__(self) -> None:
         self.console = Console()
+        self._llm_start_time = None
 
     def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
+        import time
         self.console.print("\n[bold cyan]🤖 Thinking...[/bold cyan]")
+        self._llm_start_time = time.time()
+
+    def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        try:
+            import time
+            import json
+            from pathlib import Path
+            if not getattr(self, "_llm_start_time", None):
+                return
+            elapsed = time.time() - self._llm_start_time
+            token_usage = {}
+            model_name = settings.llm_model
+            
+            if response and hasattr(response, "llm_output") and response.llm_output:
+                token_usage = response.llm_output.get("token_usage", {})
+                model_name = response.llm_output.get("model_name", model_name)
+                
+            if not token_usage and response and hasattr(response, "generations") and response.generations:
+                for gen_list in response.generations:
+                    for gen in gen_list:
+                        if hasattr(gen, "generation_info") and gen.generation_info:
+                            token_usage = gen.generation_info.get("token_usage", {})
+                            model_name = gen.generation_info.get("model_name", model_name)
+                            break
+            
+            if token_usage:
+                completion_tokens = token_usage.get("completion_tokens", 0)
+                prompt_tokens = token_usage.get("prompt_tokens", 0)
+                total_tokens = token_usage.get("total_tokens", 0)
+                token_speed = completion_tokens / elapsed if elapsed > 0 else 0
+                
+                stats = {
+                    "completion_tokens": completion_tokens,
+                    "prompt_tokens": prompt_tokens,
+                    "total_tokens": total_tokens,
+                    "elapsed_seconds": round(elapsed, 3),
+                    "token_speed": round(token_speed, 1),
+                    "model_name": model_name,
+                    "timestamp": time.time()
+                }
+                
+                cache_dir = Path(settings.output_dir) / ".cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                with open(cache_dir / "last_query_telemetry.json", "w") as f:
+                    json.dump(stats, f)
+        except Exception:
+            pass
 
     def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:
         tool_name = serialized.get("name", "Unknown Tool")

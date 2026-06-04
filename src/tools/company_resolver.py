@@ -389,65 +389,66 @@ _ALIAS: dict[str, str] = {
     "bharti airtel": "BHARTIARTL",
     "airtel": "BHARTIARTL",
     # ── Broad Market & Sectoral/Thematic/Strategy Indices ──
-    "nifty 50": "^NSEI",
-    "nifty": "^NSEI",
-    "nifty50": "^NSEI",
-    "nifty next 50": "^NSMIDCP",
-    "niftynext50": "^NSMIDCP",
-    "nifty 100": "^CNX100",
-    "nifty100": "^CNX100",
-    "nifty 500": "MONIFTY500",
-    "nifty500": "MONIFTY500",
-    "nifty midcap 50": "^NSEMDCP50",
+    "nifty 50": "NIFTY50",
+    "nifty": "NIFTY50",
+    "nifty50": "NIFTY50",
+    "nifty next 50": "NIFTYNEXT50",
+    "niftynext50": "NIFTYNEXT50",
+    "nifty 100": "NIFTY100",
+    "nifty100": "NIFTY100",
+    "nifty 500": "NIFTY500",
+    "nifty500": "NIFTY500",
+    "nifty midcap 50": "NIFTYMID",
     "nifty midcap 100": "MID150BEES",
     "nifty midcap 150": "MID150BEES",
     "nifty smallcap 50": "SMALL250",
     "nifty smallcap 100": "SMALL250",
     "nifty smallcap 250": "SMALL250",
-    "nifty bank": "^NSEBANK",
-    "bank nifty": "^NSEBANK",
-    "niftybank": "^NSEBANK",
-    "banknifty": "^NSEBANK",
-    "nifty psu bank": "^CNXPSUBANK",
-    "nifty psubank": "^CNXPSUBANK",
-    "nifty private bank": "^NSEBANK",
-    "nifty it": "^CNXIT",
-    "niftyit": "^CNXIT",
-    "nifty pharma": "^CNXPHARMA",
-    "niftypharma": "^CNXPHARMA",
-    "nifty auto": "^CNXAUTO",
-    "niftyauto": "^CNXAUTO",
-    "nifty fmcg": "^CNXFMCG",
-    "niftyfmcg": "^CNXFMCG",
-    "nifty metal": "^CNXMETAL",
-    "niftymetal": "^CNXMETAL",
-    "nifty realty": "^CNXREALTY",
-    "niftyrealty": "^CNXREALTY",
-    "nifty media": "^CNXMEDIA",
-    "niftymedia": "^CNXMEDIA",
-    "nifty energy": "^CNXENERGY",
-    "niftyenergy": "^CNXENERGY",
-    "nifty infrastructure": "^CNXINFRA",
-    "nifty infra": "^CNXINFRA",
-    "nifty financial services": "^CNXFIN",
-    "nifty finance": "^CNXFIN",
-    "nifty financial": "^CNXFIN",
-    "nifty services": "^CNXSERVICE",
-    "nifty services sector": "^CNXSERVICE",
+    "nifty bank": "BANKNIFTY",
+    "bank nifty": "BANKNIFTY",
+    "niftybank": "BANKNIFTY",
+    "banknifty": "BANKNIFTY",
+    "nifty psu bank": "NIFTYPSUBANK",
+    "nifty psubank": "NIFTYPSUBANK",
+    "nifty private bank": "BANKNIFTY",
+    "nifty it": "NIFTYIT",
+    "niftyit": "NIFTYIT",
+    "nifty pharma": "NIFTYPHARMA",
+    "niftypharma": "NIFTYPHARMA",
+    "nifty auto": "NIFTYAUTO",
+    "niftyauto": "NIFTYAUTO",
+    "nifty fmcg": "NIFTYFMCG",
+    "niftyfmcg": "NIFTYFMCG",
+    "nifty metal": "NIFTYMETAL",
+    "niftymetal": "NIFTYMETAL",
+    "nifty realty": "NIFTYREALTY",
+    "niftyrealty": "NIFTYREALTY",
+    "nifty media": "NIFTYMEDIA",
+    "niftymedia": "NIFTYMEDIA",
+    "nifty energy": "NIFTYENERGY",
+    "niftyenergy": "NIFTYENERGY",
+    "nifty infrastructure": "NIFTYINFRA",
+    "nifty infra": "NIFTYINFRA",
+    "nifty financial services": "NIFTYFINSRV",
+    "nifty finance": "NIFTYFINSRV",
+    "nifty financial": "NIFTYFINSRV",
+    "nifty services": "NIFTYSERVICE",
+    "nifty services sector": "NIFTYSERVICE",
     "nifty cpse": "CPSEETF",
     "cpse": "CPSEETF",
-    "nifty pse": "^CNXPSE",
-    "niftypse": "^CNXPSE",
-    "nifty commodities": "^CNXCMDT",
-    "nifty consumption": "^CNXCONSUM",
-    "india vix": "^INDIAVIX",
-    "vix": "^INDIAVIX",
-    "sensex": "^BSESN",
-    "s&p 500": "^GSPC",
-    "sp500": "^GSPC",
-    "nasdaq": "^IXIC",
-    "dow jones": "^DJI",
-    "dowjones": "^DJI",
+    "nifty pse": "NIFTYPSE",
+    "niftypse": "NIFTYPSE",
+    "nifty commodities": "NIFTYCMDTY",
+    "nifty consumption": "NIFTYCONSUMP",
+    "india vix": "INDIAVIX",
+    "vix": "VIX",
+    "cboe vix": "VIX",
+    "sensex": "SENSEX",
+    "s&p 500": "SP500",
+    "sp500": "SP500",
+    "nasdaq": "NASDAQ",
+    "dow jones": "DOWJONES",
+    "dowjones": "DOWJONES",
     # Nippon India ETF "BeES" family — both concatenated and spaced forms
     "goldbees": "GOLDBEES",
     "gold bees": "GOLDBEES",
@@ -878,7 +879,15 @@ def _resolve_company_info_impl(query: str) -> dict:
     local_sym = _local_indian_lookup(query)
     if local_sym:
         name = SYMBOL_TO_COMPANY.get(local_sym, local_sym)
-        yf_symbol = local_sym if local_sym.startswith("^") else f"{local_sym}.NS"
+        
+        # Look up Yahoo Finance ticker if it is a known index, commodity, or FX pair in the registry
+        from src.importer.registry import INDICES, COMMODITIES, FX_PAIRS
+        yf_map = {k: v for k, v in INDICES + COMMODITIES + FX_PAIRS}
+        if local_sym in yf_map:
+            yf_symbol = yf_map[local_sym]
+        else:
+            yf_symbol = local_sym if local_sym.startswith("^") else f"{local_sym}.NS"
+            
         return {
             "symbol":       local_sym,
             "nse_symbol":   local_sym,
@@ -899,7 +908,15 @@ def _resolve_company_info_impl(query: str) -> dict:
         local_from_llm = _local_indian_lookup(llm_sym)
         if local_from_llm:
             name = SYMBOL_TO_COMPANY.get(local_from_llm, local_from_llm)
-            yf_symbol = local_from_llm if local_from_llm.startswith("^") else f"{local_from_llm}.NS"
+            
+            # Look up Yahoo Finance ticker if it is a known index, commodity, or FX pair in the registry
+            from src.importer.registry import INDICES, COMMODITIES, FX_PAIRS
+            yf_map = {k: v for k, v in INDICES + COMMODITIES + FX_PAIRS}
+            if local_from_llm in yf_map:
+                yf_symbol = yf_map[local_from_llm]
+            else:
+                yf_symbol = local_from_llm if local_from_llm.startswith("^") else f"{local_from_llm}.NS"
+                
             return {
                 "symbol":       local_from_llm,
                 "nse_symbol":   local_from_llm,

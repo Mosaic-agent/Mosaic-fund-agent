@@ -100,7 +100,7 @@ class CHPool:
 
         self._idle: queue.Queue = queue.Queue()
         self._all: list = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Pre-warm min_size connections
         for _ in range(min_size):

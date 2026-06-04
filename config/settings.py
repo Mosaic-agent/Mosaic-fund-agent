@@ -273,6 +273,20 @@ class Settings(BaseSettings):
         if "$$" in self.shoonya_password:
             self.shoonya_password = self.shoonya_password.replace("$$", "$")
 
+        # If running locally (not inside a Docker container), 'host.docker.internal' will fail to resolve.
+        # Rewrite it to '127.0.0.1' so CLI/local tools work seamlessly on the host machine.
+        import socket
+        if self.llm_base_url and "host.docker.internal" in self.llm_base_url:
+            try:
+                socket.gethostbyname("host.docker.internal")
+            except socket.gaierror:
+                self.llm_base_url = self.llm_base_url.replace("host.docker.internal", "127.0.0.1")
+        if self.code_llm_base_url and "host.docker.internal" in self.code_llm_base_url:
+            try:
+                socket.gethostbyname("host.docker.internal")
+            except socket.gaierror:
+                self.code_llm_base_url = self.code_llm_base_url.replace("host.docker.internal", "127.0.0.1")
+
     def validate_sensitive_fields(self) -> list[str]:
         """
         Returns a list of warnings for any SENSITIVE fields that are missing.
