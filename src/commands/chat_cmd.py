@@ -193,9 +193,11 @@ AGENT GUIDE — read every entry before choosing
 
 ── signal ──────────────────────────────────────
 When: ETF composite scores, GOLDBEES ML pipeline, Kelly / blended position weights,
-      GARCH risk governor, live iNAV / NAV queries, premium alerts, ETF category news sentiment.
+      GARCH risk governor, live iNAV / NAV queries, premium alerts, ETF category news sentiment,
+      explaining price anomalies / chart spikes / daily return shocks.
 Key tools: run_goldbees_pipeline · run_daily_signal_composite · run_risk_governor_analysis ·
-           get_live_inav(symbol) · run_etf_news_sentiment · run_premium_alerts · plot_signal_scores ·
+           get_live_inav(symbol) · run_etf_news_sentiment · run_premium_alerts ·
+           explain_price_anomalies(symbol, days) · plot_signal_scores ·
            plot_signal_breakdown · plot_weight_recommendations · plot_garch_volatility_chart
 Examples:
   "GOLDBEES signal today"        → 1. run_goldbees_pipeline() — report prob_up, regime_signal, blended_50
@@ -209,6 +211,7 @@ Examples:
   "GOLDBEES current NAV"         → 1. get_live_inav("GOLDBEES")
   "is HNGSNGBEES at premium"     → 1. get_live_inav("HNGSNGBEES")
   "ETF news sentiment"           → 1. run_etf_news_sentiment()
+  "explain GOLDBEES price anomalies last 30 days" → 1. explain_price_anomalies(symbol="GOLDBEES", days=30)
 
 ── macro ────────────────────────────────────────
 When: ANY geopolitical event (Iran, Russia, China, Ukraine, Israel, Gaza, Pakistan, OPEC),
