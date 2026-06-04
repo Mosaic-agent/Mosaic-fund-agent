@@ -159,7 +159,7 @@
 
     /* ── Terminal demo ──────────────────────────────────────────── */
     .terminal-wrap {
-      max-width: 860px; margin: 72px auto 0;
+      max-width: 980px; margin: 72px auto 0;
       border-radius: var(--radius-lg);
       border: 1px solid var(--border);
       overflow: hidden;
@@ -643,6 +643,17 @@
     .term-thinking { color: var(--text-muted); font-style: italic; }
     .term-body .boot-rule { color: var(--text-muted); opacity: 0.4; margin: 10px 0; font-size: 11px; overflow: hidden; white-space: nowrap; }
     .term-body .prompt { white-space: nowrap; }
+    /* ASCII chart blocks inside terminal */
+    .ascii-chart {
+      margin: 8px 0; font-size: 11.5px; line-height: 1.3;
+      color: var(--teal); font-family: 'JetBrains Mono', monospace;
+      white-space: pre; overflow-x: auto;
+    }
+    .ascii-chart .ax { color: var(--text-muted); }
+    .ascii-chart .title { color: var(--white); font-weight: 600; margin-bottom: 3px; }
+    .ascii-chart .target { color: #4d9fff; }
+    .ascii-chart .marker { color: var(--red); font-weight: 700; }
+    .ascii-chart .spark { color: var(--gold); }
 
     /* ── "Pick your path" chooser ───────────────────────────────── */
     .paths-section {
@@ -1503,22 +1514,45 @@ const QUERIES = {
     cmd: 'explain GOLDBEES anomalies over 30 days',
     out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.98) · routing to signal sub-agent…</div>
 <br/>
-<div class="section-header">🔍 Price Anomaly &amp; News Correlation Report: GOLDBEES</div>
-<div class="out">Detected <span class="hi">1 anomaly</span> — GARCH composite (Final Z &gt; 2.5)</div>
+<div class="section-header">🔍 Price Anomaly &amp; News Correlation: GOLDBEES</div>
+<div class="out">Detected <span class="hi">2 anomalies</span> — GARCH composite (Final Z &gt; 2.5)</div>
 <br/>
-<div class="out dim">┌──────────┬─────────┬─────────┬───────────────────────┬─────────┐</div>
-<div class="out dim">│ Date     │ Return  │ Vol 20d │ Regime                │ Final Z │</div>
-<div class="out dim">├──────────┼─────────┼─────────┼───────────────────────┼─────────┤</div>
-<div class="out">│ <span class="hi">26-05-13</span> │ <span class="hi-green">+5.72%</span>  │ 1.94%   │ <span class="hi">🔥 Volatile Breakout</span>  │ <span class="hi">+3.81</span>   │</div>
-<div class="out dim">└──────────┴─────────┴─────────┴───────────────────────┴─────────┘</div>
+<div class="out dim">┌──────────┬─────────┬─────────┬──────────────────────┬─────────┐</div>
+<div class="out dim">│ Date     │ Return  │ Vol 20d │ Regime               │ Final Z │</div>
+<div class="out dim">├──────────┼─────────┼─────────┼──────────────────────┼─────────┤</div>
+<div class="out">│ <span class="hi">26-05-13</span> │ <span class="hi-green">+5.72%</span>  │ 1.94%   │ <span class="hi">🔥 Volatile Breakout</span> │ <span class="hi">+6.01</span>   │</div>
+<div class="out">│ <span class="hi">26-05-15</span> │ <span class="hi-red">-1.80%</span>  │ 2.31%   │ <span class="hi">🔥 Volatile Breakout</span> │ <span class="hi">+4.30</span>   │</div>
+<div class="out dim">└──────────┴─────────┴─────────┴──────────────────────┴─────────┘</div>
 <br/>
-<div class="section-header">📰 News on 2026-05-13</div>
-<div class="out">"Government <span class="hi">doubles import duty</span> on gold &amp; silver…" · NEUTRAL</div>
-<div class="out hi-red">  ⚠ Divergence: neutral news on a high-magnitude move → policy surprise</div>
+<div class="section-header">📰 2026-05-13 · Close ₹131.74 · Volume 10.39 Cr (3.6×)</div>
+<div class="out">"Government <span class="hi">doubles import duty</span> on gold &amp; silver…" (The Hindu, NDTV, Mint) · NEUTRAL</div>
+<div class="out hi-red">  ⚠ Divergence: neutral sentiment on +5.72% move → policy surprise / pre-positioning</div>
+<div class="out">📡 ML: <span class="hi-green">WATCH_LONG</span> prob_up=64% · Composite: <span class="hi-red">HOLD → ⚠️ signal contradicted by shock</span></div>
 <br/>
-<div class="section-header">📡 What the models said on this date</div>
-<div class="out">ML 5d: <span class="hi-green">WATCH_LONG</span> | prob_up=<span class="hi">64%</span> | exp_return=<span class="hi-green">+1.8%</span></div>
-<div class="out">Composite: <span class="hi-green">BUY</span> (score=71) → <span class="hi-green">✅ signal confirmed the shock</span></div>`
+<div class="section-header">📈 Correlated COMEX Futures — GC=F (30d)</div>
+<div class="ascii-chart"><span class="title">GC=F — 30d price  |  -0.3%  |  <span class="spark">▃▄▇███▇█▇▄▄▂▃▃▃▂▁▂▄▂▂▁▂</span></span>
+<span class="ax">      ┌────────────────────────────────────────────────────────────────┐</span>
+<span class="ax">4720.4┤</span> ▞▞ GC=F    ▗▄▞▀▀▀▀▚▖                                        <span class="ax">│</span>
+<span class="ax">      │</span>       ▗▄▞▀▘        ▝▚▖  ▄▄▚▄▖                                 <span class="ax">│</span>
+<span class="ax">4673.1┤</span>     ▞▀▘               ▝▀▀     ▝▀▜                            <span class="ax">│</span>
+<span class="ax">4625.8┤</span>    ▌                             ▚         <span class="marker">●</span>                 <span class="ax">│</span>
+<span class="ax">4531.3┤</span>  ▄▀                                 ▚▄▄▄▄▄▀▀▀▀▚▄▖        ▗▌  <span class="ax">│</span>
+<span class="ax">4484.0┤</span>                                                  ▝▀▀▄▄▄▄▚▀   <span class="ax">│</span>
+<span class="ax">      └┬──────────────┬──────────────┬──────────────┬──────────────┬──┘</span>
+<span class="ax">    05-04         05-08         05-14  <span class="marker">↑duty</span>     05-20         06-04</span></div>
+<br/>
+<div class="section-header">📊 GARCH Annualised Volatility — GOLDBEES</div>
+<div class="ascii-chart"><span class="title">GARCH vol  |  <span class="spark">▆▄█▁</span>  avg 28.7%</span>
+<span class="ax">     ┌────────────────────────────────────────────────────────────────┐</span>
+<span class="ax">44.2%┤</span> ▞▞ GARCH vol (avg 28.7%)             ▄▞▄                      <span class="ax">│</span>
+<span class="ax">38.7%┤</span>                                  ▗▄▀▀    ▀▄                   <span class="ax">│</span>
+<span class="ax">33.3%┤</span> ▚▄▄▖                         ▄▞▀▘           ▀▚▖               <span class="ax">│</span>
+<span class="ax">27.8%┤</span>     ▝▀▀▚▄▄▄             ▗▄▀▀                   ▝▚▄            <span class="ax">│</span>
+<span class="ax">22.4%┤</span>            ▀▀▀▄▄▄▄   ▄▞▀▘                          ▀▄        <span class="ax">│</span>
+<span class="ax">16.9%┤</span>                  ▀▀▀▀                                  ▀▚▖    <span class="ax">│</span>
+<span class="target">15.0%┤▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀</span><span class="ax">│</span>
+<span class="ax">      └────────────────────────────────────────────────────────────────┘</span>
+<span class="ax">           May-04       May-13 <span class="marker">↑spike</span>      May-27       Jun-04</span></div>`
   },
   exposure: {
     cmd: 'am I overexposed to IT sector?',
