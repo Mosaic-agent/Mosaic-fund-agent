@@ -532,6 +532,74 @@
 
     /* ── Active nav link ────────────────────────────────────────── */
     .nav-links a.active { color: var(--gold); }
+
+    /* ── Dashboard mockup ───────────────────────────────────────── */
+    .browser {
+      max-width: 940px; margin: 48px auto 0;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+      background: var(--bg1);
+    }
+    .browser-bar {
+      background: var(--bg2); padding: 11px 16px;
+      display: flex; align-items: center; gap: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .browser-dots { display: flex; gap: 7px; }
+    .browser-url {
+      flex: 1; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 14px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      color: var(--text-dim); text-align: center;
+    }
+    .browser-url .lock { color: var(--green); }
+    .dash-tabs {
+      display: flex; gap: 4px; flex-wrap: wrap;
+      padding: 12px 16px 0; background: var(--bg1);
+      border-bottom: 1px solid var(--border);
+    }
+    .dash-tab {
+      font-size: 12.5px; color: var(--text-dim);
+      padding: 8px 13px; border-radius: 7px 7px 0 0;
+      white-space: nowrap; cursor: default;
+      border: 1px solid transparent; border-bottom: none;
+    }
+    .dash-tab.active {
+      color: var(--gold); background: var(--bg2);
+      border-color: var(--border);
+    }
+    .dash-body { padding: 26px 28px; background: var(--bg1); }
+    .dash-h {
+      font-size: 17px; font-weight: 600; color: var(--white);
+      margin-bottom: 4px; display: flex; align-items: center; gap: 8px;
+    }
+    .dash-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 22px; }
+    .dash-metrics {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 14px; margin-bottom: 24px;
+    }
+    .dash-metric {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px;
+    }
+    .dash-metric .ml { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .dash-metric .mv { font-size: 24px; font-weight: 700; color: var(--white); margin-top: 4px; letter-spacing: -0.5px; }
+    .dash-metric .md { font-size: 12px; margin-top: 2px; }
+    .up { color: var(--green); } .down { color: var(--red); }
+    .dash-chart {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      line-height: 1.4; color: var(--teal); overflow-x: auto; white-space: pre;
+    }
+    .dash-chart .axis { color: var(--text-muted); }
+    .dash-chart .marker { color: var(--red); font-weight: 700; }
+    @media (max-width: 760px) {
+      .dash-metrics { grid-template-columns: repeat(2, 1fr); }
+      .dash-tab:nth-child(n+6) { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -545,6 +613,7 @@
     </div>
     <div class="nav-links">
       <a href="#why">Why</a>
+      <a href="#dashboard">Dashboard</a>
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
       <a href="#agents">Agents</a>
@@ -571,13 +640,17 @@
     </p>
 
     <div class="hero-actions">
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" class="btn-primary">
-        ★ Star on GitHub
+      <a href="#quickstart" class="btn-primary">
+        🚀 Launch the dashboard
       </a>
-      <a href="#quickstart" class="btn-outline">
-        Quick Start →
+      <a href="#dashboard" class="btn-outline">
+        See it first →
       </a>
     </div>
+    <p style="font-size:13px;color:var(--text-muted);margin-top:16px">
+      One <code style="background:var(--bg2);padding:2px 7px;border-radius:4px">./run.sh</code> — no Python install ·
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent">★ Star on GitHub</a>
+    </p>
 
     <div class="hero-stats">
       <div class="stat">
@@ -646,18 +719,96 @@
         <p>Type plain-English questions. An intent router sends them to the right specialist agent and narrates a grounded answer.</p>
         <span class="path-go">See example questions →</span>
       </a>
-      <a href="#features" class="path-card">
+      <a href="#quickstart" class="path-card">
         <div class="path-num">3</div>
-        <h3>⚡ Power CLI</h3>
-        <p>Direct commands and scripts for signals, imports, backtests, and GARCH position sizing. Built for quants.</p>
-        <span class="path-go">Explore capabilities →</span>
+        <h3>⚡ ./mosaic.sh CLI</h3>
+        <p>Run any command or script inside Docker — signals, imports, backtests, GARCH sizing. No local Python needed.</p>
+        <span class="path-go">See the commands →</span>
       </a>
     </div>
   </div>
 </section>
 
+<!-- ── DASHBOARD SHOWCASE ─────────────────────────────────────────── -->
+<section class="section" id="dashboard">
+  <div class="container">
+    <div class="section-label" style="text-align:center">The Dashboard</div>
+    <h2 class="section-title" style="text-align:center;max-width:none">One window into every market</h2>
+    <p class="section-body" style="margin:0 auto;text-align:center">
+      Launch with a single <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:14px">./run.sh</code>
+      and the full Streamlit hub opens at <b style="color:var(--text)">localhost:8501</b> — 12 tabs over your live
+      ClickHouse data. No Python, no notebooks, no glue code.
+    </p>
+
+    <div class="browser">
+      <div class="browser-bar">
+        <div class="browser-dots">
+          <span class="term-dot red"></span>
+          <span class="term-dot yel"></span>
+          <span class="term-dot grn"></span>
+        </div>
+        <div class="browser-url"><span class="lock">🔒</span> localhost:8501 &nbsp;·&nbsp; Mosaic Data Hub</div>
+      </div>
+      <div class="dash-tabs">
+        <span class="dash-tab">📥 Import</span>
+        <span class="dash-tab">🔍 SQL Query</span>
+        <span class="dash-tab">📊 Explorer</span>
+        <span class="dash-tab active">🔬 Anomaly Detection</span>
+        <span class="dash-tab">🕵️ Who Is Selling?</span>
+        <span class="dash-tab">📦 MF Holdings</span>
+        <span class="dash-tab">🏦 ETF Scanner</span>
+        <span class="dash-tab">📰 Market News</span>
+        <span class="dash-tab">🎛️ Signals</span>
+        <span class="dash-tab">🪁 Kite Dashboard</span>
+        <span class="dash-tab">🏢 Deep Dive</span>
+        <span class="dash-tab">🌍 Intl ETFs</span>
+      </div>
+      <div class="dash-body">
+        <div class="dash-h">🔬 Anomaly Detection — GOLDBEES</div>
+        <div class="dash-sub">GARCH(1,1) + Isolation Forest · last 90 trading days · live from ClickHouse</div>
+
+        <div class="dash-metrics">
+          <div class="dash-metric">
+            <div class="ml">GARCH Vol</div>
+            <div class="mv">16.5%</div>
+            <div class="md down">▲ above 15% target</div>
+          </div>
+          <div class="dash-metric">
+            <div class="ml">Latest Regime</div>
+            <div class="mv" style="font-size:18px;color:var(--gold)">🔥 Breakout</div>
+            <div class="md">Final Z = +3.81</div>
+          </div>
+          <div class="dash-metric">
+            <div class="ml">Anomalies (90d)</div>
+            <div class="mv">4</div>
+            <div class="md">fire rate 4.4%</div>
+          </div>
+          <div class="dash-metric">
+            <div class="ml">ML 5d prob_up</div>
+            <div class="mv up">64%</div>
+            <div class="md up">WATCH_LONG</div>
+          </div>
+        </div>
+
+        <div class="dash-chart"><span class="axis">₹ </span>132 ┤                          <span class="marker">●</span>
+<span class="axis">    </span>130 ┤                       ╭─╯ ╰──╮      ╭───
+<span class="axis">    </span>128 ┤                   ╭───╯       ╰─────╯
+<span class="axis">    </span>126 ┤              ╭────╯
+<span class="axis">    </span>124 ┤    ╭────╮╭───╯
+<span class="axis">    </span>122 ┤────╯    ╰╯              <span class="marker">●</span> = flagged anomaly
+<span class="axis">        └──────────────────────────────────────────</span>
+<span class="axis">         Mar        Apr        May        Jun</span></div>
+      </div>
+    </div>
+
+    <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:18px">
+      12 tabs: Import · SQL Query · Explorer · Anomaly Detection · Who Is Selling · MF Holdings · ETF Scanner · Market News · Signals · Kite Dashboard · Deep Dive · Intl ETFs
+    </p>
+  </div>
+</section>
+
 <!-- ── WHY ───────────────────────────────────────────────────────── -->
-<section class="section" id="why">
+<section class="section" id="why" style="border-top:1px solid var(--border)">
   <div class="container">
     <div class="section-label">The Problem</div>
     <h2 class="section-title">Why another tool?</h2>
@@ -920,71 +1071,88 @@
 <section class="section" id="quickstart">
   <div class="container">
     <div class="section-label">Get Started</div>
-    <h2 class="section-title">Up and running in minutes</h2>
+    <h2 class="section-title">Two commands. That's it.</h2>
+    <p class="section-body">
+      No Python, no virtualenv, no dependency hell. Install
+      <a href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a>,
+      then <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:14px">./run.sh</code>
+      for the dashboard and <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:14px">./mosaic.sh</code>
+      for everything else.
+    </p>
 
     <div class="quickstart-grid">
       <div class="qs-card">
-        <div class="qs-header">🐳 &nbsp;Docker (one-click)</div>
+        <div class="qs-header">📊 &nbsp;1 · Launch the dashboard</div>
         <div class="qs-body">
-          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px">No Python setup needed. Just Docker Desktop.</p>
+          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px">Builds the image, starts ClickHouse + UI, opens your browser.</p>
           <pre class="code-block"><span class="c"># macOS / Linux</span>
 <span class="p">$</span> ./run.sh
 
 <span class="c"># Windows</span>
 <span class="p">></span> run.bat
 
-<span class="c"># Then open</span>
-http://localhost:8501</pre>
+<span class="c"># Dashboard opens at →</span>
+http://localhost:8501
+
+<span class="c"># Stop it anytime</span>
+<span class="p">$</span> ./stop.sh</pre>
         </div>
       </div>
 
       <div class="qs-card">
-        <div class="qs-header">🐍 &nbsp;Developer install</div>
+        <div class="qs-header">⚡ &nbsp;2 · Run anything with ./mosaic.sh</div>
         <div class="qs-body">
-          <pre class="code-block"><span class="p">$</span> git clone https://github.com/Mosaic-agent/
-    Mosaic-fund-agent.git
-<span class="p">$</span> cd Mosaic-fund-agent
-<span class="p">$</span> python3 -m venv .venv
-<span class="p">$</span> source .venv/bin/activate
-<span class="p">$</span> pip install -r requirements.txt
-<span class="p">$</span> cp .env.example .env   <span class="c"># add API keys</span>
-<span class="p">$</span> docker compose up clickhouse -d</pre>
-        </div>
-      </div>
+          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px">Any CLI command or script — inside Docker, zero local setup.</p>
+          <pre class="code-block"><span class="c"># Pre-market commodity signals</span>
+<span class="p">$</span> ./mosaic.sh comex
 
-      <div class="qs-card">
-        <div class="qs-header">📡 &nbsp;Import &amp; signal</div>
-        <div class="qs-body">
-          <pre class="code-block"><span class="c"># Sync ETF price data</span>
-<span class="p">$</span> python src/main.py import --category etfs
-
-<span class="c"># Run composite signals</span>
-<span class="p">$</span> python src/main.py signals --save
+<span class="c"># Composite ETF signals (0–100)</span>
+<span class="p">$</span> ./mosaic.sh signals --save
 
 <span class="c"># GOLDBEES ML pipeline</span>
-<span class="p">$</span> python src/scripts/goldbees_report.py</pre>
+<span class="p">$</span> ./mosaic.sh src/scripts/goldbees_report.py
+
+<span class="c"># Sync fresh data first</span>
+<span class="p">$</span> ./mosaic.sh import --category etfs</pre>
         </div>
       </div>
 
       <div class="qs-card">
-        <div class="qs-header">💬 &nbsp;Ask anything</div>
+        <div class="qs-header">💬 &nbsp;Ask in plain English</div>
         <div class="qs-body">
-          <pre class="code-block"><span class="p">$</span> python src/main.py ask \
+          <pre class="code-block"><span class="p">$</span> ./mosaic.sh ask \
   <span class="s">"explain GOLDBEES anomalies last 30 days"</span>
 
-<span class="p">$</span> python src/main.py ask \
+<span class="p">$</span> ./mosaic.sh ask \
   <span class="s">"am I overexposed to IT sector?"</span>
 
-<span class="p">$</span> python src/main.py ask \
+<span class="p">$</span> ./mosaic.sh ask \
   <span class="s">"which ETFs trade at a premium?"</span></pre>
+        </div>
+      </div>
+
+      <div class="qs-card">
+        <div class="qs-header">🐍 &nbsp;Prefer a manual install?</div>
+        <div class="qs-body">
+          <p style="font-size:14px;color:var(--text-dim);margin-bottom:16px">Developers can run natively without the wrappers.</p>
+          <pre class="code-block"><span class="p">$</span> python3 -m venv .venv
+<span class="p">$</span> source .venv/bin/activate
+<span class="p">$</span> pip install -r requirements.txt
+<span class="p">$</span> cp .env.example .env   <span class="c"># add keys</span>
+<span class="p">$</span> docker compose up clickhouse -d
+<span class="p">$</span> python src/main.py ui</pre>
         </div>
       </div>
     </div>
 
     <p style="margin-top:28px;font-size:14px;color:var(--text-muted)">
-      Minimum keys to get started: <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">OPENAI_API_KEY</code> &nbsp;
-      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">NEWSAPI_KEY</code> &nbsp;
-      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">GOLD_API_KEY</code> — or use Ollama for fully offline operation.
+      On first <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">./run.sh</code> a
+      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">.env</code> is created —
+      add <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">OPENAI_API_KEY</code>,
+      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">NEWSAPI_KEY</code>,
+      <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">GOLD_API_KEY</code>,
+      or point <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:13px">LLM_BASE_URL</code>
+      at Ollama for fully offline operation.
     </p>
   </div>
 </section>
