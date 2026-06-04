@@ -56,7 +56,7 @@ class BudgetCallbackHandler(BaseCallbackHandler):
     max_tool_calls : int
         Max total tool invocations across all tools. Default 20.
     max_tokens : int
-        Max total LLM tokens (prompt + completion). Default 30000.
+        Max total LLM tokens (prompt + completion). Default 100000.
     max_wall_clock_s : float
         Max wall-clock seconds for the entire run. Default 180.
     tool_caps : dict[str, int] | None
@@ -66,7 +66,7 @@ class BudgetCallbackHandler(BaseCallbackHandler):
     def __init__(
         self,
         max_tool_calls: int = 20,
-        max_tokens: int = 30_000,
+        max_tokens: int = 100_000,
         max_wall_clock_s: float = 180.0,
         tool_caps: dict[str, int] | None = None,
     ) -> None:
