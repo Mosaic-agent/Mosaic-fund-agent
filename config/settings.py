@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Useful when you want to route all traffic through the cloud model (e.g. Claude Sonnet).
     llm_local_disabled: bool = Field(default=False, description="Disable local LLM; use cloud LLM for all requests")
 
+    # [NON-SENSITIVE] Enable native thinking/reasoning tokens for supported Ollama models
+    # (qwen3, deepseek-r1). Passes think=true in the request body. Has no effect on cloud models.
+    llm_think: bool = Field(default=False, description="Enable Ollama native thinking mode (qwen3, deepseek-r1)")
+
     # ── Code Agent LLM — dedicated model for CodeSubAgent ───────────────────────
     # Leave CODE_LLM_PROVIDER blank to share the main LLM with the code agent.
     # When set, CodeSubAgent uses this model regardless of the main LLM.

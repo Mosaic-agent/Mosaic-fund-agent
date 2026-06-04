@@ -75,6 +75,7 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         try:
+            import re
             import time
             import json
             from pathlib import Path
@@ -83,11 +84,36 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
             elapsed = time.time() - self._llm_start_time
             token_usage = {}
             model_name = settings.llm_model
-            
+
+            # Extract and display native thinking content (qwen3 / deepseek-r1 via Ollama think=true)
+            if settings.llm_think and response and hasattr(response, "generations") and response.generations:
+                for gen_list in response.generations:
+                    for gen in gen_list:
+                        think_text = None
+                        # Check additional_kwargs for a dedicated thinking field
+                        msg = getattr(gen, "message", None)
+                        if msg:
+                            ak = getattr(msg, "additional_kwargs", {}) or {}
+                            think_text = ak.get("thinking") or ak.get("reasoning_content")
+                        # Fall back to extracting <think>...</think> from content text
+                        if not think_text:
+                            raw = getattr(gen, "text", "") or ""
+                            m = re.search(r"<think>(.*?)</think>", raw, re.DOTALL)
+                            if m:
+                                think_text = m.group(1).strip()
+                        if think_text:
+                            self.console.print(Panel(
+                                think_text,
+                                title="[bold magenta]💭 Reasoning[/bold magenta]",
+                                border_style="magenta",
+                                style="dim",
+                            ))
+                        break
+
             if response and hasattr(response, "llm_output") and response.llm_output:
                 token_usage = response.llm_output.get("token_usage", {})
                 model_name = response.llm_output.get("model_name", model_name)
-                
+
             if not token_usage and response and hasattr(response, "generations") and response.generations:
                 for gen_list in response.generations:
                     for gen in gen_list:
@@ -284,10 +310,14 @@ class MosaicFundAgent:
         if settings.llm_base_url:
             from langchain_openai import ChatOpenAI
             logger.info(
-                "Using local LLM: model=%s  base_url=%s",
+                "Using local LLM: model=%s  base_url=%s  think=%s",
                 settings.llm_model,
                 settings.llm_base_url,
+                settings.llm_think,
             )
+            extra_body: dict = {"options": {"num_ctx": settings.llm_context_window}}
+            if settings.llm_think:
+                extra_body["think"] = True
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
@@ -295,7 +325,7 @@ class MosaicFundAgent:
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
-                extra_body={"options": {"num_ctx": settings.llm_context_window}},
+                extra_body=extra_body,
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────

@@ -1072,6 +1072,7 @@ class SignalSubAgent(_SubAgent):
         "prob_up, expected_return_pct, regime_signal, and weights.blended_50 verbatim. "
         "Use `run_risk_governor_analysis` for GARCH volatility-targeted position sizing. "
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
+        "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
         "Format all signal tables in clean Markdown.\n\n"
@@ -1105,6 +1106,7 @@ class SignalSubAgent(_SubAgent):
             plot_signal_breakdown, plot_weight_recommendations,
             plot_garch_volatility_chart, plot_macd_chart,
         )
+        from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
         return [
             run_daily_signal_composite,
             run_goldbees_pipeline,
@@ -1120,6 +1122,8 @@ class SignalSubAgent(_SubAgent):
             plot_garch_volatility_chart,
             plot_multi_price_chart,
             plot_macd_chart,
+            get_shoonya_quotes,
+            get_shoonya_live_tick,
         ]
 
 
