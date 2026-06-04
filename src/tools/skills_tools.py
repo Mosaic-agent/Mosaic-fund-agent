@@ -12,8 +12,10 @@ import os
 import re
 import sys
 import subprocess
-from typing import Any
 from langchain_core.tools import tool
+import logging
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -975,6 +977,24 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         
     anomalies = anomalies.sort_values("trade_date", ascending=False)
     
+    # Check if stock and retrieve quarterly results
+    is_stock = False
+    quarterly_results = None
+    try:
+        from src.tools.inav_fetcher import is_etf
+        is_stock = not is_etf(symbol_upper)
+    except Exception as e:
+        logger.warning("Could not determine if %s is an ETF: %s", symbol_upper, e)
+
+    if is_stock:
+        try:
+            from src.tools.earnings_scraper import get_quarterly_results
+            res = get_quarterly_results.invoke({"input_str": f"{symbol_upper}:{exchange_val}"})
+            if res and "error" not in res:
+                quarterly_results = res
+        except Exception as e:
+            logger.warning("Failed to fetch quarterly results for %s: %s", symbol_upper, e)
+
     output = []
     output.append(f"### 🔍 Price Anomaly & News Correlation Report: {symbol_upper}")
     output.append(f"Detected **{len(anomalies)}** anomaly dates in the last {days} days (threshold: return magnitude >= {threshold:.2f}%):\n")
@@ -1017,6 +1037,45 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
                 fallback_query = f"{symbol_upper} share price news"
                 news_output = search_financial_news.invoke({"query": fallback_query, "max_results": 3, "target_date": date_str})
             output.append(news_output)
+            
+            # Check if news contains earnings keywords and append quarterly results if available
+            if quarterly_results:
+                news_lower = news_output.lower()
+                earnings_keywords = ["result", "earning", "profit", "revenue", "q1", "q2", "q3", "q4", "sales"]
+                if any(kw in news_lower for kw in earnings_keywords):
+                    output.append("\n**📊 Correlated Quarterly Financial Results:**")
+                    output.append(f"- **Reporting Period:** {quarterly_results.get('period', 'N/A')}")
+                    
+                    rev_yoy = quarterly_results.get('revenue_yoy_pct')
+                    rev_cr = quarterly_results.get('revenue_cr')
+                    rev_str = f"₹{rev_cr:.2f} Cr" if isinstance(rev_cr, (int, float)) else str(rev_cr)
+                    if isinstance(rev_yoy, (int, float)):
+                        output.append(f"- **Revenue:** {rev_str} ({rev_yoy:+.2f}% YoY)")
+                    else:
+                        output.append(f"- **Revenue:** {rev_str} ({rev_yoy} YoY)")
+                        
+                    prof_yoy = quarterly_results.get('profit_yoy_pct')
+                    prof_cr = quarterly_results.get('net_profit_cr')
+                    prof_str = f"₹{prof_cr:.2f} Cr" if isinstance(prof_cr, (int, float)) else str(prof_cr)
+                    if isinstance(prof_yoy, (int, float)):
+                        output.append(f"- **Net Profit:** {prof_str} ({prof_yoy:+.2f}% YoY)")
+                    else:
+                        output.append(f"- **Net Profit:** {prof_str} ({prof_yoy} YoY)")
+                        
+                    eps = quarterly_results.get('eps')
+                    eps_yoy = quarterly_results.get('eps_yoy_pct')
+                    if isinstance(eps, (int, float)):
+                        eps_str = f"₹{eps:.2f}"
+                    else:
+                        eps_str = str(eps)
+                    if isinstance(eps_yoy, (int, float)):
+                        output.append(f"- **EPS:** {eps_str} ({eps_yoy:+.2f}% YoY)")
+                    else:
+                        output.append(f"- **EPS:** {eps_str} ({eps_yoy} YoY)")
+                        
+                    if quarterly_results.get('guidance'):
+                        output.append(f"- **Guidance:** {quarterly_results.get('guidance')}")
+                    output.append(f"- **Source:** [Screener/Yahoo]({quarterly_results.get('source_url', '#')})")
         except Exception as exc:
             output.append(f"  ❌ News search failed: {exc}")
         output.append("\n" + "─" * 40 + "\n")

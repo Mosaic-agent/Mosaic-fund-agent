@@ -931,6 +931,43 @@ def test_explain_price_anomalies():
         # Check that search_financial_news.invoke was called with the correct args dict
         mock_search.invoke.assert_called_with({"query": "gold price India custom duty import tax", "max_results": 3, "target_date": anomaly_date_str})
         
+    # Test for a stock symbol (e.g. TATAPOWER) and mock earnings / results query.
+    mock_quarterly = {
+        "symbol": "TATAPOWER",
+        "period": "Quarter Ending Mar 2026",
+        "note": "These are quarterly financial results (not annual/FY figures).",
+        "revenue_cr": 14900.0,
+        "net_profit_cr": 1416.0,
+        "eps": 3.12,
+        "revenue_yoy_pct": -12.85,
+        "profit_yoy_pct": 8.42,
+        "eps_yoy_pct": -4.29,
+        "guidance": "",
+        "source_url": "https://www.screener.in/company/TATAPOWER/consolidated/",
+    }
+
+    with patch("src.db.pool.query_df", return_value=mock_df), \
+         patch("src.tools.news_search.search_financial_news") as mock_search, \
+         patch("src.tools.inav_fetcher.is_etf", return_value=False), \
+         patch("src.tools.earnings_scraper.get_quarterly_results") as mock_earnings:
+        
+        mock_search.invoke.return_value = "Mocked News: Company quarterly results announced with higher profit"
+        mock_earnings.invoke.return_value = mock_quarterly
+        
+        output_stock = explain_price_anomalies.invoke({"symbol": "TATAPOWER", "days": 30})
+        
+        # Verify the stock report contains quarterly results block
+        assert "Price Anomaly & News Correlation Report" in output_stock
+        assert "TATAPOWER" in output_stock
+        assert "Correlated Quarterly Financial Results" in output_stock
+        assert "Quarter Ending Mar 2026" in output_stock
+        assert "Revenue" in output_stock
+        assert "₹14900.00 Cr" in output_stock
+        assert "-12.85% YoY" in output_stock
+        assert "Net Profit" in output_stock
+        assert "₹1416.00 Cr" in output_stock
+        assert "+8.42% YoY" in output_stock
+        
     print("  ✓ Explain price anomalies unit test passed")
 
 
