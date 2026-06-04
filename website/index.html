@@ -1575,20 +1575,25 @@ const QUERIES = {
   },
   premium: {
     cmd: 'which ETFs trade at a premium?',
-    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> · reading live iNAV snapshots…</div>
+    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.90) · calling run_premium_alerts…</div>
 <br/>
-<div class="section-header">💰 iNAV Premium / Discount — International ETFs</div>
+<div class="section-header">🌍 International ETF — Scarcity Premium Alerts</div>
+<div class="out dim">RBI $7B overseas cap creates structural premiums. Trade the Z-score, not the level.</div>
+<div class="out dim">Lookback 30d · Z threshold −1.5</div>
 <br/>
-<div class="out dim">┌────────────┬──────────┬───────────┬──────────────┐</div>
-<div class="out dim">│ ETF        │ Price/NAV│ Z-score   │ Signal       │</div>
-<div class="out dim">├────────────┼──────────┼───────────┼──────────────┤</div>
-<div class="out">│ <span class="hi">MAFANG</span>     │ <span class="hi-red">+6.8%</span>    │ +2.1σ     │ <span class="hi-red">RICH</span>         │</div>
-<div class="out">│ MON100     │ +3.2%    │ +0.9σ     │ neutral      │</div>
-<div class="out">│ HNGSNGBEES │ <span class="hi-green">−1.4%</span>    │ <span class="hi-green">−1.7σ</span>     │ <span class="hi-green">🟢 BUY</span>       │</div>
-<div class="out dim">└────────────┴──────────┴───────────┴──────────────┘</div>
+<div class="out dim">┌────────────┬─────────────┬──────────────┬─────────┬──────────────┐</div>
+<div class="out dim">│ Symbol     │ Latest Prem │ 30d Avg      │ Z-Score │ Action       │</div>
+<div class="out dim">├────────────┼─────────────┼──────────────┼─────────┼──────────────┤</div>
+<div class="out">│ MAHKTECH   │ <span class="hi">+18.05%</span>      │ +19.94%      │ -0.879  │ 🔴 NO ACTION │</div>
+<div class="out">│ HNGSNGBEES │ <span class="hi">+15.32%</span>      │ +15.11%      │ +0.155  │ 🔴 NO ACTION │</div>
+<div class="out">│ MAFANG     │ <span class="hi">+18.99%</span>      │ +18.47%      │ +0.259  │ 🔴 NO ACTION │</div>
+<div class="out">│ MONQ50     │ <span class="hi">+19.25%</span>      │ +18.57%      │ +0.268  │ 🔴 NO ACTION │</div>
+<div class="out">│ MON100     │ <span class="hi">+19.31%</span>      │ +18.79%      │ +0.319  │ 🔴 NO ACTION │</div>
+<div class="out">│ MASPTOP50  │ <span class="hi">+20.19%</span>      │ +19.28%      │ +0.808  │ 🔴 NO ACTION │</div>
+<div class="out dim">└────────────┴─────────────┴──────────────┴─────────┴──────────────┘</div>
 <br/>
-<div class="out"><span class="hi">MAFANG</span> trades <span class="hi-red">6.8% above</span> NAV — SEBI overseas-cap scarcity premium.</div>
-<div class="out hi-green">HNGSNGBEES at −1.4% (−1.7σ) is the cheapest entry right now.</div>`
+<div class="out">All 6 ETFs carry structural premiums of <span class="hi">15–20%+</span> — this is the RBI overseas-cap effect, not mispricing.</div>
+<div class="out hi-green">Strategy: wait for a Z-score dip below <span class="hi">−1.5σ</span> (premium drops below its own mean) — that's the entry signal.</div>`
   },
   signal: {
     cmd: "today's GOLDBEES signal",
