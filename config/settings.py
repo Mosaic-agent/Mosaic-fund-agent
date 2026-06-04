@@ -276,16 +276,29 @@ class Settings(BaseSettings):
         # If running locally (not inside a Docker container), 'host.docker.internal' will fail to resolve.
         # Rewrite it to '127.0.0.1' so CLI/local tools work seamlessly on the host machine.
         import socket
-        if self.llm_base_url and "host.docker.internal" in self.llm_base_url:
-            try:
-                socket.gethostbyname("host.docker.internal")
-            except socket.gaierror:
-                self.llm_base_url = self.llm_base_url.replace("host.docker.internal", "127.0.0.1")
-        if self.code_llm_base_url and "host.docker.internal" in self.code_llm_base_url:
-            try:
-                socket.gethostbyname("host.docker.internal")
-            except socket.gaierror:
-                self.code_llm_base_url = self.code_llm_base_url.replace("host.docker.internal", "127.0.0.1")
+        import os
+        
+        is_docker = os.path.exists('/.dockerenv') or os.path.exists('/run/secrets/kubernetes.io') or os.environ.get('AM_I_IN_A_DOCKER_CONTAINER')
+        
+        if is_docker:
+            # Inside Docker, localhost / 127.0.0.1 points to the container. Map to the host machine instead.
+            for host in ("localhost", "127.0.0.1"):
+                if self.llm_base_url and host in self.llm_base_url:
+                    self.llm_base_url = self.llm_base_url.replace(host, "host.docker.internal")
+                if self.code_llm_base_url and host in self.code_llm_base_url:
+                    self.code_llm_base_url = self.code_llm_base_url.replace(host, "host.docker.internal")
+        else:
+            # Outside Docker, rewrite host.docker.internal to localhost if it's unresolvable.
+            if self.llm_base_url and "host.docker.internal" in self.llm_base_url:
+                try:
+                    socket.gethostbyname("host.docker.internal")
+                except socket.gaierror:
+                    self.llm_base_url = self.llm_base_url.replace("host.docker.internal", "127.0.0.1")
+            if self.code_llm_base_url and "host.docker.internal" in self.code_llm_base_url:
+                try:
+                    socket.gethostbyname("host.docker.internal")
+                except socket.gaierror:
+                    self.code_llm_base_url = self.code_llm_base_url.replace("host.docker.internal", "127.0.0.1")
 
     def validate_sensitive_fields(self) -> list[str]:
         """
