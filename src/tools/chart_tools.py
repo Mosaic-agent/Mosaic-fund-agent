@@ -164,7 +164,7 @@ def plot_price_chart(
                     anomaly_ys.append(prices[idx])
             
             if anomaly_xs:
-                plt.scatter(anomaly_xs, anomaly_ys, color="red", marker="x", label="Anomaly")
+                plt.scatter(anomaly_xs, anomaly_ys, color="red", marker="🔴", label="Anomaly")
         except Exception as exc:
             logger.warning("Failed to plot price anomalies on chart: %s", exc)
 
