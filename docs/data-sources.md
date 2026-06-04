@@ -6,7 +6,8 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 
 | What | Source | Notes |
 |---|---|---|
-| Stock / ETF / commodity OHLCV | Yahoo Finance `.NS`, `GC=F`, etc. | Free, subject to rate-limiting on high concurrency (handled via staggered jitter delays in the parallel stock importer) |
+| Stock / ETF / commodity OHLCV | Shoonya (primary for NSE) / Yahoo Finance (fallback) | Shoonya API used as primary daily EOD reader for Indian stocks/ETFs (requires API key & TOTP); Yahoo Finance `.NS` as fallback and for commodities (`GC=F`) |
+| Live quotes & tick streams | Shoonya API / WebSocket | Used during market hours for real-time stock/ETF prices (requires Shoonya API login) |
 | Currency exchange rates (FX) | Yahoo Finance | Free, daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD. Used in macro and anomaly models |
 | ETF iNAV — live | NSE API | Free, 15-second refresh (9:15 AM – 3:30 PM IST) |
 | ETF iNAV — historic / NAV | MFAPI.in (AMFI official) | Free |
