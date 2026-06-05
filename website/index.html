@@ -1539,8 +1539,8 @@ http://localhost:8501
 /* ── Interactive "ask Mosaic" terminal ──────────────────────────── */
 const QUERIES = {
   anomaly: {
-    cmd: 'explain GOLDBEES anomalies over 30 days',
-    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.98) · routing to signal sub-agent…</div>
+    cmd: './mosaic.sh ask "explain GOLDBEES anomalies over 30 days"',
+    out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> (confidence 0.98)…</div>
 <br/>
 <div class="section-header">🔍 Price Anomaly &amp; News Correlation: GOLDBEES</div>
 <div class="out">Detected <span class="hi">2 anomalies</span> — GARCH composite (Final Z &gt; 2.5)</div>
@@ -1660,8 +1660,8 @@ const QUERIES = {
 <div class="out dim">Suggested: <span style="color:var(--teal);cursor:default">[1] comex gold today</span>  <span style="color:var(--teal);cursor:default">[2] plot fii dii chart</span>  <span style="color:var(--teal);cursor:default">[3] query fii flows last 30 days</span></div>`
   },
   premium: {
-    cmd: 'which ETFs trade at a premium?',
-    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.90) · calling run_premium_alerts…</div>
+    cmd: './mosaic.sh ask "which ETFs trade at a premium?"',
+    out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> · live iNAV snapshots…</div>
 <br/>
 <div class="section-header">🌍 International ETF — Scarcity Premium Alerts</div>
 <div class="out dim">RBI $7B overseas cap creates structural premiums. Trade the Z-score, not the level.</div>
@@ -1682,8 +1682,8 @@ const QUERIES = {
 <div class="out hi-green">Strategy: wait for a Z-score dip below <span class="hi">−1.5σ</span> (premium drops below its own mean) — that's the entry signal.</div>`
   },
   signal: {
-    cmd: "today's GOLDBEES signal",
-    out: `<div class="out term-thinking">→ intent: <span class="hi">signal</span> (0.98) · calling run_goldbees_pipeline…</div>
+    cmd: './mosaic.sh src/scripts/goldbees_report.py',
+    out: `<div class="out term-thinking">Reading ml_predictions · weight_checkpoints · signal_composite…</div>
 <br/>
 <div class="section-header">🥇 GOLDBEES Signal Report — 2026-06-04</div>
 <br/>
