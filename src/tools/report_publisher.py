@@ -491,7 +491,7 @@ _HTML_TEMPLATE = """\
     size: A4;
     margin: 14mm 14mm 14mm 14mm;
     @bottom-center {
-      content: "{{ symbol }} | Mosaic Fund Agent | Page " counter(page) " of " counter(pages);
+      content: "{{ footer_symbol }} | Mosaic Fund Agent | Page " counter(page) " of " counter(pages);
       font-family: 'Inter', sans-serif;
       font-size: 7pt;
       color: #9ca3af;
@@ -508,9 +508,9 @@ _HTML_TEMPLATE = """\
 <body>
 
 <div class="cover">
-  <div class="platform">Mosaic Fund Agent — Equity Research</div>
-  <h1>{{ company_name or symbol }}</h1>
-  <div class="subtitle">{{ symbol }} · NSE · Equity Research Note</div>
+  <div class="platform">Mosaic Fund Agent — {{ report_type }}</div>
+  <h1>{{ headline }}</h1>
+  <div class="subtitle">{{ subtitle }}</div>
   <div class="meta">Report date: {{ date_str }} &nbsp;|&nbsp; Prepared by Mosaic autonomous research agent</div>
 </div>
 
@@ -595,11 +595,14 @@ def generate_pdf_bytes(
         charts.append({"label": f"{symbol} — GARCH Annualised Volatility", "data": garch_png})
 
     # ── 3. Render HTML template ───────────────────────────────────────────────
+    display = company_name or symbol.upper()
     tmpl = Template(_HTML_TEMPLATE)
     html = tmpl.render(
-        symbol=symbol.upper(),
-        company_name=company_name or symbol.upper(),
-        title=f"{symbol.upper()} — Equity Research Note",
+        title=f"{display} — Equity Research Note",
+        report_type="Equity Research",
+        headline=display,
+        subtitle=f"{symbol.upper()} · NSE · Equity Research Note",
+        footer_symbol=symbol.upper(),
         date_str=datetime.now().strftime("%d %B %Y"),
         report_html=report_html,
         charts=charts,
@@ -612,6 +615,142 @@ def generate_pdf_bytes(
 # ── LangChain tool ────────────────────────────────────────────────────────────
 
 from langchain_core.tools import tool
+
+
+def _detect_symbols_in_markdown(text: str) -> list[str]:
+    """
+    Best-effort extraction of NSE-style symbols (2-10 uppercase letters/digits)
+    from a Markdown research report.
+
+    Strategy:
+      1. Explicit `**SYMBOL**` bold patterns (most reliable — agent often bolds tickers)
+      2. Known-good patterns: lines starting with ###/#### that contain an all-caps word
+      3. `symbol:` / `Symbol:` key-value pairs in Markdown tables
+    Deduplicates and preserves order of first occurrence.
+    """
+    import re
+    seen: list[str] = []
+    visited: set[str] = set()
+
+    # Skip common English words that look like tickers
+    _SKIP = {
+        "NSE", "BSE", "ETF", "NAV", "FII", "DII", "RBI", "SEBI", "CAGR",
+        "EBIT", "EBITDA", "ROE", "ROCE", "EPS", "P/E", "P/B", "FCF",
+        "YOY", "QOQ", "MOM", "BUY", "SELL", "HOLD", "WATCH", "HIGH",
+        "LOW", "YES", "NO", "N/A", "NULL", "NONE", "INR", "USD",
+        "MACD", "GARCH", "PELT", "EXIT", "HODL", "NORMAL",
+    }
+
+    # Pattern 1: **SYMBOL** bold in markdown
+    for m in re.finditer(r"\*\*([A-Z][A-Z0-9]{1,9})\*\*", text):
+        s = m.group(1)
+        if s not in _SKIP and s not in visited:
+            seen.append(s); visited.add(s)
+
+    # Pattern 2: heading lines with standalone ALL-CAPS word
+    for line in text.splitlines():
+        if line.startswith(("###", "####", "##")):
+            for m in re.finditer(r"\b([A-Z][A-Z0-9]{2,9})\b", line):
+                s = m.group(1)
+                if s not in _SKIP and s not in visited:
+                    seen.append(s); visited.add(s)
+
+    # Pattern 3: table | Symbol | TICKER | or `TICKER` inline code
+    for m in re.finditer(r"`([A-Z][A-Z0-9]{2,9})`", text):
+        s = m.group(1)
+        if s not in _SKIP and s not in visited:
+            seen.append(s); visited.add(s)
+
+    return seen[:6]   # cap at 6 to avoid chart-generation explosion
+
+
+def generate_consolidated_pdf_bytes(
+    report_markdown: str,
+    symbols: list[str],
+    title: str = "",
+    report_type: str = "Research Report",
+) -> bytes:
+    """
+    Convert a Markdown report to a consolidated PDF.
+
+    Chart strategy (to keep file size reasonable):
+      1 symbol  → price (365d) + MACD (180d) + GARCH vol (180d)   — full 3-chart set
+      2–4 syms  → price chart only per symbol (parallel render)   — comparative view
+      5+ syms   → no auto-charts (report body is the full content)
+
+    Returns raw PDF bytes.
+    """
+    import markdown as md
+    from jinja2 import Template
+    from weasyprint import HTML as WP_HTML
+    from concurrent.futures import ThreadPoolExecutor
+
+    extensions = ["tables", "fenced_code", "nl2br", "sane_lists"]
+    report_html = md.markdown(report_markdown, extensions=extensions)
+
+    charts: list[dict] = []
+    n = len(symbols)
+
+    if n == 1:
+        sym = symbols[0]
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_p = pool.submit(render_price_chart_png, sym, 365)
+            f_m = pool.submit(render_macd_chart_png,  sym, 180)
+            f_g = pool.submit(render_garch_vol_png,   sym, 180)
+            for label, fut in [
+                (f"{sym} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action", f_p),
+                (f"{sym} — MACD(12,26,9)", f_m),
+                (f"{sym} — GARCH Annualised Volatility", f_g),
+            ]:
+                png = fut.result(timeout=60)
+                if png:
+                    charts.append({"label": label, "data": png})
+
+    elif 2 <= n <= 4:
+        # One price chart per symbol, rendered in parallel
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            futures = {
+                pool.submit(render_price_chart_png, sym, 365): sym
+                for sym in symbols
+            }
+            for fut, sym in futures.items():
+                png = fut.result(timeout=60)
+                if png:
+                    charts.append({
+                        "label": f"{sym} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action",
+                        "data": png,
+                    })
+
+    # Build cover metadata
+    if not title:
+        if n == 1:
+            title = f"{symbols[0]} — Equity Research Note"
+        elif n <= 4:
+            title = "Consolidated Research — " + " · ".join(symbols)
+        else:
+            title = "Portfolio Research Report"
+
+    headline = title
+    if n == 1:
+        subtitle = f"{symbols[0]} · NSE · Equity Research Note"
+    elif n <= 4:
+        subtitle = " · ".join(symbols) + " · NSE"
+    else:
+        subtitle = f"{n} symbols · Portfolio Report"
+
+    footer_sym = symbols[0] if symbols else "Mosaic"
+    tmpl = Template(_HTML_TEMPLATE)
+    html = tmpl.render(
+        title=title,
+        report_type=report_type,
+        headline=headline,
+        subtitle=subtitle,
+        footer_symbol=footer_sym,
+        date_str=datetime.now().strftime("%d %B %Y"),
+        report_html=report_html,
+        charts=charts,
+    )
+    return WP_HTML(string=html).write_pdf()
 
 
 @tool
@@ -638,29 +777,21 @@ def publish_research_pdf(
     Returns the absolute path of the saved PDF.
     """
     symbol_upper = symbol.strip().upper()
-
-    # Resolve company name for cover page
-    company_name = ""
+    # Delegate to the consolidated engine (single-symbol path)
     try:
-        from src.tools.symbol_mapper import get_company_name
-        company_name = get_company_name(symbol_upper) or ""
-    except Exception:
-        pass
-
-    # Generate PDF bytes
-    try:
-        pdf_bytes = generate_pdf_bytes(symbol_upper, report_markdown, company_name)
+        pdf_bytes = generate_consolidated_pdf_bytes(
+            report_markdown,
+            symbols=[symbol_upper],
+            report_type="Equity Research",
+        )
     except Exception as exc:
         return f"PDF generation failed for {symbol_upper}: {exc}"
 
-    # Write to disk
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if not filename:
-        date_tag = datetime.now().strftime("%Y%m%d")
-        filename = f"{symbol_upper}_{date_tag}.pdf"
+        filename = f"{symbol_upper}_{datetime.now().strftime('%Y%m%d')}.pdf"
     if not filename.endswith(".pdf"):
         filename += ".pdf"
-
     out_path = _OUTPUT_DIR / filename
     out_path.write_bytes(pdf_bytes)
 
@@ -669,4 +800,84 @@ def publish_research_pdf(
         f"✅ Research report saved: **{out_path.resolve()}**\n"
         f"Size: {size_kb} KB  |  Charts: price, MACD, GARCH vol  |  "
         f"Symbol: {symbol_upper}  |  Date: {datetime.now().strftime('%d %b %Y')}"
+    )
+
+
+@tool
+def publish_consolidated_pdf(
+    report_markdown: str,
+    symbols: str = "",
+    title: str = "",
+    filename: str = "",
+) -> str:
+    """
+    Publish the COMPLETE final output of any agent run as a single consolidated PDF.
+
+    Use this as the universal last step — works for single-symbol deep dives,
+    multi-symbol comparative reports, anomaly reports, news reports, and portfolio
+    summaries.  It auto-detects which symbols are covered by the report when
+    `symbols` is not provided.
+
+    Chart strategy (auto-selected by symbol count):
+      1 symbol  → price chart + MACD(12,26,9) + GARCH vol      (full research set)
+      2–4 syms  → one price chart per symbol, rendered in parallel  (comparative)
+      5+ syms   → report body only — no per-symbol charts
+
+    Args:
+        report_markdown : The COMPLETE Markdown text of the agent's final output.
+                          Pass everything — all sections, tables, analysis.
+        symbols         : Comma-separated NSE symbols covered (e.g. "MSUMI,HDFCBANK").
+                          Leave blank to auto-detect from the report text.
+        title           : Custom PDF title / cover headline. Auto-generated if blank.
+        filename        : Output filename. Default: <SYMBOLS>_<YYYYMMDD>.pdf
+
+    Returns the absolute path of the saved PDF.
+    """
+    # Parse or detect symbols
+    sym_list: list[str] = []
+    if symbols.strip():
+        sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not sym_list:
+        sym_list = _detect_symbols_in_markdown(report_markdown)
+
+    # Choose report_type label for cover
+    n = len(sym_list)
+    if n == 1:
+        report_type = "Equity Research"
+    elif n >= 2:
+        report_type = "Consolidated Research"
+    else:
+        report_type = "Research Report"
+
+    try:
+        pdf_bytes = generate_consolidated_pdf_bytes(
+            report_markdown,
+            symbols=sym_list,
+            title=title,
+            report_type=report_type,
+        )
+    except Exception as exc:
+        return f"Consolidated PDF generation failed: {exc}"
+
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not filename:
+        date_tag = datetime.now().strftime("%Y%m%d")
+        sym_tag  = "_".join(sym_list[:3]) if sym_list else "report"
+        filename = f"{sym_tag}_{date_tag}.pdf"
+    if not filename.endswith(".pdf"):
+        filename += ".pdf"
+    out_path = _OUTPUT_DIR / filename
+    out_path.write_bytes(pdf_bytes)
+
+    size_kb   = len(pdf_bytes) // 1024
+    chart_desc = (
+        "price + MACD + GARCH" if n == 1
+        else f"price × {n} symbols" if n <= 4
+        else "report only (5+ symbols)"
+    )
+    sym_desc = ", ".join(sym_list) if sym_list else "auto-detected"
+    return (
+        f"✅ Consolidated report saved: **{out_path.resolve()}**\n"
+        f"Symbols: {sym_desc}  |  Charts: {chart_desc}  |  "
+        f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
     )
