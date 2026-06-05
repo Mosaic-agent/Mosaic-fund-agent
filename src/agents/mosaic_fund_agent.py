@@ -686,7 +686,8 @@ class MosaicFundAgent:
                 from src.agents.sub_agents import run_subagent_for
                 prompt = (
                     f"Research {info['company_name']} ({info['symbol']}) "
-                    f"listed on {info['exchange']}. Provide a comprehensive research note."
+                    f"listed on {info['exchange']}. Provide a comprehensive research note. "
+                    f"Call search_anomaly_events with days=365 to explain any price anomalies."
                 )
                 if pdf_requested:
                     prompt += " Also save/export the final report as a PDF file using the publish_consolidated_pdf tool."
@@ -932,7 +933,8 @@ class MosaicFundAgent:
                     f"Research {info['company_name']} ({info['symbol']}) "
                     f"listed on {info['exchange']}. Provide a comprehensive "
                     f"research note covering financials, earnings, MF holdings, "
-                    f"cash flow, news, and FII/DII flows."
+                    f"cash flow, news, FII/DII flows, and call search_anomaly_events "
+                    f"with days=365 to explain any price anomalies."
                 )
                 if pdf_requested:
                     prompt += " Also save/export the final report as a PDF file using the publish_consolidated_pdf tool."

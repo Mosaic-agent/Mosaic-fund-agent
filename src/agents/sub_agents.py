@@ -969,6 +969,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `get_db_price_summary(symbol)` — 30/60/90/365-day price trends from ClickHouse (auto-imports if missing)\n"
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
         "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n"
+        "  • `search_anomaly_events(symbol, 365)` — ALWAYS call this to scan for 1-year price anomalies and fetch news context explaining the underlying reasons for those shocks\n"
         "  • `plot_macd_chart(symbol, days)` — MACD(12,26,9) chart with signal line + histogram (use when user asks for MACD)\n\n"
         "TECHNICAL INDICATOR RECOGNITION:\n"
         "When the query contains MACD, RSI, Bollinger, EMA, SMA, or similar indicator names, "
@@ -988,6 +989,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  7. Arrive at a conviction-weighted BUY/HOLD/SELL/WATCH rating with clear rationale.\n\n"
         "Then write the structured Markdown research note:\n"
         "(1) Company Snapshot — table of key metrics, then write `[CHART:price]` on its own line where the price chart should appear  "
+        "(1b) Price Anomalies & Shock Events — summarise the dates, price shocks, and underlying news/macro causes retrieved from search_anomaly_events (explain the anomalies/red dots on the chart)  "
         "(2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
         "(5) Institutional Ownership — write `[CHART:shareholding]` on its own line where the shareholding bar should appear, then the "
@@ -1020,6 +1022,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         from src.tools.skills_tools import query_clickhouse_db, import_symbol_data
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
         from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
+        from src.tools.market.equity import search_anomaly_events
         from src.tools.agent_tools import check_and_refresh_symbol_data
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return (
@@ -1030,7 +1033,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
                import_symbol_data, check_and_refresh_symbol_data,
                plot_price_chart, plot_shareholding_bar, plot_macd_chart,
                get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary,
-               publish_research_pdf, publish_consolidated_pdf]
+               search_anomaly_events, publish_research_pdf, publish_consolidated_pdf]
         )
 
     def _fallback(self, question: str) -> str:
