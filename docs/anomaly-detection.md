@@ -72,7 +72,18 @@ $$Z_{final} \leftarrow Z_{final} \times cp\_boost \quad (\text{default } 1.15) \
 
 and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z threshold still gates which dates are flagged; CPD only sharpens confidence and labelling.
 
-**Graceful degradation:** if `ruptures` is not installed or there are too few rows, `is_changepoint`/`cp_confirmed` are all False and the pipeline behaves exactly as the GARCH+IF version did.
+## Step 5 — Corporate Action Suppression (mechanical shock filtering)
+
+Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. To prevent these from skewing GARCH/PELT predictions or generating false positive anomaly flags:
+
+1. The fetcher [nse_corporate_actions_fetcher.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/fetchers/nse_corporate_actions_fetcher.py) scrapes corporate events from the NSE website.
+2. The ex-dates are matched against the price history.
+3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [anomaly.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py#L464).
+4. These rows are excluded from the `df_flagged` anomalies and their regime is relabelled to `"🏦 Corporate Action"`.
+5. On the price chart, these ex-dates are overlayed as gold `🏦` markers, separating them from genuine red `🔴` anomalies.
+6. Regular dividends, buybacks, and AGM events are labelled as corporate actions but are **not** suppressed, as they do not mechanically dilute or double stock prices.
+
+**Graceful degradation:** if `ruptures` is not installed or there are too few rows, `is_changepoint`/`cp_confirmed` are all False and the pipeline behaves exactly as the GARCH+IF version did. If no corporate actions are found in the database, the pipeline runs normally without suppression.
 
 > The red anomaly dots on [plot_price_chart](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/chart_tools.py) are now driven by this full 3-method composite ([_composite_anomaly_dates](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/chart_tools.py#L32)), falling back to a naive `max(2.0, 2.5·std)` return threshold only when the pipeline can't run (<60 rows, `arch`/`ruptures` missing, or the DB-less yfinance path).
 
@@ -88,6 +99,7 @@ Thresholds are dynamic (80th percentile of the full window) to prevent threshold
 | 🧨 Blow-off Top (Weak) | High z_robust + Low volume + Positive return | Thin-volume rally |
 | 📈 Strong Trend (HODL) | High z_robust + Low z_resid | Predictable uptrend |
 | 🔀 Regime Shift (Change Point) | Flagged date confirmed by a PELT break (±3 rows) | Structural vol-regime change — re-assess sizing |
+| 🏦 Corporate Action | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) | No action (suppressed from anomalies, plotted as gold `🏦` marker) |
 | ✅ Normal | All other | No action |
 
 ## Risk Governor Integration
@@ -133,6 +145,13 @@ The cache is in-memory only and does not persist across processes. It is cleared
 ## Anomaly Explanation Tool (`explain_price_anomalies`)
 
 The agent's anomaly explanation capability (implemented in [gold.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/market/gold.py) and re-exported via [skills_tools.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/skills_tools.py)) is built on top of [run_composite_anomaly](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py#L464). It bridges the ML detection layer with news/event correlation and forward model context.
+
+### Additional Anomaly & Corporate Action Tools
+
+Two specialized tools are available in [equity.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/market/equity.py) to investigate stock-specific shocks:
+
+1. **`get_corporate_actions(symbol)`**: Fetches historical corporate actions (splits, bonuses, demergers, rights, dividends) from the NSE website, stores them in ClickHouse, and displays a summary table. Used when verifying if a price drop (like the MSUMI -32.5% drop on July 18, 2025) was a mechanical corporate action.
+2. **`search_anomaly_events(symbol, days)`**: An internet search agent tool that queries ClickHouse corporate actions, fits the GARCH+PELT pipeline to detect anomaly dates, filters out suppressed corporate action ex-dates, and dispatches parallel target-date Google News queries to correlate and explain each shock.
 
 ### Pipeline
 
