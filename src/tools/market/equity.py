@@ -236,13 +236,30 @@ def search_anomaly_events(
             f"Run `import --category stocks` to backfill."
         )
 
-    # ── 2. Run composite anomaly pipeline ────────────────────────────────────
+    # ── 2. Load corporate actions from ClickHouse (for anomaly suppression) ──
+    df_corp: pd.DataFrame | None = None
+    try:
+        from src.db.pool import query_df as _qdf
+        _ca = _qdf(
+            "SELECT ex_date, action_type, ratio, purpose "
+            "FROM market_data.corporate_actions FINAL "
+            "WHERE symbol = {sym:String}",
+            parameters={"sym": symbol_upper},
+        )
+        if not _ca.empty:
+            _ca["ex_date"] = pd.to_datetime(_ca["ex_date"])
+            df_corp = _ca
+    except Exception as exc:
+        log.debug("Corporate actions not available for %s: %s", symbol_upper, exc)
+
+    # ── 3. Run composite anomaly pipeline ────────────────────────────────────
     cutoff = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=days)
 
     try:
         from src.ml.anomaly import run_composite_anomaly
         df_result, df_flagged, _ = run_composite_anomaly(
-            df[["trade_date", "open", "high", "low", "close", "volume"]].copy()
+            df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
+            df_corp_actions=df_corp,
         )
     except Exception as exc:
         return f"Anomaly pipeline failed for {symbol_upper}: {exc}"
@@ -264,7 +281,7 @@ def search_anomaly_events(
 
     recent = recent.sort_values("trade_date", ascending=False)
 
-    # ── 3. Resolve company name for better search queries ─────────────────────
+    # ── 4. Resolve company name for better search queries ─────────────────────
     company_name = ""
     try:
         from src.tools.symbol_mapper import get_company_name
