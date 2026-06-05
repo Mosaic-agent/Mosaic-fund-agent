@@ -29,6 +29,12 @@ def _chart_width() -> int:
         return 76
 
 
+# Session-level cache for composite anomaly dates.
+# Keyed by (symbol_upper, category, n_rows): n_rows acts as a version token —
+# a cache miss on new data without any explicit invalidation machinery.
+_ANOMALY_DATES_CACHE: dict[tuple, set] = {}
+
+
 def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
     """
     Run the composite anomaly pipeline (GARCH vol-normalization + Isolation
@@ -49,9 +55,14 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
         import pandas as pd
         from src.db.pool import query_df
 
-        cat_filter = f"AND category = '{category}'" if category else ""
+        # Parameterised query — prevents SQL injection via symbol/category values.
+        params: dict = {"sym": symbol.upper()}
+        cat_clause = "AND category = {cat:String}" if category else ""
+        if category:
+            params["cat"] = category
         # Full history (not just the display window) — GARCH/PELT need it.
-        df = query_df(f"""
+        df = query_df(
+            f"""
             SELECT trade_date,
                    toFloat64(argMax(open,   imported_at)) AS open,
                    toFloat64(argMax(high,   imported_at)) AS high,
@@ -59,11 +70,18 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
                    toFloat64(argMax(close,  imported_at)) AS close,
                    toFloat64(argMax(volume, imported_at)) AS volume
             FROM market_data.daily_prices FINAL
-            WHERE symbol = '{symbol.upper()}' {cat_filter}
+            WHERE symbol = {{sym:String}} {cat_clause}
             GROUP BY trade_date ORDER BY trade_date ASC
-        """)
+            """,
+            parameters=params,
+        )
         if df.empty or len(df) < 60:
             return None
+
+        # Return cached result if row count (data version) is unchanged.
+        cache_key = (symbol.upper(), category, len(df))
+        if cache_key in _ANOMALY_DATES_CACHE:
+            return _ANOMALY_DATES_CACHE[cache_key]
 
         df["trade_date"] = pd.to_datetime(df["trade_date"])
         df = df.sort_values("trade_date").reset_index(drop=True)
@@ -98,9 +116,11 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
             df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
             df_cot=df_cot, df_fx=df_fx,
         )
-        return {
+        result = {
             pd.Timestamp(d).normalize() for d in df_flagged["trade_date"]
         }
+        _ANOMALY_DATES_CACHE[cache_key] = result
+        return result
     except Exception as exc:
         logger.warning("Composite anomaly detection failed, naive fallback: %s", exc)
         return None

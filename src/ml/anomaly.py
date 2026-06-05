@@ -527,15 +527,28 @@ def run_composite_anomaly(
     # Classify regimes + compute Final Z
     df = classify_regime(df)
 
-    # Change-point confirmation booster: a point shock that coincides with a
-    # structural break is corroborated by two independent views -> amplify its
-    # Final Z and relabel its regime. The Final-Z threshold still gates flagging.
+    # Change-point confirmation booster: a point shock that ALREADY exceeds the
+    # z_threshold (i.e. GARCH+IF flagged it independently) AND falls within
+    # ±proximity_days of a PELT structural break → corroborated by two
+    # independent views, so amplify its Final Z.
+    #
+    # Gate to pre-flagged rows to prevent CPD alone from pushing sub-threshold
+    # days into df_flagged as false positives.
+    #
+    # Regime relabelling: only rows not already carrying a more specific
+    # actionable regime (Flash Crash carries EXIT + 0.5x risk multiplier;
+    # overwriting it would silently double the allowed position weight).
     if cp_boost != 1.0 and bool(df["cp_confirmed"].any()):
-        mask = df["cp_confirmed"]
-        df.loc[mask, "final_z"]   = df.loc[mask, "final_z"] * cp_boost
-        df["final_z_abs"]         = df["final_z"].abs()
-        relabel = mask & (df["final_z_abs"] > z_threshold)
-        df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
+        pre_flagged = df["final_z_abs"] > z_threshold
+        mask = df["cp_confirmed"] & pre_flagged
+        if mask.any():
+            df.loc[mask, "final_z"] = df.loc[mask, "final_z"] * cp_boost
+            df.loc[mask, "final_z_abs"] = df.loc[mask, "final_z"].abs()
+            # Only relabel rows whose regime doesn't already carry a stronger
+            # directional signal (Flash Crash, Volatile Breakout).
+            _keep = df["regime"].str.contains("Flash Crash|Volatile Breakout", na=False)
+            relabel = mask & ~_keep
+            df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
 
     df_flagged = df[df["final_z_abs"] > z_threshold].copy()
     return df, df_flagged, garch_loglik

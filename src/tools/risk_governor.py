@@ -111,6 +111,7 @@ _REGIME_MULT: dict[str, float] = {
     "🧨 Blow-off Top (Weak)":             0.70,
     "📈 Strong Trend (HODL)":             1.00,
     "✅ Normal":                          1.00,
+    "🔀 Regime Shift (Change Point)":     0.80,  # structural break — proceed cautiously
 }
 
 # Readable tier labels for the recommended weight
