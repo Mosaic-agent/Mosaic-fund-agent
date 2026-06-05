@@ -472,6 +472,7 @@ def run_composite_anomaly(
     cp_penalty: float | None = None,
     cp_proximity_days: int = 3,
     cp_boost: float = 1.15,
+    df_corp_actions: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
@@ -493,11 +494,18 @@ def run_composite_anomaly(
     cp_proximity_days : +/- window (rows) for change-point confirmation
     cp_boost     : Final-Z multiplier for change-point-confirmed dates
                     (default 1.15). Set 1.0 to disable the boost.
+    df_corp_actions : Optional corporate actions DataFrame with columns
+                    (symbol, ex_date, action_type). Rows whose trade_date
+                    matches a price-impacting ex_date (split / bonus /
+                    demerger / rights / face_value_split) are labelled
+                    is_corporate_action=True and excluded from df_flagged.
+                    Dividends and other action types are labelled but NOT
+                    suppressed — small dividends are not price-impacting.
 
     Returns
     -------
     df_result   : Full DataFrame with all signal columns (incl. is_changepoint,
-                  cp_confirmed)
+                  cp_confirmed, is_corporate_action)
     df_flagged  : Subset where |final_z| > z_threshold, computed AFTER the
                   change-point boost so corroborated shocks rank higher
     garch_loglik: GARCH log-likelihood (replaces RF R-squared in the UI)
@@ -550,5 +558,31 @@ def run_composite_anomaly(
             relabel = mask & ~_keep
             df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
 
-    df_flagged = df[df["final_z_abs"] > z_threshold].copy()
+    # ── Corporate action suppression ─────────────────────────────────────────
+    # Price jumps on ex-dates of splits / bonuses / demergers / rights are
+    # mechanical — not informational shocks — and must not be flagged as
+    # anomalies. Marking them here allows callers (chart, report) to display
+    # a distinct 🏦 marker instead of a red anomaly dot.
+    # is_corporate_action=True  → labelled for chart 🏦 marker on ALL ca types
+    # suppress_corporate_action → True only for price-impacting types that
+    #   must NOT appear in df_flagged (split / bonus / demerger / rights /
+    #   face_value_split). Dividends are labelled but not suppressed.
+    df["is_corporate_action"]    = False
+    df["suppress_corp_action"]   = False
+    if df_corp_actions is not None and not df_corp_actions.empty:
+        from src.importer.fetchers.nse_corporate_actions_fetcher import PRICE_IMPACTING_TYPES
+        ca = df_corp_actions.copy()
+        ca["ex_date"] = pd.to_datetime(ca["ex_date"]).dt.normalize()
+        all_ca_dates      = set(ca["ex_date"])
+        suppress_dates    = set(ca.loc[ca["action_type"].isin(PRICE_IMPACTING_TYPES), "ex_date"])
+        df["trade_date"]  = pd.to_datetime(df["trade_date"]).dt.normalize()
+        df["is_corporate_action"]  = df["trade_date"].isin(all_ca_dates)
+        df["suppress_corp_action"] = df["trade_date"].isin(suppress_dates)
+        # Relabel suppressed rows so the regime column is informative
+        df.loc[df["suppress_corp_action"], "regime"] = "🏦 Corporate Action"
+
+    df_flagged = df[
+        (df["final_z_abs"] > z_threshold) &
+        ~df["suppress_corp_action"]
+    ].copy()
     return df, df_flagged, garch_loglik

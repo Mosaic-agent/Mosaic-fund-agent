@@ -67,12 +67,16 @@ class BudgetCallbackHandler(BaseCallbackHandler):
         self,
         max_tool_calls: int = 20,
         max_tokens: int = 100_000,
-        max_wall_clock_s: float = 180.0,
+        max_wall_clock_s: float | None = None,
         tool_caps: dict[str, int] | None = None,
     ) -> None:
+        import os
         self.max_tool_calls = max_tool_calls
         self.max_tokens = max_tokens
-        self.max_wall_clock_s = max_wall_clock_s
+        self.max_wall_clock_s = (
+            max_wall_clock_s if max_wall_clock_s is not None
+            else float(os.getenv("AGENT_TIMEOUT", "300.0"))
+        )
         self.tool_caps = {**DEFAULT_TOOL_CAPS, **(tool_caps or {})}
 
         # Counters

@@ -529,6 +529,23 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (order_id, imported_at)
 """
 
+_DDL_CORPORATE_ACTIONS = """
+CREATE TABLE IF NOT EXISTS market_data.corporate_actions (
+    symbol       String,
+    ex_date      Date,
+    action_type  LowCardinality(String),  -- split | bonus | demerger | rights | face_value_split | dividend | buyback | other
+    ratio        String DEFAULT '',       -- "1:1", "Rs 0.25", etc.
+    purpose      String DEFAULT '',       -- raw NSE purpose string
+    series       String DEFAULT 'EQ',
+    face_val     Float64 DEFAULT 0.0,
+    record_date  Date,
+    source       LowCardinality(String) DEFAULT 'nse',
+    imported_at  DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (symbol, ex_date, action_type)
+"""
+
 _DDL_MACRO_INDICATORS = """
 CREATE TABLE IF NOT EXISTS market_data.macro_indicators (
     ref_year        UInt16,       -- e.g. 2024 (annual cadence for both WB and IMF)
@@ -599,7 +616,7 @@ class ClickHouseImporter:
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
             _DDL_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
-            _DDL_AGENT_TRACES,
+            _DDL_AGENT_TRACES, _DDL_CORPORATE_ACTIONS,
         ):
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)

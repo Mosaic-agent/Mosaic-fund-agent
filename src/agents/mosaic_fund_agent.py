@@ -319,8 +319,8 @@ class MosaicFundAgent:
             extra_body: dict = {"options": {"num_ctx": settings.llm_context_window}}
             if settings.llm_think:
                 extra_body["think"] = True
-            # Thinking mode needs a longer timeout — qwen3 reasoning can take 60-120s
-            request_timeout = 300 if settings.llm_think else 120
+            # Thinking mode or deep dives need longer timeouts — qwen3 reasoning or slow scrapes
+            request_timeout = 300 if settings.llm_think else int(os.getenv("LLM_REQUEST_TIMEOUT", "300"))
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
@@ -724,14 +724,15 @@ class MosaicFundAgent:
             if os.getenv("VERBOSE") == "1":
                 config["callbacks"] = [RichConsoleCallbackHandler()]
 
+            agent_timeout = int(os.getenv("AGENT_TIMEOUT", "300"))
             with concurrent.futures.ThreadPoolExecutor(max_workers=1, initializer=_make_daemon_thread) as _ex:
                 _fut = _ex.submit(self._agent.invoke, {"messages": messages}, config)
                 try:
-                    result = _fut.result(timeout=120)
+                    result = _fut.result(timeout=agent_timeout)
                 except concurrent.futures.TimeoutError:
                     return (
-                        "Agent timed out after 120 s. "
-                        "A tool (news API / yfinance / Screener.in) likely stalled. "
+                        f"Agent timed out after {agent_timeout} s. "
+                        "A tool (news API / yfinance / Screener.in / deep-dive) likely stalled. "
                         "Try again or use `--max` to limit holdings."
                     )
             msgs = result.get("messages", [])

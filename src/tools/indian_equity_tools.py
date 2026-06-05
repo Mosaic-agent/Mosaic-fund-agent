@@ -362,8 +362,11 @@ def get_db_price_summary(symbol: str) -> dict[str, Any]:
 
 
 # Convenience list for agent tool registration
+from src.tools.market.equity import EQUITY_ANOMALY_TOOLS  # noqa: E402
+
 INDIAN_EQUITY_TOOLS = [
     get_mf_holdings_for_stock,
     get_stock_cashflow,
     get_fii_dii_summary,
+    *EQUITY_ANOMALY_TOOLS,
 ]

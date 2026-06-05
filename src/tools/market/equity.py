@@ -1,0 +1,356 @@
+"""
+src/tools/market/equity.py
+──────────────────────────
+Internet search agent for anomaly-date news correlation on any NSE/BSE stock.
+
+`search_anomaly_events` is the public tool:
+  1. Runs the composite anomaly pipeline (GARCH + Isolation Forest + PELT) on
+     the symbol's full OHLCV history to detect the same red-dot dates the
+     price chart highlights.
+  2. Filters flagged dates to the requested window.
+  3. Dispatches parallel Google News searches (GNews) for each date —
+     primary query is company-name + date-specific terms, with a fallback
+     broadened query when the primary returns nothing.
+  4. Returns a structured Markdown report: anomaly summary table followed by
+     per-date news correlation sections.
+
+This gives the LLM the same anomaly dates that the chart shows, then grounds
+each date in actual published news rather than training-data guesses.
+"""
+
+from __future__ import annotations
+
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+
+import pandas as pd
+from langchain_core.tools import tool
+
+log = logging.getLogger(__name__)
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _build_query(symbol: str, company_name: str, date_str: str,
+                 regime: str, daily_ret: float) -> str:
+    """
+    Construct a targeted Google News query for an anomaly date.
+    Regime and return direction inform the query so the search captures
+    the right class of event (crash news vs. rally news vs. regulatory).
+    """
+    base = company_name if company_name else symbol
+    # Direction hint helps GNews rank relevant headlines higher
+    if daily_ret >= 3.0:
+        direction = "rally surge gain"
+    elif daily_ret <= -3.0:
+        direction = "fall drop crash"
+    else:
+        direction = "news"
+
+    # Regime-specific enrichment
+    if "Flash Crash" in regime:
+        suffix = "crash drop news India"
+    elif "Regime Shift" in regime or "Volatile" in regime:
+        suffix = "stock market India news"
+    elif "Blow-off" in regime:
+        suffix = "rally high volume India"
+    elif "Crowded Long" in regime:
+        suffix = "short squeeze India"
+    else:
+        suffix = f"{direction} India"
+
+    return f"{base} {suffix}"
+
+
+def _fallback_query(symbol: str, company_name: str) -> str:
+    base = company_name if company_name else symbol
+    return f"{base} NSE share price news India"
+
+
+def _search_one_date(
+    symbol: str,
+    company_name: str,
+    date_str: str,
+    regime: str,
+    daily_ret: float,
+    max_results: int,
+) -> tuple[str, str]:
+    """
+    Run multi-source news search for one anomaly date.
+
+    Search cascade (stops at first hit):
+      1. GNews — primary query (company + regime-context terms), exact date
+      2. GNews — broadened fallback query, exact date
+      3. GNews — broadened query, ±1 day window (handles publication lag)
+      4. NewsAPI — when available and date is within 30 days
+      5. Corporate action heuristic — extreme returns (>20%) flag likely split/bonus/demerger
+
+    Returns (date_str, markdown_block).
+    """
+    from datetime import date as _date
+    from src.tools.news_search import search_financial_news
+
+    today = _date.today()
+    try:
+        from dateutil import parser as _dp
+        target_dt = _dp.parse(date_str).date()
+    except Exception:
+        target_dt = today
+
+    days_ago = (today - target_dt).days
+
+    # ── Heuristic: corporate action for extreme returns ───────────────────────
+    if abs(daily_ret) >= 20.0:
+        action_type = (
+            "stock split, demerger, or bonus issue"
+            if daily_ret < 0
+            else "bonus, rights issue, or price adjustment"
+        )
+        return date_str, (
+            f"> ⚙️ **Likely corporate action** ({daily_ret:+.1f}%): "
+            f"a return of this magnitude almost always indicates a {action_type} "
+            f"rather than a market-driven move. Verify via NSE corporate actions page."
+        )
+
+    primary = _build_query(symbol, company_name, date_str, regime, daily_ret)
+
+    # ── 1. GNews exact date, primary query ────────────────────────────────────
+    result = search_financial_news.invoke(
+        {"query": primary, "max_results": max_results, "target_date": date_str}
+    )
+    if "No news found" not in result:
+        return date_str, result
+
+    # ── 2. GNews exact date, broadened query ─────────────────────────────────
+    fallback = _fallback_query(symbol, company_name)
+    result = search_financial_news.invoke(
+        {"query": fallback, "max_results": max_results, "target_date": date_str}
+    )
+    if "No news found" not in result:
+        return date_str, result
+
+    # ── 3. GNews ±1 day window (publication lag) ──────────────────────────────
+    from datetime import timedelta
+    for delta in (-1, 1):
+        adj_date = (target_dt + timedelta(days=delta)).strftime("%Y-%m-%d")
+        adj_result = search_financial_news.invoke(
+            {"query": primary, "max_results": max_results, "target_date": adj_date}
+        )
+        if "No news found" not in adj_result:
+            return date_str, f"*(news from {adj_date})*\n{adj_result}"
+
+    # ── 4. NewsAPI — only viable within last 30 days ──────────────────────────
+    if days_ago <= 30:
+        try:
+            from src.tools.newsapi_search import get_newsapi_stock_news
+            na_result = get_newsapi_stock_news.invoke(
+                {"symbol": symbol, "target_date": date_str}
+            )
+            if na_result and "No articles" not in str(na_result) and "error" not in str(na_result).lower():
+                return date_str, str(na_result)
+        except Exception:
+            pass
+
+    return date_str, result  # final fallback (the "No news found" message)
+
+
+# ── public tool ───────────────────────────────────────────────────────────────
+
+@tool
+def search_anomaly_events(
+    symbol: str,
+    days: int = 90,
+    category: str = "",
+    max_news_per_date: int = 3,
+) -> str:
+    """
+    Internet search agent: detects price anomaly dates for any NSE/BSE stock
+    using the composite pipeline (GARCH volatility normalisation + Isolation
+    Forest + PELT change-point detection) — the same algorithm that places red
+    dots on the price chart — then runs parallel Google News searches for each
+    flagged date to explain the cause of each shock.
+
+    Use when the user asks:
+      - "What caused the anomalies on MSUMI's chart?"
+      - "Search for news on MSUMI spike dates"
+      - "Explain the red dots on RELIANCE chart"
+      - "What happened on the flagged dates for HDFCBANK?"
+
+    Args:
+        symbol:           NSE/BSE trading symbol (e.g. MSUMI, RELIANCE, HDFCBANK)
+        days:             Look-back window in calendar days for anomaly filtering
+                          (default 90). GARCH/PELT always fit on full history.
+        category:         ClickHouse category filter (etfs / stocks / indices).
+                          Leave blank to auto-detect.
+        max_news_per_date: Max news articles to surface per anomaly date (default 3).
+    """
+    symbol_upper = symbol.strip().upper()
+
+    # ── 1. Fetch full OHLCV ───────────────────────────────────────────────────
+    df = pd.DataFrame()
+    try:
+        from src.db.pool import query_df
+        params: dict = {"sym": symbol_upper}
+        cat_clause = "AND category = {cat:String}" if category else ""
+        if category:
+            params["cat"] = category
+        df = query_df(
+            f"""
+            SELECT trade_date,
+                   toFloat64(argMax(open,   imported_at)) AS open,
+                   toFloat64(argMax(high,   imported_at)) AS high,
+                   toFloat64(argMax(low,    imported_at)) AS low,
+                   toFloat64(argMax(close,  imported_at)) AS close,
+                   toFloat64(argMax(volume, imported_at)) AS volume
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = {{sym:String}} {cat_clause}
+            GROUP BY trade_date ORDER BY trade_date ASC
+            """,
+            parameters=params,
+        )
+    except Exception as exc:
+        log.warning("ClickHouse OHLCV fetch failed for %s: %s", symbol_upper, exc)
+
+    if df.empty:
+        try:
+            import yfinance as yf
+            suffix = ".BO" if category == "bse" else ".NS"
+            hist = yf.Ticker(f"{symbol_upper}{suffix}").history(period="2y")
+            if not hist.empty:
+                df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
+                df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
+                df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.tz_localize(None)
+        except Exception as exc:
+            return f"Error: Could not fetch price history for {symbol_upper}: {exc}"
+
+    if df.empty:
+        return f"No price history found for {symbol_upper}."
+
+    df = df.sort_values("trade_date").reset_index(drop=True)
+    df["volume"] = df["volume"].fillna(0.0)
+
+    if len(df) < 60:
+        return (
+            f"Insufficient history for {symbol_upper} ({len(df)} rows). "
+            f"Need ≥60 rows for the GARCH/PELT anomaly pipeline. "
+            f"Run `import --category stocks` to backfill."
+        )
+
+    # ── 2. Run composite anomaly pipeline ────────────────────────────────────
+    cutoff = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=days)
+
+    try:
+        from src.ml.anomaly import run_composite_anomaly
+        df_result, df_flagged, _ = run_composite_anomaly(
+            df[["trade_date", "open", "high", "low", "close", "volume"]].copy()
+        )
+    except Exception as exc:
+        return f"Anomaly pipeline failed for {symbol_upper}: {exc}"
+
+    # Filter flagged dates to the requested window
+    df_flagged = df_flagged.copy()
+    df_flagged["trade_date"] = pd.to_datetime(df_flagged["trade_date"])
+    recent = df_flagged[df_flagged["trade_date"] >= cutoff].copy()
+
+    # Also attach daily_return for query construction
+    df_result["trade_date"] = pd.to_datetime(df_result["trade_date"])
+    ret_map = df_result.set_index(df_result["trade_date"].dt.normalize())["daily_return"].to_dict()
+
+    if recent.empty:
+        return (
+            f"No anomaly dates detected for {symbol_upper} in the last {days} days "
+            f"(GARCH composite Final Z > 2.5). The price action has been within normal bounds."
+        )
+
+    recent = recent.sort_values("trade_date", ascending=False)
+
+    # ── 3. Resolve company name for better search queries ─────────────────────
+    company_name = ""
+    try:
+        from src.tools.symbol_mapper import get_company_name
+        company_name = get_company_name(symbol_upper) or ""
+    except Exception:
+        pass
+
+    # ── 4. Build report header ────────────────────────────────────────────────
+    lines: list[str] = []
+    lines.append(f"## 🔍 Anomaly News Correlation: {symbol_upper}")
+    if company_name:
+        lines.append(f"**{company_name}** | last {days} days | {len(recent)} anomaly date(s) detected\n")
+    else:
+        lines.append(f"last {days} days | {len(recent)} anomaly date(s) detected\n")
+
+    lines.append(
+        "| Date | Close (₹) | Return | Regime | Final Z |"
+    )
+    lines.append("| :--- | :--- | :--- | :--- | :--- |")
+
+    anomaly_rows: list[dict] = []
+    for _, row in recent.iterrows():
+        t = pd.Timestamp(row["trade_date"]).normalize()
+        date_str = t.strftime("%Y-%m-%d")
+        close = float(row["close"])
+        ret_val = ret_map.get(t, row.get("daily_return", float("nan")))
+        regime = str(row.get("regime", "—"))
+        fz = row.get("final_z")
+        fz_str = f"{fz:+.2f}" if fz is not None and not pd.isna(fz) else "N/A"
+        ret_str = f"{ret_val:+.2f}%" if not pd.isna(ret_val) else "N/A"
+        lines.append(f"| {date_str} | {close:.2f} | {ret_str} | {regime} | {fz_str} |")
+        anomaly_rows.append({
+            "date_str": date_str,
+            "close": close,
+            "ret": ret_val,
+            "regime": regime,
+            "fz_str": fz_str,
+        })
+
+    lines.append("")
+    lines.append("---\n")
+    lines.append("### 📰 Google News Search — Per Anomaly Date\n")
+
+    # ── 5. Parallel Google News searches ─────────────────────────────────────
+    # Each date gets an independent search; results joined back in date order.
+    search_results: dict[str, str] = {}
+
+    with ThreadPoolExecutor(max_workers=min(len(anomaly_rows), 5)) as pool:
+        futures = {
+            pool.submit(
+                _search_one_date,
+                symbol_upper,
+                company_name,
+                r["date_str"],
+                r["regime"],
+                float(r["ret"]) if not pd.isna(r["ret"]) else 0.0,
+                max_news_per_date,
+            ): r["date_str"]
+            for r in anomaly_rows
+        }
+        for fut in as_completed(futures):
+            try:
+                date_str, md_block = fut.result(timeout=30)
+                search_results[date_str] = md_block
+            except Exception as exc:
+                date_str = futures[fut]
+                search_results[date_str] = f"Search failed: {exc}"
+
+    # ── 6. Render per-date sections in chronological order (newest first) ─────
+    for r in anomaly_rows:
+        date_str = r["date_str"]
+        ret_str = f"{r['ret']:+.2f}%" if not pd.isna(r["ret"]) else "N/A"
+        lines.append(
+            f"#### 📅 {date_str} | ₹{r['close']:.2f} | {ret_str} | {r['regime']} | Z={r['fz_str']}"
+        )
+        news_block = search_results.get(date_str, "No results.")
+        if "No news found" in news_block:
+            lines.append(
+                "> ⚠️ No news found on this exact date — event may be pre-positioned "
+                "(institutional block trade, policy leak, or off-market deal)."
+            )
+        else:
+            lines.append(news_block)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+EQUITY_ANOMALY_TOOLS = [search_anomaly_events]

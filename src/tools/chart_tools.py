@@ -32,24 +32,40 @@ def _chart_width() -> int:
 # Session-level cache for composite anomaly dates.
 # Keyed by (symbol_upper, category, n_rows): n_rows acts as a version token —
 # a cache miss on new data without any explicit invalidation machinery.
-_ANOMALY_DATES_CACHE: dict[tuple, set] = {}
+_ANOMALY_DATES_CACHE: dict[tuple, tuple[set, set]] = {}  # → (anomaly_dates, corp_action_dates)
 
 
-def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
+def _load_corp_actions(symbol: str) -> "pd.DataFrame | None":
+    """Load corporate actions from ClickHouse for a symbol. Returns None on miss."""
+    try:
+        import pandas as pd
+        from src.db.pool import query_df
+        df = query_df(
+            "SELECT ex_date, action_type FROM market_data.corporate_actions FINAL "
+            "WHERE symbol = {sym:String}",
+            parameters={"sym": symbol.upper()},
+        )
+        if df.empty:
+            return None
+        df["ex_date"] = pd.to_datetime(df["ex_date"])
+        return df
+    except Exception:
+        return None
+
+
+def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set] | None:
     """
     Run the composite anomaly pipeline (GARCH vol-normalization + Isolation
-    Forest + PELT change-point detection) on the symbol's FULL OHLCV history
-    and return the set of flagged trade-dates (normalised pd.Timestamps).
-
-    This is what drives the red anomaly dots on the price chart — replacing the
-    old naive `2.5 * std` return threshold with the full 3-method algorithm so
-    the markers reflect GARCH-standardised shocks confirmed by change points.
+    Forest + PELT change-point detection) on the symbol's FULL OHLCV history,
+    incorporating NSE corporate actions so mechanical price jumps on split /
+    bonus / demerger ex-dates are NOT flagged as anomalies.
 
     Returns
     -------
-    set[pd.Timestamp] : flagged dates (may be empty if none detected)
-    None              : pipeline unavailable / too few rows — caller should
-                        fall back to the naive threshold.
+    (anomaly_dates, corp_action_dates) : two sets of normalised pd.Timestamps
+        anomaly_dates     → red 🔴 dots on the chart
+        corp_action_dates → gold 🏦 markers (splits, bonuses, demergers, etc.)
+    None : pipeline unavailable / too few rows — caller falls back to naive threshold.
     """
     try:
         import pandas as pd
@@ -83,6 +99,8 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
         if cache_key in _ANOMALY_DATES_CACHE:
             return _ANOMALY_DATES_CACHE[cache_key]
 
+        df_corp = _load_corp_actions(symbol)
+
         df["trade_date"] = pd.to_datetime(df["trade_date"])
         df = df.sort_values("trade_date").reset_index(drop=True)
         df["volume"] = df["volume"].fillna(0.0)
@@ -112,13 +130,22 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
             logger.warning("FX fetch failed (non-fatal): %s", exc)
 
         from src.ml.anomaly import run_composite_anomaly
-        _, df_flagged, _ = run_composite_anomaly(
+        df_result, df_flagged, _ = run_composite_anomaly(
             df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
             df_cot=df_cot, df_fx=df_fx,
+            df_corp_actions=df_corp,
         )
-        result = {
+        anomaly_dates = {
             pd.Timestamp(d).normalize() for d in df_flagged["trade_date"]
         }
+        # Corporate action dates for 🏦 markers (all action types, from df_result)
+        corp_action_dates: set = set()
+        if "is_corporate_action" in df_result.columns:
+            corp_action_dates = {
+                pd.Timestamp(d).normalize()
+                for d in df_result.loc[df_result["is_corporate_action"], "trade_date"]
+            }
+        result = (anomaly_dates, corp_action_dates)
         _ANOMALY_DATES_CACHE[cache_key] = result
         return result
     except Exception as exc:
@@ -252,16 +279,23 @@ def plot_price_chart(
         try:
             import pandas as pd
 
-            anomaly_xs: list[int] = []
-            anomaly_ys: list[float] = []
+            anomaly_xs:    list[int] = []
+            anomaly_ys:    list[float] = []
+            corp_act_xs:   list[int] = []
+            corp_act_ys:   list[float] = []
 
-            flagged_dates = _composite_anomaly_dates(symbol, category)
-            if flagged_dates is not None:
+            pipeline_result = _composite_anomaly_dates(symbol, category)
+            if pipeline_result is not None:
+                flagged_dates, corp_dates = pipeline_result
                 for idx, d in enumerate(dates):
                     try:
-                        if pd.Timestamp(d).normalize() in flagged_dates:
+                        ts = pd.Timestamp(d).normalize()
+                        if ts in flagged_dates:
                             anomaly_xs.append(idx)
                             anomaly_ys.append(prices[idx])
+                        elif ts in corp_dates:
+                            corp_act_xs.append(idx)
+                            corp_act_ys.append(prices[idx])
                     except Exception:
                         continue
             else:
@@ -276,6 +310,8 @@ def plot_price_chart(
 
             if anomaly_xs:
                 plt.scatter(anomaly_xs, anomaly_ys, color="red", marker="🔴", label="Anomaly")
+            if corp_act_xs:
+                plt.scatter(corp_act_xs, corp_act_ys, color="yellow", marker="🏦", label="Corp Action")
         except Exception as exc:
             logger.warning("Failed to plot price anomalies on chart: %s", exc)
 

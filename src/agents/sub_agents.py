@@ -1642,6 +1642,11 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - Sector/structural trend: `search_financial_news(query, max_results=10)` with a 90-day context
    - Historical investigation: `search_financial_news("COMPANY 2023")` for year-level patterns
    - Saved articles: `get_db_news(category, sentiment)` for tagged ETF/sector articles
+   - **Price anomaly investigation** — `search_anomaly_events(symbol, days=90)`:
+     detects the SAME red-dot anomaly dates shown on the price chart (GARCH + IF + PELT),
+     then runs parallel Google News searches per flagged date. Call this whenever the user
+     asks "what caused the spike/crash/anomaly on the chart" or "search news for anomaly
+     dates". Always call `plot_price_chart(symbol)` in parallel so the user sees chart + news.
    - For a thorough multi-source sweep: `delegate_to_news_agent(question)`
 7. **Volatility & signals** — `run_risk_governor_analysis` (GARCH vol, regime, position sizing);
    `plot_garch_volatility_chart`
