@@ -121,7 +121,8 @@ CLI → MosaicFundAgent.run()
 ### ClickHouse Tables (database: market_data)
 `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`,
 `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`,
-`ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`.
+`ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`,
+`corporate_actions` (symbol, ex_date, action_type, ratio, purpose — NSE fetched; price-impacting ex-dates suppress anomaly detection).
 All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 
 ### Important Patterns
@@ -130,7 +131,12 @@ All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL.
 - **Output files:** Reports written to `./output/` as JSON/HTML.
 - **Repository pattern:** `MarketDataRepository` (`src/db/repository.py`) is the single access point for all ClickHouse reads. Use `repo.ml_prediction_asof(date)` and `repo.signal_composite_asof(symbol, date)` for point-in-time queries (e.g. what the model said on a historical anomaly date). Never write raw SQL in signal/ML code.
-- **Anomaly explanation pipeline:** When asked to explain price spikes or anomalies for any symbol, use `explain_price_anomalies` (in `SignalSubAgent` tool set) **always in parallel with** `plot_price_chart`. The tool runs `run_composite_anomaly` (full GARCH + IF pipeline) on the entire price history, filters flagged dates to the report window, and surfaces GARCH `regime` + `Final Z` per date alongside news correlation and ML forward context. Gracefully falls back to naive threshold for <60 rows.
+- **Anomaly pipeline:** `run_composite_anomaly` (`src/ml/anomaly.py`) is a 4-step composite: (1) MAD robust Z, (2) GARCH(1,1) standardised residuals, (3) Isolation Forest confidence multiplier, (4) PELT change-point detection (`ruptures`, rbf cost). Pass `df_corp_actions` to suppress mechanical split/bonus/demerger ex-dates (`🏦 Corporate Action` regime, excluded from `df_flagged`). Regime labels include `🔀 Regime Shift (Change Point)` (PELT-confirmed anomaly) and `🏦 Corporate Action` (suppressed). Gracefully falls back to naive threshold if `arch`/`ruptures` missing or <60 rows.
+- **Anomaly tools (two separate tools):**
+  - `explain_price_anomalies` (`market/gold.py`) — gold/commodity-specific; sequential news search + COT/FX cross-asset. Always call in parallel with `plot_price_chart`.
+  - `search_anomaly_events(symbol, days)` (`market/equity.py`) — equity-generic; loads corp actions from ClickHouse → runs pipeline with suppression → **parallel** Google News (ThreadPoolExecutor, ±1d fallback, NewsAPI for <30d dates). Call for any NSE/BSE stock anomaly investigation.
+  - `get_corporate_actions(symbol)` (`market/equity.py`) — fetches NSE corporate actions, upserts to `corporate_actions` table, returns history. Call when chart shows extreme (>20%) price move or user asks about splits/bonuses.
+- **Chart markers:** `plot_price_chart` renders 🔴 GARCH+IF+PELT genuine anomalies and 🏦 corporate action ex-dates as separate scatter layers. Result is session-cached by `(symbol, category, n_rows)` in `_ANOMALY_DATES_CACHE`.
 - **Scripts subdirs:** `dsp/` (DSP AMC import + analysis), `fund_imports/` (factory-pattern AMC importers), `etf/` (ETF comparison, CAGR, risk), `ml/` (prediction backfill/eval), `portfolio/` (health checks, opportunity scan, MoM returns, parallel stock import), `market/` (macro, FII/DII, metals, sentiment), `db/` (ClickHouse backup/restore/sanity/repair).
 
 ## Critical: Grounding Rules — DO NOT Hallucinate
