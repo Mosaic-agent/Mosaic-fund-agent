@@ -1006,7 +1006,11 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "RULES: All monetary values in ₹. Never invent figures.\n\n"
         "DATA AVAILABILITY: If a ClickHouse query returns 0 rows, or plot_price_chart "
         "returns 'No price data found', call `check_and_refresh_symbol_data(symbol)` "
-        "to auto-import the data, then retry the query or chart tool."
+        "to auto-import the data, then retry the query or chart tool.\n\n"
+        "PUBLISH: After writing the full Markdown research note, call "
+        "`publish_research_pdf(symbol=<SYMBOL>, report_markdown=<full_note>)` as the "
+        "very last step. This embeds matplotlib price/MACD/GARCH charts and exports a "
+        "PDF to output/reports/. Report the returned file path to the user."
     )
 
     def _get_tools(self) -> list:
@@ -1019,6 +1023,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
         from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
         from src.tools.agent_tools import check_and_refresh_symbol_data
+        from src.tools.report_publisher import publish_research_pdf
         return (
             [resolve_company]
             + YAHOO_TOOLS
@@ -1026,7 +1031,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
             + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db,
                import_symbol_data, check_and_refresh_symbol_data,
                plot_price_chart, plot_shareholding_bar, plot_macd_chart,
-               get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary]
+               get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary,
+               publish_research_pdf]
         )
 
     def _fallback(self, question: str) -> str:
@@ -1073,6 +1079,8 @@ class SignalSubAgent(_SubAgent):
         "Use `run_risk_governor_analysis` for GARCH volatility-targeted position sizing. "
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
         "Use `explain_price_anomalies` to scan price history for return outliers (magnitude >= 2%) and query news on those dates to find their causes. Whenever you call this tool to explain anomalies, you MUST also call `plot_price_chart` in parallel to visually display the price trend.\n"
+        "Use `search_anomaly_events(symbol)` for equity/stock anomaly investigation — it suppresses corporate actions and runs parallel Google News searches per flagged date.\n"
+        "After producing an anomaly report or any complete research output, call `publish_research_pdf(symbol, report_markdown)` to export a PDF with embedded price/MACD/GARCH charts to output/reports/.\n"
         "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
@@ -1109,6 +1117,8 @@ class SignalSubAgent(_SubAgent):
             plot_garch_volatility_chart, plot_macd_chart,
         )
         from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
+        from src.tools.market.equity import search_anomaly_events
+        from src.tools.report_publisher import publish_research_pdf
         return [
             run_daily_signal_composite,
             run_goldbees_pipeline,
@@ -1118,6 +1128,7 @@ class SignalSubAgent(_SubAgent):
             get_live_inav,
             query_clickhouse_db,
             explain_price_anomalies,
+            search_anomaly_events,
             plot_price_chart,
             plot_signal_scores,
             plot_signal_breakdown,
@@ -1127,6 +1138,7 @@ class SignalSubAgent(_SubAgent):
             plot_macd_chart,
             get_shoonya_quotes,
             get_shoonya_live_tick,
+            publish_research_pdf,
         ]
 
     def _fallback(self, question: str) -> str:
@@ -1400,7 +1412,11 @@ class NewsSubAgent(_SubAgent):
         "**ETF category scan** ('latest etf news', 'etf news sentiment'):\n"
         "  1. Call `run_etf_news_sentiment` for a full multi-category scan.\n\n"
         "**Price anomaly explanation** ('explain anomalies for GOLDBEES', 'why did the price spike/drop'):\n"
-        "  1. Call `explain_price_anomalies(symbol)` to scan price return outliers and query historical news on those dates.\n\n"
+        "  1. ETFs/gold: Call `explain_price_anomalies(symbol)` + `plot_price_chart(symbol)` in parallel.\n"
+        "  2. Stocks: Call `search_anomaly_events(symbol)` + `plot_price_chart(symbol)` in parallel.\n\n"
+        "**PDF export** ('save as PDF', 'publish report', 'export PDF'):\n"
+        "  1. After generating any report, call `publish_research_pdf(symbol, report_markdown)`. "
+        "Report the saved file path.\n\n"
         "## Output format\n"
         "Always present results as a Markdown table:\n"
         "| Title | Source | Date | Sentiment |\n\n"
@@ -1419,6 +1435,9 @@ class NewsSubAgent(_SubAgent):
         from src.tools.news_search import get_stock_news, search_financial_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.skills_tools import run_etf_news_sentiment, explain_price_anomalies
+        from src.tools.chart_tools import plot_price_chart
+        from src.tools.market.equity import search_anomaly_events
+        from src.tools.report_publisher import publish_research_pdf
         return [
             resolve_company,
             get_stock_news,
@@ -1427,6 +1446,9 @@ class NewsSubAgent(_SubAgent):
             get_db_news,
             run_etf_news_sentiment,
             explain_price_anomalies,
+            search_anomaly_events,
+            plot_price_chart,
+            publish_research_pdf,
         ]
 
 
