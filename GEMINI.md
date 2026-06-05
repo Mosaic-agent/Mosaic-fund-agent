@@ -83,15 +83,15 @@ python tests/_backtest_anomaly.py
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame |
 | Importer | `src/importer/` | Delta-sync pipeline: fetchers → ClickHouse |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`) |
-| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest anomaly (`anomaly.py`). `run_composite_anomaly(df, df_cot, df_fx)` → per-date `regime`, `final_z`, `garch_vol`; requires full OHLCV + ≥60 rows |
+| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly.py`). `run_composite_anomaly(df, df_cot, df_fx, df_corp_actions)` → 4-step pipeline: MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point; per-date `regime`, `final_z`, `garch_vol`, `is_changepoint`, `cp_confirmed`, `is_corporate_action`; requires ≥60 rows |
 | Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()`. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings from `.env` |
 | UI | `src/ui/app.py` | Streamlit hub (5 tabs over ClickHouse) |
 
-**13 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`,
+**14 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`,
 `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`,
-`yahoo_snapshot`, `expert_tweets`, plus news tools.
+`yahoo_snapshot`, `expert_tweets`, `nse_corporate_actions` (NSE equity splits/bonuses/demergers/rights/dividends), plus news tools.
 
 **Whale Tracker funds** (`src/scripts/market/whale_tracker.py`) — all 7 multi-asset funds:
 
