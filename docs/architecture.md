@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-06-04
+> Last updated: 2026-06-06
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -46,7 +46,7 @@ External Data Sources
         └──▶  SanityCheckObserver     (async) → anomaly validation
         │
         ▼
-  ClickHouse  (market_data database — 26 tables)
+  ClickHouse  (market_data database — 27 tables)
         │
         ├──▶  MarketDataRepository reads  ← typed queries, consistent FINAL
         ├──▶  Signal Sources  (src/agents/signal_sources.py)  ← Strategy pattern
@@ -94,12 +94,13 @@ src/
       <name>_fetcher.py   One file per external data source
   ml/
     trend_predictor.py    LightGBM 5-day predictor + joblib model cache
-    anomaly.py            Composite anomaly (Z + GARCH + Isolation Forest + _IF_CACHE)
+    anomaly.py            Composite anomaly (MAD-Z + GARCH + Isolation Forest + PELT CPD + corp action suppression)
   models/                 Pydantic data schemas
   tools/                  @tool wrappers + standalone signal functions
     skills_tools.py       General-purpose tools (query, import, iNAV, deep-dive) + SKILLS_TOOLS list
     runners.py            Thin shell-command runners (run_goldbees_pipeline, run_macro_scanner, …)
     market/gold.py        Gold/GARCH domain tools (explain_price_anomalies, run_risk_governor_analysis)
+    market/equity.py      Equity anomaly tools (search_anomaly_events, get_corporate_actions)
     _subprocess.py        Shared subprocess helpers (no project imports — breaks circular deps)
     chart_tools.py        plotext terminal charts (price, signal, GARCH vol, MACD, …)
     <domain>.py           Per-domain signal functions (quant_scorecard, inav_fetcher, comex_fetcher, …)
@@ -200,6 +201,7 @@ Most tools are standalone functions returning a dict/DataFrame — no DB writes,
 - **Domain signal functions** — the bulk: real computation per asset (quant scorecard, iNAV, COMEX, …).
 - **Runners** (`runners.py`) — thin `@tool` wrappers over CLI scripts via subprocess; zero business logic.
 - **Gold/GARCH domain** (`market/gold.py`) — `explain_price_anomalies`, `run_risk_governor_analysis`; real logic kept out of the junk-drawer.
+- **Equity anomaly domain** (`market/equity.py`) — `search_anomaly_events`, `get_corporate_actions`; parallel internet search + NSE corporate action fetching for any NSE/BSE stock.
 
 `SKILLS_TOOLS` in `skills_tools.py` is the single canonical list; it re-exports from `runners.py` and `market/gold.py` so existing imports keep working. Shared subprocess helpers live in `_subprocess.py` to avoid circular deps.
 
@@ -221,7 +223,9 @@ Most tools are standalone functions returning a dict/DataFrame — no DB writes,
 | **Historic iNAV** | `historic_inav.py` | Historical iNAV snapshots for ETFs |
 | **Valuation Alerts** | `valuation_alerts.py` | P/E, yield, P/B ratio threshold crossings |
 | **Summarization** | `summarization.py` | LLM-generated risk and sentiment summaries per holding |
-| **Chart Tools** | `chart_tools.py` | plotext terminal charts — price (with 🔴 anomaly markers), signal scores, GARCH vol, MACD |
+| **Search Anomaly Events** | `market/equity.py` | GARCH+IF+PELT anomaly dates (corp actions suppressed) → parallel Google News per date (ThreadPoolExecutor) with ±1d fallback + NewsAPI |
+| **Get Corporate Actions** | `market/equity.py` | NSE corporate actions (splits/bonuses/demergers/rights/dividends) → upserts to `corporate_actions` table → history table |
+| **Chart Tools** | `chart_tools.py` | plotext terminal charts — price (🔴 GARCH anomaly markers + 🏦 corporate action markers, session-cached), signal scores, GARCH vol, MACD |
 | **Zerodha MCP Tools** | `zerodha_mcp_tools.py` | Holdings, positions, orders via Zerodha Kite MCP |
 
 ### Quant Scorecard Pillars (`quant_scorecard.py`)
@@ -262,37 +266,48 @@ Most tools are standalone functions returning a dict/DataFrame — no DB writes,
 
 ### AnomalyDetector (`anomaly.py`)
 
-Three-stage composite pipeline — public API: `run_composite_anomaly(df, df_cot=None, df_fx=None)`:
+Four-step composite pipeline — public API: `run_composite_anomaly(df, df_cot=None, df_fx=None, df_corp_actions=None, cp_penalty=None, cp_proximity_days=3, cp_boost=1.15)`:
 
-1. **Robust Z-score** — MAD-based, resistant to fat tails in gold returns
-2. **GARCH(1,1) standardised residuals** — isolates true price shocks from routine volatility clustering
-3. **Isolation Forest** — cross-asset feature confirmation (USDINR, COT crowding)
+1. **Robust Z-score (MAD)** — rolling median/MAD, resistant to fat tails; applied to `daily_return`, `range_pct`, `volume`
+2. **GARCH(1,1) standardised residuals** — isolates true shocks from routine volatility clustering; Student-t innovations; fire rate ~5%
+3. **Isolation Forest** — cross-asset feature confirmation (USDINR, COT crowding); `Final_Z = Z_robust × (1 + IF_confidence)`
+4. **PELT change-point detection** (`ruptures`, `model="rbf"`, auto penalty = `2·log n`) — detects structural variance-regime breaks; acts as confirmation booster (`Final_Z ×1.15`) for pre-flagged dates near a break; relabels those dates `🔀 Regime Shift (Change Point)`
 
-Requires full OHLCV (`open/high/low/close/volume`) and ≥60 rows. Returns `(df_result, df_flagged, garch_loglik)` where `df_result` carries per-date `regime`, `final_z`, `garch_vol`, `cot_pct_oi`, `usdinr_logret`.
+**Corporate action suppression:** pass `df_corp_actions` (from `market_data.corporate_actions`) to exclude split/bonus/demerger/rights ex-dates from `df_flagged`. Those rows are relabelled `🏦 Corporate Action` and carry `suppress_corp_action=True`.
 
-Regime labels: `⚡ Flash Crash / Black Swan`, `🔥 Volatile Breakout`, `⚠️ Crowded Long (Squeeze Risk)`, `🧨 Blow-off Top (Weak)`, `📈 Strong Trend (HODL)`, `✅ Normal`.
+Requires ≥60 rows. Returns `(df_result, df_flagged, garch_loglik)` where `df_result` carries per-date `regime`, `final_z`, `garch_vol`, `is_changepoint`, `cp_confirmed`, `is_corporate_action`, `suppress_corp_action`.
 
-Fire rate ~5% (vs. Random Forest's spurious 21% prior to GARCH replacement).
+Regime labels: `⚡ Flash Crash / Black Swan (EXIT)`, `🔥 Volatile Breakout`, `⚠️ Crowded Long (Squeeze Risk)`, `🧨 Blow-off Top (Weak)`, `📈 Strong Trend (HODL)`, `🔀 Regime Shift (Change Point)`, `🏦 Corporate Action`, `✅ Normal`.
 
-### explain_price_anomalies (`src/tools/skills_tools.py`)
+Graceful degradation: `ruptures` not installed → PELT skipped (all-False `is_changepoint`/`cp_confirmed`), pipeline behaves as GARCH+IF only. `arch` not installed → falls back to naive `max(2.0, 2.5×std)` threshold.
 
-The **anomaly explanation tool** bridges the ML pipeline with news/event correlation:
+### Anomaly tools
 
-1. Fetches full OHLCV history (ClickHouse → yfinance fallback)
-2. Loads COT (`cot_gold` — gold only) + USDINR FX as cross-asset features
-3. Runs `run_composite_anomaly` on full history; filters flagged dates to the `days` window
-4. Per anomaly date: surfaces GARCH **regime** + **Final Z** in the summary table and detail section
-5. Queries `search_financial_news` per date; flags neutral-news + large-move divergence (policy surprise signal)
-6. Calls `ml_prediction_asof` + `signal_composite_asof` (repo) to show what the ML model and composite signal said *on* that date — enabling confirmed vs. contradicted signal analysis
-7. Appends COMEX futures price chart (GC=F / SI=F for gold/silver) and GARCH vol chart
+**`explain_price_anomalies`** (`src/tools/market/gold.py`, re-exported via `skills_tools.py`) — gold/commodity-specific:
+1. Fetches OHLCV; loads COT (`cot_gold` — gold only) + USDINR FX
+2. Runs `run_composite_anomaly`; filters flagged dates to window
+3. Per date: regime + Final Z + sequential `search_financial_news` + neutral-news/large-move divergence flag
+4. `ml_prediction_asof` + `signal_composite_asof` for forward model context
+5. Appends COMEX chart (GC=F / SI=F) and GARCH vol chart
 
-Graceful fallback: if <60 rows or `arch` missing, falls back to naive `max(2.0, 2.5×std)` threshold — report always renders, regime columns show `—`.
+**`search_anomaly_events`** (`src/tools/market/equity.py`) — equity-generic:
+1. Loads `corporate_actions` from ClickHouse; runs `run_composite_anomaly(df_corp_actions=...)` to suppress mechanical ex-dates
+2. Builds regime-aware Google News queries per flagged date
+3. Parallel search via `ThreadPoolExecutor` (5 workers); cascade: GNews exact → GNews broadened → GNews ±1d → NewsAPI (if <30 days old)
+4. Corporate action heuristic: `|daily_ret| ≥ 20%` → label as likely split/demerger
 
-Cross-asset loading pattern (copied from `src/ui/app.py`):
+**`get_corporate_actions`** (`src/tools/market/equity.py`):
+1. Calls `nse_corporate_actions_fetcher.fetch_corporate_actions(symbol)` — NSE equity corporates API with session warmup
+2. Upserts to `market_data.corporate_actions` via `client.insert_df`
+3. Returns Markdown history table with action-type and suppression flags
+
+Cross-asset loading (same pattern across both tools and `src/ui/app.py`):
 ```python
 # COT (gold only): SELECT report_date, mm_net, open_interest FROM market_data.cot_gold
 # FX (always):     SELECT symbol, trade_date, toFloat64(close) AS close
 #                  FROM market_data.fx_rates FINAL WHERE symbol = 'USDINR'
+# Corp actions:    SELECT ex_date, action_type FROM market_data.corporate_actions FINAL
+#                  WHERE symbol = {sym:String}
 ```
 
 ---

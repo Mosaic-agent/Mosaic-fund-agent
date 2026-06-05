@@ -95,7 +95,7 @@ CLI (src/main.py)
 | Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
-| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), GARCH + Isolation Forest (`anomaly`). `run_composite_anomaly(df, df_cot, df_fx)` → per-date `regime`, `final_z`, `garch_vol`; requires full OHLCV + ≥60 rows |
+| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly`). `run_composite_anomaly(df, df_cot, df_fx, df_corp_actions)` → 4-step pipeline: MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point; returns `regime`, `final_z`, `garch_vol`, `is_changepoint`, `cp_confirmed`, `is_corporate_action`; requires ≥60 rows |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
@@ -120,7 +120,7 @@ New pattern (Adapter + Repository):
       → EventBus.publish(DataImportedEvent)  ← triggers post-import hooks
 ```
 
-**13 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`, `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`, `yahoo_snapshot`, `expert_tweets`, plus news tools.
+**14 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`, `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`, `yahoo_snapshot`, `expert_tweets`, `nse_corporate_actions` (NSE equity corporate actions — splits, bonuses, demergers, rights, dividends), plus news tools.
 
 **5 Fetcher adapters** (Adapter pattern, `src/importer/fetchers/adapters.py`): `YFinanceFetcher`, `MFNavFetcher`, `FIIDIIFetcher`, `FXRatesFetcher`, `COTGoldFetcher`, `WorldBankMacroFetcher`, `IMFWEOFetcher`. Add new sources to `FETCHER_REGISTRY` — orchestrator loop picks up automatically.
 
@@ -128,7 +128,7 @@ New pattern (Adapter + Repository):
 `LLM_PROVIDER` (`openai` or `anthropic`) + `LLM_MODEL` control which model is used. Set `LLM_BASE_URL` to an OpenAI-compatible endpoint (Ollama, LM Studio) for local inference — no API key needed in that case.
 
 ### ClickHouse Schema
-Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`, `macro_indicators` (World Bank / IMF WEO annual data). All use `ReplacingMergeTree` — idempotent inserts are safe.
+Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`, `macro_indicators` (World Bank / IMF WEO annual data), `corporate_actions` (NSE split/bonus/demerger/rights/dividend history — keyed by `(symbol, ex_date, action_type)`). All use `ReplacingMergeTree` — idempotent inserts are safe.
 
 ## User Context
 
@@ -253,7 +253,12 @@ Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 - **Caching:** NewsAPI/COMEX responses cached to `output/.cache/` with 1-hour TTL. ML models cached to `output/.cache/ml_models/` keyed by `(max_trade_date, n_rows, n_splits, horizon)` — auto-invalidated by `ModelCacheInvalidator` when new price data arrives.
 - **Output files:** Reports written to `./output/` as JSON.
 - **Repository pattern:** `MarketDataRepository` (`src/db/repository.py`) is the single access point for all ClickHouse reads. Use `repo.fii_dii_5d()`, `repo.ohlcv()`, `repo.latest_ml_prediction()`, `repo.ml_prediction_asof(date)`, `repo.signal_composite_asof(symbol, date)` etc. — never write raw SQL in signal/ML code. The `*_asof(date)` variants are point-in-time queries used for historical anomaly context.
-- **Anomaly explanation pipeline:** `explain_price_anomalies` (`src/tools/skills_tools.py`) calls `run_composite_anomaly` (`src/ml/anomaly.py`) on full OHLCV history, then filters flagged dates to the report window. This ensures GARCH `regime` + `final_z` appear in the anomaly table alongside news correlation. COT is loaded only for gold symbols (`cot_gold` table). Falls back to naive `max(2.0, 2.5×std)` threshold if <60 rows or `arch` not installed.
+- **Anomaly pipeline:** `run_composite_anomaly` (`src/ml/anomaly.py`) — 4-step composite: (1) MAD robust Z-score, (2) GARCH(1,1) standardised residuals, (3) Isolation Forest confidence multiplier, (4) PELT change-point detection (`ruptures`, rbf cost on log-returns). Corporate action suppression: pass `df_corp_actions` to exclude split/bonus/demerger ex-dates from `df_flagged` (labelled `🏦 Corporate Action`, never relabelled as anomalies). COT loaded only for gold; FX (USDINR) loaded for all. Falls back to naive `max(2.0, 2.5×std)` if <60 rows or `arch`/`ruptures` missing.
+- **Anomaly explanation tools:**
+  - `explain_price_anomalies` (`src/tools/market/gold.py`, re-exported via `skills_tools.py`) — full GARCH report + per-date news correlation; gold/commodity-specific (loads COT + FX).
+  - `search_anomaly_events(symbol, days, category)` (`src/tools/market/equity.py`) — equity-generic: detects same red-dot dates as chart, suppresses corp actions, runs **parallel** Google News searches per date (ThreadPoolExecutor, 5 workers); ±1 day fallback + NewsAPI for recent dates.
+  - `get_corporate_actions(symbol)` (`src/tools/market/equity.py`) — fetches NSE corporate actions via `nse_corporate_actions_fetcher.py`, upserts to `market_data.corporate_actions`, returns history table.
+- **Chart anomaly markers:** `_composite_anomaly_dates(symbol, category)` (`src/tools/chart_tools.py`) returns `(anomaly_dates, corp_action_dates)` — a session-level cache keyed by `(symbol, category, n_rows)`. `plot_price_chart` renders 🔴 genuine anomalies and 🏦 corporate action markers as separate scatter layers.
 - **Strategy pattern:** Signal sources (`src/agents/signal_sources.py`) implement `SignalSource` ABC. The aggregator loops over `score_sources` list — add a new pillar by subclassing `SignalSource` and appending to the list.
 - **Adapter pattern:** Data fetchers (`src/importer/fetchers/adapters.py`) implement `Fetcher` ABC. `MarketDataRepository.run_fetcher()` handles watermarks, dry-run, and event publishing. Add a new source by subclassing `Fetcher` and registering in `FETCHER_REGISTRY`.
 - **Observer pattern:** `EventBus` (`src/events/bus.py`) fires `DataImportedEvent` after every live `run_fetcher()` insert. Four built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async). Register with `setup_observers()` at startup.
