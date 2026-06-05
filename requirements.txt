@@ -52,6 +52,7 @@ streamlit>=1.35.0                # Data management UI (streamlit run src/ui/app.
 altair>=5.0.0                    # Declarative charts for anomaly detection tab
 scikit-learn>=1.4.0              # Isolation Forest anomaly detection (Random Forest removed — use GARCH)
 arch>=6.3.0                      # GARCH(1,1) Student-t conditional volatility — replaces RF in anomaly pipeline
+ruptures>=1.1.9                  # PELT change-point detection (rbf cost) — 3rd anomaly pillar (regime-shift confirmation)
 lightgbm>=4.3.0                  # Gradient boosting for trend prediction (trend_predictor.py)
                                  # macOS: brew install libomp  (required — LightGBM needs OpenMP)
 

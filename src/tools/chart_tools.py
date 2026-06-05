@@ -29,6 +29,83 @@ def _chart_width() -> int:
         return 76
 
 
+def _composite_anomaly_dates(symbol: str, category: str = "") -> set | None:
+    """
+    Run the composite anomaly pipeline (GARCH vol-normalization + Isolation
+    Forest + PELT change-point detection) on the symbol's FULL OHLCV history
+    and return the set of flagged trade-dates (normalised pd.Timestamps).
+
+    This is what drives the red anomaly dots on the price chart — replacing the
+    old naive `2.5 * std` return threshold with the full 3-method algorithm so
+    the markers reflect GARCH-standardised shocks confirmed by change points.
+
+    Returns
+    -------
+    set[pd.Timestamp] : flagged dates (may be empty if none detected)
+    None              : pipeline unavailable / too few rows — caller should
+                        fall back to the naive threshold.
+    """
+    try:
+        import pandas as pd
+        from src.db.pool import query_df
+
+        cat_filter = f"AND category = '{category}'" if category else ""
+        # Full history (not just the display window) — GARCH/PELT need it.
+        df = query_df(f"""
+            SELECT trade_date,
+                   toFloat64(argMax(open,   imported_at)) AS open,
+                   toFloat64(argMax(high,   imported_at)) AS high,
+                   toFloat64(argMax(low,    imported_at)) AS low,
+                   toFloat64(argMax(close,  imported_at)) AS close,
+                   toFloat64(argMax(volume, imported_at)) AS volume
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = '{symbol.upper()}' {cat_filter}
+            GROUP BY trade_date ORDER BY trade_date ASC
+        """)
+        if df.empty or len(df) < 60:
+            return None
+
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df = df.sort_values("trade_date").reset_index(drop=True)
+        df["volume"] = df["volume"].fillna(0.0)
+
+        # COT (gold only) + USDINR cross-asset features — same pattern as
+        # explain_price_anomalies in src/tools/market/gold.py.
+        df_cot = df_fx = None
+        if "GOLD" in symbol.upper():
+            try:
+                _cot = query_df(
+                    "SELECT report_date, mm_net, open_interest FROM market_data.cot_gold"
+                )
+                if not _cot.empty:
+                    _cot["report_date"] = pd.to_datetime(_cot["report_date"])
+                    df_cot = _cot
+            except Exception as exc:
+                logger.warning("COT fetch failed (non-fatal): %s", exc)
+        try:
+            _fx = query_df(
+                "SELECT symbol, trade_date, toFloat64(close) AS close "
+                "FROM market_data.fx_rates FINAL WHERE symbol = 'USDINR'"
+            )
+            if not _fx.empty:
+                _fx["trade_date"] = pd.to_datetime(_fx["trade_date"])
+                df_fx = _fx
+        except Exception as exc:
+            logger.warning("FX fetch failed (non-fatal): %s", exc)
+
+        from src.ml.anomaly import run_composite_anomaly
+        _, df_flagged, _ = run_composite_anomaly(
+            df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
+            df_cot=df_cot, df_fx=df_fx,
+        )
+        return {
+            pd.Timestamp(d).normalize() for d in df_flagged["trade_date"]
+        }
+    except Exception as exc:
+        logger.warning("Composite anomaly detection failed, naive fallback: %s", exc)
+        return None
+
+
 def sparkline(values: list[float]) -> str:
     """Return a single-line Unicode sparkline string for an array of floats."""
     if not values:
@@ -148,21 +225,35 @@ def plot_price_chart(
         xs = list(range(len(prices)))
         plt.plot(xs, prices, label=symbol)
         
-        # Overlay return anomalies (magnitude >= max(2.0, 2.5 * std_dev))
+        # Overlay anomalies. Primary: composite pipeline (GARCH vol-normalization
+        # + Isolation Forest + PELT change-point detection). Fallback: naive
+        # max(2.0, 2.5*std) return threshold when the pipeline can't run
+        # (<60 rows, arch/ruptures missing, or DB-less yfinance fallback path).
         try:
             import pandas as pd
-            s_prices = pd.Series(prices)
-            returns = s_prices.pct_change() * 100
-            std_ret = returns.std()
-            threshold = max(2.0, 2.5 * std_ret) if not pd.isna(std_ret) else 2.0
-            
-            anomaly_xs = []
-            anomaly_ys = []
-            for idx, ret_val in enumerate(returns):
-                if not pd.isna(ret_val) and abs(ret_val) >= threshold:
-                    anomaly_xs.append(idx)
-                    anomaly_ys.append(prices[idx])
-            
+
+            anomaly_xs: list[int] = []
+            anomaly_ys: list[float] = []
+
+            flagged_dates = _composite_anomaly_dates(symbol, category)
+            if flagged_dates is not None:
+                for idx, d in enumerate(dates):
+                    try:
+                        if pd.Timestamp(d).normalize() in flagged_dates:
+                            anomaly_xs.append(idx)
+                            anomaly_ys.append(prices[idx])
+                    except Exception:
+                        continue
+            else:
+                # Naive fallback — composite unavailable
+                returns = pd.Series(prices).pct_change() * 100
+                std_ret = returns.std()
+                threshold = max(2.0, 2.5 * std_ret) if not pd.isna(std_ret) else 2.0
+                for idx, ret_val in enumerate(returns):
+                    if not pd.isna(ret_val) and abs(ret_val) >= threshold:
+                        anomaly_xs.append(idx)
+                        anomaly_ys.append(prices[idx])
+
             if anomaly_xs:
                 plt.scatter(anomaly_xs, anomaly_ys, color="red", marker="🔴", label="Anomaly")
         except Exception as exc:

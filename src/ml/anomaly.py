@@ -37,10 +37,34 @@ Composite anomaly detection pipeline for daily OHLCV time series.
    Final_Z = Z_robust × (1 + IF_confidence)
    Boosts only days suspicious to **both** algorithms, filtering noise.
 
+4. PELT Change-Point Detection (ruptures, rbf cost)  [regime-shift confirmation]
+   GARCH + IF detect *point shocks* — single surprising days. PELT detects
+   *structural breaks*: the boundary where the return distribution shifts to a
+   new variance regime (e.g. calm → turbulent). These are different objects:
+   a one-day spike is not a regime change, and a regime change need not have a
+   single dramatic day.
+
+   We run PELT (`model="rbf"`) on standardised log-returns. The rbf kernel cost
+   is sensitive to changes in the *whole distribution* (mean + variance), so it
+   pinpoints volatility-regime boundaries. Each detected breakpoint marks a date
+   where the market's behaviour structurally changed.
+
+   Role = CONFIRMATION BOOSTER (does not replace the Final-Z gate):
+   — `is_changepoint`  : True on a detected breakpoint date.
+   — `cp_confirmed`    : True when a date lies within ±proximity_days of a break.
+   — A point anomaly that *coincides* with a structural break is corroborated by
+     two independent views → its Final Z is boosted ×cp_boost and its regime is
+     relabelled "🔀 Regime Shift (Change Point)". The Final-Z threshold still
+     gates which dates are flagged; CPD only sharpens confidence and labelling.
+
+   Graceful degradation: if `ruptures` is not installed or there are too few
+   rows, both columns are set False and the pipeline behaves exactly as before.
+
 Public API
 ──────────
     run_composite_anomaly(df, contamination, z_threshold,
-                          df_cot=None, df_fx=None)
+                          df_cot=None, df_fx=None,
+                          cp_penalty=None, cp_proximity_days=3, cp_boost=1.15)
         → (df_result, df_flagged, garch_loglik)
 
     Individual step functions also exported:
@@ -48,6 +72,7 @@ Public API
         build_features(df)
         fit_garch_residuals(df)
         fit_isolation_forest(df, contamination)
+        fit_change_points(df, ...)
         classify_regime(df)
 """
 
@@ -65,6 +90,7 @@ __all__ = [
     "build_features",
     "fit_garch_residuals",
     "fit_isolation_forest",
+    "fit_change_points",
     "classify_regime",
     "run_composite_anomaly",
 ]
@@ -240,6 +266,92 @@ def fit_isolation_forest(
     return df
 
 
+def fit_change_points(
+    df: pd.DataFrame,
+    penalty: float | None = None,
+    min_size: int = 5,
+    jump: int = 1,
+    proximity_days: int = 3,
+) -> pd.DataFrame:
+    """
+    PELT change-point detection on standardised log-returns (rbf kernel cost).
+
+    Detects STRUCTURAL BREAKS — the dates where the return distribution shifts
+    to a new variance/mean regime — as opposed to single-day point shocks.
+
+    Method
+    ──────
+    1. Standardise log-returns (z = (r − mean) / std) so the penalty is
+       scale-invariant across assets of any price level.
+    2. Fit `ruptures.Pelt(model="rbf")` and predict breakpoints with penalty
+       `penalty`. The rbf cost reacts to changes in the whole distribution,
+       making it ideal for volatility-regime boundaries.
+    3. Auto penalty (when None): 2·log(n_valid). Higher penalty → fewer breaks.
+
+    Added columns
+    ─────────────
+        is_changepoint : bool — True exactly on a detected breakpoint date.
+        cp_confirmed   : bool — True within ±proximity_days of any breakpoint
+                                (used to corroborate point anomalies).
+
+    Graceful degradation: if `ruptures` is unavailable or there are fewer than
+    2·min_size valid returns, both columns are set False (no-op). Returns a new
+    DataFrame — does NOT mutate the input.
+    """
+    df = df.copy()
+    df["is_changepoint"] = False
+    df["cp_confirmed"]   = False
+
+    ret = df["log_return"].to_numpy(dtype="float64")
+    valid_mask = ~np.isnan(ret)
+    valid_pos  = np.flatnonzero(valid_mask)   # positions in df of non-NaN returns
+
+    if valid_pos.size < 2 * min_size:
+        return df  # too short to segment — leave all False
+
+    try:
+        import ruptures as rpt  # type: ignore[import]
+    except ImportError:
+        warnings.warn(
+            "ruptures not installed — change-point confirmation disabled "
+            "(pip install ruptures>=1.1.9)",
+            stacklevel=2,
+        )
+        return df
+
+    signal = ret[valid_mask]
+    std = signal.std()
+    signal_z = ((signal - signal.mean()) / (std + 1e-12)).reshape(-1, 1)
+
+    pen = float(penalty) if penalty is not None else 2.0 * np.log(signal_z.shape[0])
+
+    try:
+        algo = rpt.Pelt(model="rbf", min_size=min_size, jump=jump).fit(signal_z)
+        bkps = algo.predict(pen=pen)
+    except Exception as exc:  # noqa: BLE001 — never let CPD break the pipeline
+        warnings.warn(f"PELT change-point detection failed: {exc}", stacklevel=2)
+        return df
+
+    # ruptures returns 1-based indices into the *valid* signal, with the final
+    # element always == len(signal) (the series end, not a real break) → drop it.
+    bkps = [b for b in bkps if 0 < b < signal_z.shape[0]]
+    if not bkps:
+        return df
+
+    # Map signal-relative breakpoint indices back to df row positions.
+    bkp_df_pos = valid_pos[[b - 1 for b in bkps]]
+    df.iloc[bkp_df_pos, df.columns.get_loc("is_changepoint")] = True
+
+    # cp_confirmed: any row within ±proximity_days *rows* of a breakpoint.
+    confirmed = np.zeros(len(df), dtype=bool)
+    for pos in bkp_df_pos:
+        lo = max(0, pos - proximity_days)
+        hi = min(len(df), pos + proximity_days + 1)
+        confirmed[lo:hi] = True
+    df["cp_confirmed"] = confirmed
+    return df
+
+
 def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute Final Z and add a human-readable regime label.
@@ -357,6 +469,9 @@ def run_composite_anomaly(
     z_window: int = 30,
     df_cot: pd.DataFrame | None = None,
     df_fx: pd.DataFrame | None = None,
+    cp_penalty: float | None = None,
+    cp_proximity_days: int = 3,
+    cp_boost: float = 1.15,
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
@@ -374,11 +489,18 @@ def run_composite_anomaly(
     df_fx         : Optional FX DataFrame (symbol, trade_date, close)
                     → enables usdinr_logret, usdinr_vol14 features
 
+    cp_penalty   : PELT penalty (None -> auto 2*log n). Higher = fewer breaks.
+    cp_proximity_days : +/- window (rows) for change-point confirmation
+    cp_boost     : Final-Z multiplier for change-point-confirmed dates
+                    (default 1.15). Set 1.0 to disable the boost.
+
     Returns
     -------
-    df_result   : Full DataFrame with all signal columns
-    df_flagged  : Subset where |final_z| > z_threshold
-    garch_loglik: GARCH log-likelihood (replaces RF R² in the UI)
+    df_result   : Full DataFrame with all signal columns (incl. is_changepoint,
+                  cp_confirmed)
+    df_flagged  : Subset where |final_z| > z_threshold, computed AFTER the
+                  change-point boost so corroborated shocks rank higher
+    garch_loglik: GARCH log-likelihood (replaces RF R-squared in the UI)
     """
     df = build_features(df, rf_lags=rf_lags)
 
@@ -397,8 +519,23 @@ def run_composite_anomaly(
     # Step 3 — Isolation Forest confidence multiplier (enriched features)
     df = fit_isolation_forest(df, contamination=contamination)
 
+    # Step 4 — PELT change-point detection on standardised log-returns
+    df = fit_change_points(
+        df, penalty=cp_penalty, proximity_days=cp_proximity_days
+    )
+
     # Classify regimes + compute Final Z
     df = classify_regime(df)
+
+    # Change-point confirmation booster: a point shock that coincides with a
+    # structural break is corroborated by two independent views -> amplify its
+    # Final Z and relabel its regime. The Final-Z threshold still gates flagging.
+    if cp_boost != 1.0 and bool(df["cp_confirmed"].any()):
+        mask = df["cp_confirmed"]
+        df.loc[mask, "final_z"]   = df.loc[mask, "final_z"] * cp_boost
+        df["final_z_abs"]         = df["final_z"].abs()
+        relabel = mask & (df["final_z_abs"] > z_threshold)
+        df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
 
     df_flagged = df[df["final_z_abs"] > z_threshold].copy()
     return df, df_flagged, garch_loglik
