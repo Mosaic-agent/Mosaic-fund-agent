@@ -36,6 +36,7 @@ _REGIME_DIRECTION: dict[str, int] = {
     "📈 Strong Trend (HODL)":              +1,   # bull signal → hit if return > 0
     "🔥 Volatile Breakout":                 0,   # neutral — no directional prediction
     "🔀 Regime Shift (Change Point)":       0,   # structural break — no directional bias
+    "🏦 Corporate Action":                  0,   # mechanical event — excluded from hit-rate
     "✅ Normal":                             0,   # baseline — excluded from hit-rate table
 }
 

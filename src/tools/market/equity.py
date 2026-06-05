@@ -370,4 +370,67 @@ def search_anomaly_events(
     return "\n".join(lines)
 
 
-EQUITY_ANOMALY_TOOLS = [search_anomaly_events]
+@tool
+def get_corporate_actions(symbol: str) -> str:
+    """
+    Fetch NSE corporate actions (splits, bonuses, demergers, rights, dividends)
+    for an NSE-listed stock, upsert them into ClickHouse, and return a Markdown
+    summary table.
+
+    Use when the user asks:
+      - "What corporate actions has MSUMI had?"
+      - "Did RELIANCE do a stock split?"
+      - "Show me HDFCBANK bonus history"
+      - Whenever a chart anomaly is suspected to be a corporate event
+
+    The fetched data is stored in `market_data.corporate_actions` and is
+    automatically used by `search_anomaly_events` and the price chart to
+    suppress / label corporate action dates.
+    """
+    symbol_upper = symbol.strip().upper()
+
+    # ── 1. Fetch from NSE ────────────────────────────────────────────────────
+    from src.importer.fetchers.nse_corporate_actions_fetcher import (
+        fetch_corporate_actions, PRICE_IMPACTING_TYPES,
+    )
+    rows = fetch_corporate_actions(symbol_upper)
+
+    if not rows:
+        return (
+            f"No corporate actions found for **{symbol_upper}** on NSE.\n\n"
+            f"This may mean: (1) the symbol is not listed on NSE equities, "
+            f"(2) NSE returned no data, or (3) the network request failed."
+        )
+
+    # ── 2. Upsert into ClickHouse ────────────────────────────────────────────
+    stored = 0
+    try:
+        import pandas as _pd
+        from src.db.pool import acquire as _acquire
+        from src.importer.clickhouse import _DDL_CORPORATE_ACTIONS
+        df_ins = _pd.DataFrame(rows)
+        with _acquire() as client:
+            client.command(_DDL_CORPORATE_ACTIONS)  # ensure table exists (idempotent)
+            client.insert_df("market_data.corporate_actions", df_ins)
+        stored = len(df_ins)
+    except Exception as exc:
+        log.warning("Could not upsert corporate actions for %s: %s", symbol_upper, exc)
+
+    # ── 3. Build Markdown table ───────────────────────────────────────────────
+    lines = [
+        f"## 🏦 Corporate Actions: {symbol_upper}",
+        f"{len(rows)} event(s) fetched from NSE{f' · {stored} stored in ClickHouse' if stored else ''}.\n",
+        "| Ex-Date | Action Type | Ratio / Amount | Purpose |",
+        "| :--- | :--- | :--- | :--- |",
+    ]
+    for r in sorted(rows, key=lambda x: x["ex_date"], reverse=True):
+        tag = "⚠️ suppresses anomaly" if r["action_type"] in PRICE_IMPACTING_TYPES else ""
+        lines.append(
+            f"| {r['ex_date']} | `{r['action_type']}` {tag} | {r['ratio'] or '—'} "
+            f"| {r['purpose'][:80]} |"
+        )
+
+    return "\n".join(lines)
+
+
+EQUITY_ANOMALY_TOOLS = [search_anomaly_events, get_corporate_actions]

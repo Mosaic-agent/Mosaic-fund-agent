@@ -1644,9 +1644,13 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - Saved articles: `get_db_news(category, sentiment)` for tagged ETF/sector articles
    - **Price anomaly investigation** — `search_anomaly_events(symbol, days=90)`:
      detects the SAME red-dot anomaly dates shown on the price chart (GARCH + IF + PELT),
-     then runs parallel Google News searches per flagged date. Call this whenever the user
-     asks "what caused the spike/crash/anomaly on the chart" or "search news for anomaly
-     dates". Always call `plot_price_chart(symbol)` in parallel so the user sees chart + news.
+     suppresses corporate action ex-dates automatically, then runs parallel Google News
+     searches per flagged date. Call whenever the user asks "what caused the spike/crash/
+     anomaly on the chart". Always call `plot_price_chart(symbol)` in parallel.
+   - **Corporate actions** — `get_corporate_actions(symbol)`: fetches NSE corporate actions
+     (splits, bonuses, demergers, rights, dividends), stores them in ClickHouse, and returns
+     a history table. Call when the user asks about stock splits, bonus issues, demergers,
+     or when a chart shows an extreme return (>20%) that may be mechanical.
    - For a thorough multi-source sweep: `delegate_to_news_agent(question)`
 7. **Volatility & signals** — `run_risk_governor_analysis` (GARCH vol, regime, position sizing);
    `plot_garch_volatility_chart`
