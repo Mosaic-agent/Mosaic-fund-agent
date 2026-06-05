@@ -1060,6 +1060,75 @@ def test_explain_price_anomalies():
     print("  ✓ Explain price anomalies unit test passed")
 
 
+def test_report_publisher():
+    print("\n" + "="*60)
+    print("TEST 22: Report Publisher PDF Generation")
+    print("="*60)
+
+    from src.tools.report_publisher import publish_research_pdf
+    from unittest.mock import patch
+    import pandas as pd
+    import numpy as np
+    from pathlib import Path
+
+    def mock_query_df(query, parameters=None):
+        dates = pd.date_range(end="2026-06-01", periods=100)
+        if "daily_prices" in query:
+            return pd.DataFrame({
+                "trade_date": dates,
+                "open": np.linspace(100, 150, 100),
+                "high": np.linspace(105, 155, 100),
+                "low": np.linspace(95, 145, 100),
+                "close": np.linspace(100, 150, 100),
+                "volume": np.linspace(1000, 5000, 100)
+            })
+        elif "weight_checkpoints" in query:
+            return pd.DataFrame({
+                "trade_date": dates,
+                "garch_vol": np.linspace(15, 25, 100)
+            })
+        return pd.DataFrame()
+
+    report_md = """# Research Note: TATAPOWER
+Some introductory text.
+
+## 1. Snapshot
+| Metric | Value |
+|--------|-------|
+| P/E | 25.4 |
+| Dividend Yield | 1.2% |
+
+> This is a key quote about TATAPOWER's future prospects.
+
+And some final conclusions.
+"""
+
+    test_filename = "test_report_publisher_output.pdf"
+    expected_path = Path("output/reports") / test_filename
+
+    # Clean up if exists
+    if expected_path.exists():
+        expected_path.unlink()
+
+    with patch("src.db.pool.query_df", side_effect=mock_query_df):
+        res = publish_research_pdf.invoke({
+            "symbol": "TATAPOWER",
+            "report_markdown": report_md,
+            "filename": test_filename
+        })
+        
+        assert "Research report saved" in res
+        assert test_filename in res
+        assert expected_path.exists()
+        assert expected_path.stat().st_size > 0
+
+    # Clean up
+    if expected_path.exists():
+        expected_path.unlink()
+
+    print("  ✓ PDF generation and publishing test passed")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -1083,6 +1152,7 @@ if __name__ == "__main__":
         test_macd_chart_rendering_and_analysis,
         test_multi_price_chart_fallback,
         test_explain_price_anomalies,
+        test_report_publisher,
     ]
     passed = 0
     failed = 0
