@@ -56,6 +56,11 @@ ruptures>=1.1.9                  # PELT change-point detection (rbf cost) — 3r
 lightgbm>=4.3.0                  # Gradient boosting for trend prediction (trend_predictor.py)
                                  # macOS: brew install libomp  (required — LightGBM needs OpenMP)
 
+# ── PDF report publisher ──────────────────────────────────────────────────────
+weasyprint>=62.0                 # HTML+CSS → PDF (research report publisher)
+markdown>=3.6                    # Markdown → HTML (report_publisher.py pipeline)
+matplotlib>=3.8.0                # Chart images embedded in PDF (price, MACD, GARCH vol)
+
 # ── Output & CLI ──────────────────────────────────────────────────────────────
 rich>=13.7.0                     # Beautiful terminal output / progress bars
 typer>=0.12.0                    # CLI framework for on-demand commands

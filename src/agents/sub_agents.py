@@ -1006,7 +1006,9 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "RULES: All monetary values in ₹. Never invent figures.\n\n"
         "DATA AVAILABILITY: If a ClickHouse query returns 0 rows, or plot_price_chart "
         "returns 'No price data found', call `check_and_refresh_symbol_data(symbol)` "
-        "to auto-import the data, then retry the query or chart tool."
+        "to auto-import the data, then retry the query or chart tool.\n\n"
+        "PDF EXPORT: Only call `publish_consolidated_pdf(report_markdown=<full_note>)` "
+        "when the user explicitly asks to save, export, or publish as PDF."
     )
 
     def _get_tools(self) -> list:
@@ -1019,6 +1021,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
         from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
         from src.tools.agent_tools import check_and_refresh_symbol_data
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return (
             [resolve_company]
             + YAHOO_TOOLS
@@ -1026,7 +1029,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
             + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db,
                import_symbol_data, check_and_refresh_symbol_data,
                plot_price_chart, plot_shareholding_bar, plot_macd_chart,
-               get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary]
+               get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary,
+               publish_research_pdf, publish_consolidated_pdf]
         )
 
     def _fallback(self, question: str) -> str:
@@ -1073,6 +1077,8 @@ class SignalSubAgent(_SubAgent):
         "Use `run_risk_governor_analysis` for GARCH volatility-targeted position sizing. "
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
         "Use `explain_price_anomalies` to scan price history for return outliers (magnitude >= 2%) and query news on those dates to find their causes. Whenever you call this tool to explain anomalies, you MUST also call `plot_price_chart` in parallel to visually display the price trend.\n"
+        "Use `search_anomaly_events(symbol)` for equity/stock anomaly investigation — it suppresses corporate actions and runs parallel Google News searches per flagged date.\n"
+        "PDF EXPORT: Only call `publish_consolidated_pdf(report_markdown=<full_output>)` when the user explicitly asks to save, export, or publish as PDF.\n"
         "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
@@ -1109,6 +1115,8 @@ class SignalSubAgent(_SubAgent):
             plot_garch_volatility_chart, plot_macd_chart,
         )
         from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
+        from src.tools.market.equity import search_anomaly_events
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
             run_daily_signal_composite,
             run_goldbees_pipeline,
@@ -1118,6 +1126,7 @@ class SignalSubAgent(_SubAgent):
             get_live_inav,
             query_clickhouse_db,
             explain_price_anomalies,
+            search_anomaly_events,
             plot_price_chart,
             plot_signal_scores,
             plot_signal_breakdown,
@@ -1127,6 +1136,8 @@ class SignalSubAgent(_SubAgent):
             plot_macd_chart,
             get_shoonya_quotes,
             get_shoonya_live_tick,
+            publish_research_pdf,
+            publish_consolidated_pdf,
         ]
 
     def _fallback(self, question: str) -> str:
@@ -1400,7 +1411,11 @@ class NewsSubAgent(_SubAgent):
         "**ETF category scan** ('latest etf news', 'etf news sentiment'):\n"
         "  1. Call `run_etf_news_sentiment` for a full multi-category scan.\n\n"
         "**Price anomaly explanation** ('explain anomalies for GOLDBEES', 'why did the price spike/drop'):\n"
-        "  1. Call `explain_price_anomalies(symbol)` to scan price return outliers and query historical news on those dates.\n\n"
+        "  1. ETFs/gold: Call `explain_price_anomalies(symbol)` + `plot_price_chart(symbol)` in parallel.\n"
+        "  2. Stocks: Call `search_anomaly_events(symbol)` + `plot_price_chart(symbol)` in parallel.\n\n"
+        "**PDF export** (only when user says 'save as PDF', 'publish report', 'export PDF'):\n"
+        "  1. Call `publish_consolidated_pdf(report_markdown=<full_output>)`. "
+        "Auto-detects symbols and charts. Report the saved file path.\n\n"
         "## Output format\n"
         "Always present results as a Markdown table:\n"
         "| Title | Source | Date | Sentiment |\n\n"
@@ -1419,6 +1434,9 @@ class NewsSubAgent(_SubAgent):
         from src.tools.news_search import get_stock_news, search_financial_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.skills_tools import run_etf_news_sentiment, explain_price_anomalies
+        from src.tools.chart_tools import plot_price_chart
+        from src.tools.market.equity import search_anomaly_events
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
             resolve_company,
             get_stock_news,
@@ -1427,6 +1445,10 @@ class NewsSubAgent(_SubAgent):
             get_db_news,
             run_etf_news_sentiment,
             explain_price_anomalies,
+            search_anomaly_events,
+            plot_price_chart,
+            publish_research_pdf,
+            publish_consolidated_pdf,
         ]
 
 
@@ -1688,9 +1710,12 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - Find instruments co-moving with the target: SQL JOIN + pandas correlation
    - `get_intl_etf_correlation` for intl ETF / USDINR sensitivity
 9. **Visualise** — pair each data layer with a chart where it adds clarity:
-   - Use predefined chart functions: `plot_multi_price_chart`, `plot_fund_holdings_chart`, `plot_garch_volatility_chart`, `plot_price_chart`, `plot_fii_dii_chart`, etc.
+   - **Always** call `plot_price_chart(symbol, days=365)` AND `plot_macd_chart(symbol, days=180)` for every deep dive — price trend + MACD(12,26,9) momentum are mandatory outputs.
+   - Also call `plot_garch_volatility_chart(symbol)` when GARCH vol data is available.
+   - Use `plot_fii_dii_chart`, `plot_fund_holdings_chart`, `plot_multi_price_chart` where relevant.
    - If a specific chart function does not exist or does not cover the required data, write Python code at run time to fetch the data from ClickHouse and build the chart using `plotext` (or fallback) and execute it using `execute_python_snippet` to output the chart trend.
 10. **Synthesise** — write a structured Markdown research report
+11. **Publish (on demand only)** — call `publish_consolidated_pdf(report_markdown=<full_report>)` ONLY when the user explicitly asks to save, export, or publish as PDF. Do NOT call this automatically after every research run.
 
 ## ClickHouse rules (critical)
 - Always add `FINAL` after table name: `SELECT ... FROM market_data.daily_prices FINAL`
@@ -1740,8 +1765,10 @@ aggregations must be computed by Python or SQL, then narrated.
             plot_fii_dii_chart,
             plot_fund_holdings_chart,
             plot_garch_volatility_chart,
+            plot_macd_chart,
         )
         from src.tools.agent_tools import AGENT_TOOLS
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
             resolve_company,
             *YAHOO_TOOLS,
@@ -1764,6 +1791,9 @@ aggregations must be computed by Python or SQL, then narrated.
             plot_fii_dii_chart,
             plot_fund_holdings_chart,
             plot_garch_volatility_chart,
+            plot_macd_chart,
+            publish_research_pdf,
+            publish_consolidated_pdf,
             *AGENT_TOOLS,  # check_and_refresh_symbol_data + 5 delegation tools
         ]
 
