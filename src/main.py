@@ -827,7 +827,7 @@ def import_data(
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, "
             "earnings, insider, valuation, "
             "world_bank, imf_weo, "
-            "icici, nippon, icici-index, all. "
+            "icici, nippon, icici-index, dsp, all. "
             "Default: all."
         ),
     ),

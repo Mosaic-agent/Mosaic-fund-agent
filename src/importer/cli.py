@@ -665,15 +665,15 @@ def run_import(
 
 
     # ── AMC Fund-Holdings Importers (factory pattern) ────────────────────────
-    # Delegates to src/scripts/fund_imports/ for icici, nippon, icici-index.
+    # Delegates to src/scripts/fund_imports/ for icici, nippon, icici-index, dsp.
     # Each importer manages its own ClickHouse connection and watermarks.
-    _amc_cats = [c for c in ("icici", "nippon", "icici-index") if c in categories]
+    _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp") if c in categories]
     if _amc_cats:
         from src.scripts.fund_imports.factory import create_importer as _create_fund_importer
 
         for _amc_cat in _amc_cats:
             _kwargs: dict = {}
-            if _amc_cat == "nippon":
+            if _amc_cat in ("nippon", "dsp"):
                 _kwargs = {"full_reimport": full_reimport}
             _imp = _create_fund_importer(_amc_cat, **_kwargs)
             _imp.run(dry_run=dry_run)

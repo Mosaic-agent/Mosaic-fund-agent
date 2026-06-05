@@ -20,11 +20,13 @@ from src.scripts.fund_imports.base import BaseFundImporter
 from src.scripts.fund_imports.importers.icici_mf import IciciMFImporter
 from src.scripts.fund_imports.importers.nippon import NipponImporter
 from src.scripts.fund_imports.importers.icici_index import IciciIndexImporter
+from src.scripts.fund_imports.importers.dsp import DspImporter
 
 REGISTRY: dict[str, type[BaseFundImporter]] = {
     "icici":       IciciMFImporter,
     "nippon":      NipponImporter,
     "icici-index": IciciIndexImporter,
+    "dsp":         DspImporter,
 }
 
 
