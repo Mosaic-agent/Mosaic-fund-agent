@@ -1688,9 +1688,12 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - Find instruments co-moving with the target: SQL JOIN + pandas correlation
    - `get_intl_etf_correlation` for intl ETF / USDINR sensitivity
 9. **Visualise** — pair each data layer with a chart where it adds clarity:
-   - Use predefined chart functions: `plot_multi_price_chart`, `plot_fund_holdings_chart`, `plot_garch_volatility_chart`, `plot_price_chart`, `plot_fii_dii_chart`, etc.
+   - **Always** call `plot_price_chart(symbol, days=365)` AND `plot_macd_chart(symbol, days=180)` for every deep dive — price trend + MACD(12,26,9) momentum are mandatory outputs.
+   - Also call `plot_garch_volatility_chart(symbol)` when GARCH vol data is available.
+   - Use `plot_fii_dii_chart`, `plot_fund_holdings_chart`, `plot_multi_price_chart` where relevant.
    - If a specific chart function does not exist or does not cover the required data, write Python code at run time to fetch the data from ClickHouse and build the chart using `plotext` (or fallback) and execute it using `execute_python_snippet` to output the chart trend.
 10. **Synthesise** — write a structured Markdown research report
+11. **Publish** — call `publish_research_pdf(symbol, <full_report_markdown>)` as the very last step of every deep dive. Pass the complete Markdown text of the research note (all sections concatenated). The tool embeds matplotlib charts (price, MACD, GARCH vol) and exports a PDF to output/reports/.
 
 ## ClickHouse rules (critical)
 - Always add `FINAL` after table name: `SELECT ... FROM market_data.daily_prices FINAL`
@@ -1740,8 +1743,10 @@ aggregations must be computed by Python or SQL, then narrated.
             plot_fii_dii_chart,
             plot_fund_holdings_chart,
             plot_garch_volatility_chart,
+            plot_macd_chart,
         )
         from src.tools.agent_tools import AGENT_TOOLS
+        from src.tools.report_publisher import publish_research_pdf
         return [
             resolve_company,
             *YAHOO_TOOLS,
@@ -1764,6 +1769,8 @@ aggregations must be computed by Python or SQL, then narrated.
             plot_fii_dii_chart,
             plot_fund_holdings_chart,
             plot_garch_volatility_chart,
+            plot_macd_chart,
+            publish_research_pdf,
             *AGENT_TOOLS,  # check_and_refresh_symbol_data + 5 delegation tools
         ]
 
