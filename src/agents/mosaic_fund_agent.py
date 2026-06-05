@@ -654,26 +654,70 @@ class MosaicFundAgent:
             name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", clean_question, re.I)
             raw_query  = name_match.group(1).strip() if name_match else clean_question
 
-            from src.tools.company_resolver import resolve_company_info
-            info = resolve_company_info(raw_query)
-            logger.info("ask: deep-dive resolved %r → %s (%s)", raw_query, info["symbol"], info["market"])
+            pdf_requested = False
+            pdf_patterns = [
+                r"\bsave\s+as\s+pdf\b",
+                r"\bsave\s+pdf\b",
+                r"\bexport\s+as\s+pdf\b",
+                r"\bexport\s+pdf\b",
+                r"\bexport\s+to\s+pdf\b",
+                r"\bdownload\s+as\s+pdf\b",
+                r"\bdownload\s+pdf\b",
+                r"\bgenerate\s+pdf\b",
+                r"\bpublish\s+as\s+pdf\b",
+                r"\bpublish\s+pdf\b",
+                r"\bto\s+pdf\b",
+                r"\bin\s+pdf\b",
+                r"\bpdf\b",
+            ]
+            clean_query = raw_query
+            for pattern in pdf_patterns:
+                if re.search(pattern, clean_query, re.I):
+                    pdf_requested = True
+                    clean_query = re.sub(pattern, "", clean_query, flags=re.I).strip()
+            clean_query = re.sub(r"\b(?:and|for|in|as|to|save|export|publish|download|generate)\b", "", clean_query, flags=re.I)
+            clean_query = re.sub(r"\s+", " ", clean_query).strip(" ,.?!")
 
-            if info["market"] == "India":
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(clean_query)
+            logger.info("ask: deep-dive resolved %r → %s (%s)", clean_query, info.get("symbol"), info.get("market"))
+
+            if info.get("symbol") and info.get("market") == "India":
                 from src.agents.sub_agents import run_subagent_for
                 prompt = (
                     f"Research {info['company_name']} ({info['symbol']}) "
                     f"listed on {info['exchange']}. Provide a comprehensive research note."
                 )
+                if pdf_requested:
+                    prompt += " Also save/export the final report as a PDF file using the publish_consolidated_pdf tool."
                 try:
                     return run_subagent_for("india_equity", prompt)
                 except Exception as exc:
                     logger.error("Indian equity research failed: %s", exc)
-            else:
+            elif info.get("symbol") and info.get("market") == "US":
                 ticker = info["symbol"]
                 logger.info("ask: US deep-dive heuristic → %s", ticker)
                 from src.tools.skills_tools import run_deepdive_analysis
                 try:
-                    return run_deepdive_analysis.invoke({"ticker": ticker})
+                    result = run_deepdive_analysis.invoke({"ticker": ticker})
+                    if pdf_requested:
+                        from datetime import date
+                        from src.tools.report_publisher import publish_consolidated_pdf
+                        today_str = date.today().isoformat()
+                        report_path = os.path.join(os.getcwd(), "output", "deepdive", ticker.upper(), today_str, "report.md")
+                        if os.path.exists(report_path):
+                            try:
+                                with open(report_path, "r", encoding="utf-8") as f:
+                                    report_markdown = f.read()
+                                pdf_result = publish_consolidated_pdf(
+                                    report_markdown=report_markdown,
+                                    symbols=ticker.upper(),
+                                    title=f"US Deep Dive Analysis: {ticker.upper()}"
+                                )
+                                result += f"\n\n{pdf_result}"
+                            except Exception as exc:
+                                logger.error("Failed to export US deep-dive to PDF: %s", exc)
+                    return result
                 except Exception as exc:
                     logger.error("Heuristic deep-dive failed: %s", exc)
 
@@ -851,14 +895,38 @@ class MosaicFundAgent:
             name_match = re.search(r"deep[\s.?-]?(?:dive[s]?|down)\s+(?:on\s+)?(.+)", clean_question, re.I)
             raw_query  = name_match.group(1).strip() if name_match else clean_question
 
+            pdf_requested = False
+            pdf_patterns = [
+                r"\bsave\s+as\s+pdf\b",
+                r"\bsave\s+pdf\b",
+                r"\bexport\s+as\s+pdf\b",
+                r"\bexport\s+pdf\b",
+                r"\bexport\s+to\s+pdf\b",
+                r"\bdownload\s+as\s+pdf\b",
+                r"\bdownload\s+pdf\b",
+                r"\bgenerate\s+pdf\b",
+                r"\bpublish\s+as\s+pdf\b",
+                r"\bpublish\s+pdf\b",
+                r"\bto\s+pdf\b",
+                r"\bin\s+pdf\b",
+                r"\bpdf\b",
+            ]
+            clean_query = raw_query
+            for pattern in pdf_patterns:
+                if re.search(pattern, clean_query, re.I):
+                    pdf_requested = True
+                    clean_query = re.sub(pattern, "", clean_query, flags=re.I).strip()
+            clean_query = re.sub(r"\b(?:and|for|in|as|to|save|export|publish|download|generate)\b", "", clean_query, flags=re.I)
+            clean_query = re.sub(r"\s+", " ", clean_query).strip(" ,.?!")
+
             from src.tools.company_resolver import resolve_company_info
-            info = resolve_company_info(raw_query)
+            info = resolve_company_info(clean_query)
             logger.info(
                 "chat: deep-dive resolved %r → %s (%s)",
-                raw_query, info["symbol"], info["market"],
+                clean_query, info.get("symbol"), info.get("market"),
             )
 
-            if info["market"] == "India":
+            if info.get("symbol") and info.get("market") == "India":
                 # Route to Indian equity research sub-agent
                 prompt = (
                     f"Research {info['company_name']} ({info['symbol']}) "
@@ -866,14 +934,34 @@ class MosaicFundAgent:
                     f"research note covering financials, earnings, MF holdings, "
                     f"cash flow, news, and FII/DII flows."
                 )
+                if pdf_requested:
+                    prompt += " Also save/export the final report as a PDF file using the publish_consolidated_pdf tool."
                 return get_subagent("india_equity").run(prompt)
-            else:
+            elif info.get("symbol") and info.get("market") == "US":
                 # US stock → SEC deepdive pipeline
                 ticker = info["symbol"]
                 logger.info("chat: US deep-dive heuristic → %s", ticker)
                 from src.tools.skills_tools import run_deepdive_analysis
                 try:
-                    return run_deepdive_analysis.invoke({"ticker": ticker})
+                    result = run_deepdive_analysis.invoke({"ticker": ticker})
+                    if pdf_requested:
+                        from datetime import date
+                        from src.tools.report_publisher import publish_consolidated_pdf
+                        today_str = date.today().isoformat()
+                        report_path = os.path.join(os.getcwd(), "output", "deepdive", ticker.upper(), today_str, "report.md")
+                        if os.path.exists(report_path):
+                            try:
+                                with open(report_path, "r", encoding="utf-8") as f:
+                                    report_markdown = f.read()
+                                pdf_result = publish_consolidated_pdf(
+                                    report_markdown=report_markdown,
+                                    symbols=ticker.upper(),
+                                    title=f"US Deep Dive Analysis: {ticker.upper()}"
+                                )
+                                result += f"\n\n{pdf_result}"
+                            except Exception as exc:
+                                logger.error("Failed to export US deep-dive to PDF: %s", exc)
+                    return result
                 except Exception as exc:
                     logger.error("Deep-dive heuristic failed: %s", exc)
 
