@@ -42,3 +42,9 @@ output/reports/*.md
 output/reports/*.html
 output/reports/*.png
 *.pdf
+
+# Agent CLI configs
+.antigravitycli/
+
+# Local cache data
+data/isin_ticker_cache.json
