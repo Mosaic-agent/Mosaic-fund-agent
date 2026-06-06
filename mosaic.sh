@@ -33,6 +33,9 @@ if [[ $# -eq 0 ]]; then
         docker compose up -d clickhouse ollama files 2>/dev/null
         docker compose run --rm ollama-init 2>/dev/null || true   # no-op if already done
     fi
+    echo ""
+    echo "  📁 Reports:   http://localhost:8502"
+    echo ""
     docker compose run --rm -it mosaic chat
     exit 0
 fi
@@ -55,6 +58,10 @@ fi
 ) &
 TELEMETRY_PID=$!
 trap 'kill $TELEMETRY_PID 2>/dev/null; rm -f ./src/host_telemetry.json 2>/dev/null' EXIT INT TERM
+
+echo ""
+echo "  📁 Reports:   http://localhost:8502"
+echo ""
 
 FIRST_ARG="$1"
 
