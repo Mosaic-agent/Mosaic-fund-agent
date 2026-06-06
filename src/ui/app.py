@@ -167,7 +167,7 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs"])
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_reports = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "📁 Reports"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5741,3 +5741,82 @@ with tab_intl_etf:
             )
         else:
             st.info("No drawdown episodes > 10% found in the 3-year window.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — REPORTS  (download generated PDFs, HTML, Markdown)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_reports:
+    import os
+    from pathlib import Path
+    from datetime import datetime as _dt
+
+    st.header("📁 Generated Reports")
+    st.caption(
+        "All reports produced by `docker compose run mosaic` are listed here. "
+        "Click **Download** to save a file locally. "
+        "Reports are also browsable at **http://localhost:8502** (file server)."
+    )
+
+    reports_dir = Path(os.environ.get("OUTPUT_DIR", "/app/output")) / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    _EXT_ICON = {".pdf": "📄", ".html": "🌐", ".md": "📝", ".png": "🖼️"}
+    _EXT_MIME = {
+        ".pdf": "application/pdf",
+        ".html": "text/html",
+        ".md": "text/markdown",
+        ".png": "image/png",
+    }
+
+    all_files = sorted(
+        [f for f in reports_dir.iterdir() if f.is_file() and f.suffix in _EXT_MIME],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not all_files:
+        st.info("No reports found yet. Run `docker compose run mosaic` to generate one.", icon="ℹ️")
+    else:
+        # Filter controls
+        col_filter, col_refresh = st.columns([3, 1])
+        with col_filter:
+            ext_filter = st.multiselect(
+                "File type",
+                options=[".pdf", ".html", ".md", ".png"],
+                default=[".pdf", ".html", ".md"],
+                label_visibility="collapsed",
+            )
+        with col_refresh:
+            if st.button("🔄 Refresh", use_container_width=True):
+                st.rerun()
+
+        filtered = [f for f in all_files if f.suffix in ext_filter] if ext_filter else all_files
+
+        if not filtered:
+            st.info("No files match the selected filter.")
+        else:
+            st.caption(f"{len(filtered)} file(s) — sorted newest first")
+            for fpath in filtered:
+                stat = fpath.stat()
+                size_kb = stat.st_size // 1024
+                mtime = _dt.fromtimestamp(stat.st_mtime).strftime("%d %b %Y  %H:%M")
+                icon = _EXT_ICON.get(fpath.suffix, "📎")
+                mime = _EXT_MIME.get(fpath.suffix, "application/octet-stream")
+
+                col_name, col_meta, col_btn = st.columns([5, 3, 2])
+                with col_name:
+                    st.markdown(f"{icon} **{fpath.name}**")
+                with col_meta:
+                    st.caption(f"{mtime} · {size_kb} KB")
+                with col_btn:
+                    st.download_button(
+                        label="⬇ Download",
+                        data=fpath.read_bytes(),
+                        file_name=fpath.name,
+                        mime=mime,
+                        key=f"dl_{fpath.name}",
+                        use_container_width=True,
+                    )
+                st.divider()
