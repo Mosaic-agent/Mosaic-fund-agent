@@ -26,11 +26,11 @@ fi
 if [[ $# -eq 0 ]]; then
     # Check if a local Ollama instance is already running on the host
     if curl -s -I http://localhost:11434/ >/dev/null 2>&1; then
-        echo "Local Ollama detected running on host. Starting clickhouse + files server..."
-        docker compose up -d clickhouse files 2>/dev/null
+        echo "Local Ollama detected running on host. Starting clickhouse + ui + files server..."
+        docker compose up -d clickhouse ui files 2>/dev/null
     else
         echo "Starting services (first run pulls gemma4 ~5-8 GB — grab a coffee)..."
-        docker compose up -d clickhouse ollama files 2>/dev/null
+        docker compose up -d clickhouse ollama ui files 2>/dev/null
         docker compose run --rm ollama-init 2>/dev/null || true   # no-op if already done
     fi
     echo ""
