@@ -955,16 +955,16 @@ def publish_research_pdf(
 
     Returns the absolute path of the saved file.
     """
-    return publish_consolidated_pdf(
+    res = publish_consolidated_pdf_func(
         report_markdown=report_markdown,
         symbols=symbol.strip().upper(),
         filename=filename,
         format=format,
     )
+    return res.replace("PDF report saved", "Research report saved").replace("Consolidated report saved", "Research report saved")
 
 
-@tool
-def publish_consolidated_pdf(
+def publish_consolidated_pdf_func(
     report_markdown: str,
     symbols: str = "",
     title: str = "",
@@ -1214,4 +1214,51 @@ def _generate_html_str(
         date_str=datetime.now().strftime("%d %B %Y"),
         report_html=report_html,
         charts=charts,
+    )
+
+
+@tool
+def publish_consolidated_pdf(
+    report_markdown: str,
+    symbols: str = "",
+    title: str = "",
+    filename: str = "",
+    format: str = "pdf",
+) -> str:
+    """
+    Publish the COMPLETE final output of any agent run as a report file.
+
+    Use this as the universal last step — works for single-symbol deep dives,
+    multi-symbol comparative reports, anomaly reports, news reports, and portfolio
+    summaries.  It auto-detects which symbols are covered by the report when
+    `symbols` is not provided.
+
+    Formats:
+      "pdf"  (default) — professionally styled PDF; price + MACD + GARCH + correlation
+                         charts inline where [CHART:*] placeholders appear; supplementary
+                         charts (MACD, GARCH, clusters) in the top block.
+      "md"             — raw Markdown file saved to disk; chart PNGs saved as separate
+                         files; [CHART:*] tokens replaced with relative ![img](...) refs.
+      "html"           — self-contained HTML with all charts base64-embedded inline.
+
+    Chart strategy for PDF/HTML (auto-selected by symbol count):
+      1 symbol  → price (inline) + MACD/GARCH/clusters (top block) + correlation charts
+      2–4 syms  → one price chart per symbol in top block
+      5+ syms   → report body only
+
+    Args:
+        report_markdown : The COMPLETE Markdown text of the agent's final output.
+        symbols         : Comma-separated NSE symbols (e.g. "MSUMI,HDFCBANK"). Auto-detected if blank.
+        title           : Custom cover headline. Auto-generated if blank.
+        filename        : Output filename stem (no extension). Default: <SYMBOLS>_<YYYYMMDD>.
+        format          : "pdf" | "md" | "html"
+
+    Returns the absolute path of the saved file.
+    """
+    return publish_consolidated_pdf_func(
+        report_markdown=report_markdown,
+        symbols=symbols,
+        title=title,
+        filename=filename,
+        format=format,
     )

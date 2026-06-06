@@ -705,14 +705,14 @@ class MosaicFundAgent:
                     result = run_deepdive_analysis.invoke({"ticker": ticker})
                     if pdf_requested:
                         from datetime import date
-                        from src.tools.report_publisher import publish_consolidated_pdf
+                        from src.tools.report_publisher import publish_consolidated_pdf_func
                         today_str = date.today().isoformat()
                         report_path = os.path.join(os.getcwd(), "output", "deepdive", ticker.upper(), today_str, "report.md")
                         if os.path.exists(report_path):
                             try:
                                 with open(report_path, "r", encoding="utf-8") as f:
                                     report_markdown = f.read()
-                                pdf_result = publish_consolidated_pdf(
+                                pdf_result = publish_consolidated_pdf_func(
                                     report_markdown=report_markdown,
                                     symbols=ticker.upper(),
                                     title=f"US Deep Dive Analysis: {ticker.upper()}"
@@ -950,14 +950,14 @@ class MosaicFundAgent:
                     result = run_deepdive_analysis.invoke({"ticker": ticker})
                     if pdf_requested:
                         from datetime import date
-                        from src.tools.report_publisher import publish_consolidated_pdf
+                        from src.tools.report_publisher import publish_consolidated_pdf_func
                         today_str = date.today().isoformat()
                         report_path = os.path.join(os.getcwd(), "output", "deepdive", ticker.upper(), today_str, "report.md")
                         if os.path.exists(report_path):
                             try:
                                 with open(report_path, "r", encoding="utf-8") as f:
                                     report_markdown = f.read()
-                                pdf_result = publish_consolidated_pdf(
+                                pdf_result = publish_consolidated_pdf_func(
                                     report_markdown=report_markdown,
                                     symbols=ticker.upper(),
                                     title=f"US Deep Dive Analysis: {ticker.upper()}"
