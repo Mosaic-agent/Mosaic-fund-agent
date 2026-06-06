@@ -174,10 +174,11 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
             beta_120 = compute_window_beta(df_merged.tail(120))
             beta_252 = compute_window_beta(df_merged.tail(252))
 
-            significance = "Weak / Insignificant"
-            if abs(correlation) >= 0.4:
+            # Cohen convention: |r| < 0.3 = weak, 0.3–0.5 = moderate, ≥ 0.5 = strong
+            significance = "Weak"
+            if abs(correlation) >= 0.5:
                 significance = "Strong"
-            elif abs(correlation) >= 0.2:
+            elif abs(correlation) >= 0.3:
                 significance = "Moderate"
 
             sig_text = "statistically significant" if p_value < 0.05 else "not statistically significant"
@@ -186,6 +187,15 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
                 f"The relationship is {sig_text} (p-value = {p_value:.4f})."
             )
 
+            low_r2_caveat = ""
+            if r_squared < 0.10:
+                low_r2_caveat = (
+                    f"\n• ⚠️ **Low FX Explanatory Power:** R² = `{r_squared:.3f}` means USDINR "
+                    f"accounts for only {r_squared*100:.1f}% of return variance. "
+                    f"Statistical significance at n≈250 can arise from economically trivial effects — "
+                    f"the p-value confirms a non-zero beta, not a meaningful driver."
+                )
+
             validation_block = (
                 "\n### 💱 FX Statistical Validation (USDINR)\n"
                 f"• **Correlation Coefficient ($r$):** `{correlation:.4f}` ({significance} linear correlation)\n"
@@ -193,11 +203,13 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
                 f"• **R² (Coefficient of Determination):** `{r_squared:.4f}`\n"
                 f"• **p-value:** `{p_value:.4f}`\n"
                 f"• **Rolling Betas:** 60d: `{beta_60:.4f}` | 120d: `{beta_120:.4f}` | 252d: `{beta_252:.4f}`\n"
-                f"• **Interpretation:** {interpretation}\n"
+                f"• **Interpretation:** {interpretation}"
+                f"{low_r2_caveat}\n"
             )
 
     # Calculate Root Cause Attribution & Strength summary statistics
     total_anomalies = 0
+    df_anomaly_res = None
     try:
         from src.ml.anomaly import run_composite_anomaly
         df_corp = service._load_corp_actions(sym)
@@ -206,6 +218,33 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
             total_anomalies = int(df_anomaly_res["is_anomaly"].sum())
     except Exception as e:
         log.warning("Could not calculate total anomalies: %s", e)
+
+    # Placebo / base-rate: what fraction of non-anomaly days also have a qualifying FX
+    # shock (|USDINR change| ≥ 0.75%) within ±1 day?  Provides context for evaluating
+    # how often FX shocks coincide with any given day by chance.
+    if validation_block and not df_usdinr.empty and df_anomaly_res is not None and not df_anomaly_res.empty:
+        try:
+            df_usdinr_pc = df_usdinr.copy()
+            df_usdinr_pc["pct_change"] = df_usdinr_pc["close"].pct_change()
+            fx_shock_dates = set(
+                pd.to_datetime(df_usdinr_pc[df_usdinr_pc["pct_change"].abs() >= 0.0075]["trade_date"]).dt.date.tolist()
+            )
+            anomaly_dates_set = set(
+                pd.to_datetime(df_anomaly_res[df_anomaly_res["is_anomaly"] == True]["trade_date"]).dt.date.tolist()
+            )
+            all_trade_dates = pd.to_datetime(df_stock["trade_date"]).dt.date.tolist()
+            non_anomaly_dates = [d for d in all_trade_dates if d not in anomaly_dates_set]
+            placebo_hits = sum(
+                1 for d in non_anomaly_dates
+                if any(abs((d - fd).days) <= 1 for fd in fx_shock_dates)
+            )
+            placebo_rate = placebo_hits / len(non_anomaly_dates) if non_anomaly_dates else 0.0
+            validation_block += (
+                f"• **FX Placebo Rate:** `{placebo_rate:.0%}` of non-anomaly days also had a qualifying "
+                f"FX shock nearby (base rate — interpret FX attribution against this benchmark).\n"
+            )
+        except Exception as e:
+            log.warning("Could not compute FX placebo rate: %s", e)
 
     matched_dates = {f.anomaly_date for f in findings}
     unknown_anomalies = max(0, total_anomalies - len(matched_dates))
@@ -272,8 +311,9 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
 
     findings_returns = []
     for f in findings:
-        r_val, _ = date_to_stats.get(f.anomaly_date, (0.0, 0.0))
-        findings_returns.append((f.anomaly_date, r_val))
+        # Use abnormal return (market-adjusted) for shock magnitude summary
+        abn = f.abnormal_return if f.abnormal_return is not None else date_to_stats.get(f.anomaly_date, (0.0, 0.0))[0]
+        findings_returns.append((f.anomaly_date, abn))
 
     if findings_returns:
         pos_shocks = [x for x in findings_returns if x[1] > 0]
@@ -294,19 +334,22 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         highest_confidence_str = f"**{highest_conf_finding.anomaly_date}** ({highest_conf_finding.event.label})"
 
     most_influential_factor = sorted_drivers[0][0] if sorted_drivers else "N/A"
+    # When FX tops the driver ranking but R² is low, flag it as tentative
+    if most_influential_factor == "USDINR volatility" and r_squared < 0.10:
+        most_influential_factor = "USDINR volatility (low R² — tentative)"
 
     attribution_summary_block = (
         "\n### 📊 Attribution Summary\n\n"
-        f"• **Company News:** `{driver_stats["Company News & Filings"]["count"]}` events (`{company_pct:.0f}%`)\n"
-        f"• **FX Shocks:** `{driver_stats["USDINR Volatility"]["count"]}` events (`{fx_pct:.0f}%`)\n"
-        f"• **Macro Decisions:** `{driver_stats["Global Rate Decisions"]["count"]}` events (`{rate_pct:.0f}%`)\n"
-        f"• **Geopolitical:** `{driver_stats["Geopolitical Shocks"]["count"]}` events (`{geo_pct:.0f}%`)\n\n"
+        f"• **Company News:** `{driver_stats['Company News & Filings']['count']}` events (`{company_pct:.0f}%`)\n"
+        f"• **FX Shocks:** `{driver_stats['USDINR Volatility']['count']}` events (`{fx_pct:.0f}%`)\n"
+        f"• **Macro Decisions:** `{driver_stats['Global Rate Decisions']['count']}` events (`{rate_pct:.0f}%`)\n"
+        f"• **Geopolitical:** `{driver_stats['Geopolitical Shocks']['count']}` events (`{geo_pct:.0f}%`)\n\n"
         f"• **Most Influential Factor:** **{most_influential_factor}**\n"
         f"• **FX Correlation:** `r = {correlation:.2f}`\n"
         f"• **FX Beta:** `β = {beta_fx:.2f}` (t-stat: `{t_stat:.2f}`)\n"
         f"• **Highest Confidence Attribution:** {highest_confidence_str}\n"
-        f"• **Largest Price Shock:** `{largest_pos_shock_date}` (`{largest_pos_shock_val:+.2f}%`)\n"
-        f"• **Largest Negative Shock:** `{largest_neg_shock_date}` (`{largest_neg_shock_val:+.2f}%`)\n"
+        f"• **Largest Abnormal Up-Move:** `{largest_pos_shock_date}` (`{largest_pos_shock_val:+.2f}%`)\n"
+        f"• **Largest Abnormal Down-Move:** `{largest_neg_shock_date}` (`{largest_neg_shock_val:+.2f}%`)\n"
     )
 
     # If there are no findings, return early with FX validation block
@@ -350,9 +393,13 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     else:
         drivers_str = "No drivers identified."
 
+    h_count = sum(1 for f in findings if f.confidence == "HIGH")
+    m_count = sum(1 for f in findings if f.confidence == "MODERATE")
+    l_count = sum(1 for f in findings if f.confidence == "LOW")
+
     lines = [
         f"📊 **Event Correlation Report: {sym}** (Lookback: {lookback_days} days)",
-        f"Found **{len(findings)}** significant anomaly-event correlation(s).",
+        f"Found **{len(findings)}** anomaly-event correlation(s) — HIGH: {h_count} | MODERATE: {m_count} | LOW: {l_count}.",
         "",
         "### 🎯 Root Cause Attribution & Strength",
         attribution_table_str,

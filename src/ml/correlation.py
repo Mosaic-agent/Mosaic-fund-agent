@@ -197,17 +197,34 @@ class PreEventLeakStrategy(CorrelationStrategy):
                 anomaly_date = pd.to_datetime(df_ohlcv.iloc[best_anom_idx]["trade_date"]).date()
                 lead_days = int((anomaly_date - pd.to_datetime(ev_date).date()).days)
 
+                # Bonus/split/face-value-split are publicly announced weeks before ex-date;
+                # pre-event positioning is routine arbitrage, not information leakage.
+                action_type = str(ev.metadata.get("action_type", "")).lower() if ev.metadata else ""
+                is_public_value_neutral = action_type in {"bonus", "split", "face_value_split"}
+                if is_public_value_neutral:
+                    score *= 0.5
+
                 confidence = "LOW"
                 if score >= 70.0:
                     confidence = "HIGH"
                 elif score >= 40.0:
                     confidence = "MODERATE"
 
-                explanation = (
-                    f"Anomaly on {anomaly_date} occurred {abs(lead_days)} days before the corporate action '{ev.label}'. "
-                    f"Detected abnormal volume ratio of {avr:.2f}x, cumulative abnormal return of {car*100:+.2f}%, "
-                    f"and {anomaly_count} flagged anomaly day(s) in the pre-event window."
-                )
+                if is_public_value_neutral:
+                    explanation = (
+                        f"Pre-corporate-action positioning on {anomaly_date} ahead of '{ev.label}' "
+                        f"({abs(lead_days)} days before ex-date). "
+                        f"Detected abnormal volume ratio of {avr:.2f}x, cumulative abnormal return of {car*100:+.2f}%, "
+                        f"and {anomaly_count} flagged anomaly day(s) in the pre-event window. "
+                        f"Note: bonus/split actions are typically publicly announced weeks before the ex-date; "
+                        f"early positioning is routine corporate-action arbitrage — not information leakage."
+                    )
+                else:
+                    explanation = (
+                        f"Anomaly on {anomaly_date} occurred {abs(lead_days)} days before the corporate action '{ev.label}'. "
+                        f"Detected abnormal volume ratio of {avr:.2f}x, cumulative abnormal return of {car*100:+.2f}%, "
+                        f"and {anomaly_count} flagged anomaly day(s) in the pre-event window."
+                    )
 
                 findings.append(
                     CorrelationFinding(
@@ -333,11 +350,21 @@ class PostMacroShockStrategy(CorrelationStrategy):
             # We trigger a correlation if the asset moved significantly or had an anomaly
             if move_val >= self.min_return_pct or is_anomaly_day:
                 lag_days = int((shock_date - ev_date).days)
-                
+
                 # Apply lag weight decay
                 lag_weight = np.exp(-abs(lag_days) / 2.0)
                 score = score * lag_weight
-                
+
+                # For FX shock events, apply direction-consistency check before the
+                # threshold filter: same-direction co-movement contradicts a negative-beta
+                # relationship and likely reflects a spurious date-proximity match.
+                direction_mismatch = False
+                if ev.event_type == EventType.MACRO_COMMODITY_SHOCK and ev.metadata:
+                    fx_pct = float(ev.metadata.get("fx_pct_change", 0.0))
+                    if fx_pct != 0.0 and shock_return != 0.0 and (fx_pct * shock_return) > 0:
+                        score *= 0.3
+                        direction_mismatch = True
+
                 # If score falls below a minimum threshold after decay, skip it
                 if score < 15.0:
                     continue
@@ -353,6 +380,20 @@ class PostMacroShockStrategy(CorrelationStrategy):
                     f"Asset exhibited maximum absolute return deviation of {shock_return*100:+.2f}% "
                     f"with post-event anomaly flag: {is_anomaly_day}."
                 )
+                if direction_mismatch:
+                    explanation += (
+                        " ⚠️ Direction mismatch: stock and FX moved in the same direction on this date, "
+                        "contradicting a negative-beta relationship — this match is likely spurious."
+                    )
+                if (
+                    abs(abnormal_return) >= 0.02
+                    and ev.event_type in (EventType.MACRO_RATE_DECISION, EventType.MACRO_GEOPOLITICAL)
+                ):
+                    explanation += (
+                        " ⚠️ Note: this is a market-adjusted residual return. A large abnormal return "
+                        "alongside a broad macro event suggests idiosyncratic amplification or model "
+                        "mis-specification — verify company-specific catalysts before attributing to the macro trigger."
+                    )
 
                 findings.append(
                     CorrelationFinding(
@@ -416,6 +457,11 @@ class CrossAssetCoMovementStrategy(CorrelationStrategy):
                         f"on {ev_date} (lead/lag offset: {days_diff} days)."
                     )
 
+                    # Direction-consistency check: for a negative-beta stock, FX and stock
+                    # should move in opposite directions. Same-direction co-movement contradicts
+                    # the beta relationship and likely reflects a spurious date-proximity match.
+                    fx_pct = float(ev.metadata.get("fx_pct_change", 0.0)) if ev.metadata else 0.0
+
                     prev_idx = max(0, idx - 1)
                     prev_close = float(df_ohlcv.iloc[prev_idx]["close"])
                     curr_close = float(df_ohlcv.iloc[idx]["close"])
@@ -435,6 +481,17 @@ class CrossAssetCoMovementStrategy(CorrelationStrategy):
                                 bench_return = (b_close_curr / b_close_prev) - 1.0 if b_close_prev > 0 else 0.0
 
                     abnormal_return = daily_ret - bench_return
+
+                    # Penalise same-direction co-movement. For a negative-beta stock
+                    # (FX up → stock down), both moving up or both moving down on the
+                    # same date is directionally inconsistent and likely a spurious match.
+                    if fx_pct != 0.0 and daily_ret != 0.0 and (fx_pct * daily_ret) > 0:
+                        score *= 0.3
+                        explanation += (
+                            " ⚠️ Direction mismatch: stock and FX moved in the same direction on "
+                            "this date, contradicting a negative-beta relationship — this match is "
+                            "likely spurious."
+                        )
 
                     findings.append(
                         CorrelationFinding(
@@ -690,6 +747,7 @@ class CorrelationService:
                             event_type=EventType.MACRO_COMMODITY_SHOCK,
                             label=f"USDINR {direction} ({pct*100:+.2f}%)",
                             description=f"Significant daily currency volatility shock in INR exchange rates.",
+                            metadata={"fx_pct_change": float(pct)},
                         )
                     )
         except Exception as e:

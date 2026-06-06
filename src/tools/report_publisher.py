@@ -36,6 +36,51 @@ log = logging.getLogger(__name__)
 _OUTPUT_DIR = Path("output") / "reports"
 
 
+def _inject_charts_inline(markdown: str, chart_map: dict[str, str]) -> str:
+    """
+    Replace [CHART:key] placeholder tokens in the markdown with inline HTML <img> blocks.
+    Keys not found in chart_map are left untouched (cleaned later by _strip_orphan_placeholders).
+    Markdown processors pass raw HTML blocks through unchanged, so charts appear
+    contextually adjacent to the text that references them.
+    """
+    for key, b64 in chart_map.items():
+        tag = f"[CHART:{key}]"
+        if tag in markdown:
+            img_html = (
+                f'\n<div class="chart-inline">'
+                f'<img src="data:image/png;base64,{b64}" alt="{key} chart"/>'
+                f'</div>\n'
+            )
+            markdown = markdown.replace(tag, img_html)
+    return markdown
+
+
+def _strip_orphan_placeholders(markdown: str) -> str:
+    """Remove any [CHART:*] tags that weren't replaced (no matching chart available)."""
+    import re
+    return re.sub(r"\[CHART:[^\]]+\]", "", markdown)
+
+
+def _load_correlation_charts(sym: str) -> list[dict]:
+    """
+    Load pre-saved correlation charts from disk (written by find_anomaly_correlations).
+    Only included when the agent has already run the correlation tool this session.
+    """
+    results = []
+    for fname, label in [
+        (f"{sym}_correlation_timeline.png", f"{sym} — Event Correlation Timeline (Mapped Anomalies & Triggers)"),
+        (f"{sym}_lead_lag_grid.png",        f"{sym} — Anomaly Lead-Lag Grid (Feature Space)"),
+    ]:
+        p = _OUTPUT_DIR / fname
+        if p.exists():
+            try:
+                data = base64.b64encode(p.read_bytes()).decode()
+                results.append({"label": label, "data": data})
+            except Exception as e:
+                log.warning("Could not load correlation chart %s: %s", p, e)
+    return results
+
+
 # ── Chart image generators (matplotlib) ──────────────────────────────────────
 
 def _df_to_png(fig) -> str:
@@ -604,7 +649,7 @@ _HTML_TEMPLATE = """\
   /* ── Horizontal rule ── */
   hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 
-  /* ── Chart section ── */
+  /* ── Chart section (supplementary top block) ── */
   .charts-section {
     margin: 20px 0 28px;
   }
@@ -621,6 +666,17 @@ _HTML_TEMPLATE = """\
     margin-bottom: 6px;
   }
   .chart-block img {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  /* ── Inline chart (positioned within report body) ── */
+  .chart-inline {
+    margin: 16px 0 20px;
+    break-inside: avoid;
+  }
+  .chart-inline img {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -724,11 +780,7 @@ def generate_pdf_bytes(
     from jinja2 import Template
     from weasyprint import HTML as WP_HTML
 
-    # ── 1. Markdown → HTML body ──────────────────────────────────────────────
-    extensions = ["tables", "fenced_code", "nl2br", "sane_lists"]
-    report_html = md.markdown(report_markdown, extensions=extensions)
-
-    # ── 2. Render charts in parallel ─────────────────────────────────────────
+    # ── 1. Render charts in parallel ─────────────────────────────────────────
     from concurrent.futures import ThreadPoolExecutor
     from src.db.pool import query_df
 
@@ -754,7 +806,6 @@ def generate_pdf_bytes(
         log.warning("Pre-fetching daily prices failed for %s: %s", symbol, e)
         df = None
 
-    charts = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_price = pool.submit(render_price_chart_png, symbol, days_price, df=df)
         f_macd  = pool.submit(render_macd_chart_png,  symbol, days_macd, df=df)
@@ -766,14 +817,32 @@ def generate_pdf_bytes(
         garch_png = f_garch.result(timeout=60)
         clust_png = f_clust.result(timeout=60)
 
+    # Inline charts: replace [CHART:*] placeholders in markdown body
+    chart_map: dict[str, str] = {}
     if price_png:
-        charts.append({"label": f"{symbol} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action", "data": price_png})
+        chart_map["price"] = price_png
+    for c in _load_correlation_charts(symbol.upper()):
+        key = "correlation_timeline" if "Timeline" in c["label"] else "lead_lag_grid"
+        chart_map[key] = c["data"]
+
+    processed_markdown = _inject_charts_inline(report_markdown, chart_map)
+    processed_markdown = _strip_orphan_placeholders(processed_markdown)
+
+    # Supplementary charts (no narrative anchor): top block
+    charts: list[dict] = []
     if macd_png:
         charts.append({"label": f"{symbol} — MACD(12,26,9)", "data": macd_png})
     if garch_png:
         charts.append({"label": f"{symbol} — GARCH Annualised Volatility", "data": garch_png})
     if clust_png:
         charts.append({"label": f"{symbol} — Anomaly Regime Clusters (Feature Space)", "data": clust_png})
+    # Price chart also goes to top-block as a fallback for reports that had no [CHART:price]
+    if price_png and "[CHART:price]" not in report_markdown:
+        charts.insert(0, {"label": f"{symbol} — 1-Year Price  |  Anomaly  |  Corp Action", "data": price_png})
+
+    # ── 2. Markdown → HTML body ──────────────────────────────────────────────
+    extensions = ["tables", "fenced_code", "nl2br", "sane_lists"]
+    report_html = md.markdown(processed_markdown, extensions=extensions)
 
     # ── 3. Render HTML template ───────────────────────────────────────────────
     display = company_name or symbol.upper()
@@ -853,23 +922,206 @@ def generate_consolidated_pdf_bytes(
 ) -> bytes:
     """
     Convert a Markdown report to a consolidated PDF.
-
-    Chart strategy (to keep file size reasonable):
-      1 symbol  → price (365d) + MACD (180d) + GARCH vol (180d)   — full 3-chart set
-      2–4 syms  → price chart only per symbol (parallel render)   — comparative view
-      5+ syms   → no auto-charts (report body is the full content)
-
+    Delegates to _generate_html_str (shared with HTML format), then renders via weasyprint.
     Returns raw PDF bytes.
     """
+    from weasyprint import HTML as WP_HTML
+    html = _generate_html_str(report_markdown, symbols=symbols, title=title, report_type=report_type)
+    return WP_HTML(string=html).write_pdf()
+
+
+@tool
+def publish_research_pdf(
+    symbol: str,
+    report_markdown: str,
+    filename: str = "",
+    format: str = "pdf",
+) -> str:
+    """
+    Publish a completed equity research note in the requested format.
+
+    Formats:
+      "pdf"  (default) — professionally styled PDF with inline charts, MACD, GARCH
+      "md"             — raw Markdown file with chart image references saved alongside
+      "html"           — self-contained HTML with base64-embedded inline charts
+
+    Saves to output/reports/<symbol>_<date>.<ext>.
+
+    Args:
+        symbol:          NSE trading symbol (e.g. MSUMI, RELIANCE)
+        report_markdown: Full Markdown research note produced by the agent
+        filename:        Optional output filename (without extension)
+        format:          Output format: "pdf" | "md" | "html"
+
+    Returns the absolute path of the saved file.
+    """
+    return publish_consolidated_pdf(
+        report_markdown=report_markdown,
+        symbols=symbol.strip().upper(),
+        filename=filename,
+        format=format,
+    )
+
+
+@tool
+def publish_consolidated_pdf(
+    report_markdown: str,
+    symbols: str = "",
+    title: str = "",
+    filename: str = "",
+    format: str = "pdf",
+) -> str:
+    """
+    Publish the COMPLETE final output of any agent run as a report file.
+
+    Use this as the universal last step — works for single-symbol deep dives,
+    multi-symbol comparative reports, anomaly reports, news reports, and portfolio
+    summaries.  It auto-detects which symbols are covered by the report when
+    `symbols` is not provided.
+
+    Formats:
+      "pdf"  (default) — professionally styled PDF; price + MACD + GARCH + correlation
+                         charts inline where [CHART:*] placeholders appear; supplementary
+                         charts (MACD, GARCH, clusters) in the top block.
+      "md"             — raw Markdown file saved to disk; chart PNGs saved as separate
+                         files; [CHART:*] tokens replaced with relative ![img](...) refs.
+      "html"           — self-contained HTML with all charts base64-embedded inline.
+
+    Chart strategy for PDF/HTML (auto-selected by symbol count):
+      1 symbol  → price (inline) + MACD/GARCH/clusters (top block) + correlation charts
+      2–4 syms  → one price chart per symbol in top block
+      5+ syms   → report body only
+
+    Args:
+        report_markdown : The COMPLETE Markdown text of the agent's final output.
+        symbols         : Comma-separated NSE symbols (e.g. "MSUMI,HDFCBANK"). Auto-detected if blank.
+        title           : Custom cover headline. Auto-generated if blank.
+        filename        : Output filename stem (no extension). Default: <SYMBOLS>_<YYYYMMDD>.
+        format          : "pdf" | "md" | "html"
+
+    Returns the absolute path of the saved file.
+    """
+    fmt = format.strip().lower()
+    if fmt not in ("pdf", "md", "html"):
+        fmt = "pdf"
+
+    # Parse or detect symbols
+    sym_list: list[str] = []
+    if symbols.strip():
+        sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not sym_list:
+        sym_list = _detect_symbols_in_markdown(report_markdown)
+
+    n = len(sym_list)
+    report_type = "Equity Research" if n == 1 else "Consolidated Research" if n >= 2 else "Research Report"
+
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    date_tag = datetime.now().strftime("%Y%m%d")
+    sym_tag  = "_".join(sym_list[:3]) if sym_list else "report"
+    stem     = filename.strip() or f"{sym_tag}_{date_tag}"
+    # Strip any existing extension from stem
+    for ext in (".pdf", ".md", ".html"):
+        if stem.endswith(ext):
+            stem = stem[:-len(ext)]
+
+    sym_desc = ", ".join(sym_list) if sym_list else "auto-detected"
+
+    # ── Markdown format ────────────────────────────────────────────────────────
+    if fmt == "md":
+        md_text = report_markdown
+        # Save chart PNGs from disk and replace [CHART:*] with relative image refs
+        if n == 1:
+            sym = sym_list[0]
+            # Price chart
+            price_png_b64 = None
+            try:
+                price_png_b64 = render_price_chart_png(sym, 365)
+            except Exception:
+                pass
+            if price_png_b64:
+                img_name = f"{sym}_price.png"
+                (_OUTPUT_DIR / img_name).write_bytes(base64.b64decode(price_png_b64))
+                md_text = md_text.replace("[CHART:price]", f"![{sym} Price](./{img_name})")
+            # Correlation charts (already on disk)
+            for c in _load_correlation_charts(sym):
+                key = "correlation_timeline" if "Timeline" in c["label"] else "lead_lag_grid"
+                img_name = f"{sym}_{key}.png"
+                md_text = md_text.replace(f"[CHART:{key}]", f"![{key}](./{img_name})")
+        md_text = _strip_orphan_placeholders(md_text)
+        out_path = _OUTPUT_DIR / f"{stem}.md"
+        out_path.write_text(md_text, encoding="utf-8")
+        size_kb = len(md_text.encode()) // 1024
+        return (
+            f"✅ Markdown report saved: **{out_path.resolve()}**\n"
+            f"Symbols: {sym_desc}  |  Format: Markdown  |  "
+            f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
+        )
+
+    # ── PDF + HTML: shared rendering pipeline ─────────────────────────────────
+    try:
+        raw_html_bytes = _generate_html_bytes(
+            report_markdown, symbols=sym_list, title=title, report_type=report_type
+        )
+    except Exception as exc:
+        return f"Report generation failed: {exc}"
+
+    if fmt == "html":
+        out_path = _OUTPUT_DIR / f"{stem}.html"
+        out_path.write_bytes(raw_html_bytes)
+        size_kb = len(raw_html_bytes) // 1024
+        return (
+            f"✅ HTML report saved: **{out_path.resolve()}**\n"
+            f"Symbols: {sym_desc}  |  Format: Self-contained HTML  |  "
+            f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
+        )
+
+    # fmt == "pdf"
+    try:
+        from weasyprint import HTML as WP_HTML
+        pdf_bytes = WP_HTML(string=raw_html_bytes.decode("utf-8")).write_pdf()
+    except Exception as exc:
+        return f"PDF rendering failed: {exc}"
+
+    out_path = _OUTPUT_DIR / f"{stem}.pdf"
+    out_path.write_bytes(pdf_bytes)
+    size_kb = len(pdf_bytes) // 1024
+    chart_desc = (
+        "price (inline) + MACD/GARCH/clusters + correlation" if n == 1
+        else f"price × {n} symbols" if n <= 4
+        else "report only (5+ symbols)"
+    )
+    return (
+        f"✅ PDF report saved: **{out_path.resolve()}**\n"
+        f"Symbols: {sym_desc}  |  Charts: {chart_desc}  |  "
+        f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
+    )
+
+
+def _generate_html_bytes(
+    report_markdown: str,
+    symbols: list[str],
+    title: str = "",
+    report_type: str = "Research Report",
+) -> bytes:
+    """Shared HTML generation used by both PDF and HTML output paths."""
+    html_str = _generate_html_str(report_markdown, symbols, title, report_type)
+    return html_str.encode("utf-8")
+
+
+def _generate_html_str(
+    report_markdown: str,
+    symbols: list[str],
+    title: str = "",
+    report_type: str = "Research Report",
+) -> str:
+    """Build the full styled HTML string for a report (shared by PDF + HTML formats)."""
     import markdown as md
     from jinja2 import Template
-    from weasyprint import HTML as WP_HTML
     from concurrent.futures import ThreadPoolExecutor
 
     extensions = ["tables", "fenced_code", "nl2br", "sane_lists"]
-    report_html = md.markdown(report_markdown, extensions=extensions)
-
     charts: list[dict] = []
+    chart_map: dict[str, str] = {}
     n = len(symbols)
 
     if n == 1:
@@ -895,195 +1147,65 @@ def generate_consolidated_pdf_bytes(
                 df = None
         except Exception as e:
             log.warning("Pre-fetching daily prices failed for %s: %s", sym, e)
-            df = None
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             f_p = pool.submit(render_price_chart_png, sym, 365, df=df)
             f_m = pool.submit(render_macd_chart_png,  sym, 180, df=df)
             f_g = pool.submit(render_garch_vol_png,   sym, 180, df=df)
             f_c = pool.submit(render_anomaly_clusters_png, sym, 365, df=df)
-            for label, fut in [
-                (f"{sym} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action", f_p),
-                (f"{sym} — MACD(12,26,9)", f_m),
-                (f"{sym} — GARCH Annualised Volatility", f_g),
-                (f"{sym} — Anomaly Regime Clusters (Feature Space)", f_c),
-            ]:
-                png = fut.result(timeout=60)
-                if png:
-                    charts.append({"label": label, "data": png})
+            price_png = f_p.result(timeout=60)
+            macd_png  = f_m.result(timeout=60)
+            garch_png = f_g.result(timeout=60)
+            clust_png = f_c.result(timeout=60)
+
+        if price_png:
+            chart_map["price"] = price_png
+        for c in _load_correlation_charts(sym.upper()):
+            key = "correlation_timeline" if "Timeline" in c["label"] else "lead_lag_grid"
+            chart_map[key] = c["data"]
+
+        if macd_png:
+            charts.append({"label": f"{sym} — MACD(12,26,9)", "data": macd_png})
+        if garch_png:
+            charts.append({"label": f"{sym} — GARCH Annualised Volatility", "data": garch_png})
+        if clust_png:
+            charts.append({"label": f"{sym} — Anomaly Regime Clusters (Feature Space)", "data": clust_png})
+        if price_png and "[CHART:price]" not in report_markdown:
+            charts.insert(0, {"label": f"{sym} — 1-Year Price  |  Anomaly  |  Corp Action", "data": price_png})
 
     elif 2 <= n <= 4:
-        # One price chart per symbol, rendered in parallel
         with ThreadPoolExecutor(max_workers=n) as pool:
-            futures = {
-                pool.submit(render_price_chart_png, sym, 365): sym
-                for sym in symbols
-            }
+            futures = {pool.submit(render_price_chart_png, sym, 365): sym for sym in symbols}
             for fut, sym in futures.items():
                 png = fut.result(timeout=60)
                 if png:
-                    charts.append({
-                        "label": f"{sym} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action",
-                        "data": png,
-                    })
+                    charts.append({"label": f"{sym} — 1-Year Price  |  Anomaly  |  Corp Action", "data": png})
 
-    # Build cover metadata
+    processed_markdown = _inject_charts_inline(report_markdown, chart_map)
+    processed_markdown = _strip_orphan_placeholders(processed_markdown)
+    report_html = md.markdown(processed_markdown, extensions=extensions)
+
     if not title:
-        if n == 1:
-            title = f"{symbols[0]} — Equity Research Note"
-        elif n <= 4:
-            title = "Consolidated Research — " + " · ".join(symbols)
-        else:
-            title = "Portfolio Research Report"
-
-    headline = title
-    if n == 1:
-        subtitle = f"{symbols[0]} · NSE · Equity Research Note"
-    elif n <= 4:
-        subtitle = " · ".join(symbols) + " · NSE"
-    else:
-        subtitle = f"{n} symbols · Portfolio Report"
-
+        title = (
+            f"{symbols[0]} — Equity Research Note" if n == 1
+            else "Consolidated Research — " + " · ".join(symbols) if n <= 4
+            else "Portfolio Research Report"
+        )
+    subtitle = (
+        f"{symbols[0]} · NSE · Equity Research Note" if n == 1
+        else " · ".join(symbols) + " · NSE" if n <= 4
+        else f"{n} symbols · Portfolio Report"
+    )
     footer_sym = symbols[0] if symbols else "Mosaic"
+
     tmpl = Template(_HTML_TEMPLATE)
-    html = tmpl.render(
+    return tmpl.render(
         title=title,
         report_type=report_type,
-        headline=headline,
+        headline=title,
         subtitle=subtitle,
         footer_symbol=footer_sym,
         date_str=datetime.now().strftime("%d %B %Y"),
         report_html=report_html,
         charts=charts,
-    )
-    return WP_HTML(string=html).write_pdf()
-
-
-@tool
-def publish_research_pdf(
-    symbol: str,
-    report_markdown: str,
-    filename: str = "",
-) -> str:
-    """
-    Publish a completed equity research note as a professionally styled PDF.
-
-    Assembles: cover page → matplotlib price chart (🔴 anomalies, 🟡 corp actions)
-    → MACD(12,26,9) chart → GARCH volatility chart → full research note body
-    → legal disclaimer. Saves to output/reports/<symbol>_<date>.pdf.
-
-    Call this as the FINAL step of every deep-dive research workflow, after all
-    analysis sections have been written. Pass the complete Markdown report text.
-
-    Args:
-        symbol:          NSE trading symbol (e.g. MSUMI, RELIANCE)
-        report_markdown: Full Markdown research note produced by the agent
-        filename:        Optional output filename (default: <SYMBOL>_YYYYMMDD.pdf)
-
-    Returns the absolute path of the saved PDF.
-    """
-    symbol_upper = symbol.strip().upper()
-    # Delegate to the consolidated engine (single-symbol path)
-    try:
-        pdf_bytes = generate_consolidated_pdf_bytes(
-            report_markdown,
-            symbols=[symbol_upper],
-            report_type="Equity Research",
-        )
-    except Exception as exc:
-        return f"PDF generation failed for {symbol_upper}: {exc}"
-
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if not filename:
-        filename = f"{symbol_upper}_{datetime.now().strftime('%Y%m%d')}.pdf"
-    if not filename.endswith(".pdf"):
-        filename += ".pdf"
-    out_path = _OUTPUT_DIR / filename
-    out_path.write_bytes(pdf_bytes)
-
-    size_kb = len(pdf_bytes) // 1024
-    return (
-        f"✅ Research report saved: **{out_path.resolve()}**\n"
-        f"Size: {size_kb} KB  |  Charts: price, MACD, GARCH vol, anomaly clusters  |  "
-        f"Symbol: {symbol_upper}  |  Date: {datetime.now().strftime('%d %b %Y')}"
-    )
-
-
-@tool
-def publish_consolidated_pdf(
-    report_markdown: str,
-    symbols: str = "",
-    title: str = "",
-    filename: str = "",
-) -> str:
-    """
-    Publish the COMPLETE final output of any agent run as a single consolidated PDF.
-
-    Use this as the universal last step — works for single-symbol deep dives,
-    multi-symbol comparative reports, anomaly reports, news reports, and portfolio
-    summaries.  It auto-detects which symbols are covered by the report when
-    `symbols` is not provided.
-
-    Chart strategy (auto-selected by symbol count):
-      1 symbol  → price chart + MACD(12,26,9) + GARCH vol      (full research set)
-      2–4 syms  → one price chart per symbol, rendered in parallel  (comparative)
-      5+ syms   → report body only — no per-symbol charts
-
-    Args:
-        report_markdown : The COMPLETE Markdown text of the agent's final output.
-                          Pass everything — all sections, tables, analysis.
-        symbols         : Comma-separated NSE symbols covered (e.g. "MSUMI,HDFCBANK").
-                          Leave blank to auto-detect from the report text.
-        title           : Custom PDF title / cover headline. Auto-generated if blank.
-        filename        : Output filename. Default: <SYMBOLS>_<YYYYMMDD>.pdf
-
-    Returns the absolute path of the saved PDF.
-    """
-    # Parse or detect symbols
-    sym_list: list[str] = []
-    if symbols.strip():
-        sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
-    if not sym_list:
-        sym_list = _detect_symbols_in_markdown(report_markdown)
-
-    # Choose report_type label for cover
-    n = len(sym_list)
-    if n == 1:
-        report_type = "Equity Research"
-    elif n >= 2:
-        report_type = "Consolidated Research"
-    else:
-        report_type = "Research Report"
-
-    try:
-        pdf_bytes = generate_consolidated_pdf_bytes(
-            report_markdown,
-            symbols=sym_list,
-            title=title,
-            report_type=report_type,
-        )
-    except Exception as exc:
-        return f"Consolidated PDF generation failed: {exc}"
-
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if not filename:
-        date_tag = datetime.now().strftime("%Y%m%d")
-        sym_tag  = "_".join(sym_list[:3]) if sym_list else "report"
-        filename = f"{sym_tag}_{date_tag}.pdf"
-    if not filename.endswith(".pdf"):
-        filename += ".pdf"
-    out_path = _OUTPUT_DIR / filename
-    out_path.write_bytes(pdf_bytes)
-
-    size_kb   = len(pdf_bytes) // 1024
-    chart_desc = (
-        "price + MACD + GARCH + clusters" if n == 1
-        else f"price × {n} symbols" if n <= 4
-        else "report only (5+ symbols)"
-    )
-    sym_desc = ", ".join(sym_list) if sym_list else "auto-detected"
-    return (
-        f"✅ Consolidated report saved: **{out_path.resolve()}**\n"
-        f"Symbols: {sym_desc}  |  Charts: {chart_desc}  |  "
-        f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
     )

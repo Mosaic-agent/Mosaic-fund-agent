@@ -948,8 +948,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
     direct NSE symbol — ``resolve_company`` is always called first.
     """
 
-    # resolve(1) + optional check/import(2) + 7 parallel tools(1) + plot(1) + synthesis(1) = ~8-14 steps
-    RECURSION_LIMIT = 40
+    # resolve(1) + optional check/import(2) + 8 parallel tools(1) + synthesis(1) = ~8-15 steps
+    RECURSION_LIMIT = 50
 
     SYSTEM_PROMPT = (
         "You are a senior Indian equity analyst covering NSE/BSE listed stocks. "
@@ -970,6 +970,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
         "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n"
         "  • `search_anomaly_events(symbol, 365)` — ALWAYS call this to scan for 1-year price anomalies and fetch news context explaining the underlying reasons for those shocks\n"
+        "  • `find_anomaly_correlations(symbol, 365)` — ALWAYS call this to map anomaly dates to FX shocks, macro events, and corporate filings; saves correlation timeline and lead-lag grid charts to disk for inclusion in the PDF\n"
         "  • `plot_macd_chart(symbol, days)` — MACD(12,26,9) chart with signal line + histogram (use when user asks for MACD)\n\n"
         "TECHNICAL INDICATOR RECOGNITION:\n"
         "When the query contains MACD, RSI, Bollinger, EMA, SMA, or similar indicator names, "
@@ -990,6 +991,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "Then write the structured Markdown research note:\n"
         "(1) Company Snapshot — table of key metrics, then write `[CHART:price]` on its own line where the price chart should appear  "
         "(1b) Price Anomalies & Shock Events — summarise the dates, price shocks, and underlying news/macro causes retrieved from search_anomaly_events (explain the anomalies/red dots on the chart)  "
+        "(1c) Event Correlation Analysis — include the full output of find_anomaly_correlations verbatim (attribution table, mapped anomalies timeline, FX validation block, and attribution summary). "
+        "Write `[CHART:correlation_timeline]` then `[CHART:lead_lag_grid]` on their own lines immediately after the attribution table so the charts appear inline.  "
         "(2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
         "(5) Institutional Ownership — write `[CHART:shareholding]` on its own line where the shareholding bar should appear, then the "
@@ -1002,15 +1005,21 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "CHART RULES (CRITICAL — violating these causes duplicate charts):\n"
         "- NEVER reproduce, copy, or re-type any chart/graph output from plot_* tools.\n"
         "- NEVER include box-drawing characters (┤ ┼ ─ └ ┐ ┘ ┌ ├ ████ ▓▓ ░░) in your text.\n"
-        "- Instead, write ONLY the placeholder tags `[CHART:price]` and `[CHART:shareholding]` — "
-        "the system will automatically inject the real charts at those positions.\n"
-        "- Charts from tools are rendered separately — your job is ONLY the narrative text.\n\n"
+        "- Write placeholder tags on their own lines where charts should appear inline:\n"
+        "  `[CHART:price]` — in section (1) after the Company Snapshot table\n"
+        "  `[CHART:shareholding]` — in section (5) after the Institutional Ownership header\n"
+        "  `[CHART:correlation_timeline]` — in section (1c) after the attribution table\n"
+        "  `[CHART:lead_lag_grid]` — in section (1c) immediately after correlation_timeline\n"
+        "- The publisher replaces these with actual inline chart images.\n"
+        "- Charts from plot_* tools are rendered separately — your job is ONLY the narrative text.\n\n"
         "RULES: All monetary values in ₹. Never invent figures.\n\n"
         "DATA AVAILABILITY: If a ClickHouse query returns 0 rows, or plot_price_chart "
         "returns 'No price data found', call `check_and_refresh_symbol_data(symbol)` "
         "to auto-import the data, then retry the query or chart tool.\n\n"
-        "PDF EXPORT: Only call `publish_consolidated_pdf(report_markdown=<full_note>)` "
-        "when the user explicitly asks to save, export, or publish as PDF."
+        "EXPORT: Only export when the user explicitly asks. Formats available:\n"
+        "  PDF (default):  `publish_consolidated_pdf(report_markdown=<full_note>, format='pdf')`\n"
+        "  Markdown file:  `publish_consolidated_pdf(report_markdown=<full_note>, format='md')`\n"
+        "  Self-contained HTML: `publish_consolidated_pdf(report_markdown=<full_note>, format='html')`"
     )
 
     def _get_tools(self) -> list:
@@ -1023,6 +1032,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
         from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
         from src.tools.market.equity import search_anomaly_events
+        from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.agent_tools import check_and_refresh_symbol_data
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return (
@@ -1033,7 +1043,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
                import_symbol_data, check_and_refresh_symbol_data,
                plot_price_chart, plot_shareholding_bar, plot_macd_chart,
                get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary,
-               search_anomaly_events, publish_research_pdf, publish_consolidated_pdf]
+               search_anomaly_events, find_anomaly_correlations,
+               publish_research_pdf, publish_consolidated_pdf]
         )
 
     def _fallback(self, question: str) -> str:

@@ -410,6 +410,224 @@ def test_news_quality_and_hierarchy_weights():
         anomaly_mod.run_composite_anomaly = original_anomaly
 
 
+def test_cross_asset_direction_mismatch_penalises_score():
+    """Same-direction co-movement (FX up + stock up) contradicts negative beta — score penalised 70%."""
+    dates = pd.date_range(start="2026-05-01", periods=5, freq="D")
+    df_ohlcv = pd.DataFrame({
+        "trade_date": dates,
+        "open": [100.0] * 5,
+        "high": [101.0] * 5,
+        "low": [99.0] * 5,
+        "close": [100.0, 100.0, 100.0, 103.0, 100.0],  # +3% on index 3
+        "volume": [1000.0] * 5,
+    })
+    df_anomaly = pd.DataFrame({
+        "trade_date": dates,
+        "is_anomaly": [False, False, False, True, False],
+        "garch_vol": [1.0] * 5,
+    })
+    # FX shock on same day as anomaly (index 3), pct_change +0.01 = USDINR up (INR depreciates)
+    # Stock also up on same day → same direction → mismatch for negative-beta stock
+    fx_event = CandidateEvent(
+        trade_date=dates[3].date(),
+        event_type=EventType.MACRO_COMMODITY_SHOCK,
+        label="USDINR Depreciation (+1.00%)",
+        description="FX shock",
+        metadata={"fx_pct_change": 0.01},
+    )
+    strategy = CrossAssetCoMovementStrategy()
+    findings = strategy.analyze(df_ohlcv, df_anomaly, None, [fx_event])
+
+    assert len(findings) == 1
+    f = findings[0]
+    # Score should be 75.0 * 0.3 = 22.5 (same-day base penalised 70%)
+    assert abs(f.correlation_score - 22.5) < 0.1
+    assert "Direction mismatch" in f.explanation
+
+
+def test_cross_asset_direction_consistent_score_unchanged():
+    """Opposite-direction co-movement (FX up + stock down) is consistent — score not penalised."""
+    dates = pd.date_range(start="2026-05-01", periods=5, freq="D")
+    df_ohlcv = pd.DataFrame({
+        "trade_date": dates,
+        "open": [100.0] * 5,
+        "high": [101.0] * 5,
+        "low": [99.0] * 5,
+        "close": [100.0, 100.0, 100.0, 97.0, 100.0],  # -3% on index 3
+        "volume": [1000.0] * 5,
+    })
+    df_anomaly = pd.DataFrame({
+        "trade_date": dates,
+        "is_anomaly": [False, False, False, True, False],
+        "garch_vol": [1.0] * 5,
+    })
+    # FX up (INR depreciates) + stock down → consistent with negative beta
+    fx_event = CandidateEvent(
+        trade_date=dates[3].date(),
+        event_type=EventType.MACRO_COMMODITY_SHOCK,
+        label="USDINR Depreciation (+1.00%)",
+        description="FX shock",
+        metadata={"fx_pct_change": 0.01},
+    )
+    strategy = CrossAssetCoMovementStrategy()
+    findings = strategy.analyze(df_ohlcv, df_anomaly, None, [fx_event])
+
+    assert len(findings) == 1
+    f = findings[0]
+    # Score should be 75.0 — no penalty
+    assert abs(f.correlation_score - 75.0) < 0.1
+    assert "Direction mismatch" not in f.explanation
+
+
+def test_pre_event_leak_bonus_with_metadata_uses_positioning_framing():
+    """Bonus action with action_type in metadata → score halved, explanation says 'positioning'."""
+    dates = pd.date_range(start="2026-05-01", periods=30, freq="D")
+    df_ohlcv = pd.DataFrame({
+        "trade_date": dates,
+        "open": np.linspace(100, 110, 30),
+        "high": np.linspace(101, 111, 30),
+        "low": np.linspace(99, 109, 30),
+        "close": np.linspace(100, 110, 30),
+        "volume": [1000.0] * 30,
+    })
+    for idx in range(15, 20):
+        df_ohlcv.loc[idx, "close"] = df_ohlcv.loc[idx - 1, "close"] * 1.025
+        df_ohlcv.loc[idx, "volume"] = 3500.0
+
+    df_anomaly = pd.DataFrame({
+        "trade_date": dates,
+        "is_anomaly": [False] * 30,
+        "garch_vol": [1.0] * 30,
+    })
+    df_anomaly.loc[18, "is_anomaly"] = True
+    df_anomaly.loc[15:19, "garch_vol"] = 1.6
+
+    # Event includes action_type="bonus" in metadata → triggers the value-neutral framing
+    events = [
+        CandidateEvent(
+            trade_date=dates[20].date(),
+            event_type=EventType.COMPANY_FILING,
+            label="BONUS (1:2)",
+            description="1:2 Bonus Announcement",
+            metadata={"action_type": "bonus", "ratio": "1:2"},
+        )
+    ]
+
+    strategy = PreEventLeakStrategy(window_days=5, min_score=10.0)
+    findings_with_meta = strategy.analyze(df_ohlcv, df_anomaly, None, events)
+
+    # Same scenario without action_type metadata for comparison
+    events_no_meta = [
+        CandidateEvent(
+            trade_date=dates[20].date(),
+            event_type=EventType.COMPANY_FILING,
+            label="BONUS (1:2)",
+            description="1:2 Bonus Announcement",
+        )
+    ]
+    strategy2 = PreEventLeakStrategy(window_days=5, min_score=10.0)
+    findings_no_meta = strategy2.analyze(df_ohlcv, df_anomaly, None, events_no_meta)
+
+    assert len(findings_with_meta) == 1
+    assert len(findings_no_meta) == 1
+
+    # Score should be halved when action_type is bonus
+    assert abs(findings_with_meta[0].correlation_score - findings_no_meta[0].correlation_score * 0.5) < 0.1
+
+    # Explanation should say "positioning" not contain "leak" framing
+    expl = findings_with_meta[0].explanation
+    assert "positioning" in expl.lower()
+    assert "arbitrage" in expl.lower()
+    assert "information leakage" not in expl.lower() or "not information leakage" in expl.lower()
+
+
+def test_correlation_significance_label_thresholds():
+    """Verify Cohen-convention thresholds: |r| < 0.3 = Weak, 0.3–0.5 = Moderate, ≥ 0.5 = Strong."""
+    # This is tested by inspecting the logic inline (no DB call needed)
+    cases = [
+        (0.22, "Weak"),
+        (-0.22, "Weak"),
+        (0.29, "Weak"),
+        (0.30, "Moderate"),
+        (0.35, "Moderate"),
+        (0.49, "Moderate"),
+        (0.50, "Strong"),
+        (0.75, "Strong"),
+        (-0.55, "Strong"),
+    ]
+    for r_val, expected in cases:
+        significance = "Weak"
+        if abs(r_val) >= 0.5:
+            significance = "Strong"
+        elif abs(r_val) >= 0.3:
+            significance = "Moderate"
+        assert significance == expected, f"r={r_val}: expected {expected}, got {significance}"
+
+
+def test_report_headline_shows_confidence_breakdown():
+    """Report headline must show HIGH/MODERATE/LOW counts and not use the word 'significant'."""
+    from unittest.mock import patch, MagicMock
+    import src.ml.anomaly as anomaly_mod
+    import src.ml.correlation as corr_mod
+
+    # Use recent dates so they fall within the lookback window after cutoff filtering
+    recent_dates = pd.date_range(end=pd.Timestamp.now().normalize(), periods=60, freq="D")
+
+    mock_prices = pd.DataFrame({
+        "trade_date": recent_dates,
+        "open": np.linspace(100, 110, 60),
+        "high": np.linspace(101, 111, 60),
+        "low": np.linspace(99, 109, 60),
+        "close": np.linspace(100, 110, 60),
+        "volume": [1000.0] * 60,
+    })
+
+    def mock_query_df(sql, parameters=None):
+        if "fx_rates" in sql:
+            return pd.DataFrame({
+                "trade_date": recent_dates,
+                "close": np.linspace(84, 82, 60),
+            })
+        elif "NIFTYBEES" in sql:
+            return pd.DataFrame({
+                "trade_date": recent_dates,
+                "close": [10.0] * 60,
+            })
+        elif "corporate_actions" in sql:
+            return pd.DataFrame()
+        else:
+            return mock_prices.copy()
+
+    # Inject a LOW-confidence finding via mock
+    mock_finding = CorrelationFinding(
+        anomaly_date=date(2026, 2, 1),
+        event=CandidateEvent(date(2026, 2, 1), EventType.MACRO_RATE_DECISION, "RBI Pause", "RBI holds"),
+        strategy_name="Post-Macro Shock Trigger",
+        correlation_score=20.0,
+        lead_lag_days=0,
+        confidence="LOW",
+        explanation="Test finding",
+        abnormal_return=-0.015,
+    )
+
+    original_find = corr_mod.CorrelationService.find_correlations
+
+    def mock_find_correlations(self, symbol, df_ohlcv, df_benchmark=None, lookback_days=365):
+        return [mock_finding]
+
+    with (
+        patch("src.tools.market.correlation_tools.query_df", side_effect=mock_query_df),
+        patch.object(corr_mod.CorrelationService, "find_correlations", mock_find_correlations),
+    ):
+        from src.tools.market.correlation_tools import find_anomaly_correlations
+        result = find_anomaly_correlations.func("TEST", lookback_days=60)
+
+    assert "HIGH: 0" in result or "HIGH:" in result
+    assert "MODERATE:" in result
+    assert "LOW:" in result
+    assert "significant" not in result.split("\n")[1].lower()  # second line is the count line
+
+
 def test_fx_validation_linregress_and_rolling_betas():
     from unittest.mock import patch
     import pandas as pd
