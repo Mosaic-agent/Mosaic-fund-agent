@@ -1368,5 +1368,19 @@ def telemetry_cmd(
     render_dashboard(live=live, prompt=prompt)
 
 
+@app.command(name="correlate")
+def correlate_cmd(
+    symbol: str = typer.Option("MSUMI", "--symbol", "-s", help="NSE stock ticker symbol to analyze."),
+    lookback: int = typer.Option(365, "--lookback", "-l", help="Lookback window in days for anomaly history."),
+) -> None:
+    """
+    Map stock anomalies to company filings and global macro trigger events.
+    """
+    _setup_logging()
+    from src.tools.market.correlation_tools import find_anomaly_correlations
+    result = find_anomaly_correlations.func(symbol=symbol, lookback_days=lookback)
+    typer.echo(result)
+
+
 if __name__ == "__main__":
     app()

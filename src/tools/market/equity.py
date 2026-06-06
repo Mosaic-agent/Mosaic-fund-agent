@@ -162,6 +162,8 @@ def search_anomaly_events(
     days: int = 90,
     category: str = "",
     max_news_per_date: int = 3,
+    z_threshold: float = 3.0,
+    contamination: float = 0.03,
 ) -> str:
     """
     Internet search agent: detects price anomaly dates for any NSE/BSE stock
@@ -183,6 +185,8 @@ def search_anomaly_events(
         category:         ClickHouse category filter (etfs / stocks / indices).
                           Leave blank to auto-detect.
         max_news_per_date: Max news articles to surface per anomaly date (default 3).
+        z_threshold:      |Final Z| cutoff for flagging anomalies (default 3.0).
+        contamination:    Isolation Forest contamination fraction (default 0.03).
     """
     symbol_upper = symbol.strip().upper()
 
@@ -259,6 +263,8 @@ def search_anomaly_events(
         from src.ml.anomaly import run_composite_anomaly
         df_result, df_flagged, _ = run_composite_anomaly(
             df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
+            contamination=contamination,
+            z_threshold=z_threshold,
             df_corp_actions=df_corp,
         )
     except Exception as exc:
@@ -276,7 +282,7 @@ def search_anomaly_events(
     if recent.empty:
         return (
             f"No anomaly dates detected for {symbol_upper} in the last {days} days "
-            f"(GARCH composite Final Z > 2.5). The price action has been within normal bounds."
+            f"(GARCH composite Final Z > {z_threshold}). The price action has been within normal bounds."
         )
 
     recent = recent.sort_values("trade_date", ascending=False)
