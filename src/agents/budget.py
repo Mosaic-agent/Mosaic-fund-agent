@@ -84,12 +84,17 @@ class BudgetCallbackHandler(BaseCallbackHandler):
         self.total_tokens = 0
         self._per_tool_counts: dict[str, int] = {}
         self._start_time = time.monotonic()
+        self._deadline = self._start_time + self.max_wall_clock_s
+
+        # Ensure BudgetExceededError propagates through LangChain's callback machinery
+        self.raise_on_error = True
 
     # ── Guards ────────────────────────────────────────────────────────────────
 
     def _check_wall_clock(self) -> None:
-        elapsed = time.monotonic() - self._start_time
-        if elapsed > self.max_wall_clock_s:
+        now = time.monotonic()
+        if now > self._deadline:
+            elapsed = now - self._start_time
             raise BudgetExceededError(
                 f"Wall-clock budget exceeded: {elapsed:.0f}s > {self.max_wall_clock_s:.0f}s limit"
             )
@@ -134,19 +139,33 @@ class BudgetCallbackHandler(BaseCallbackHandler):
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         self._check_wall_clock()
         try:
-            usage = None
-            if hasattr(response, "llm_output") and response.llm_output:
-                usage = response.llm_output.get("token_usage", {})
-            if usage:
-                self.total_tokens += usage.get("total_tokens", 0)
+            tokens = 0
+            # Modern LangChain: usage_metadata on the AIMessage inside generations
+            for gen_list in getattr(response, "generations", []):
+                for gen in gen_list:
+                    meta = getattr(getattr(gen, "message", None), "usage_metadata", None)
+                    if meta:
+                        tokens += meta.get("input_tokens", 0) + meta.get("output_tokens", 0)
+            # Legacy llm_output dict — OpenAI uses "token_usage", Anthropic uses "usage"
+            if not tokens and getattr(response, "llm_output", None):
+                u = response.llm_output.get("token_usage") or response.llm_output.get("usage", {})
+                tokens = u.get("total_tokens", 0) or (
+                    u.get("input_tokens", 0) + u.get("output_tokens", 0)
+                )
+            if tokens:
+                self.total_tokens += tokens
                 logger.debug("Budget: tokens so far %d/%d", self.total_tokens, self.max_tokens)
                 self._check_tokens()
         except BudgetExceededError:
             raise
         except Exception:
-            pass  # non-fatal
+            pass  # non-fatal — never block a run due to unparseable token counts
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
+        self._check_wall_clock()
+
+    def on_tool_error(self, error: Any, **kwargs: Any) -> None:
+        # Tool raised an exception — on_tool_end won't fire, so check wall-clock here
         self._check_wall_clock()
 
     @property
