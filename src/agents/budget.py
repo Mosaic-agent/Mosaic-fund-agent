@@ -75,7 +75,7 @@ class BudgetCallbackHandler(BaseCallbackHandler):
         self.max_tokens = max_tokens
         self.max_wall_clock_s = (
             max_wall_clock_s if max_wall_clock_s is not None
-            else float(os.getenv("AGENT_TIMEOUT", "300.0"))
+            else float(os.getenv("AGENT_TIMEOUT", "600.0"))
         )
         self.tool_caps = {**DEFAULT_TOOL_CAPS, **(tool_caps or {})}
 
@@ -86,8 +86,10 @@ class BudgetCallbackHandler(BaseCallbackHandler):
         self._start_time = time.monotonic()
         self._deadline = self._start_time + self.max_wall_clock_s
 
-        # Ensure BudgetExceededError propagates through LangChain's callback machinery
-        self.raise_on_error = True
+        # raise_on_error=True causes LangGraph to catch and log BudgetExceededError as
+        # a warning then CONTINUE execution — the opposite of what we want.  Keep False
+        # so the exception propagates naturally through the graph's tool-execution node.
+        self.raise_on_error = False
 
     # ── Guards ────────────────────────────────────────────────────────────────
 
