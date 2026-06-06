@@ -35,3 +35,10 @@ temp/
 
 # Scratch / one-off scripts (not part of main package)
 scratch/
+
+# Generated report artifacts (PDF, HTML, MD, PNG outputs)
+output/reports/*.pdf
+output/reports/*.md
+output/reports/*.html
+output/reports/*.png
+*.pdf
