@@ -5651,9 +5651,9 @@ with tab_intl_etf:
         st.plotly_chart(R["regime_chart"], use_container_width=True)
         st.dataframe(
             reg_df.style
-                .applymap(lambda v: "color: #e74c3c" if v == "Bear"
-                          else "color: #2ecc71" if v == "Bull"
-                          else "color: #f39c12", subset=["Current"]),
+                .map(lambda v: "color: #e74c3c" if v == "Bear"
+                     else "color: #2ecc71" if v == "Bull"
+                     else "color: #f39c12", subset=["Current"]),
             hide_index=True,
             use_container_width=True,
         )
