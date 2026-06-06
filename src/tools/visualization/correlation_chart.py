@@ -13,10 +13,6 @@ from collections import defaultdict
 from datetime import date
 from typing import Any, List, Optional
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -46,6 +42,15 @@ def _style_axes(ax, bg: str = "#0d0d1a") -> None:
     ax.grid(color="#333355", linewidth=0.4, alpha=0.6)
 
 
+def _import_matplotlib():
+    """Lazy matplotlib import — avoids ModuleNotFoundError at startup when not installed."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    return plt, mdates
+
+
 def _event_style(event_type: EventType):
     """Return (color, marker, legend_label) for an event type."""
     if event_type == EventType.COMPANY_FILING:
@@ -70,6 +75,8 @@ def render_correlation_timeline_png(
         return None
 
     try:
+        plt, mdates = _import_matplotlib()
+
         df_ohlcv = df_ohlcv.copy()
         df_ohlcv["trade_date"] = pd.to_datetime(df_ohlcv["trade_date"])
         df_ohlcv = df_ohlcv.sort_values("trade_date").reset_index(drop=True)
@@ -146,6 +153,8 @@ def render_lead_lag_grid_png(
         return None
 
     try:
+        plt, _ = _import_matplotlib()
+
         BG = "#0d0d1a"
         fig, ax = plt.subplots(figsize=(10, 5), facecolor=BG)
         _style_axes(ax, BG)
