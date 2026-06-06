@@ -129,6 +129,7 @@ def fetch_corporate_actions(symbol: str) -> list[dict[str, Any]]:
     """
     symbol_upper = symbol.strip().upper()
     rows: list[dict[str, Any]] = []
+    data = None
 
     try:
         with httpx.Client(
@@ -150,41 +151,80 @@ def fetch_corporate_actions(symbol: str) -> list[dict[str, Any]]:
 
     except Exception as exc:
         logger.warning("NSE corporate actions fetch failed for %s: %s", symbol_upper, exc)
-        return []
 
-    if not isinstance(data, list):
-        logger.debug("Unexpected NSE CA response type for %s: %s", symbol_upper, type(data))
-        return []
+    if isinstance(data, list):
+        for item in data:
+            purpose    = str(item.get("purpose") or "").strip()
+            ex_raw     = str(item.get("exDate") or item.get("ex_date") or "")
+            rec_raw    = str(item.get("recordDate") or item.get("record_date") or "")
+            series     = str(item.get("series") or "EQ").strip()
+            face_val_s = str(item.get("faceVal") or item.get("face_val") or "0")
 
-    for item in data:
-        purpose    = str(item.get("purpose") or "").strip()
-        ex_raw     = str(item.get("exDate") or item.get("ex_date") or "")
-        rec_raw    = str(item.get("recordDate") or item.get("record_date") or "")
-        series     = str(item.get("series") or "EQ").strip()
-        face_val_s = str(item.get("faceVal") or item.get("face_val") or "0")
+            ex_date  = _parse_date(ex_raw)
+            rec_date = _parse_date(rec_raw)
 
-        ex_date  = _parse_date(ex_raw)
-        rec_date = _parse_date(rec_raw)
+            if ex_date is None or not purpose:
+                continue
 
-        if ex_date is None or not purpose:
-            continue
+            try:
+                face_val = float(str(face_val_s).replace(",", ""))
+            except ValueError:
+                face_val = 0.0
 
+            rows.append({
+                "symbol":      symbol_upper,
+                "ex_date":     ex_date,
+                "action_type": _classify_action(purpose),
+                "ratio":       _extract_ratio(purpose),
+                "purpose":     purpose[:500],
+                "series":      series,
+                "face_val":    face_val,
+                "record_date": rec_date or ex_date,
+                "source":      "nse",
+            })
+
+    if not rows:
+        logger.info(
+            "NSE corporate actions returned no data for %s. Trying yfinance fallback...",
+            symbol_upper,
+        )
         try:
-            face_val = float(str(face_val_s).replace(",", ""))
-        except ValueError:
-            face_val = 0.0
+            import yfinance as yf
+            yf_symbol = f"{symbol_upper}.NS"
+            ticker = yf.Ticker(yf_symbol)
+            actions = ticker.actions
+            if actions is not None and not actions.empty:
+                for dt, row in actions.iterrows():
+                    ex_date = dt.date()
+                    div = float(row.get("Dividends", 0.0))
+                    split = float(row.get("Stock Splits", 0.0))
 
-        rows.append({
-            "symbol":      symbol_upper,
-            "ex_date":     ex_date,
-            "action_type": _classify_action(purpose),
-            "ratio":       _extract_ratio(purpose),
-            "purpose":     purpose[:500],
-            "series":      series,
-            "face_val":    face_val,
-            "record_date": rec_date or ex_date,
-            "source":      "nse",
-        })
+                    if div > 0:
+                        rows.append({
+                            "symbol":      symbol_upper,
+                            "ex_date":     ex_date,
+                            "action_type": "dividend",
+                            "ratio":       f"Rs {div}",
+                            "purpose":     f"Dividend Rs {div} (yfinance fallback)",
+                            "series":      "EQ",
+                            "face_val":    0.0,
+                            "record_date": ex_date,
+                            "source":      "yfinance",
+                        })
+                    if split > 0 and split != 1.0:
+                        rows.append({
+                            "symbol":      symbol_upper,
+                            "ex_date":     ex_date,
+                            "action_type": "split",
+                            "ratio":       str(split),
+                            "purpose":     f"Stock Split / Bonus ratio {split} (yfinance fallback)",
+                            "series":      "EQ",
+                            "face_val":    0.0,
+                            "record_date": ex_date,
+                            "source":      "yfinance",
+                        })
+        except Exception as yf_exc:
+            logger.warning("yfinance corporate actions fallback failed for %s: %s", symbol_upper, yf_exc)
 
     logger.info(
         "NSE corporate actions: %d events fetched for %s", len(rows), symbol_upper

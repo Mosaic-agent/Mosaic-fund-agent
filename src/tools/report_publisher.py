@@ -63,6 +63,7 @@ def render_price_chart_png(
     symbol: str,
     days: int = 365,
     category: str = "",
+    df: pd.DataFrame | None = None,
 ) -> str | None:
     """
     Render a price chart as a base64 PNG.
@@ -79,27 +80,31 @@ def render_price_chart_png(
         import matplotlib.dates as mdates
         import pandas as pd
         import numpy as np
-        from src.db.pool import query_df
 
-        params: dict = {"sym": symbol.upper()}
-        cat_clause = "AND category = {cat:String}" if category else ""
-        if category:
-            params["cat"] = category
+        if df is None or df.empty:
+            from src.db.pool import query_df
+            params: dict = {"sym": symbol.upper()}
+            cat_clause = "AND category = {cat:String}" if category else ""
+            if category:
+                params["cat"] = category
 
-        df = query_df(
-            f"""
-            SELECT trade_date,
-                   toFloat64(argMax(open,   imported_at)) AS open,
-                   toFloat64(argMax(high,   imported_at)) AS high,
-                   toFloat64(argMax(low,    imported_at)) AS low,
-                   toFloat64(argMax(close,  imported_at)) AS close,
-                   toFloat64(argMax(volume, imported_at)) AS volume
-            FROM market_data.daily_prices FINAL
-            WHERE symbol = {{sym:String}} {cat_clause}
-            GROUP BY trade_date ORDER BY trade_date ASC
-            """,
-            parameters=params,
-        )
+            df = query_df(
+                f"""
+                SELECT trade_date,
+                       toFloat64(argMax(open,   imported_at)) AS open,
+                       toFloat64(argMax(high,   imported_at)) AS high,
+                       toFloat64(argMax(low,    imported_at)) AS low,
+                       toFloat64(argMax(close,  imported_at)) AS close,
+                       toFloat64(argMax(volume, imported_at)) AS volume
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = {{sym:String}} {cat_clause}
+                GROUP BY trade_date ORDER BY trade_date ASC
+                """,
+                parameters=params,
+            )
+        else:
+            df = df.copy()
+
         if df.empty:
             return None
 
@@ -171,7 +176,12 @@ def render_price_chart_png(
         return None
 
 
-def render_macd_chart_png(symbol: str, days: int = 180, category: str = "") -> str | None:
+def render_macd_chart_png(
+    symbol: str,
+    days: int = 180,
+    category: str = "",
+    df: pd.DataFrame | None = None,
+) -> str | None:
     """
     Render a MACD(12,26,9) chart as a base64 PNG.
 
@@ -185,24 +195,28 @@ def render_macd_chart_png(symbol: str, days: int = 180, category: str = "") -> s
         import matplotlib.dates as mdates
         import pandas as pd
         import numpy as np
-        from src.db.pool import query_df
 
-        params: dict = {"sym": symbol.upper()}
-        cat_clause = "AND category = {cat:String}" if category else ""
-        if category:
-            params["cat"] = category
+        if df is None or df.empty:
+            from src.db.pool import query_df
+            params: dict = {"sym": symbol.upper()}
+            cat_clause = "AND category = {cat:String}" if category else ""
+            if category:
+                params["cat"] = category
 
-        # Fetch extra history for EMA warm-up (MACD needs ~35 extra bars)
-        df = query_df(
-            f"""
-            SELECT trade_date,
-                   toFloat64(argMax(close, imported_at)) AS close
-            FROM market_data.daily_prices FINAL
-            WHERE symbol = {{sym:String}} {cat_clause}
-            GROUP BY trade_date ORDER BY trade_date ASC
-            """,
-            parameters=params,
-        )
+            # Fetch extra history for EMA warm-up (MACD needs ~35 extra bars)
+            df = query_df(
+                f"""
+                SELECT trade_date,
+                       toFloat64(argMax(close, imported_at)) AS close
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = {{sym:String}} {cat_clause}
+                GROUP BY trade_date ORDER BY trade_date ASC
+                """,
+                parameters=params,
+            )
+        else:
+            df = df.copy()
+
         if df.empty or len(df) < 30:
             return None
 
@@ -258,7 +272,11 @@ def render_macd_chart_png(symbol: str, days: int = 180, category: str = "") -> s
         return None
 
 
-def render_garch_vol_png(symbol: str, days: int = 180) -> str | None:
+def render_garch_vol_png(
+    symbol: str,
+    days: int = 180,
+    df: pd.DataFrame | None = None,
+) -> str | None:
     """
     Render a GARCH annualised volatility chart as a base64 PNG.
     Reads from weight_checkpoints (populated by the GOLDBEES pipeline).
@@ -271,34 +289,43 @@ def render_garch_vol_png(symbol: str, days: int = 180) -> str | None:
         import matplotlib.dates as mdates
         import pandas as pd
         import numpy as np
-        from src.db.pool import query_df
 
-        df = query_df(
-            "SELECT as_of AS trade_date, garch_vol_pct AS garch_vol "
-            "FROM market_data.weight_checkpoints FINAL "
-            "WHERE symbol = {sym:String} AND garch_vol_pct IS NOT NULL "
-            "ORDER BY as_of ASC",
-            parameters={"sym": symbol.upper()},
-        )
+        df_vol = pd.DataFrame()
+        if df is not None and not df.empty and "garch_vol" in df.columns:
+            df_vol = df[["trade_date", "garch_vol"]].dropna().copy()
+        else:
+            from src.db.pool import query_df
+            df_vol = query_df(
+                "SELECT as_of AS trade_date, garch_vol_pct AS garch_vol "
+                "FROM market_data.weight_checkpoints FINAL "
+                "WHERE symbol = {sym:String} AND garch_vol_pct IS NOT NULL "
+                "ORDER BY as_of ASC",
+                parameters={"sym": symbol.upper()},
+            )
+            # If still empty, try computing it on the fly if df is provided
+            if df_vol.empty and df is not None and not df.empty:
+                from src.ml.anomaly import run_composite_anomaly
+                df_res, _, _ = run_composite_anomaly(df)
+                df_vol = df_res[["trade_date", "garch_vol"]].dropna().copy()
 
-        if df.empty:
+        if df_vol.empty:
             return None
 
-        df["trade_date"] = pd.to_datetime(df["trade_date"])
-        cutoff = df["trade_date"].max() - pd.Timedelta(days=days)
-        df = df[df["trade_date"] >= cutoff].copy()
-        if len(df) < 3:
+        df_vol["trade_date"] = pd.to_datetime(df_vol["trade_date"])
+        cutoff = df_vol["trade_date"].max() - pd.Timedelta(days=days)
+        df_vol = df_vol[df_vol["trade_date"] >= cutoff].copy()
+        if len(df_vol) < 3:
             return None
 
         BG = "#0d0d1a"
         fig, ax = plt.subplots(figsize=(10, 3), facecolor=BG)
         _style_axes(ax, BG)
 
-        ax.fill_between(df["trade_date"], df["garch_vol"], alpha=0.25,
+        ax.fill_between(df_vol["trade_date"], df_vol["garch_vol"], alpha=0.25,
                         color="#aa44ff")
-        ax.plot(df["trade_date"], df["garch_vol"], color="#cc88ff", linewidth=1.0)
+        ax.plot(df_vol["trade_date"], df_vol["garch_vol"], color="#cc88ff", linewidth=1.0)
 
-        latest_vol = float(df["garch_vol"].iloc[-1])
+        latest_vol = float(df_vol["garch_vol"].iloc[-1])
         ax.set_title(
             f"{symbol} — GARCH Annualised Volatility  |  Latest: {latest_vol:.1f}%",
             fontsize=10, pad=6,
@@ -314,6 +341,133 @@ def render_garch_vol_png(symbol: str, days: int = 180) -> str | None:
 
     except Exception as exc:
         log.warning("GARCH vol PNG failed for %s: %s", symbol, exc)
+        return None
+
+
+def render_anomaly_clusters_png(
+    symbol: str,
+    days: int = 365,
+    category: str = "",
+    df: pd.DataFrame | None = None,
+) -> str | None:
+    """
+    Render a GARCH composite anomaly regime cluster plot as a base64 PNG.
+    Plots Daily Return vs. Intraday Range and colors by regime classification.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import numpy as np
+        from src.ml.anomaly import build_features, run_composite_anomaly
+
+        if df is None or df.empty:
+            from src.db.pool import query_df
+            params: dict = {"sym": symbol.upper()}
+            cat_clause = "AND category = {cat:String}" if category else ""
+            if category:
+                params["cat"] = category
+
+            df = query_df(
+                f"""
+                SELECT trade_date,
+                       toFloat64(argMax(open,   imported_at)) AS open,
+                       toFloat64(argMax(high,   imported_at)) AS high,
+                       toFloat64(argMax(low,    imported_at)) AS low,
+                       toFloat64(argMax(close,  imported_at)) AS close,
+                       toFloat64(argMax(volume, imported_at)) AS volume
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = {{sym:String}} {cat_clause}
+                GROUP BY trade_date ORDER BY trade_date ASC
+                """,
+                parameters=params,
+            )
+        else:
+            df = df.copy()
+
+        if df.empty or len(df) < 60:
+            return None
+
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df = build_features(df)
+
+        df_corp = None
+        try:
+            _ca = query_df(
+                "SELECT ex_date, action_type, ratio, purpose "
+                "FROM market_data.corporate_actions FINAL "
+                "WHERE symbol = {sym:String}",
+                parameters={"sym": symbol.upper()},
+            )
+            if not _ca.empty:
+                _ca["ex_date"] = pd.to_datetime(_ca["ex_date"])
+                df_corp = _ca
+        except Exception:
+            pass
+
+        df_result, _, _ = run_composite_anomaly(df, df_corp_actions=df_corp)
+
+        # Trim to display window
+        cutoff = df_result["trade_date"].max() - pd.Timedelta(days=days)
+        df_result = df_result[df_result["trade_date"] >= cutoff].copy()
+        if df_result.empty:
+            return None
+
+        BG = "#0d0d1a"
+        fig, ax = plt.subplots(figsize=(10, 4.5), facecolor=BG)
+        _style_axes(ax, BG)
+
+        # Style specifications matching the dark theme
+        regime_colors = {
+            '✅ Normal': '#444466',
+            '🔥 Volatile Breakout': '#ff4444',
+            '⚡ Flash Crash / Black Swan (EXIT)': '#cc66ff',
+            '📈 Strong Trend (HODL)': '#44ff44',
+            '🧨 Blow-off Top (Weak)': '#ffaa44',
+            '🏦 Corporate Action': '#ffd700',
+            '🔀 Regime Shift (Change Point)': '#00ffff'
+        }
+
+        # Plot each regime
+        for regime, color in regime_colors.items():
+            sub = df_result[df_result['regime'] == regime]
+            if not sub.empty:
+                label_clean = (
+                    regime.split('(')[0]
+                    .replace('✅', '')
+                    .replace('🔥', '')
+                    .replace('⚡', '')
+                    .replace('📈', '')
+                    .replace('🧨', '')
+                    .replace('🏦', '')
+                    .replace('🔀', '')
+                    .strip()
+                )
+                ax.scatter(
+                    sub['daily_return'],
+                    sub['range_pct'],
+                    color=color,
+                    s=25 if regime == '✅ Normal' else 50,
+                    alpha=0.4 if regime == '✅ Normal' else 0.85,
+                    edgecolors='none' if regime == '✅ Normal' else '#ffffff',
+                    linewidths=0.5,
+                    label=label_clean,
+                    zorder=2 if regime == '✅ Normal' else 3
+                )
+
+        ax.axvline(0, color="#333355", linestyle="--", linewidth=0.6)
+        ax.set_xlabel("Daily Return (%)", fontsize=8)
+        ax.set_ylabel("Intraday Range (%)", fontsize=8)
+        ax.set_title(f"{symbol} — Anomaly Regime Clusters (Return vs. Range)", fontsize=10, pad=6)
+        ax.legend(fontsize=7, facecolor="#1a1a2e", edgecolor="#333355",
+                  labelcolor="#cccccc", loc="upper right")
+        plt.tight_layout(pad=0.5)
+        png = _df_to_png(fig)
+        plt.close(fig)
+        return png
+    except Exception as exc:
+        log.warning("Anomaly clusters PNG failed for %s: %s", symbol, exc)
         return None
 
 
@@ -576,16 +730,41 @@ def generate_pdf_bytes(
 
     # ── 2. Render charts in parallel ─────────────────────────────────────────
     from concurrent.futures import ThreadPoolExecutor
+    from src.db.pool import query_df
+
+    df = None
+    try:
+        df = query_df(
+            """
+            SELECT trade_date,
+                   toFloat64(argMax(open,   imported_at)) AS open,
+                   toFloat64(argMax(high,   imported_at)) AS high,
+                   toFloat64(argMax(low,    imported_at)) AS low,
+                   toFloat64(argMax(close,  imported_at)) AS close,
+                   toFloat64(argMax(volume, imported_at)) AS volume
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = {sym:String}
+            GROUP BY trade_date ORDER BY trade_date ASC
+            """,
+            parameters={"sym": symbol.upper()},
+        )
+        if df.empty:
+            df = None
+    except Exception as e:
+        log.warning("Pre-fetching daily prices failed for %s: %s", symbol, e)
+        df = None
 
     charts = []
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        f_price = pool.submit(render_price_chart_png, symbol, days_price)
-        f_macd  = pool.submit(render_macd_chart_png,  symbol, days_macd)
-        f_garch = pool.submit(render_garch_vol_png,   symbol, days_garch)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        f_price = pool.submit(render_price_chart_png, symbol, days_price, df=df)
+        f_macd  = pool.submit(render_macd_chart_png,  symbol, days_macd, df=df)
+        f_garch = pool.submit(render_garch_vol_png,   symbol, days_garch, df=df)
+        f_clust = pool.submit(render_anomaly_clusters_png, symbol, days_price, df=df)
 
         price_png = f_price.result(timeout=60)
         macd_png  = f_macd.result(timeout=60)
         garch_png = f_garch.result(timeout=60)
+        clust_png = f_clust.result(timeout=60)
 
     if price_png:
         charts.append({"label": f"{symbol} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action", "data": price_png})
@@ -593,6 +772,8 @@ def generate_pdf_bytes(
         charts.append({"label": f"{symbol} — MACD(12,26,9)", "data": macd_png})
     if garch_png:
         charts.append({"label": f"{symbol} — GARCH Annualised Volatility", "data": garch_png})
+    if clust_png:
+        charts.append({"label": f"{symbol} — Anomaly Regime Clusters (Feature Space)", "data": clust_png})
 
     # ── 3. Render HTML template ───────────────────────────────────────────────
     display = company_name or symbol.upper()
@@ -693,14 +874,39 @@ def generate_consolidated_pdf_bytes(
 
     if n == 1:
         sym = symbols[0]
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            f_p = pool.submit(render_price_chart_png, sym, 365)
-            f_m = pool.submit(render_macd_chart_png,  sym, 180)
-            f_g = pool.submit(render_garch_vol_png,   sym, 180)
+        from src.db.pool import query_df
+        df = None
+        try:
+            df = query_df(
+                """
+                SELECT trade_date,
+                       toFloat64(argMax(open,   imported_at)) AS open,
+                       toFloat64(argMax(high,   imported_at)) AS high,
+                       toFloat64(argMax(low,    imported_at)) AS low,
+                       toFloat64(argMax(close,  imported_at)) AS close,
+                       toFloat64(argMax(volume, imported_at)) AS volume
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = {sym:String}
+                GROUP BY trade_date ORDER BY trade_date ASC
+                """,
+                parameters={"sym": sym.upper()},
+            )
+            if df.empty:
+                df = None
+        except Exception as e:
+            log.warning("Pre-fetching daily prices failed for %s: %s", sym, e)
+            df = None
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            f_p = pool.submit(render_price_chart_png, sym, 365, df=df)
+            f_m = pool.submit(render_macd_chart_png,  sym, 180, df=df)
+            f_g = pool.submit(render_garch_vol_png,   sym, 180, df=df)
+            f_c = pool.submit(render_anomaly_clusters_png, sym, 365, df=df)
             for label, fut in [
                 (f"{sym} — 1-Year Price  |  🔴 Anomaly  |  🟡 Corp Action", f_p),
                 (f"{sym} — MACD(12,26,9)", f_m),
                 (f"{sym} — GARCH Annualised Volatility", f_g),
+                (f"{sym} — Anomaly Regime Clusters (Feature Space)", f_c),
             ]:
                 png = fut.result(timeout=60)
                 if png:
@@ -798,7 +1004,7 @@ def publish_research_pdf(
     size_kb = len(pdf_bytes) // 1024
     return (
         f"✅ Research report saved: **{out_path.resolve()}**\n"
-        f"Size: {size_kb} KB  |  Charts: price, MACD, GARCH vol  |  "
+        f"Size: {size_kb} KB  |  Charts: price, MACD, GARCH vol, anomaly clusters  |  "
         f"Symbol: {symbol_upper}  |  Date: {datetime.now().strftime('%d %b %Y')}"
     )
 
@@ -871,7 +1077,7 @@ def publish_consolidated_pdf(
 
     size_kb   = len(pdf_bytes) // 1024
     chart_desc = (
-        "price + MACD + GARCH" if n == 1
+        "price + MACD + GARCH + clusters" if n == 1
         else f"price × {n} symbols" if n <= 4
         else "report only (5+ symbols)"
     )

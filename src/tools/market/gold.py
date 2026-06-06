@@ -67,9 +67,15 @@ print(explain_decision(d))
 
 
 @tool
-def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int = 60) -> str:
+def explain_price_anomalies(
+    symbol: str,
+    exchange: str | None = "NSE",
+    days: int = 60,
+    z_threshold: float = 3.0,
+    contamination: float = 0.03,
+) -> str:
     """
-    Scan price history for GOLDBEES or any asset to identify return anomalies (daily return outlier shocks > 2%)
+    Scan price history for GOLDBEES or any asset to identify return anomalies (daily return outlier shocks)
     in the last N days, automatically query historical news for those dates, and explain the causes.
     Always call `plot_price_chart` in parallel with this tool to visually display the price trend.
     Use this when the user asks to explain GOLDBEES price anomalies, chart spikes, or sudden drops.
@@ -135,7 +141,7 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
     composite_ok = False
     regime_map: dict = {}
     finalz_map: dict = {}
-    threshold = 2.5
+    threshold = z_threshold
 
     is_gold = "GOLD" in symbol_upper
 
@@ -171,6 +177,8 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         from src.ml.anomaly import run_composite_anomaly
         df_result, df_flagged, _ = run_composite_anomaly(
             df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
+            contamination=contamination,
+            z_threshold=z_threshold,
             df_cot=df_cot,
             df_fx=df_fx,
         )
@@ -197,7 +205,7 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
 
     if anomalies.empty:
         detection_note = (
-            "GARCH composite (Final Z > 2.5)" if composite_ok
+            f"GARCH composite (Final Z > {z_threshold})" if composite_ok
             else f"naive threshold ({threshold:.2f}%)"
         )
         return (
@@ -244,7 +252,7 @@ def explain_price_anomalies(symbol: str, exchange: str | None = "NSE", days: int
         return f"{vol:,.0f}"
 
     detection_method = (
-        "GARCH composite (Final Z > 2.5)" if composite_ok
+        f"GARCH composite (Final Z > {z_threshold})" if composite_ok
         else f"naive threshold (≥{threshold:.2f}%)"
     )
     output = []

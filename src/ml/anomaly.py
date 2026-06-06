@@ -78,12 +78,16 @@ Public API
 
 from __future__ import annotations
 
+import logging
 import warnings
+from abc import ABC, abstractmethod
 
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "robust_zscore",
@@ -93,6 +97,12 @@ __all__ = [
     "fit_change_points",
     "classify_regime",
     "run_composite_anomaly",
+    "AnomalyDetectorStrategy",
+    "RobustZScoreStrategy",
+    "GarchResidualStrategy",
+    "IsolationForestStrategy",
+    "PeltChangePointStrategy",
+    "CompositeAnomalyPipeline",
 ]
 
 # Module-level cache: keyed by (n_rows, contamination, feat_cols_tuple)
@@ -114,6 +124,62 @@ def robust_zscore(s: pd.Series, window: int = 30) -> pd.Series:
     return 0.6745 * (s - rolling_med) / (rolling_mad + 1e-10)
 
 
+def repair_decimal_glitches(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Detects and repairs decimal scaling errors (e.g. 10x or 100x shift for 1-2 days)
+    on the fly.
+    """
+    if df.empty or len(df) < 5:
+        return df
+
+    df = df.copy()
+    close = df["close"].values
+    
+    n = len(df)
+    for i in range(1, n - 1):
+        c_prev = close[i - 1]
+        c_curr = close[i]
+        c_next = close[i + 1]
+        if c_prev <= 0 or c_curr <= 0 or c_next <= 0:
+            continue
+            
+        ratio_down = c_curr / c_prev
+        ratio_up = c_next / c_curr
+        
+        # Check for 1-day glitches
+        for factor in [10.0, 100.0]:
+            tol = 0.15
+            if (abs(ratio_down - 1.0/factor) < tol/factor and abs(ratio_up - factor) < tol) or \
+               (abs(ratio_down - factor) < tol and abs(ratio_up - 1.0/factor) < tol/factor):
+                mult = factor if ratio_down < 1.0 else 1.0 / factor
+                df.loc[i, ["open", "high", "low", "close"]] *= mult
+                close = df["close"].values
+                log.info("Repaired single-day decimal scaling glitch on index %d (%s) for factor %f", i, df.iloc[i]["trade_date"], factor)
+                break
+                
+        # Check for 2-day glitches
+        if i < n - 2:
+            c_next2 = close[i + 2]
+            if c_next2 <= 0:
+                continue
+            ratio_down = c_curr / c_prev
+            ratio_flat = c_next / c_curr
+            ratio_up = c_next2 / c_next
+            
+            if abs(ratio_flat - 1.0) < 0.15:
+                for factor in [10.0, 100.0]:
+                    tol = 0.15
+                    if (abs(ratio_down - 1.0/factor) < tol/factor and abs(ratio_up - factor) < tol) or \
+                       (abs(ratio_down - factor) < tol and abs(ratio_up - 1.0/factor) < tol/factor):
+                        mult = factor if ratio_down < 1.0 else 1.0 / factor
+                        df.loc[i, ["open", "high", "low", "close"]] *= mult
+                        df.loc[i+1, ["open", "high", "low", "close"]] *= mult
+                        close = df["close"].values
+                        log.info("Repaired 2-day decimal scaling glitch on index %d-%d (%s) for factor %f", i, i+1, df.iloc[i]["trade_date"], factor)
+                        break
+    return df
+
+
 def build_features(df: pd.DataFrame, rf_lags: int = 5) -> pd.DataFrame:
     """
     Add engineered features to a daily OHLCV DataFrame (sorted ascending by trade_date).
@@ -122,48 +188,50 @@ def build_features(df: pd.DataFrame, rf_lags: int = 5) -> pd.DataFrame:
     Input must have: trade_date, open, high, low, close, volume.
     Returns a new DataFrame — does NOT mutate the input.
     """
+    # First repair decimal glitches on the fly to clean up noise
+    df = repair_decimal_glitches(df)
+    
     df = df.copy().sort_values("trade_date").reset_index(drop=True)
     df["daily_return"] = df["close"].pct_change() * 100
-    df["log_return"]   = np.log(df["close"] / df["close"].shift(1))
+    
+    # Yield protection: avoid negative or zero values in log return
+    close_val = df["close"].values
+    prev_close = df["close"].shift(1).values
+    
+    # Calculate log ratio with absolute value protection and safety epsilon
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.abs(close_val) / (np.abs(prev_close) + 1e-10)
+        ratio[ratio <= 0] = 1.0
+        df["log_return"] = np.log(ratio)
+        
     df["range_pct"]    = (df["high"] - df["low"]) / df["close"] * 100
     df["vol_lag1"]     = df["volume"].shift(1)
     return df
 
+
+_GARCH_CACHE: dict = {}
 
 def fit_garch_residuals(
     df: pd.DataFrame,
 ) -> tuple[pd.DataFrame, float]:
     """
     Fit GARCH(1,1) with Student-t innovations on log-returns.
-
-    WHY GARCH OVER RANDOM FOREST
-    ─────────────────────────────
-    RF on log-returns achieves R²≈0.32 for GOLD (returns ≈ random walk),
-    causing z_resid to fire on 21% of days — useless as an anomaly signal.
-
-    GARCH directly models conditional volatility σ_t via volatility clustering:
-        σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}
-    Standardised residuals e_t = r_t / σ_t correctly fire on ~5% of days
-    (shock days where the magnitude is surprising given the current vol regime).
-
-    Student-t innovations are used because gold returns have fat tails
-    (excess kurtosis) not captured by a Gaussian GARCH.
-
-    OUTPUT COLUMNS (backward-compatible with old RF column names)
-    ─────────────────────────────────────────────────────────────
-    garch_vol     : conditional volatility, annualised %  (NEW — shown in UI metric)
-    garch_band_1s : 1-sigma daily move in price terms     (NEW — used for chart bands)
-    garch_band_2s : 2-sigma daily move in price terms     (NEW — used for chart bands)
-    rf_pred       : kept for UI chart compatibility; here = close[t-1]·exp(fitted_ret)
-    residual      : standardised residual e_t = r_t / σ_t
-    z_resid       : MAD Z-score of standardised residuals
-    z_resid_abs   : |z_resid|
-
-    Returns
-    -------
-    df        — with new columns added
-    loglik    — GARCH log-likelihood (reported in UI instead of RF R²)
+    Applies caching to prevent redundant MLE fits on the same dataset.
     """
+    if df.empty:
+        return df, 0.0
+
+    last_row = df.iloc[-1]
+    cache_key = (len(df), str(last_row["trade_date"]), float(last_row["close"]))
+    if cache_key in _GARCH_CACHE:
+        cached_cols, loglik = _GARCH_CACHE[cache_key]
+        # Merge cached columns back and return
+        df_out = df.copy()
+        for col in cached_cols.columns:
+            if col != "trade_date":
+                df_out[col] = cached_cols[col].values
+        return df_out, loglik
+
     try:
         from arch import arch_model  # type: ignore[import]
     except ImportError as exc:
@@ -213,6 +281,14 @@ def fit_garch_residuals(
     df["z_resid_abs"] = df["z_resid"].abs()
 
     loglik = float(res.loglikelihood)
+
+    # Cache the computed GARCH columns
+    cols_to_cache = [
+        "trade_date", "garch_vol", "rf_pred", "garch_band_1s",
+        "garch_band_2s", "residual", "z_resid", "z_resid_abs"
+    ]
+    _GARCH_CACHE[cache_key] = (df[cols_to_cache].copy(), loglik)
+
     return df, loglik
 
 
@@ -461,11 +537,157 @@ def _inject_cross_asset(
 
 # ── Full pipeline ─────────────────────────────────────────────────────────────
 
+# ── OOP Strategies & Pipeline Orchestrator ───────────────────────────────────
+
+class AnomalyDetectorStrategy(ABC):
+    """Abstract interface for all individual anomaly detection algorithms."""
+
+    @abstractmethod
+    def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """
+        Fit model on daily prices DataFrame and return it with computed scores.
+        """
+        pass
+
+
+class RobustZScoreStrategy(AnomalyDetectorStrategy):
+    """Calculates MAD-based robust Z-scores on daily return, trading range, and volume."""
+
+    def __init__(self, window: int = 30):
+        self.window = window
+
+    def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        df = df.copy()
+        df["z_return"] = robust_zscore(df["daily_return"].fillna(0), window=self.window)
+        df["z_range"]  = robust_zscore(df["range_pct"],              window=self.window)
+        df["z_robust"] = (df["z_return"].abs() + df["z_range"]) / 2.0
+        df["z_volume"] = robust_zscore(df["volume"].fillna(0),       window=self.window)
+        return df
+
+
+class GarchResidualStrategy(AnomalyDetectorStrategy):
+    """Fits a GARCH(1,1) model and standardizes residuals by conditional volatility."""
+
+    def __init__(self):
+        self.loglik: float = 0.0
+
+    def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        df_res, loglik = fit_garch_residuals(df)
+        self.loglik = loglik
+        return df_res
+
+
+class IsolationForestStrategy(AnomalyDetectorStrategy):
+    """Runs Isolation Forest on price-based and cross-asset features to compute confidence."""
+
+    def __init__(self, contamination: float = 0.03):
+        self.contamination = contamination
+
+    def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        return fit_isolation_forest(df, contamination=self.contamination)
+
+
+class PeltChangePointStrategy(AnomalyDetectorStrategy):
+    """Applies PELT Change-Point Detection to identify structural regime shifts."""
+
+    def __init__(self, penalty: float | None = None, proximity_days: int = 3):
+        self.penalty = penalty
+        self.proximity_days = proximity_days
+
+    def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        return fit_change_points(
+            df, penalty=self.penalty, proximity_days=self.proximity_days
+        )
+
+
+class CompositeAnomalyPipeline:
+    """Orchestrates sequential anomaly strategies and computes consolidated regimes."""
+
+    def __init__(
+        self,
+        z_threshold: float = 3.0,
+        cp_boost: float = 1.15,
+        df_cot: pd.DataFrame | None = None,
+        df_fx: pd.DataFrame | None = None,
+        df_corp_actions: pd.DataFrame | None = None,
+    ):
+        self.z_threshold     = z_threshold
+        self.cp_boost        = cp_boost
+        self.df_cot          = df_cot
+        self.df_fx           = df_fx
+        self.df_corp_actions = df_corp_actions
+        self.garch_loglik: float = 0.0
+
+    def run(
+        self,
+        df: pd.DataFrame,
+        rf_lags: int = 5,
+        contamination: float = 0.03,
+        z_window: int = 30,
+        cp_penalty: float | None = None,
+        cp_proximity_days: int = 3,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        df = build_features(df, rf_lags=rf_lags)
+
+        # Inject cross-asset features when available
+        df = _inject_cross_asset(df, df_cot=self.df_cot, df_fx=self.df_fx)
+
+        # ── Instantiate and execute strategies sequentially ──────────────────
+        strategies = [
+            RobustZScoreStrategy(window=z_window),
+            GarchResidualStrategy(),
+            IsolationForestStrategy(contamination=contamination),
+            PeltChangePointStrategy(penalty=cp_penalty, proximity_days=cp_proximity_days),
+        ]
+
+        for strategy in strategies:
+            df = strategy.fit_predict(df)
+            if isinstance(strategy, GarchResidualStrategy):
+                self.garch_loglik = strategy.loglik
+
+        # Classify regimes + compute Final Z
+        df = classify_regime(df)
+
+        # Change-point confirmation booster
+        if self.cp_boost != 1.0 and bool(df["cp_confirmed"].any()):
+            pre_flagged = df["final_z_abs"] > self.z_threshold
+            mask = df["cp_confirmed"] & pre_flagged
+            if mask.any():
+                df.loc[mask, "final_z"] = df.loc[mask, "final_z"] * self.cp_boost
+                df.loc[mask, "final_z_abs"] = df.loc[mask, "final_z"].abs()
+                _keep = df["regime"].str.contains("Flash Crash|Volatile Breakout", na=False)
+                relabel = mask & ~_keep
+                df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
+
+        # ── Corporate action suppression ─────────────────────────────────────
+        df["is_corporate_action"]    = False
+        df["suppress_corp_action"]   = False
+        if self.df_corp_actions is not None and not self.df_corp_actions.empty:
+            from src.importer.fetchers.nse_corporate_actions_fetcher import PRICE_IMPACTING_TYPES
+            ca = self.df_corp_actions.copy()
+            ca["ex_date"] = pd.to_datetime(ca["ex_date"]).dt.normalize()
+            all_ca_dates      = set(ca["ex_date"])
+            suppress_dates    = set(ca.loc[ca["action_type"].isin(PRICE_IMPACTING_TYPES), "ex_date"])
+            df["trade_date"]  = pd.to_datetime(df["trade_date"]).dt.normalize()
+            df["is_corporate_action"]  = df["trade_date"].isin(all_ca_dates)
+            df["suppress_corp_action"] = df["trade_date"].isin(suppress_dates)
+            df.loc[df["suppress_corp_action"], "regime"] = "🏦 Corporate Action"
+
+        # Populate is_anomaly flag
+        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
+
+        df_flagged = df[df["is_anomaly"]].copy()
+        return df, df_flagged
+
+
+
+# ── Full pipeline wrapper (Backward Compatible) ──────────────────────────────
+
 def run_composite_anomaly(
     df: pd.DataFrame,
     rf_lags: int = 5,           # kept for API compatibility, unused
-    contamination: float = 0.05,
-    z_threshold: float = 2.5,
+    contamination: float = 0.03,
+    z_threshold: float = 3.0,
     z_window: int = 30,
     df_cot: pd.DataFrame | None = None,
     df_fx: pd.DataFrame | None = None,
@@ -476,113 +698,21 @@ def run_composite_anomaly(
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
-
-    Parameters
-    ----------
-    df            : Daily OHLCV DataFrame — trade_date, open, high, low, close,
-                    volume  (≥ 60 rows required)
-    rf_lags       : Kept for backward-compatibility; no longer used (GARCH has no lag param)
-    contamination : Expected anomaly fraction for Isolation Forest   (default 0.05)
-    z_threshold   : |Final Z| cutoff for flagging                    (default 2.5)
-    z_window      : Rolling window for robust Z-score                (default 30)
-    df_cot        : Optional COT DataFrame (report_date, mm_net, open_interest)
-                    → enables cot_pct_oi feature + Crowded Long regime
-    df_fx         : Optional FX DataFrame (symbol, trade_date, close)
-                    → enables usdinr_logret, usdinr_vol14 features
-
-    cp_penalty   : PELT penalty (None -> auto 2*log n). Higher = fewer breaks.
-    cp_proximity_days : +/- window (rows) for change-point confirmation
-    cp_boost     : Final-Z multiplier for change-point-confirmed dates
-                    (default 1.15). Set 1.0 to disable the boost.
-    df_corp_actions : Optional corporate actions DataFrame with columns
-                    (symbol, ex_date, action_type). Rows whose trade_date
-                    matches a price-impacting ex_date (split / bonus /
-                    demerger / rights / face_value_split) are labelled
-                    is_corporate_action=True and excluded from df_flagged.
-                    Dividends and other action types are labelled but NOT
-                    suppressed — small dividends are not price-impacting.
-
-    Returns
-    -------
-    df_result   : Full DataFrame with all signal columns (incl. is_changepoint,
-                  cp_confirmed, is_corporate_action)
-    df_flagged  : Subset where |final_z| > z_threshold, computed AFTER the
-                  change-point boost so corroborated shocks rank higher
-    garch_loglik: GARCH log-likelihood (replaces RF R-squared in the UI)
+    Defers execution to the OOP CompositeAnomalyPipeline.
     """
-    df = build_features(df, rf_lags=rf_lags)
-
-    # Inject cross-asset features when available
-    df = _inject_cross_asset(df, df_cot=df_cot, df_fx=df_fx)
-
-    # Step 1 — Robust Z on return, range, and volume
-    df["z_return"] = robust_zscore(df["daily_return"].fillna(0), window=z_window)
-    df["z_range"]  = robust_zscore(df["range_pct"],              window=z_window)
-    df["z_robust"] = (df["z_return"].abs() + df["z_range"]) / 2.0
-    df["z_volume"] = robust_zscore(df["volume"].fillna(0),       window=z_window)
-
-    # Step 2 — GARCH(1,1) standardised residual Z  [replaces Random Forest]
-    df, garch_loglik = fit_garch_residuals(df)
-
-    # Step 3 — Isolation Forest confidence multiplier (enriched features)
-    df = fit_isolation_forest(df, contamination=contamination)
-
-    # Step 4 — PELT change-point detection on standardised log-returns
-    df = fit_change_points(
-        df, penalty=cp_penalty, proximity_days=cp_proximity_days
+    pipeline = CompositeAnomalyPipeline(
+        z_threshold=z_threshold,
+        cp_boost=cp_boost,
+        df_cot=df_cot,
+        df_fx=df_fx,
+        df_corp_actions=df_corp_actions,
     )
-
-    # Classify regimes + compute Final Z
-    df = classify_regime(df)
-
-    # Change-point confirmation booster: a point shock that ALREADY exceeds the
-    # z_threshold (i.e. GARCH+IF flagged it independently) AND falls within
-    # ±proximity_days of a PELT structural break → corroborated by two
-    # independent views, so amplify its Final Z.
-    #
-    # Gate to pre-flagged rows to prevent CPD alone from pushing sub-threshold
-    # days into df_flagged as false positives.
-    #
-    # Regime relabelling: only rows not already carrying a more specific
-    # actionable regime (Flash Crash carries EXIT + 0.5x risk multiplier;
-    # overwriting it would silently double the allowed position weight).
-    if cp_boost != 1.0 and bool(df["cp_confirmed"].any()):
-        pre_flagged = df["final_z_abs"] > z_threshold
-        mask = df["cp_confirmed"] & pre_flagged
-        if mask.any():
-            df.loc[mask, "final_z"] = df.loc[mask, "final_z"] * cp_boost
-            df.loc[mask, "final_z_abs"] = df.loc[mask, "final_z"].abs()
-            # Only relabel rows whose regime doesn't already carry a stronger
-            # directional signal (Flash Crash, Volatile Breakout).
-            _keep = df["regime"].str.contains("Flash Crash|Volatile Breakout", na=False)
-            relabel = mask & ~_keep
-            df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
-
-    # ── Corporate action suppression ─────────────────────────────────────────
-    # Price jumps on ex-dates of splits / bonuses / demergers / rights are
-    # mechanical — not informational shocks — and must not be flagged as
-    # anomalies. Marking them here allows callers (chart, report) to display
-    # a distinct 🏦 marker instead of a red anomaly dot.
-    # is_corporate_action=True  → labelled for chart 🏦 marker on ALL ca types
-    # suppress_corporate_action → True only for price-impacting types that
-    #   must NOT appear in df_flagged (split / bonus / demerger / rights /
-    #   face_value_split). Dividends are labelled but not suppressed.
-    df["is_corporate_action"]    = False
-    df["suppress_corp_action"]   = False
-    if df_corp_actions is not None and not df_corp_actions.empty:
-        from src.importer.fetchers.nse_corporate_actions_fetcher import PRICE_IMPACTING_TYPES
-        ca = df_corp_actions.copy()
-        ca["ex_date"] = pd.to_datetime(ca["ex_date"]).dt.normalize()
-        all_ca_dates      = set(ca["ex_date"])
-        suppress_dates    = set(ca.loc[ca["action_type"].isin(PRICE_IMPACTING_TYPES), "ex_date"])
-        df["trade_date"]  = pd.to_datetime(df["trade_date"]).dt.normalize()
-        df["is_corporate_action"]  = df["trade_date"].isin(all_ca_dates)
-        df["suppress_corp_action"] = df["trade_date"].isin(suppress_dates)
-        # Relabel suppressed rows so the regime column is informative
-        df.loc[df["suppress_corp_action"], "regime"] = "🏦 Corporate Action"
-
-    df_flagged = df[
-        (df["final_z_abs"] > z_threshold) &
-        ~df["suppress_corp_action"]
-    ].copy()
-    return df, df_flagged, garch_loglik
+    df_res, df_flagged = pipeline.run(
+        df,
+        rf_lags=rf_lags,
+        contamination=contamination,
+        z_window=z_window,
+        cp_penalty=cp_penalty,
+        cp_proximity_days=cp_proximity_days,
+    )
+    return df_res, df_flagged, pipeline.garch_loglik
