@@ -1062,8 +1062,14 @@ def publish_consolidated_pdf(
         raw_html_bytes = _generate_html_bytes(
             report_markdown, symbols=sym_list, title=title, report_type=report_type
         )
+    except ModuleNotFoundError as exc:
+        return (
+            f"❌ Report generation failed — missing dependency: `{exc.name}`.\n"
+            f"The Docker image needs to be rebuilt to install it:\n"
+            f"  docker compose build && docker compose up -d ui files"
+        )
     except Exception as exc:
-        return f"Report generation failed: {exc}"
+        return f"❌ Report generation failed: {exc}"
 
     if fmt == "html":
         out_path = _OUTPUT_DIR / f"{stem}.html"
