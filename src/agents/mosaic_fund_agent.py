@@ -321,7 +321,8 @@ class MosaicFundAgent:
             if settings.llm_think:
                 extra_body["think"] = True
             # Thinking mode or deep dives need longer timeouts — qwen3 reasoning or slow scrapes
-            request_timeout = 300 if settings.llm_think else int(os.getenv("LLM_REQUEST_TIMEOUT", "300"))
+            import os as _os
+            request_timeout = 300 if settings.llm_think else int(_os.getenv("LLM_REQUEST_TIMEOUT", "300"))
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
