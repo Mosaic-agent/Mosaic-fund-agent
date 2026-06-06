@@ -4,6 +4,8 @@
 
 ### Quantitative co-pilot for Indian & global markets
 
+**[mosaic-agent.github.io/Mosaic-fund-agent](https://mosaic-agent.github.io/Mosaic-fund-agent/)**
+
 **ML-driven alpha · institutional flow tracking · volatility-aware position sizing — on a private, local-first data lake.**
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue) ![ClickHouse](https://img.shields.io/badge/storage-ClickHouse-yellow) ![LLM](https://img.shields.io/badge/LLM-OpenAI%20%7C%20Anthropic%20%7C%20Ollama-green) ![License](https://img.shields.io/badge/license-Apache%202.0-lightgrey)
