@@ -410,3 +410,48 @@ def test_news_quality_and_hierarchy_weights():
         anomaly_mod.run_composite_anomaly = original_anomaly
 
 
+def test_fx_validation_linregress_and_rolling_betas():
+    from unittest.mock import patch
+    import pandas as pd
+    import numpy as np
+
+    mock_prices = pd.DataFrame({
+        "trade_date": pd.date_range("2026-01-01", periods=100, freq="D"),
+        "open": np.linspace(100, 150, 100),
+        "high": np.linspace(101, 151, 100),
+        "low": np.linspace(99, 149, 100),
+        "close": np.linspace(100, 150, 100),
+        "volume": [1000.0] * 100,
+    })
+
+    mock_fx = pd.DataFrame({
+        "symbol": ["USDINR"] * 100,
+        "trade_date": pd.date_range("2026-01-01", periods=100, freq="D"),
+        "close": np.linspace(84, 80, 100),
+    })
+
+    def mock_query_df(sql, parameters=None):
+        if "fx_rates" in sql:
+            return mock_fx.copy()
+        elif "NIFTYBEES" in sql:
+            return pd.DataFrame({
+                "trade_date": pd.date_range("2026-01-01", periods=100, freq="D"),
+                "close": [10.0] * 100
+            })
+        else:
+            return mock_prices.copy()
+
+    with patch("src.tools.market.correlation_tools.query_df", side_effect=mock_query_df):
+        from src.tools.market.correlation_tools import find_anomaly_correlations
+        res_str = find_anomaly_correlations.func("MSUMI", lookback_days=100)
+        
+        assert "FX Statistical Validation" in res_str
+        assert "Correlation Coefficient" in res_str
+        assert "Beta" in res_str
+        assert "t-stat" in res_str
+        assert "R²" in res_str
+        assert "p-value" in res_str
+        assert "Rolling Betas" in res_str
+
+
+

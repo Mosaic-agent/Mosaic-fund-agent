@@ -273,25 +273,59 @@ class PostMacroShockStrategy(CorrelationStrategy):
             sub_ohlcv = df_ohlcv.iloc[start_idx:end_idx + 1]
             sub_anomaly = df_anomaly.iloc[start_idx:end_idx + 1]
 
-            # Measure price shock relative to pre-event close
-            prev_idx = max(0, trig_idx - 1)
-            prev_close = float(df_ohlcv.iloc[prev_idx]["close"])
+            # 1. Identify shock date in the window [T, T + W]
+            anom_indices = []
+            if "is_anomaly" in sub_anomaly.columns:
+                anom_indices = sub_anomaly[sub_anomaly["is_anomaly"] == True].index.tolist()
 
-            max_move_pct = 0.0
             shock_idx = start_idx
-
-            for idx in range(start_idx, end_idx + 1):
-                close_val = float(df_ohlcv.iloc[idx]["close"])
-                move = (close_val / prev_close) - 1.0
-                if abs(move) > abs(max_move_pct):
-                    max_move_pct = move
-                    shock_idx = idx
+            if anom_indices:
+                # Prioritize actual anomaly days: pick the one with largest absolute daily return
+                max_daily_ret = -1.0
+                for idx in anom_indices:
+                    close_prev = float(df_ohlcv.iloc[idx - 1]["close"]) if idx > 0 else float(df_ohlcv.iloc[idx]["open"])
+                    close_curr = float(df_ohlcv.iloc[idx]["close"])
+                    daily_ret = (close_curr / close_prev) - 1.0 if close_prev > 0 else 0.0
+                    if abs(daily_ret) > max_daily_ret:
+                        max_daily_ret = abs(daily_ret)
+                        shock_idx = idx
+            else:
+                # Fallback: day with largest absolute daily return in the window
+                max_daily_ret = -1.0
+                for idx in range(start_idx, end_idx + 1):
+                    close_prev = float(df_ohlcv.iloc[idx - 1]["close"]) if idx > 0 else float(df_ohlcv.iloc[idx]["open"])
+                    close_curr = float(df_ohlcv.iloc[idx]["close"])
+                    daily_ret = (close_curr / close_prev) - 1.0 if close_prev > 0 else 0.0
+                    if abs(daily_ret) > max_daily_ret:
+                        max_daily_ret = abs(daily_ret)
+                        shock_idx = idx
 
             shock_date = pd.to_datetime(df_ohlcv.iloc[shock_idx]["trade_date"]).date()
-            is_anomaly_day = bool(sub_anomaly["is_anomaly"].any()) if "is_anomaly" in sub_anomaly.columns else False
+            
+            # Observed daily return on the shock date
+            close_prev = float(df_ohlcv.iloc[shock_idx - 1]["close"]) if shock_idx > 0 else float(df_ohlcv.iloc[shock_idx]["open"])
+            close_curr = float(df_ohlcv.iloc[shock_idx]["close"])
+            shock_return = (close_curr / close_prev) - 1.0 if close_prev > 0 else 0.0
+
+            # Benchmark return on the shock date
+            bench_return = 0.0
+            if df_benchmark is not None and not df_benchmark.empty:
+                shock_date_val = df_ohlcv.iloc[shock_idx]["trade_date"]
+                df_bench_match = df_benchmark[df_benchmark["trade_date"] == shock_date_val]
+                if not df_bench_match.empty:
+                    bench_idx_list = df_benchmark.index[df_benchmark["trade_date"] == shock_date_val].tolist()
+                    if bench_idx_list:
+                        b_idx = bench_idx_list[0]
+                        b_close_curr = float(df_benchmark.iloc[b_idx]["close"])
+                        b_close_prev = float(df_benchmark.iloc[b_idx - 1]["close"]) if b_idx > 0 else b_close_curr
+                        bench_return = (b_close_curr / b_close_prev) - 1.0 if b_close_prev > 0 else 0.0
+
+            abnormal_return = shock_return - bench_return
+
+            is_anomaly_day = bool(sub_anomaly.loc[shock_idx, "is_anomaly"]) if ("is_anomaly" in sub_anomaly.columns and shock_idx in sub_anomaly.index) else False
 
             # Calculate score based on price movement size & anomaly status
-            move_val = abs(max_move_pct) * 100.0
+            move_val = abs(shock_return) * 100.0
             score = min(100.0, move_val * 25.0)  # 4% move = 100 points
             if is_anomaly_day:
                 score = min(100.0, score + 20.0)
@@ -316,7 +350,7 @@ class PostMacroShockStrategy(CorrelationStrategy):
 
                 explanation = (
                     f"Anomaly day/shock on {shock_date} mapped {lag_days} days after macro event '{ev.label}'. "
-                    f"Asset exhibited maximum absolute return deviation of {max_move_pct*100:+.2f}% "
+                    f"Asset exhibited maximum absolute return deviation of {shock_return*100:+.2f}% "
                     f"with post-event anomaly flag: {is_anomaly_day}."
                 )
 
@@ -329,7 +363,7 @@ class PostMacroShockStrategy(CorrelationStrategy):
                         lead_lag_days=lag_days,
                         confidence=confidence,
                         explanation=explanation,
-                        abnormal_return=max_move_pct,
+                        abnormal_return=abnormal_return,
                     )
                 )
 
@@ -387,6 +421,21 @@ class CrossAssetCoMovementStrategy(CorrelationStrategy):
                     curr_close = float(df_ohlcv.iloc[idx]["close"])
                     daily_ret = (curr_close / prev_close) - 1.0 if prev_close > 0 else 0.0
 
+                    # Benchmark return on the shock date
+                    bench_return = 0.0
+                    if df_benchmark is not None and not df_benchmark.empty:
+                        anom_date_val = df_ohlcv.iloc[idx]["trade_date"]
+                        df_bench_match = df_benchmark[df_benchmark["trade_date"] == anom_date_val]
+                        if not df_bench_match.empty:
+                            b_idx_list = df_benchmark.index[df_benchmark["trade_date"] == anom_date_val].tolist()
+                            if b_idx_list:
+                                b_idx = b_idx_list[0]
+                                b_close_curr = float(df_benchmark.iloc[b_idx]["close"])
+                                b_close_prev = float(df_benchmark.iloc[b_idx - 1]["close"]) if b_idx > 0 else b_close_curr
+                                bench_return = (b_close_curr / b_close_prev) - 1.0 if b_close_prev > 0 else 0.0
+
+                    abnormal_return = daily_ret - bench_return
+
                     findings.append(
                         CorrelationFinding(
                             anomaly_date=anom_date,
@@ -396,7 +445,7 @@ class CrossAssetCoMovementStrategy(CorrelationStrategy):
                             lead_lag_days=days_diff,
                             confidence=confidence,
                             explanation=explanation,
-                            abnormal_return=daily_ret,
+                            abnormal_return=abnormal_return,
                         )
                     )
 

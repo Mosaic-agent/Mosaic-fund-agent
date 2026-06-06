@@ -673,11 +673,12 @@ class CompositeAnomalyPipeline:
             df["suppress_corp_action"] = df["trade_date"].isin(suppress_dates)
             df.loc[df["suppress_corp_action"], "regime"] = "🏦 Corporate Action"
 
-        df_flagged = df[
-            (df["final_z_abs"] > self.z_threshold) &
-            ~df["suppress_corp_action"]
-        ].copy()
+        # Populate is_anomaly flag
+        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
+
+        df_flagged = df[df["is_anomaly"]].copy()
         return df, df_flagged
+
 
 
 # ── Full pipeline wrapper (Backward Compatible) ──────────────────────────────

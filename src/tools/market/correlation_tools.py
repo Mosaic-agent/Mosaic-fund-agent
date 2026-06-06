@@ -130,6 +130,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     beta_fx = 0.0
     r_squared = 0.0
     p_value = 1.0
+    t_stat = 0.0
     if not df_usdinr.empty and not df_ohlcv.empty:
         df_fx_sorted = df_usdinr.sort_values("trade_date").copy()
         df_fx_sorted["fx_return"] = df_fx_sorted["close"].pct_change()
@@ -143,16 +144,35 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         if len(df_merged) >= 10:
             try:
                 import scipy.stats as stats
-                correlation, p_value = stats.pearsonr(df_merged["stock_return"], df_merged["fx_return"])
+                # Perform linear regression to calculate beta, standard error, t-stat, p-value, R-squared
+                # Dependent variable (y): stock_return, Independent variable (x): fx_return
+                res = stats.linregress(df_merged["fx_return"], df_merged["stock_return"])
+                beta_fx = res.slope
+                correlation = res.rvalue
+                r_squared = res.rvalue ** 2
+                p_value = res.pvalue
+                t_stat = res.slope / res.stderr if res.stderr and res.stderr > 0 else 0.0
             except Exception as e:
-                log.warning("scipy.stats.pearsonr failed, falling back: %s", e)
+                log.warning("scipy.stats.linregress failed, falling back: %s", e)
                 correlation = df_merged["stock_return"].corr(df_merged["fx_return"])
+                r_squared = correlation ** 2
                 p_value = 1.0
+                cov = df_merged["stock_return"].cov(df_merged["fx_return"])
+                var_fx = df_merged["fx_return"].var()
+                beta_fx = cov / var_fx if var_fx > 0 else 0.0
+                t_stat = 0.0
 
-            r_squared = correlation ** 2
-            cov = df_merged["stock_return"].cov(df_merged["fx_return"])
-            var_fx = df_merged["fx_return"].var()
-            beta_fx = cov / var_fx if var_fx > 0 else 0.0
+            # Compute windowed betas for 60, 120, and 252 trading days
+            def compute_window_beta(df_sub):
+                if len(df_sub) < 10:
+                    return 0.0
+                cov = df_sub["stock_return"].cov(df_sub["fx_return"])
+                var_fx = df_sub["fx_return"].var()
+                return cov / var_fx if var_fx > 0 else 0.0
+
+            beta_60 = compute_window_beta(df_merged.tail(60))
+            beta_120 = compute_window_beta(df_merged.tail(120))
+            beta_252 = compute_window_beta(df_merged.tail(252))
 
             significance = "Weak / Insignificant"
             if abs(correlation) >= 0.4:
@@ -160,7 +180,6 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
             elif abs(correlation) >= 0.2:
                 significance = "Moderate"
 
-            direction = "positive" if beta_fx > 0 else "inverse (negative)"
             sig_text = "statistically significant" if p_value < 0.05 else "not statistically significant"
             interpretation = (
                 f"USDINR explains ~{r_squared*100:.1f}% of {sym} return variance. "
@@ -170,9 +189,10 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
             validation_block = (
                 "\n### 💱 FX Statistical Validation (USDINR)\n"
                 f"• **Correlation Coefficient ($r$):** `{correlation:.4f}` ({significance} linear correlation)\n"
-                f"• **Beta ($\\beta_{{FX}}$) relative to USDINR:** `{beta_fx:.4f}`\n"
+                f"• **Beta ($\\beta_{{FX}}$) relative to USDINR:** `{beta_fx:.4f}` (t-stat: `{t_stat:.2f}`)\n"
                 f"• **R² (Coefficient of Determination):** `{r_squared:.4f}`\n"
                 f"• **p-value:** `{p_value:.4f}`\n"
+                f"• **Rolling Betas:** 60d: `{beta_60:.4f}` | 120d: `{beta_120:.4f}` | 252d: `{beta_252:.4f}`\n"
                 f"• **Interpretation:** {interpretation}\n"
             )
 
@@ -283,7 +303,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         f"• **Geopolitical:** `{driver_stats["Geopolitical Shocks"]["count"]}` events (`{geo_pct:.0f}%`)\n\n"
         f"• **Most Influential Factor:** **{most_influential_factor}**\n"
         f"• **FX Correlation:** `r = {correlation:.2f}`\n"
-        f"• **FX Beta:** `β = {beta_fx:.2f}`\n"
+        f"• **FX Beta:** `β = {beta_fx:.2f}` (t-stat: `{t_stat:.2f}`)\n"
         f"• **Highest Confidence Attribution:** {highest_confidence_str}\n"
         f"• **Largest Price Shock:** `{largest_pos_shock_date}` (`{largest_pos_shock_val:+.2f}%`)\n"
         f"• **Largest Negative Shock:** `{largest_neg_shock_date}` (`{largest_neg_shock_val:+.2f}%`)\n"
