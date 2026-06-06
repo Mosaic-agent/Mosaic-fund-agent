@@ -15,11 +15,11 @@ An independent `z_volume` score is also computed on raw volume.
 
 ## Step 2 — GARCH(1,1) Standardised Residual
 
-Replaces the previous Random Forest step. Daily log-returns are near a random walk (RF R²≈0.32, firing on 21% of days); GARCH models **conditional volatility** σ_t directly:
+Replaces the previous Random Forest step. Daily log-returns are near a random walk (RF R²≈0.32, firing on 21% of days); GARCH models **conditional volatility** $\sigma_t$ directly:
 
-$$\sigma^2_t = \omega + \alpha \cdot \varepsilon^2_{t-1} + \beta \cdot \sigma^2_{t-1}$$
+$$\sigma_t^2 = \omega + \alpha \cdot \varepsilon_{t-1}^2 + \beta \cdot \sigma_{t-1}^2$$
 
-The **standardised residual** `e_t = r_t / σ_t` is the industry-standard financial anomaly score:
+The **standardised residual** $e_t = r_t / \sigma_t$ is the industry-standard financial anomaly score:
 - During quiet periods: σ_t is small → moderate returns are correctly flagged
 - During volatile periods: σ_t is large → only truly extreme moves flag
 - Fire rate: **~8%** (vs RF's 21%)
@@ -51,7 +51,7 @@ Isolation Forest is run on an enriched feature set:
 
 `score_samples` normalised to [0 → 1] (1 = most anomalous).
 
-$$Z_{final} = Z_{robust} \times (1 + IF_{confidence})$$
+$$Z_{final} = Z_{robust} \times (1 + \text{IF}_{\text{confidence}})$$
 
 This **boosts** days suspicious to both algorithms while filtering noise where only one signal fires.
 
@@ -68,7 +68,7 @@ Steps 2–3 detect **point shocks** (single surprising days). PELT detects **str
 
 **Role = confirmation booster** (it does *not* replace the Final-Z gate). A point anomaly that coincides with a structural break is corroborated by two independent views, so:
 
-$$Z_{final} \leftarrow Z_{final} \times cp\_boost \quad (\text{default } 1.15) \text{ where } cp\_confirmed$$
+$$Z_{final} \leftarrow Z_{final} \times \text{cp\_boost} \quad (\text{default } 1.15) \text{ where } \text{cp\_confirmed}$$
 
 and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z threshold still gates which dates are flagged; CPD only sharpens confidence and labelling.
 
@@ -106,11 +106,11 @@ Thresholds are dynamic (80th percentile of the full window) to prevent threshold
 
 `garch_vol` feeds directly into the **Risk Governor** ([risk_governor.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/risk_governor.py)):
 
-$$w(t) = \min\left(w_{max},\ \frac{\text{vol\_target}}{\sigma_t}\right) \times \text{regime\_mult} \times \text{trend\_mult} \times \text{score\_gate\_mult}$$
+$$w(t) = \min\left(w_{\max},\ \frac{\text{vol\_target}}{\sigma_t}\right) \times \text{regime\_mult} \times \text{trend\_mult} \times \text{score\_gate\_mult}$$
 
 Where:
 - $\text{vol\_target}$ is calibrated per asset class: 15% for Gold/safe-havens, 20% for domestic Equity ETFs, 18% for International ETFs, and 25% for single-name stocks.
-- $w_{max}$ is the weight cap (default 1.0, no leverage).
+- $w_{\max}$ is the weight cap (default 1.0, no leverage).
 - $\text{trend\_mult}$ is the trend filter multiplier (0.75 if price < 50-day EMA, else 1.0).
 - $\text{score\_gate\_mult}$ is the composite quant score gate (0.50 if composite score < 35, else 1.0).
 
