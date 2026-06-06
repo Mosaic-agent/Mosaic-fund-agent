@@ -25,6 +25,27 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+# matplotlib is an optional dependency for pandas Styler.background_gradient.
+# Guard all gradient styling so the UI degrades gracefully when it's missing
+# (e.g. stale Docker image built before matplotlib was added to requirements.txt).
+try:
+    import matplotlib  # noqa: F401
+    _HAS_MATPLOTLIB = True
+except ImportError:
+    _HAS_MATPLOTLIB = False
+
+
+def _gradient_dataframe(df: pd.DataFrame, style_fn, **st_kwargs) -> None:
+    """Call st.dataframe with gradient styling when matplotlib is available,
+    falling back to plain st.dataframe otherwise."""
+    if _HAS_MATPLOTLIB:
+        try:
+            st.dataframe(style_fn(df.style), **st_kwargs)
+            return
+        except Exception:
+            pass
+    st.dataframe(df, **st_kwargs)
+
 # Ensure project root is importable when running as `streamlit run src/ui/app.py`
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -5565,8 +5586,9 @@ with tab_intl_etf:
         st.plotly_chart(R["perf_chart"], use_container_width=True)
 
         display_perf = perf.drop(columns=["_sym"], errors="ignore")
-        st.dataframe(
-            display_perf.style
+        _gradient_dataframe(
+            display_perf,
+            lambda s: s
                 .background_gradient(subset=["3Y Ret %", "1Y Ret %", "6M Ret %"], cmap="RdYlGn")
                 .background_gradient(subset=["Sharpe", "Calmar"], cmap="Blues")
                 .background_gradient(subset=["Max DD %"], cmap="RdYlGn_r"),
@@ -5601,10 +5623,11 @@ with tab_intl_etf:
             st.divider()
 
         st.plotly_chart(R["prem_chart"], use_container_width=True)
-        st.dataframe(
-            prem_stats.style.background_gradient(
-                subset=["Current %", "Mean %", "Trend /mo"], cmap="YlOrRd"
-            ).background_gradient(subset=["Anomaly Days"], cmap="Reds"),
+        _gradient_dataframe(
+            prem_stats,
+            lambda s: s
+                .background_gradient(subset=["Current %", "Mean %", "Trend /mo"], cmap="YlOrRd")
+                .background_gradient(subset=["Anomaly Days"], cmap="Reds"),
             hide_index=True,
             use_container_width=True,
         )
@@ -5643,8 +5666,9 @@ with tab_intl_etf:
         if not R["usdinr_corr"].empty:
             st.subheader("USD/INR Correlation")
             st.caption("Low/negative correlation → INR depreciation does NOT reliably boost short-term Indian prices of these ETFs.")
-            st.dataframe(
-                R["usdinr_corr"].style.background_gradient(
+            _gradient_dataframe(
+                R["usdinr_corr"],
+                lambda s: s.background_gradient(
                     subset=["Full-Period", "Last 6M"], cmap="RdBu", vmin=-0.5, vmax=0.5
                 ),
                 hide_index=True,
@@ -5666,8 +5690,9 @@ with tab_intl_etf:
         st.plotly_chart(R["season_chart"], use_container_width=True)
         if not R["season_bw"].empty:
             st.subheader("Best / Worst Months & Half-Year Bias")
-            st.dataframe(
-                R["season_bw"].style
+            _gradient_dataframe(
+                R["season_bw"],
+                lambda s: s
                     .background_gradient(subset=["Best Ret %"], cmap="Greens")
                     .background_gradient(subset=["Worst Ret %"], cmap="Reds_r"),
                 hide_index=True,
@@ -5697,8 +5722,9 @@ with tab_intl_etf:
                 f"{best_acc['CV Accuracy']:.1f}% accuracy (random = 50%)",
             )
             st.divider()
-            st.dataframe(
-                R["lgbm_df"].style.background_gradient(
+            _gradient_dataframe(
+                R["lgbm_df"],
+                lambda s: s.background_gradient(
                     subset=["CV Accuracy"], cmap="RdYlGn", vmin=45, vmax=60
                 ),
                 hide_index=True,
@@ -5729,13 +5755,14 @@ with tab_intl_etf:
                     icon="⚠️",
                 )
             st.plotly_chart(R["dd_chart"], use_container_width=True)
-            st.dataframe(
-                dd_df.drop(columns=["Recovered"]).style.background_gradient(
-                    subset=["Max DD %"], cmap="Reds_r"
-                ).background_gradient(
-                    subset=["Recovery Days"], cmap="YlOrRd",
-                    gmap=pd.to_numeric(dd_df["Recovery Days"], errors="coerce"),
-                ),
+            _gradient_dataframe(
+                dd_df.drop(columns=["Recovered"]),
+                lambda s: s
+                    .background_gradient(subset=["Max DD %"], cmap="Reds_r")
+                    .background_gradient(
+                        subset=["Recovery Days"], cmap="YlOrRd",
+                        gmap=pd.to_numeric(dd_df["Recovery Days"], errors="coerce"),
+                    ),
                 hide_index=True,
                 use_container_width=True,
             )
