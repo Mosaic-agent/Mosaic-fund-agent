@@ -36,7 +36,105 @@ From the combined output, tell me:
 - A concrete 1-2 sentence "what to watch today" summary
 ```
 
-### 2. End-of-Day Review
+### 2. Why Did the Market Fall Today? — Post-Mortem
+
+Run after a broad equity decline (NIFTYBEES or BANKBEES down > 0.5%) to attribute the cause.
+
+```
+Run the 5-step market-fall post-mortem for today.
+
+Step 1 — Institutional flow check (who sold?):
+
+  SELECT trade_date, fii_net_cr, dii_net_cr, (fii_net_cr + dii_net_cr) AS combined_net_cr
+  FROM market_data.fii_dii_flows FINAL
+  ORDER BY trade_date DESC LIMIT 5;
+
+  Interpret:
+  - fii_net_cr < -2000  → large institutional outflow (FII-driven sell-off)
+  - dii_net_cr > 0 while fii_net_cr < 0 → domestic funds absorbing the blow (cushion)
+  - Both negative → panic selling across participant types
+
+Step 2 — Macro theme scan (what event triggered it?):
+
+  python src/main.py macro --max 4
+
+  Look for active bearish themes: Global Risk-Off, Fed/RBI Policy, Crude Oil Shock,
+  Trade War/Tariffs, Geopolitical. Net macro score ≤ -8 = macro-driven decline.
+  Report: which themes are active and their net ETF score from the output.
+
+Step 3 — ETF price damage map (what fell most and by how much?):
+
+  SELECT
+      d1.symbol,
+      round((d1.close - d2.close) / d2.close * 100, 2) AS day_return_pct,
+      d1.close AS today_close,
+      d2.close AS prev_close
+  FROM (
+      SELECT symbol, argMax(close, imported_at) AS close
+      FROM market_data.daily_prices FINAL
+      WHERE symbol IN ('NIFTYBEES','BANKBEES','ITBEES','GOLDBEES','SILVERBEES',
+                       'MIDSELECT','CPSEETF','MON100','HNGSNGBEES','MAFANG')
+        AND trade_date = today()
+      GROUP BY symbol
+  ) d1
+  JOIN (
+      SELECT symbol, argMax(close, imported_at) AS close
+      FROM market_data.daily_prices FINAL
+      WHERE symbol IN ('NIFTYBEES','BANKBEES','ITBEES','GOLDBEES','SILVERBEES',
+                       'MIDSELECT','CPSEETF','MON100','HNGSNGBEES','MAFANG')
+        AND trade_date = (
+            SELECT max(trade_date) FROM market_data.daily_prices FINAL
+            WHERE trade_date < today()
+        )
+      GROUP BY symbol
+  ) d2 ON d1.symbol = d2.symbol
+  ORDER BY day_return_pct ASC;
+
+  Safe-haven read:
+  - GOLDBEES UP + equities DOWN → global risk-off (fear bid) — macro or geopolitical shock
+  - GOLDBEES DOWN + equities DOWN → broad liquidity squeeze or margin-call selling
+  - GOLDBEES FLAT + equities DOWN → domestic event (RBI, budget, election, earnings miss)
+
+Step 4 — News sentiment (what is the headline driver?):
+
+  python src/main.py etf-news --max 4 --save
+
+  Look for NEGATIVE-tagged articles. If the top 3 share a keyword (e.g., RBI, crude,
+  tariff, earnings miss, INR) → that keyword IS the headline driver. Quote those
+  headlines verbatim from the output; do not paraphrase or invent.
+
+Step 5 — USDINR pressure (currency-linked selling?):
+
+  SELECT trade_date, argMax(close, imported_at) AS usdinr
+  FROM market_data.daily_prices FINAL
+  WHERE symbol = 'USDINR=X' AND trade_date >= today() - 5
+  GROUP BY trade_date
+  ORDER BY trade_date DESC LIMIT 5;
+
+  INR weakening > 0.3% in 1 day → FII USD mark-to-market loss → forced selling.
+  Also triggers imported-inflation fears → bearish for equities, bullish for GOLDBEES.
+
+---
+From all five outputs, write the post-mortem covering exactly these points:
+
+**Primary cause**: one sentence naming the trigger (FII outflow / macro theme / INR shock /
+  earnings / liquidity), using only numbers visible in the output above.
+
+**Confirming signals**: which of the other 4 steps corroborate the primary cause.
+
+**Contradicting signals**: any signal that does NOT fit the narrative — state it explicitly
+  rather than omitting it.
+
+**Safe-haven verdict**: GOLDBEES direction + what it reveals about the fall's nature
+  (global fear vs domestic event vs liquidity crunch).
+
+**DII cushion**: was domestic money absorbing the FII selling, absent, or also selling?
+
+**Actionable takeaway**: one sentence — hold, add on weakness, or reduce exposure —
+  grounded in signal data only. Never use training knowledge for market levels.
+```
+
+### 3. End-of-Day Review
 
 Run after 3:30 PM IST market close to capture the full day's picture.
 
@@ -54,7 +152,7 @@ From the output, produce a summary covering:
 - One concrete action item for tomorrow's session
 ```
 
-### 3. Weekend Data Maintenance
+### 4. Weekend Data Maintenance
 
 Saturday/Sunday data pipeline refresh and validation.
 
@@ -79,7 +177,7 @@ After each step, confirm success or flag any failures. At the end, summarize: to
 
 ## B. Signal Analysis & Trading
 
-### 4. Signal Composite Drill-Down
+### 5. Signal Composite Drill-Down
 
 Deep-dive into why a specific ETF has its current composite score.
 
@@ -98,7 +196,7 @@ Then pick the ETF with the highest composite score and the one with the lowest. 
 Explain which pillar is the strongest contributor and which is dragging the score.
 ```
 
-### 5. Gold vs Silver Rotation Decision
+### 6. Gold vs Silver Rotation Decision
 
 Decide whether to hold GOLDBEES or rotate into SILVERBEES.
 
@@ -125,7 +223,7 @@ I need to decide whether to hold GOLDBEES or rotate into SILVERBEES. Analyze:
 Based on all three inputs, recommend: stay in GOLDBEES, rotate to SILVERBEES, or split allocation.
 ```
 
-### 6. International ETF Scarcity Premium Entry
+### 7. International ETF Scarcity Premium Entry
 
 Check if MAFANG, HNGSNGBEES, or MON100 are at attractive entry points due to the RBI $7B overseas cap.
 
@@ -147,7 +245,7 @@ For any ETF showing SCREAMING BUY or GOOD ENTRY:
 
 ## C. News & Macro Monitoring
 
-### 7. Sector-Specific News Deep Dive
+### 8. Sector-Specific News Deep Dive
 
 Focus news scanning on specific sectors when there's a developing story.
 
@@ -163,7 +261,7 @@ From the output:
 - Cross-reference with FII/DII flows: query the last 5 days from market_data.fii_dii_flows to see if institutions are rotating between sectors
 ```
 
-### 8. Macro Theme Impact Matrix
+### 9. Macro Theme Impact Matrix
 
 When a macro event breaks, trace its impact across the full ETF universe.
 
@@ -180,7 +278,7 @@ From the output, build an impact matrix:
 - Identify the 3 ETFs with the strongest bullish net signal and the 3 with the strongest bearish
 ```
 
-### 9. Single Stock News Sentiment
+### 10. Single Stock News Sentiment
 
 Before adding a new position, run deep news analysis on a specific symbol.
 
@@ -200,7 +298,7 @@ From the output:
 
 ## D. Data Management
 
-### 10. ClickHouse Data Health Audit
+### 11. ClickHouse Data Health Audit
 
 Verify data completeness and freshness across all tables.
 
@@ -222,7 +320,7 @@ Then check the watermarks:
 Flag the 5 most stale watermarks and suggest the import commands to refresh them.
 ```
 
-### 11. Historical Backfill for a New ETF
+### 12. Historical Backfill for a New ETF
 
 When adding a new ETF to the tracking universe, walk through the full process.
 
@@ -248,7 +346,7 @@ I want to add a new ETF to the Mosaic Fund Agent tracking universe. Walk me thro
 
 ## E. Portfolio Analysis
 
-### 12. Full Portfolio Health Check
+### 13. Full Portfolio Health Check
 
 Comprehensive portfolio analysis with sector concentration and risk assessment.
 
@@ -267,7 +365,7 @@ From the output:
 - List the top 3 actionable rebalancing signals
 ```
 
-### 13. Portfolio Q&A Session
+### 14. Portfolio Q&A Session
 
 Interactive investigation using the ReAct agent loop.
 
@@ -287,7 +385,7 @@ After all 5 answers, synthesize the findings into a single "portfolio situation 
 
 ## F. ML & Anomaly Detection
 
-### 14. Multi-ETF Anomaly Scan
+### 15. Multi-ETF Anomaly Scan
 
 Run the 3-step composite anomaly pipeline to find unusual price action.
 
@@ -310,7 +408,7 @@ For any Flash Crash or Blow-off Top flags, cross-reference with news:
   python src/main.py etf-news --category "<relevant category>" --max 3
 ```
 
-### 15. LightGBM Forecast Accuracy Review
+### 16. LightGBM Forecast Accuracy Review
 
 Audit the ML model's prediction accuracy and feature importance.
 
@@ -335,7 +433,7 @@ Review the LightGBM trend predictor performance:
 Report: hit rate (predicted direction matched actual), average R-squared, top 3 features by importance, and whether the model needs more training data (< 120 rows is insufficient).
 ```
 
-### 16. Fresh ML Prediction + Cross-Reference
+### 17. Fresh ML Prediction + Cross-Reference
 
 Generate a new prediction and validate it against other signal sources.
 
@@ -361,7 +459,7 @@ Do all three agree with the ML prediction? If they diverge, explain which to tru
 
 ## G. Institutional Flow Analysis
 
-### 17. FII/DII Flow Trend Analysis
+### 18. FII/DII Flow Trend Analysis
 
 Understand institutional buying/selling patterns and market implications.
 
@@ -386,7 +484,7 @@ From the data:
 - Based on the inst_net_momentum feature (used in the ML model), what does the current flow regime predict for the next 5 days?
 ```
 
-### 18. Who Is Selling GOLDBEES — Full Attribution
+### 19. Who Is Selling GOLDBEES — Full Attribution
 
 When GOLDBEES drops, determine if it's retail panic, institutional exit, speculator unwinding, or central bank dynamics.
 
@@ -418,7 +516,7 @@ Report:
 
 ## H. Ad-Hoc Investigation
 
-### 19. Cross-Asset Correlation Check
+### 20. Cross-Asset Correlation Check
 
 Investigate whether traditional Gold-Nifty negative correlation still holds.
 
@@ -445,7 +543,7 @@ Run a cross-asset correlation check between GOLDBEES and NIFTYBEES:
 5. If diversification has failed (correlation > 0.5), recommend which ETF from the universe (GILT5YBEES, LIQUIDBEES, HNGSNGBEES, MON100) to add for restoring negative correlation.
 ```
 
-### 20. MF Holdings "Smart Money" Tracker
+### 21. MF Holdings "Smart Money" Tracker
 
 Check what institutional multi-asset funds (DSP, Quant, ICICI) are holding and detect allocation shifts.
 
@@ -499,7 +597,7 @@ NOTE: Columns are security_name, pct_of_nav, market_value_cr — NOT name/weight
 
 ## I. DSP Fund Analysis
 
-### 21. DSP Fund Month-over-Month Return Analysis
+### 22. DSP Fund Month-over-Month Return Analysis
 
 Analyse NAV returns for any DSP fund over any lookback period.
 
@@ -522,7 +620,7 @@ Which fund delivered better risk-adjusted returns over the period?
 Note: DSP Multi Asset Omni FoF launched in late 2025 — limited history is expected.
 ```
 
-### 22. DSP Holdings X-Ray — What's Inside the Fund
+### 23. DSP Holdings X-Ray — What's Inside the Fund
 
 Deep-dive into a DSP fund's portfolio composition across multiple months.
 
@@ -568,7 +666,7 @@ From the data:
 - Cross-reference the equity holdings vs signal aggregator: python src/main.py signals
 ```
 
-### 23. DSP Fund Comparison — Pick the Best Multi-Asset Option
+### 24. DSP Fund Comparison — Pick the Best Multi-Asset Option
 
 Compare DSP Multi Asset vs DSP Multi Asset Omni FoF side by side.
 

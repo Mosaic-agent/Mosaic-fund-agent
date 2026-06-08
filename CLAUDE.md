@@ -132,9 +132,10 @@ Database: `market_data`. Tables are auto-created on first import (DDL in `src/im
 
 ## User Context
 
-Dhiraj's wife is a treasurer at a major Indian AMC. Her domain expertise shaped the
-platform's fund/ETF signal design, macro theme mapping, and institutional flow
-interpretation. Assume strong domain knowledge — skip basic MF/ETF/flow definitions.
+Dhiraj is a data enthusiast with deep interest in Indian capital markets and a network
+of quant friends. Their collective expertise shaped the platform's fund/ETF signal
+design, macro theme mapping, and institutional flow interpretation. Assume strong
+domain knowledge — skip basic MF/ETF/flow definitions.
 
 ## MCP Tools (ofin-pipeline server)
 

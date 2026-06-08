@@ -14,10 +14,28 @@
 
 ---
 
-Mosaic syncs **13+ data sources** into a local ClickHouse lake, then layers ML forecasting, GARCH anomaly detection, composite ETF signals, and a multi-agent LLM guild on top. Every number an agent reports is computed in Python or SQL first — the LLM only narrates pre-computed results.
+**Mosaic** is a private, local-first quantitative research platform for active investors in Indian equity and commodity markets. It connects directly to a live **Zerodha portfolio** via MCP, delta-syncs **13+ data sources** into a local ClickHouse lake, and runs ML forecasting, GARCH volatility modelling, institutional flow analysis, and a multi-agent LLM guild — entirely on your own machine. No data leaves your environment.
+
+The core design principle is strict: **all numeric work happens in Python or SQL; the LLM only narrates pre-computed results.** Every signal, return, ratio, and Kelly fraction is produced by code before the agent sees it.
+
+### What it does
+
+**Data lake** — Delta-sync from Yahoo Finance, NSE, CFTC COT reports, MF NAVs, FII/DII flows, COMEX metals, IMF/World Bank macro indicators, ETF iNAV snapshots, DSP fund holdings (Morningstar), expert sentiment feeds, and NSE corporate actions. A per-source watermark system fetches only new rows on each run; `ReplacingMergeTree` storage makes repeated imports idempotent.
+
+**5-day ML forecast** — A LightGBM classifier trained on rolling walk-forward cross-validation produces a directional probability (`prob_up`), quantile confidence bands, and a `cv_skill` score. The model cache is keyed by trade date and row count and auto-invalidated when fresh price data arrives via the `EventBus`.
+
+**Composite anomaly detection** — A 4-step pipeline per symbol: MAD robust Z-score → GARCH(1,1) volatility-standardised residuals → Isolation Forest confidence multiplier → PELT change-point detection. Corporate actions (splits, bonuses, demergers) are automatically excluded from anomaly labels and rendered as a separate chart layer.
+
+**ETF signal aggregator** — 18 ETFs scored across 6 pillars: macro theme alignment, institutional FII/DII flows, valuation, news sentiment, ML forecast, and GARCH volatility regime. Each pillar is a `SignalSource` subclass; adding a new pillar requires only subclassing and appending to the aggregator list.
+
+**Volatility-aware position sizing** — A Risk Governor computes inverse-volatility target weights; a Kelly optimizer derives growth-optimal weights from walk-forward hit ratios. The recommended output is a `blended_50` weight (50% RG + 50% Kelly), with a `blended_30` conservative fallback.
+
+**Multi-agent LLM guild** — A LangGraph ReAct orchestrator routes free-form queries to specialist sub-agents covering portfolio analysis, COMEX pre-market metals, macro theme scanning, ETF news sentiment, anomaly attribution, and iNAV premium/discount alerts.
 
 ```
-13+ sources → ClickHouse lake → signals / ML / GARCH / anomaly → LangGraph agents → CLI / dashboard
+Zerodha (MCP) ─┐
+13+ fetchers   ─┤→ ClickHouse lake → ML / GARCH / signals / anomaly → LangGraph agents → CLI / Streamlit
+NSE / CFTC / IMF┘
 ```
 
 ---
