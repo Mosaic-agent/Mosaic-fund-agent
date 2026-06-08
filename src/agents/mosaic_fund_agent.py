@@ -68,11 +68,42 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
     def __init__(self) -> None:
         self.console = Console()
         self._llm_start_time = None
+        self._reasoning_started = False
+        self._reasoning_ended   = False
 
     def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
         import time
         self.console.print("\n[bold cyan]🤖 Thinking...[/bold cyan]")
-        self._llm_start_time = time.time()
+        self._llm_start_time    = time.time()
+        self._reasoning_started = False
+        self._reasoning_ended   = False
+
+    def on_llm_new_token(self, token: str, *, chunk: Any = None, **kwargs: Any) -> None:
+        """Stream reasoning tokens live as the model thinks."""
+        if not settings.llm_think:
+            return
+        # Extract the reasoning delta from the streaming chunk
+        reasoning_token = ""
+        if chunk is not None:
+            msg = getattr(chunk, "message", chunk)
+            ak  = getattr(msg, "additional_kwargs", {}) or {}
+            reasoning_token = ak.get("reasoning", "")
+
+        if reasoning_token:
+            if not self._reasoning_started:
+                self._reasoning_started = True
+                # Print the header then stream inline
+                self.console.print("\n[bold magenta]💭 Reasoning[/bold magenta]")
+                self.console.print("[magenta]─[/magenta]" * 60)
+            # Write the token directly — bypass Rich markup so box-chars render cleanly
+            self.console.file.write(reasoning_token)
+            self.console.file.flush()
+
+        elif token and self._reasoning_started and not self._reasoning_ended:
+            # First content token after reasoning — close the block
+            self._reasoning_ended = True
+            self.console.file.write("\n")
+            self.console.print("[magenta]─[/magenta]" * 60 + "\n")
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         try:
@@ -86,8 +117,8 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
             token_usage = {}
             model_name = settings.llm_model
 
-            # Extract and display native thinking content (qwen3 / deepseek-r1 via Ollama think=true)
-            if settings.llm_think and response and hasattr(response, "generations") and response.generations:
+            # Extract and display thinking — only if streaming didn't already render it live
+            if settings.llm_think and not self._reasoning_started and response and hasattr(response, "generations") and response.generations:
                 for gen_list in response.generations:
                     for gen in gen_list:
                         think_text = None
@@ -95,10 +126,14 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
                         msg = getattr(gen, "message", None)
                         if msg:
                             ak = getattr(msg, "additional_kwargs", {}) or {}
-                            think_text = ak.get("thinking") or ak.get("reasoning_content")
-                        # Fall back to extracting <think>...</think> from content text
+                            think_text = (ak.get("reasoning")        # Gemma4 GGUF via Ollama
+                                       or ak.get("thinking")      # qwen3 / deepseek-r1
+                                       or ak.get("reasoning_content"))
+                        # Fall back: extract <think>...</think> from raw text or message content
                         if not think_text:
                             raw = getattr(gen, "text", "") or ""
+                            if not raw and msg:
+                                raw = getattr(msg, "content", "") or ""
                             m = re.search(r"<think>(.*?)</think>", raw, re.DOTALL)
                             if m:
                                 think_text = m.group(1).strip()
@@ -326,12 +361,12 @@ class MosaicFundAgent:
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
-                # Local servers don't need a real key; use a placeholder if empty
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_body=extra_body,
                 timeout=request_timeout,
+                streaming=settings.llm_think,  # stream when thinking so reasoning renders live
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────
@@ -768,7 +803,7 @@ class MosaicFundAgent:
         try:
             messages = [HumanMessage(content=question)]
             config = {}
-            if os.getenv("VERBOSE") == "1":
+            if os.getenv("VERBOSE") == "1" or settings.llm_think:
                 config["callbacks"] = [RichConsoleCallbackHandler()]
 
             agent_timeout = int(os.getenv("AGENT_TIMEOUT", "300"))
@@ -995,7 +1030,7 @@ class MosaicFundAgent:
                 return f"Error: {exc}"
 
         config: dict = {"configurable": {"thread_id": thread_id}}
-        if os.getenv("VERBOSE") == "1":
+        if os.getenv("VERBOSE") == "1" or settings.llm_think:
             config["callbacks"] = [RichConsoleCallbackHandler()]
 
         # Clean up incomplete tool calls in history if any

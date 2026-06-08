@@ -751,7 +751,11 @@ def plot_garch_volatility_chart(symbol: str = "GOLDBEES", days: int = 90) -> str
     Example: plot_garch_volatility_chart("GOLDBEES", days=180)
     """
     try:
+        import pandas as pd
         from src.db.pool import query_df
+
+        _SPARSE_THRESHOLD = 30  # fewer unique pipeline-run days → use fresh fit
+
         df = query_df(f"""
             SELECT as_of,
                    toFloat64(argMax(garch_vol_pct,    created_at)) AS garch_vol,
@@ -762,14 +766,59 @@ def plot_garch_volatility_chart(symbol: str = "GOLDBEES", days: int = 90) -> str
             GROUP BY as_of
             ORDER BY as_of ASC
         """)
-        if df.empty:
-            return (
-                f"No GARCH data found for {symbol} in weight_checkpoints. "
-                "Run the GOLDBEES pipeline first: `run goldbees`"
-            )
 
-        dates   = df["as_of"].astype(str).tolist()
+        use_fresh = df.empty or len(df) < _SPARSE_THRESHOLD
+
+        if use_fresh:
+            # weight_checkpoints too sparse — run a fresh GARCH fit directly on
+            # daily_prices so every trading day has an accurate conditional vol.
+            try:
+                price_df = query_df(f"""
+                    SELECT trade_date,
+                           toFloat64(argMax(open,   imported_at)) AS open,
+                           toFloat64(argMax(high,   imported_at)) AS high,
+                           toFloat64(argMax(low,    imported_at)) AS low,
+                           toFloat64(argMax(close,  imported_at)) AS close,
+                           toFloat64(argMax(volume, imported_at)) AS volume
+                    FROM market_data.daily_prices FINAL
+                    WHERE symbol = '{symbol.upper()}'
+                    GROUP BY trade_date ORDER BY trade_date ASC
+                """)
+                if price_df.empty or len(price_df) < 60:
+                    return (
+                        f"No GARCH data found for {symbol} — need ≥60 rows in "
+                        "daily_prices. Run: `import --category etfs`"
+                    )
+                from src.ml.anomaly import build_features, fit_garch_residuals
+                price_df = build_features(price_df)
+                price_df, _ = fit_garch_residuals(price_df)
+                cutoff = pd.to_datetime(price_df["trade_date"].max()) - pd.Timedelta(days=days)
+                price_df = price_df[pd.to_datetime(price_df["trade_date"]) >= cutoff]
+                df = price_df[["trade_date", "garch_vol"]].dropna().copy()
+                df.columns = ["as_of", "garch_vol"]
+                df["regime"] = ""
+                source_label = "fresh fit"
+            except Exception as exc:
+                if df.empty:
+                    return f"No GARCH data for {symbol}: {exc}"
+                use_fresh = False  # fall back to whatever checkpoints we have
+                source_label = "checkpoints (sparse)"
+        else:
+            source_label = "checkpoints"
+
+        # weight_checkpoints is sparse (only populated on pipeline-run days).
+        # Forward-fill to every calendar day so the x-axis reflects real time spacing.
+        df["as_of"] = pd.to_datetime(df["as_of"])
+        df = df.set_index("as_of").sort_index()
+        full_idx = pd.date_range(df.index.min(), df.index.max(), freq="D")
+        df = df.reindex(full_idx).ffill().reset_index()
+        df.columns = ["as_of", "garch_vol", "regime"]
+        df = df.dropna(subset=["garch_vol"])
+
+        dates   = df["as_of"].dt.strftime("%Y-%m-%d").tolist()
         vols    = df["garch_vol"].tolist()
+        xs      = list(range(len(vols)))
+
         spark   = sparkline(vols)
         avg_vol = sum(vols) / len(vols)
 
@@ -780,13 +829,19 @@ def plot_garch_volatility_chart(symbol: str = "GOLDBEES", days: int = 90) -> str
         except Exception:
             target = 15.0
 
+        # X-tick labels: show ~5 evenly-spaced date labels instead of integers
+        n = len(dates)
+        tick_positions = [int(i * (n - 1) / 4) for i in range(5)] if n >= 5 else list(range(n))
+        tick_labels = [dates[i] for i in tick_positions]
+
         plt = _plt()
         plt.clear_figure()
-        plt.plot(list(range(len(vols))), vols,           label=f"GARCH vol  (avg {avg_vol:.1f}%)")
-        plt.plot(list(range(len(vols))), [target] * len(vols), label=f"Vol target ({target:.0f}%)")
-        plt.title(f"GARCH Annualised Volatility — {symbol}  |  {spark}")
-        plt.xlabel(f"{dates[0]} → {dates[-1]}")
+        plt.plot(xs, vols,                  label=f"GARCH vol  (avg {avg_vol:.1f}%)")
+        plt.plot(xs, [target] * len(vols),  label=f"Vol target ({target:.0f}%)")
+        plt.title(f"GARCH Annualised Volatility — {symbol}  |  {spark}  [{source_label}]")
+        plt.xlabel("Date")
         plt.ylabel("Volatility (%)")
+        plt.xticks(tick_positions, tick_labels)
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
         return _build(plt)
     except ImportError as exc:

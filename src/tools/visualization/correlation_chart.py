@@ -20,6 +20,13 @@ from src.ml.correlation import CorrelationFinding, EventType
 
 log = logging.getLogger(__name__)
 
+# Set backend once at module level — calling matplotlib.use("Agg") inside
+# functions rebuilds the font manager on every call (~200ms + memory spike).
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
 
 def _df_to_png(fig) -> str:
     """Save a matplotlib Figure to a base64-encoded PNG string."""
@@ -41,14 +48,6 @@ def _style_axes(ax, bg: str = "#0d0d1a") -> None:
     ax.title.set_color("#e0e0ff")
     ax.grid(color="#333355", linewidth=0.4, alpha=0.6)
 
-
-def _import_matplotlib():
-    """Lazy matplotlib import — avoids ModuleNotFoundError at startup when not installed."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
-    return plt, mdates
 
 
 def _event_style(event_type: EventType):
@@ -75,7 +74,6 @@ def render_correlation_timeline_png(
         return None
 
     try:
-        plt, mdates = _import_matplotlib()
 
         df_ohlcv = df_ohlcv.copy()
         df_ohlcv["trade_date"] = pd.to_datetime(df_ohlcv["trade_date"])
@@ -153,7 +151,6 @@ def render_lead_lag_grid_png(
         return None
 
     try:
-        plt, _ = _import_matplotlib()
 
         BG = "#0d0d1a"
         fig, ax = plt.subplots(figsize=(10, 5), facecolor=BG)

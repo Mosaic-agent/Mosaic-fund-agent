@@ -70,7 +70,7 @@ print(explain_decision(d))
 def explain_price_anomalies(
     symbol: str,
     exchange: str | None = "NSE",
-    days: int = 60,
+    days: int = 90,
     z_threshold: float = 3.0,
     contamination: float = 0.03,
 ) -> str:
@@ -79,6 +79,8 @@ def explain_price_anomalies(
     in the last N days, automatically query historical news for those dates, and explain the causes.
     Always call `plot_price_chart` in parallel with this tool to visually display the price trend.
     Use this when the user asks to explain GOLDBEES price anomalies, chart spikes, or sudden drops.
+    Default window is 90 days (~6-8 anomalies at 8% fire rate) — enough for one quarter of context.
+    Use days=30 for recent-only, days=180 for seasonal review.
     """
     import pandas as pd
     from datetime import datetime
@@ -304,7 +306,45 @@ def explain_price_anomalies(
     output.append("\n" + "─" * 40 + "\n")
     output.append("### 📰 Detailed Date-by-Date News Correlation:\n")
 
+    # ── Parallelise all network I/O: news searches + repo reads fire concurrently ──
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _fetch_date_context(item):
+        date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, regime, fz_str, query = item
+        result = {"item": item, "news": None, "ml_pred": None, "sig": None}
+        try:
+            news_output = search_financial_news.invoke(
+                {"query": query, "max_results": 3, "target_date": date_str}
+            )
+            if "No news found" in news_output:
+                news_output = search_financial_news.invoke(
+                    {"query": f"{symbol_upper} share price news", "max_results": 3, "target_date": date_str}
+                )
+            result["news"] = news_output
+        except Exception as exc:
+            result["news"] = f"❌ News search failed: {exc}"
+        if repo is not None:
+            try:
+                result["ml_pred"] = repo.ml_prediction_asof(date_str)
+                result["sig"]     = repo.signal_composite_asof(symbol_upper, date_str)
+            except Exception:
+                pass
+        return result
+
+    # Fire all date lookups in parallel (capped at 6 workers to avoid rate-limiting)
+    parallel_results: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=min(6, len(anomaly_queries))) as pool:
+        futures = {pool.submit(_fetch_date_context, item): item[0] for item in anomaly_queries}
+        for fut in as_completed(futures):
+            res = fut.result()
+            parallel_results[res["item"][0]] = res
+
     for date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, regime, fz_str, query in anomaly_queries:
+        ctx        = parallel_results.get(date_str, {})
+        news_output = ctx.get("news", "")
+        ml_pred     = ctx.get("ml_pred")
+        sig         = ctx.get("sig")
+
         output.append(
             f"#### 📅 Date: **{date_str}** | Close: ₹{close_px:.2f} | Daily Return: **{daily_ret:+.2f}%**"
         )
@@ -314,105 +354,82 @@ def explain_price_anomalies(
             output.append(f"- **Composite Final Z:** {fz_str}")
         output.append(f"- **20-Day Rolling Daily Volatility:** {vol_20d_str}")
         output.append(f"- **Trading Volume:** {vol_spike_str}")
-        output.append(f'*Searching news for: "{query}" on {date_str}...*')
+        output.append(news_output)
 
-        try:
-            news_output = search_financial_news.invoke(
-                {"query": query, "max_results": 3, "target_date": date_str}
+        if abs(daily_ret) >= 3.0 and news_output and "neutral" in news_output.lower():
+            output.append(
+                "\n> ⚠️ **Divergence signal:** Neutral news sentiment on a high-magnitude move — "
+                "possible policy surprise or pre-positioning before public announcement."
             )
-            if "No news found" in news_output:
-                fallback_query = f"{symbol_upper} share price news"
-                news_output = search_financial_news.invoke(
-                    {"query": fallback_query, "max_results": 3, "target_date": date_str}
-                )
-            output.append(news_output)
 
-            if abs(daily_ret) >= 3.0 and "neutral" in news_output.lower():
+        if quarterly_results:
+            news_lower = (news_output or "").lower()
+            earnings_keywords = ["result", "earning", "profit", "revenue", "q1", "q2", "q3", "q4", "sales"]
+            if any(kw in news_lower for kw in earnings_keywords):
+                output.append("\n**📊 Correlated Quarterly Financial Results:**")
+                output.append(f"- **Reporting Period:** {quarterly_results.get('period', 'N/A')}")
+
+                rev_yoy = quarterly_results.get("revenue_yoy_pct")
+                rev_cr  = quarterly_results.get("revenue_cr")
+                rev_str = f"₹{rev_cr:.2f} Cr" if isinstance(rev_cr, (int, float)) else str(rev_cr)
                 output.append(
-                    "\n> ⚠️ **Divergence signal:** Neutral news sentiment on a high-magnitude move — "
-                    "possible policy surprise or pre-positioning before public announcement."
+                    f"- **Revenue:** {rev_str} ({rev_yoy:+.2f}% YoY)"
+                    if isinstance(rev_yoy, (int, float))
+                    else f"- **Revenue:** {rev_str} ({rev_yoy} YoY)"
                 )
 
-            if quarterly_results:
-                news_lower = news_output.lower()
-                earnings_keywords = ["result", "earning", "profit", "revenue", "q1", "q2", "q3", "q4", "sales"]
-                if any(kw in news_lower for kw in earnings_keywords):
-                    output.append("\n**📊 Correlated Quarterly Financial Results:**")
-                    output.append(f"- **Reporting Period:** {quarterly_results.get('period', 'N/A')}")
-
-                    rev_yoy = quarterly_results.get("revenue_yoy_pct")
-                    rev_cr  = quarterly_results.get("revenue_cr")
-                    rev_str = f"₹{rev_cr:.2f} Cr" if isinstance(rev_cr, (int, float)) else str(rev_cr)
-                    output.append(
-                        f"- **Revenue:** {rev_str} ({rev_yoy:+.2f}% YoY)"
-                        if isinstance(rev_yoy, (int, float))
-                        else f"- **Revenue:** {rev_str} ({rev_yoy} YoY)"
-                    )
-
-                    prof_yoy = quarterly_results.get("profit_yoy_pct")
-                    prof_cr  = quarterly_results.get("net_profit_cr")
-                    prof_str = f"₹{prof_cr:.2f} Cr" if isinstance(prof_cr, (int, float)) else str(prof_cr)
-                    output.append(
-                        f"- **Net Profit:** {prof_str} ({prof_yoy:+.2f}% YoY)"
-                        if isinstance(prof_yoy, (int, float))
-                        else f"- **Net Profit:** {prof_str} ({prof_yoy} YoY)"
-                    )
-
-                    eps     = quarterly_results.get("eps")
-                    eps_yoy = quarterly_results.get("eps_yoy_pct")
-                    eps_str = f"₹{eps:.2f}" if isinstance(eps, (int, float)) else str(eps)
-                    output.append(
-                        f"- **EPS:** {eps_str} ({eps_yoy:+.2f}% YoY)"
-                        if isinstance(eps_yoy, (int, float))
-                        else f"- **EPS:** {eps_str} ({eps_yoy} YoY)"
-                    )
-
-                    if quarterly_results.get("guidance"):
-                        output.append(f"- **Guidance:** {quarterly_results.get('guidance')}")
-                    output.append(
-                        f"- **Source:** [Screener/Yahoo]({quarterly_results.get('source_url', '#')})"
-                    )
-
-        except Exception as exc:
-            output.append(f"  ❌ News search failed: {exc}")
-
-        # Forward ML/signal context as-of each anomaly date
-        if repo is not None:
-            try:
-                ml_pred = repo.ml_prediction_asof(date_str)
-                sig     = repo.signal_composite_asof(symbol_upper, date_str)
-                if ml_pred or sig:
-                    output.append("\n**📡 What the models said on this date:**")
-                if ml_pred:
-                    signal_label = ml_pred.get("regime_signal", "N/A")
-                    prob         = ml_pred.get("prob_up", 0.0)
-                    exp_ret      = ml_pred.get("expected_return_pct", 0.0)
-                    direction    = (
-                        "mean-reversion (bearish 5d expectation)"
-                        if exp_ret < 0
-                        else "continuation (bullish 5d expectation)"
-                    )
-                    output.append(
-                        f"- **ML (5d forecast):** `{signal_label}` | prob_up={prob:.0%} | "
-                        f"expected_return={exp_ret:+.2f}% → {direction}"
-                    )
-                if sig:
-                    action    = sig.get("action", "N/A")
-                    score     = sig.get("composite_score", 0.0)
-                    anom_flag = sig.get("anomaly_flag", "")
-                    verdict   = (
-                        "✅ Signal confirmed shock"
-                        if action in ("BUY", "WATCH_LONG")
-                        else "⚠️ Signal contradicted by shock"
-                    )
-                    output.append(
-                        f"- **Composite signal:** `{action}` (score={score:.1f}, anomaly_flag={anom_flag}) — {verdict}"
-                    )
-            except Exception as _e:
-                logger.warning(
-                    "Forward context lookup failed for %s on %s: %s", symbol_upper, date_str, _e
+                prof_yoy = quarterly_results.get("profit_yoy_pct")
+                prof_cr  = quarterly_results.get("net_profit_cr")
+                prof_str = f"₹{prof_cr:.2f} Cr" if isinstance(prof_cr, (int, float)) else str(prof_cr)
+                output.append(
+                    f"- **Net Profit:** {prof_str} ({prof_yoy:+.2f}% YoY)"
+                    if isinstance(prof_yoy, (int, float))
+                    else f"- **Net Profit:** {prof_str} ({prof_yoy} YoY)"
                 )
 
+                eps     = quarterly_results.get("eps")
+                eps_yoy = quarterly_results.get("eps_yoy_pct")
+                eps_str = f"₹{eps:.2f}" if isinstance(eps, (int, float)) else str(eps)
+                output.append(
+                    f"- **EPS:** {eps_str} ({eps_yoy:+.2f}% YoY)"
+                    if isinstance(eps_yoy, (int, float))
+                    else f"- **EPS:** {eps_str} ({eps_yoy} YoY)"
+                )
+
+                if quarterly_results.get("guidance"):
+                    output.append(f"- **Guidance:** {quarterly_results.get('guidance')}")
+                output.append(
+                    f"- **Source:** [Screener/Yahoo]({quarterly_results.get('source_url', '#')})"
+                )
+
+        # Forward ML/signal context (already fetched in parallel above)
+        if ml_pred or sig:
+            output.append("\n**📡 What the models said on this date:**")
+        if ml_pred:
+            signal_label = ml_pred.get("regime_signal", "N/A")
+            prob         = ml_pred.get("prob_up", 0.0)
+            exp_ret      = ml_pred.get("expected_return_pct", 0.0)
+            direction    = (
+                "mean-reversion (bearish 5d expectation)"
+                if exp_ret < 0
+                else "continuation (bullish 5d expectation)"
+            )
+            output.append(
+                f"- **ML (5d forecast):** `{signal_label}` | prob_up={prob:.0%} | "
+                f"expected_return={exp_ret:+.2f}% → {direction}"
+            )
+        if sig:
+            action    = sig.get("action", "N/A")
+            score     = sig.get("composite_score", 0.0)
+            anom_flag = sig.get("anomaly_flag", "")
+            verdict   = (
+                "✅ Signal confirmed shock"
+                if action in ("BUY", "WATCH_LONG")
+                else "⚠️ Signal contradicted by shock"
+            )
+            output.append(
+                f"- **Composite signal:** `{action}` (score={score:.1f}, anomaly_flag={anom_flag}) — {verdict}"
+            )
         output.append("\n" + "─" * 40 + "\n")
 
     # COMEX chart (gold/silver only)

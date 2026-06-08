@@ -31,6 +31,15 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# ── Matplotlib — set backend and pre-warm font manager once at import time ────
+# Calling matplotlib.use("Agg") inside each function causes the font manager
+# to rebuild on every tool call (expensive: ~200ms + memory spike per call).
+# Setting it here ensures a single font scan for the lifetime of the process.
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt    # noqa: E402 — triggers font cache build once at import
+import matplotlib.dates as mdates  # noqa: E402
+
 # ── Output directory ─────────────────────────────────────────────────────────
 
 _OUTPUT_DIR = Path("output") / "reports"
@@ -119,10 +128,6 @@ def render_price_chart_png(
     Returns base64 PNG string, or None if data unavailable.
     """
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
         import pandas as pd
         import numpy as np
 
@@ -234,10 +239,6 @@ def render_macd_chart_png(
     Returns base64 PNG string, or None if data unavailable.
     """
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
         import pandas as pd
         import numpy as np
 
@@ -328,10 +329,6 @@ def render_garch_vol_png(
     Falls back to computing from price returns if pipeline data absent.
     """
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
         import pandas as pd
         import numpy as np
 
@@ -400,9 +397,6 @@ def render_anomaly_clusters_png(
     Plots Daily Return vs. Intraday Range and colors by regime classification.
     """
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
         import pandas as pd
         import numpy as np
         from src.ml.anomaly import build_features, run_composite_anomaly

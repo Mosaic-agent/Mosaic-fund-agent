@@ -104,50 +104,63 @@ def _build_prompt_session():
 
 # ── Pre-execution plan builder ────────────────────────────────────────────────
 
-_INTENT_STEPS: dict[str, list[str]] = {
+# Step items can be:
+#   str                          — regular numbered step
+#   ("∥", [substeps], "label")  — parallel group rendered as a tree branch
+_INTENT_STEPS: dict[str, list] = {
     "india_equity": [
         "Resolve symbol for '{subject}'",
-        "Fetch current price, NAV, 52-week range, momentum",
-        "Get quarterly results (Screener.in / BSE fallback)",
-        "Check DSP Mutual Fund holdings",
-        "Fetch recent news & sentiment",
+        ("∥", [
+            "Fetch price, NAV, 52-week range, momentum",
+            "Get quarterly results  [Screener.in / BSE fallback]",
+            "Check DSP Mutual Fund holdings",
+            "Fetch recent news & sentiment  [GNews + NewsAPI]",
+        ], "all fire in parallel"),
         "Plot 30-day price chart → plot_price_chart('{subject}', 30)",
         "Synthesise research note",
     ],
     "signal": [
-        "Run composite ETF signal aggregator",
-        "Fetch LightGBM 5-day ML prediction",
-        "Compute GARCH volatility & Risk Governor weight",
-        "Compute Kelly-optimal position size",
-        "Plot signal scores → plot_signal_scores()",
-        "Return regime signal + blended weight",
+        "explain_price_anomalies('{subject}', days=90)",
+        ("∥", [
+            "GARCH fit on full history  [MAD-Z → GARCH(1,1) → Isolation Forest → PELT]",
+            "news search per anomaly date  [GNews + NewsAPI]",
+            "ml_prediction_asof(date)  [point-in-time ML forecast]",
+            "signal_composite_asof(date)  [composite score as-of]",
+        ], "ThreadPoolExecutor — all fire simultaneously"),
+        "COMEX futures chart  [GC=F correlation]",
+        "GARCH volatility trend chart",
+        "Synthesise anomaly report",
     ],
     "macro": [
-        "Scan live macro / geopolitical events",
-        "Fetch COMEX gold / silver / copper pre-market prices",
-        "Query FII/DII institutional flows (7 days)",
+        ("∥", [
+            "Scan live macro / geopolitical events",
+            "Fetch COMEX gold / silver / copper pre-market",
+            "Query FII/DII institutional flows  [7 days]",
+        ], "all fire in parallel"),
         "Plot FII/DII flow trend → plot_fii_dii_chart(30)",
         "Map events → ETF directional impact scores",
     ],
     "intl_etf": [
-        "Load 3-year price + NAV data for MAFANG, HNGSNGBEES, MON100, MASPTOP50, MAHKTECH, MONQ50",
-        "Run requested analysis: performance / premium / regime / seasonality / correlation / drawdowns / LightGBM",
+        "Load 3-year price + NAV data  [MAFANG · HNGSNGBEES · MON100 · MASPTOP50 · MAHKTECH · MONQ50]",
+        "Run analysis: performance / premium / regime / seasonality / correlation / drawdowns / LightGBM",
         "Plot chart → plot_intl_etf_performance() or plot_intl_etf_premium(symbol)",
-        "Summarise key insight (regime, premium opportunity, best month)",
+        "Summarise key insight  [regime, premium opportunity, best month]",
     ],
     "news": [
-        "Resolve '{subject}' to NSE symbol (if company/ETF)",
-        "Fetch news from GNews + NewsAPI in parallel",
-        "Query saved news from ClickHouse news_articles",
-        "Deduplicate and sort by date",
-        "Present as table + sentiment summary",
+        "Resolve '{subject}' to NSE symbol",
+        ("∥", [
+            "Fetch news from GNews",
+            "Fetch news from NewsAPI",
+            "Query saved news from ClickHouse news_articles",
+        ], "all fire in parallel"),
+        "Deduplicate, sort by date, compute sentiment summary",
     ],
     "database": [
         "Identify target table(s) for '{subject}'",
-        "Describe table schema — confirm column names",
-        "Write and execute SQL query (FINAL on all tables)",
+        "Describe schema — confirm column names (FINAL on all tables)",
+        "Write and execute SQL query",
         "Format results as Markdown table",
-        "Plot chart if time-series or score-set → plot_price_chart / plot_fii_dii_chart / plot_signal_scores",
+        "Plot chart if time-series → plot_price_chart / plot_fii_dii_chart / plot_signal_scores",
     ],
     "code": [
         "Understand code request: '{subject}'",
@@ -157,13 +170,16 @@ _INTENT_STEPS: dict[str, list[str]] = {
     ],
     "deepdive": [
         "Resolve ticker for '{subject}'",
-        "Fetch SEC 10-K / 10-Q filings from EDGAR",
-        "Analyse XBRL financials and peer valuation",
+        ("∥", [
+            "Fetch SEC 10-K / 10-Q from EDGAR",
+            "Parse XBRL financials + peer valuation",
+            "Fetch exec comp and hiring trends",
+        ], "all fire in parallel"),
         "Generate deep-dive research report",
     ],
     "main": [
         "Analyse query: '{subject}'",
-        "Call relevant tools (portfolio, prices, news, ClickHouse)",
+        "Call relevant tools  [portfolio, prices, news, ClickHouse]",
         "Synthesise and return answer",
     ],
 }
@@ -601,6 +617,40 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
     return regex_intent, _build_fallback_plan(question, regex_intent), None
 
 
+def _render_plan_steps(steps: list, subject: str) -> str:
+    """
+    Render a plan step list as Rich markup.
+
+    Items can be:
+      str                        → numbered step  "  1. text"
+      ("∥", [substeps], label)  → parallel tree branch with label on the middle row
+    """
+    lines: list[str] = []
+    num = 1
+    for step in steps:
+        if isinstance(step, tuple) and step[0] == "∥":
+            _, substeps, label = step[0], step[1], step[2] if len(step) > 2 else ""
+            n = len(substeps)
+            mid = n // 2  # row where the label annotation appears
+            for i, sub in enumerate(substeps):
+                if n == 1:
+                    branch = "──"
+                elif i == 0:
+                    branch = "┌─"
+                elif i == n - 1:
+                    branch = "└─"
+                else:
+                    branch = "├─"
+                annotation = f"  [dim italic]◀ {label}[/dim italic]" if (i == mid and label) else ""
+                lines.append(
+                    f"     [dim]{branch}[/dim] [dim]{sub.format(subject=subject)}[/dim]{annotation}"
+                )
+        else:
+            lines.append(f"  [cyan]{num}.[/cyan] {step.format(subject=subject)}")
+            num += 1
+    return "\n".join(lines)
+
+
 def _build_fallback_plan(question: str, intent: str) -> str:
     """Static template plan — used when the LLM planner is unavailable."""
     subject = question.strip()
@@ -620,10 +670,7 @@ def _build_fallback_plan(question: str, intent: str) -> str:
             f"import_symbol_data(symbol='{resolved_sym}', start_date='{start_date}', end_date='{end_date}')",
             f"plot_price_chart('{resolved_sym}', start_date='{start_date}', end_date='{end_date}')"
         ]
-        return "\n".join(
-            f"  [cyan]{i}.[/cyan] {s}"
-            for i, s in enumerate(steps, 1)
-        )
+        return _render_plan_steps(steps, subject)
 
     steps = _INTENT_STEPS.get(intent, _INTENT_STEPS["main"])
     if intent == "india_equity" and "macd" in question.lower():
@@ -635,10 +682,7 @@ def _build_fallback_plan(question: str, intent: str) -> str:
         except ValueError:
             steps.append("Plot MACD chart and analyze momentum → plot_macd_chart('{subject}', 180)")
 
-    return "\n".join(
-        f"  [cyan]{i}.[/cyan] {s.format(subject=subject)}"
-        for i, s in enumerate(steps, 1)
-    )
+    return _render_plan_steps(steps, subject)
 
 
 # ── ML status display ────────────────────────────────────────────────────────
@@ -1037,6 +1081,30 @@ def _print_answer(console: "Console", answer: Any) -> None:
         answer = "\n".join(texts)
     elif not isinstance(answer, str):
         answer = str(answer) if answer is not None else ""
+
+    # Convert LaTeX math notation the LLM sometimes emits into Unicode equivalents
+    # so they render correctly in the terminal instead of showing raw LaTeX.
+    _LATEX_MAP = [
+        (r"$\leftarrow$",  "←"),
+        (r"$\rightarrow$", "→"),
+        (r"$\uparrow$",    "↑"),
+        (r"$\downarrow$",  "↓"),
+        (r"$\times$",      "×"),
+        (r"$\leq$",        "≤"),
+        (r"$\geq$",        "≥"),
+        (r"$\neq$",        "≠"),
+        (r"$\approx$",     "≈"),
+        (r"$\infty$",      "∞"),
+        (r"$\sigma$",      "σ"),
+        (r"$\alpha$",      "α"),
+        (r"$\beta$",       "β"),
+        (r"$\omega$",      "ω"),
+        (r"\leftarrow",    "←"),
+        (r"\rightarrow",   "→"),
+        (r"\times",        "×"),
+    ]
+    for latex, uni in _LATEX_MAP:
+        answer = answer.replace(latex, uni)
 
     # Detect a chart block: 3+ consecutive lines that start with box chars or spaces+box.
     lines = answer.splitlines()
