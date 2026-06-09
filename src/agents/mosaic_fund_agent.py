@@ -352,12 +352,30 @@ class MosaicFundAgent:
                 settings.llm_base_url,
                 settings.llm_think,
             )
-            extra_body: dict = {"options": {"num_ctx": settings.llm_context_window}}
+            is_nvidia = "nvidia" in settings.llm_base_url.lower()
+
+            if is_nvidia:
+                # Route through NIM pool — rate-limited, round-robin, retry on 429
+                from src.utils.nim_pool import NIMPool
+                extra_body: dict = {}
+                if settings.llm_think:
+                    # DeepSeek on NIM uses thinking/reasoning_effort; Gemma uses enable_thinking
+                    is_deepseek = "deepseek" in settings.llm_model.lower()
+                    extra_body["chat_template_kwargs"] = (
+                        {"thinking": True, "reasoning_effort": "high"}
+                        if is_deepseek
+                        else {"enable_thinking": True}
+                    )
+                return NIMPool.get().acquire(
+                    model=settings.llm_model,
+                    extra_body=extra_body,
+                    timeout=settings.llm_request_timeout,
+                    max_tokens=settings.llm_token_budget,
+                )
+
+            extra_body = {"options": {"num_ctx": settings.llm_context_window}}
             if settings.llm_think:
-                extra_body["think"] = True
-            # Thinking mode or deep dives need longer timeouts — qwen3 reasoning or slow scrapes
-            import os as _os
-            request_timeout = 300 if settings.llm_think else int(_os.getenv("LLM_REQUEST_TIMEOUT", "300"))
+                extra_body["think"] = True  # Ollama thinking flag
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
@@ -365,8 +383,8 @@ class MosaicFundAgent:
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_body=extra_body,
-                timeout=request_timeout,
-                streaming=settings.llm_think,  # stream when thinking so reasoning renders live
+                timeout=settings.llm_request_timeout,
+                streaming=False,
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────
@@ -379,16 +397,17 @@ class MosaicFundAgent:
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+                timeout=settings.cloud_llm_request_timeout,  # cloud — tight (default 60s)
             )
 
         # ── OpenAI cloud (default) ─────────────────────────────────────────────
         from langchain_openai import ChatOpenAI
-        # [SENSITIVE] openai_api_key from .env
         return ChatOpenAI(
             model=settings.llm_model,
             api_key=settings.openai_api_key,
             temperature=0,
             max_tokens=settings.llm_token_budget,
+            timeout=settings.cloud_llm_request_timeout,  # cloud — tight (default 60s)
         )
 
     def _build_cloud_llm(self) -> Any:
@@ -806,7 +825,7 @@ class MosaicFundAgent:
             if os.getenv("VERBOSE") == "1" or settings.llm_think:
                 config["callbacks"] = [RichConsoleCallbackHandler()]
 
-            agent_timeout = int(os.getenv("AGENT_TIMEOUT", "300"))
+            agent_timeout = settings.agent_timeout
             with concurrent.futures.ThreadPoolExecutor(max_workers=1, initializer=_make_daemon_thread) as _ex:
                 _fut = _ex.submit(self._agent.invoke, {"messages": messages}, config)
                 try:

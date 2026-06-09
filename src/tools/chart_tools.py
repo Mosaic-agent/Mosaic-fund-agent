@@ -181,6 +181,21 @@ def _build(plt: Any) -> str:
     return out
 
 
+def _data_table(headers: list[str], rows: list[list], title: str = "") -> str:
+    """
+    Format chart data as a compact Markdown table appended below the chart.
+    Only the last 15 rows are shown to keep output tight.
+    """
+    if not rows:
+        return ""
+    rows = rows[-15:]  # most recent rows only
+    header_row = " | ".join(headers)
+    sep_row    = " | ".join("---" for _ in headers)
+    data_rows  = "\n".join("| " + " | ".join(str(v) for v in row) + " |" for row in rows)
+    heading = f"\n**{title}**\n" if title else "\n"
+    return f"{heading}| {header_row} |\n| {sep_row} |\n{data_rows}"
+
+
 @tool
 def plot_price_chart(
     symbol: str,
@@ -216,7 +231,11 @@ def plot_price_chart(
 
         df = query_df(f"""
             SELECT trade_date,
-                   toFloat64(argMax(close, imported_at)) AS close
+                   toFloat64(argMax(open,   imported_at)) AS open,
+                   toFloat64(argMax(high,   imported_at)) AS high,
+                   toFloat64(argMax(low,    imported_at)) AS low,
+                   toFloat64(argMax(close,  imported_at)) AS close,
+                   toFloat64(argMax(volume, imported_at)) AS volume
             FROM market_data.daily_prices FINAL
             WHERE symbol = '{symbol.upper()}' {cat_filter}
               {date_filter}
@@ -330,7 +349,19 @@ def plot_price_chart(
             tick_idx.append(n - 1)
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
         plt.xticks(tick_idx, tick_lbl)
-        return _build(plt)
+        chart = _build(plt)
+        table = _data_table(
+            ["Date", "Open", "High", "Low", "Close", "Volume"],
+            [
+                [str(r["trade_date"])[:10],
+                 f"{r['open']:.2f}", f"{r['high']:.2f}",
+                 f"{r['low']:.2f}",  f"{r['close']:.2f}",
+                 f"{int(r['volume']):,}"]
+                for _, r in df.tail(15).iterrows()
+            ],
+            title=f"{symbol} — Price Data",
+        )
+        return chart + table
     except ImportError as exc:
         return str(exc)
     except Exception as exc:
@@ -401,7 +432,16 @@ def plot_fii_dii_chart(days: int = 30) -> str:
         plt.xlabel(f"{labels[0]} → {labels[-1]}")
         plt.ylabel("₹ Crore")
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
-        return _build(plt)
+        chart = _build(plt)
+        table = _data_table(
+            ["Date", "FII Net (₹ Cr)", "DII Net (₹ Cr)", "Combined"],
+            [[str(r["trade_date"])[:10],
+              f"{r['fii_net']:+,.0f}", f"{r['dii_net']:+,.0f}",
+              f"{r['fii_net']+r['dii_net']:+,.0f}"]
+             for _, r in df.iterrows()],
+            title="FII / DII Flow Data",
+        )
+        return chart + table
     except ImportError as exc:
         return str(exc)
     except Exception as exc:
@@ -442,7 +482,14 @@ def plot_signal_scores(top_n: int = 18) -> str:
         plt.title("ETF Composite Signal Scores (latest)")
         plt.xlabel("Score (0–100)")
         plt.plot_size(_chart_width(), max(len(symbols) + 4, 16))
-        return _build(plt)
+        chart = _build(plt)
+        table = _data_table(
+            ["ETF", "Score", "Action"],
+            [[r["etf_symbol"], f"{r['score']:.1f}", r["action"]]
+             for _, r in df.iterrows()],
+            title="Signal Scores",
+        )
+        return chart + table
     except ImportError as exc:
         return str(exc)
     except Exception as exc:
@@ -843,7 +890,14 @@ def plot_garch_volatility_chart(symbol: str = "GOLDBEES", days: int = 90) -> str
         plt.ylabel("Volatility (%)")
         plt.xticks(tick_positions, tick_labels)
         plt.plot_size(_chart_width(), _CHART_HEIGHT)
-        return _build(plt)
+        chart = _build(plt)
+        table = _data_table(
+            ["Date", "GARCH Vol (%)", "vs Target"],
+            [[d, f"{v:.2f}", f"{v - target:+.2f}"]
+             for d, v in zip(dates, vols)],
+            title=f"{symbol} — GARCH Volatility Data",
+        )
+        return chart + table
     except ImportError as exc:
         return str(exc)
     except Exception as exc:

@@ -136,7 +136,23 @@ def _get_router_llm() -> Any | None:
             except Exception as exc:
                 logger.debug("Router LLM (OpenAI Cloud) build failed: %s", exc)
 
-    # 2. Otherwise fall back to local/default API key providers
+    # 2. NVIDIA NIM — use the same endpoint/key as the main LLM
+    nvidia_key = getattr(settings, "nvidia_api_key", "")
+    if "nvidia" in getattr(settings, "llm_base_url", "").lower() and _real_key(nvidia_key):
+        try:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=settings.llm_model,
+                base_url=settings.llm_base_url,
+                api_key=nvidia_key,
+                temperature=0.6,
+                max_tokens=50,
+                timeout=30,
+            )
+        except Exception as exc:
+            logger.debug("Router LLM (NVIDIA NIM) build failed: %s", exc)
+
+    # 3. Otherwise fall back to local/default API key providers
     # Prefer a small fast model for routing — gpt-4o-mini costs ~$0.0001 per call
     if _real_key(settings.openai_api_key):
         try:

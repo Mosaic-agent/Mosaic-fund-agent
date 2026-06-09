@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # [SENSITIVE] Anthropic API key – https://console.anthropic.com/
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
 
+    # [SENSITIVE] NVIDIA NIM API key – https://integrate.api.nvidia.com/
+    nvidia_api_key: str = Field(default="", description="NVIDIA NIM API key (nvapi-...)")
+
     # [NON-SENSITIVE] Which LLM provider to use: "openai" or "anthropic"
     llm_provider: str = Field(default="openai", description="LLM provider")
 
@@ -53,6 +56,24 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Enable native thinking/reasoning tokens for supported Ollama models
     # (qwen3, deepseek-r1). Passes think=true in the request body. Has no effect on cloud models.
     llm_think: bool = Field(default=False, description="Enable Ollama native thinking mode (qwen3, deepseek-r1)")
+
+    # ── Timeouts ─────────────────────────────────────────────────────────────────
+    # Local LLMs (Ollama) need generous timeouts — GARCH + news + tool chains
+    # can take 3-5 minutes. Cloud LLMs should respond in seconds.
+    # llm_request_timeout: per-HTTP-call timeout sent to ChatOpenAI/ChatAnthropic.
+    # agent_timeout: total wall-clock limit for the entire agent run (all tool calls).
+    llm_request_timeout: int = Field(
+        default=600,
+        description="Per-LLM-call HTTP timeout (s). Local: 600. Cloud: 60.",
+    )
+    cloud_llm_request_timeout: int = Field(
+        default=60,
+        description="Per-LLM-call timeout for cloud providers (OpenAI, Anthropic, Google).",
+    )
+    agent_timeout: int = Field(
+        default=600,
+        description="Total agent-run wall-clock limit (s). Covers all tool calls in the ReAct loop.",
+    )
 
     # ── Code Agent LLM — dedicated model for CodeSubAgent ───────────────────────
     # Leave CODE_LLM_PROVIDER blank to share the main LLM with the code agent.

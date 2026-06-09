@@ -1,4 +1,4 @@
-FROM gemma4:latest
+FROM gemma4:e4b
 
 # ── Context window ──────────────────────────────────────────────────────────
 # 16 384 is sufficient for a full Mosaic ReAct loop (tool schemas + history).

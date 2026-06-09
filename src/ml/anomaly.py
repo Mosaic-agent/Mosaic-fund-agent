@@ -154,7 +154,7 @@ def repair_decimal_glitches(df: pd.DataFrame) -> pd.DataFrame:
                 mult = factor if ratio_down < 1.0 else 1.0 / factor
                 df.loc[i, ["open", "high", "low", "close"]] *= mult
                 close = df["close"].values
-                log.info("Repaired single-day decimal scaling glitch on index %d (%s) for factor %f", i, df.iloc[i]["trade_date"], factor)
+                log.debug("Repaired single-day decimal scaling glitch on index %d (%s) for factor %f", i, df.iloc[i]["trade_date"], factor)
                 break
                 
         # Check for 2-day glitches
@@ -175,7 +175,7 @@ def repair_decimal_glitches(df: pd.DataFrame) -> pd.DataFrame:
                         df.loc[i, ["open", "high", "low", "close"]] *= mult
                         df.loc[i+1, ["open", "high", "low", "close"]] *= mult
                         close = df["close"].values
-                        log.info("Repaired 2-day decimal scaling glitch on index %d-%d (%s) for factor %f", i, i+1, df.iloc[i]["trade_date"], factor)
+                        log.debug("Repaired 2-day decimal scaling glitch on index %d-%d (%s) for factor %f", i, i+1, df.iloc[i]["trade_date"], factor)
                         break
     return df
 
