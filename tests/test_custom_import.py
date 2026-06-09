@@ -6,7 +6,7 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from src.tools.skills_tools import import_symbol_data_impl
+from src.tools.skills_tools import import_symbol_data, import_symbol_data_impl
 
 class TestCustomImport(unittest.TestCase):
     @patch('src.importer.fetchers.adapters.ShoonyaFetcher')
@@ -27,7 +27,12 @@ class TestCustomImport(unittest.TestCase):
         mock_importer_instance.insert_prices.return_value = 1
 
         # Run import with custom start/end date
-        res = import_symbol_data_impl("GOLDBEES", start_date="2019-06-01", end_date="2019-06-05")
+        res = import_symbol_data_impl(
+            "GOLDBEES",
+            start_date="2019-06-01",
+            end_date="2019-06-05",
+            data_source="shoonya",
+        )
         
         # Verify ShoonyaFetcher was instantiated with category "etfs" and correct mapping
         mock_shoonya_fetcher.assert_called_once_with("etfs", [("GOLDBEES", "GOLDBEES.NS")])
@@ -56,7 +61,12 @@ class TestCustomImport(unittest.TestCase):
         mock_importer_instance.insert_prices.return_value = 1
 
         # Run import on an index (which goes to indices category/yfinance)
-        res = import_symbol_data_impl("NIFTY50", start_date="2019-06-01", end_date="2019-06-05")
+        res = import_symbol_data_impl(
+            "NIFTY50",
+            start_date="2019-06-01",
+            end_date="2019-06-05",
+            data_source="yfinance",
+        )
         
         # Verify yfinance fetch_ohlcv was called
         mock_yf_fetch.assert_called_once_with([("NIFTY50", "^NSEI")], "indices", date(2019, 6, 1), date(2019, 6, 5))
@@ -65,6 +75,61 @@ class TestCustomImport(unittest.TestCase):
         mock_importer_instance.ensure_schema.assert_called_once()
         mock_importer_instance.insert_prices.assert_called_once()
         self.assertIn("Imported NIFTY50: 1 rows inserted", res)
+
+    @patch('src.importer.fetchers.adapters.NSElibFetcher')
+    @patch('src.importer.clickhouse.ClickHouseImporter')
+    def test_import_symbol_data_uses_nse_source(self, mock_clickhouse_importer, mock_nse_fetcher):
+        mock_fetcher_instance = MagicMock()
+        mock_nse_fetcher.return_value = mock_fetcher_instance
+        mock_fetcher_instance.fetch.return_value = [
+            {
+                "symbol": "RELIANCE",
+                "trade_date": date(2026, 6, 9),
+                "open": 1400.0,
+                "high": 1420.0,
+                "low": 1390.0,
+                "close": 1410.0,
+                "volume": 1000,
+            }
+        ]
+        mock_importer_instance = MagicMock()
+        mock_clickhouse_importer.return_value = mock_importer_instance
+        mock_importer_instance.insert_prices.return_value = 1
+
+        res = import_symbol_data_impl("RELIANCE", days=5, data_source="nse")
+
+        mock_nse_fetcher.assert_called_once_with(
+            "stocks", [("RELIANCE", "RELIANCE.NS")]
+        )
+        mock_importer_instance.set_watermark.assert_called_once_with(
+            "nse", "RELIANCE", date(2026, 6, 9)
+        )
+        self.assertIn("Imported RELIANCE: 1 rows inserted", res)
+
+    @patch(
+        "src.importer.source_preference.resolve_data_source",
+        return_value=("", False),
+    )
+    def test_import_symbol_requires_data_source(self, _mock_resolve):
+        res = import_symbol_data.invoke({"symbol": "GOLDBEES"})
+
+        self.assertIn("DATA_SOURCE_REQUIRED", res)
+        self.assertIn("1. Shoonya", res)
+        self.assertIn("2. NSE", res)
+        self.assertIn("3. yfinance", res)
+
+    @patch(
+        "src.importer.source_preference.resolve_data_source",
+        return_value=("nse", True),
+    )
+    @patch("src.tools.skills_tools.import_symbol_data_impl")
+    def test_import_symbol_reuses_saved_data_source(self, mock_import, _mock_resolve):
+        mock_import.return_value = "Imported RELIANCE"
+
+        res = import_symbol_data.invoke({"symbol": "RELIANCE"})
+
+        self.assertEqual(res, "Imported RELIANCE")
+        mock_import.assert_called_once_with("RELIANCE", 365, "", "", "nse")
 
 class TestQueryDateRangeParser(unittest.TestCase):
     def test_parse_single_year(self):

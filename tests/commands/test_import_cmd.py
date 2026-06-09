@@ -15,7 +15,8 @@ def test_import_command_execute_snapshots(mock_importer_class):
     assert cmd._snapshot == [{"source": "test", "symbol": "TEST", "last_date": "2023-01-01"}]
     mock_importer.snapshot.assert_called_once()
     mock_importer.run.assert_called_once_with(
-        categories=["test"], lookback_days=3650, full_reimport=False, dry_run=False
+        categories=["test"], lookback_days=3650, full_reimport=False, dry_run=False,
+        data_source=""
     )
 
 @patch("src.commands.import_cmd.ClickHouseImporter")

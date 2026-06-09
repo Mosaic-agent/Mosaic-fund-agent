@@ -18,10 +18,10 @@ from src.tools._subprocess import (
 )
 
 
-def _import_symbol_data_impl(symbol: str) -> str:
+def _import_symbol_data_impl(symbol: str, data_source: str = "") -> str:
     """Lazy proxy — avoids circular import between runners and skills_tools."""
     from src.tools.skills_tools import import_symbol_data_impl
-    return import_symbol_data_impl(symbol)
+    return import_symbol_data_impl(symbol, data_source=data_source)
 
 
 @tool
@@ -83,6 +83,7 @@ def run_data_engineering_importer(
     category: str = "etfs,stocks,mf,fii_dii,cot,fx_rates,inav",
     full: bool = False,
     symbol: str = "",
+    data_source: str = "",
 ) -> str:
     """
     Trigger the historical ClickHouse data engineering pipeline to import and sync BULK data.
@@ -99,10 +100,28 @@ def run_data_engineering_importer(
                   Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav.
         full: If True, performs a full backfill ignoring watermarks.
         symbol: (optional) If a specific symbol is provided, redirects to import_symbol_data.
+        data_source: Required when importing stocks or ETFs. Ask the user to choose:
+                     1=Shoonya, 2=NSE, or 3=yfinance.
     """
+    market_categories = {part.strip().lower() for part in category.split(",")}
+    needs_market_source = bool(symbol.strip() or {"stocks", "etfs"} & market_categories)
+    if needs_market_source:
+        from src.importer.source_preference import resolve_data_source
+
+        try:
+            data_source, _ = resolve_data_source(data_source)
+        except ValueError as exc:
+            return f"Invalid data source: {exc}"
+    if needs_market_source and not data_source:
+        return (
+            "DATA_SOURCE_REQUIRED: Ask the user which data source to use before importing:\n"
+            "1. Shoonya\n2. NSE\n3. yfinance"
+        )
     if symbol and symbol.strip():
-        return _import_symbol_data_impl(symbol.strip().upper())
+        return _import_symbol_data_impl(symbol.strip().upper(), data_source)
     args = ["src/main.py", "import"]
+    if data_source:
+        args.extend(["--source", data_source])
     if full:
         args.append("--full")
     else:

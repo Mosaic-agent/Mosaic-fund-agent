@@ -16,7 +16,16 @@ _INITIAL_SLEEP = 0.3   # stagger thread start
 _BETWEEN_CALLS = 0.4   # spacing between sequential API calls per symbol
 
 
-def import_single_stock(symbol: str, ticker: str, category: str, lookback_days: int, full_reimport: bool, clickhouse_config: dict, dry_run: bool = False) -> dict:
+def import_single_stock(
+    symbol: str,
+    ticker: str,
+    category: str,
+    lookback_days: int,
+    full_reimport: bool,
+    clickhouse_config: dict,
+    dry_run: bool = False,
+    data_source: str = "shoonya",
+) -> dict:
     """
     Import price and other relevant data (earnings, insider, valuation) for a single stock.
     Borrows a connection from the shared CHPool instead of opening a raw TCP handshake
@@ -54,15 +63,20 @@ def import_single_stock(symbol: str, ticker: str, category: str, lookback_days: 
             today = date.today()
             from_date = today - timedelta(days=lookback_days)
             if not full_reimport and not dry_run:
-                wm = ch.get_watermark("yfinance", symbol, dataset="prices")
+                wm = ch.get_watermark(data_source, symbol, dataset="prices")
                 if wm:
                     from_date = wm - timedelta(days=3)  # 3 days overlap
 
             # 1. Prices
             if category in ("stocks", "etfs"):
-                from src.importer.fetchers.adapters import ShoonyaFetcher
-                fetcher = ShoonyaFetcher(category, [(symbol, ticker)])
-                prices = fetcher.fetch(from_date, today)
+                if data_source == "nse":
+                    from src.importer.fetchers.adapters import NSElibFetcher
+                    prices = NSElibFetcher(category, [(symbol, ticker)]).fetch(from_date, today)
+                elif data_source == "yfinance":
+                    prices = fetch_ohlcv([(symbol, ticker)], category, from_date, today)
+                else:
+                    from src.importer.fetchers.adapters import ShoonyaFetcher
+                    prices = ShoonyaFetcher(category, [(symbol, ticker)]).fetch(from_date, today)
             else:
                 prices = fetch_ohlcv([(symbol, ticker)], category, from_date, today)
             if prices:
@@ -70,7 +84,7 @@ def import_single_stock(symbol: str, ticker: str, category: str, lookback_days: 
                     inserted_prices = ch.insert_prices(prices)
                     results["prices_inserted"] = inserted_prices
                     max_date = max(r["trade_date"] for r in prices)
-                    ch.set_watermark("yfinance", symbol, max_date, dataset="prices")
+                    ch.set_watermark(data_source, symbol, max_date, dataset="prices")
                 else:
                     results["prices_inserted"] = len(prices)
 
@@ -121,6 +135,7 @@ def run_parallel_stock_import(
     workers: int = 5,
     clickhouse_config: dict = None,
     dry_run: bool = False,
+    data_source: str = "shoonya",
 ) -> dict:
     """
     Run parallel import for a list of stocks.
@@ -139,7 +154,8 @@ def run_parallel_stock_import(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
             executor.submit(
-                import_single_stock, sym, ticker, category, lookback_days, full_reimport, clickhouse_config, dry_run
+                import_single_stock, sym, ticker, category, lookback_days,
+                full_reimport, clickhouse_config, dry_run, data_source
             ): sym
             for sym, ticker in symbols
         }
