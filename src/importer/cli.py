@@ -49,6 +49,7 @@ def run_import(
     clickhouse_password: str = "",
     mf_holdings_month: Optional[date] = None,
     mf_holdings_months: int = 1,
+    data_source: str = "",
 ) -> None:
     """
     Run the historical data import for the specified categories.
@@ -64,6 +65,7 @@ def run_import(
     clickhouse_*       : ClickHouse connection parameters
     mf_holdings_month  : import a specific month (overrides mf_holdings_months)
     mf_holdings_months : number of past months to import (default 1 = current month)
+    data_source        : stock/ETF source; shoonya, nse, or yfinance
     """
     from src.importer.registry import (
         get_symbols_for_categories,
@@ -77,6 +79,20 @@ def run_import(
     from config.settings import settings
 
     shoonya_active = bool(settings.shoonya_user_id and settings.shoonya_api_secret)
+    source_aliases = {
+        "1": "shoonya",
+        "shoonya": "shoonya",
+        "2": "nse",
+        "nse": "nse",
+        "nselib": "nse",
+        "3": "yfinance",
+        "yf": "yfinance",
+        "yahoo": "yfinance",
+        "yfinance": "yfinance",
+    }
+    selected_source = source_aliases.get(data_source.strip().lower(), "")
+    if data_source and not selected_source:
+        raise ValueError("data_source must be one of: shoonya, nse, yfinance")
 
     if console is None:
         console = Console()
@@ -134,6 +150,7 @@ def run_import(
                 workers=5,
                 clickhouse_config=clickhouse_config,
                 dry_run=dry_run,
+                data_source=(selected_source or "shoonya") if category == "stocks" else "yfinance",
             )
             
             inserted = res["prices"]
@@ -145,7 +162,7 @@ def run_import(
             
             summary_rows.append((
                 category,
-                "shoonya_parallel" if (category == "stocks" and shoonya_active) else "yfinance_parallel",
+                f"{(selected_source or 'shoonya') if category == 'stocks' else 'yfinance'}_parallel",
                 inserted,
                 (today - timedelta(days=lookback_days)).isoformat(),
                 today.isoformat(),
@@ -200,7 +217,8 @@ def run_import(
                 # Find earliest watermark across all symbols in this category
                 earliest: date | None = None
                 for nse_sym, _ in symbol_list:
-                    wm = ch.get_watermark("yfinance", nse_sym) if not dry_run else None
+                    watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
+                    wm = ch.get_watermark(watermark_source or "shoonya", nse_sym) if not dry_run else None
                     if wm is None:
                         # Never imported — need full lookback
                         earliest = today - timedelta(days=lookback_days)
@@ -212,9 +230,13 @@ def run_import(
 
             progress.update(task, description=f"Downloading {category} {from_date}→{today}…")
             if category in ("stocks", "etfs"):
-                from src.importer.fetchers.adapters import ShoonyaFetcher
-                fetcher = ShoonyaFetcher(category, symbol_list)
-                rows = fetcher.fetch(from_date, today)
+                from src.importer.fetchers.adapters import NSElibFetcher, ShoonyaFetcher
+                if selected_source == "nse":
+                    rows = NSElibFetcher(category, symbol_list).fetch(from_date, today)
+                elif selected_source == "yfinance":
+                    rows = fetch_ohlcv(symbol_list, category, from_date, today)
+                else:
+                    rows = ShoonyaFetcher(category, symbol_list).fetch(from_date, today)
             else:
                 rows = fetch_ohlcv(symbol_list, category, from_date, today)
 
@@ -227,11 +249,12 @@ def run_import(
             for sym in symbols_seen:
                 sym_dates = [r["trade_date"] for r in rows if r["symbol"] == sym]
                 if sym_dates:
-                    ch.set_watermark("yfinance", sym, max(sym_dates))
+                    watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
+                    ch.set_watermark(watermark_source or "shoonya", sym, max(sym_dates))
 
         summary_rows.append((
             category,
-            "shoonya" if (category == "etfs" and shoonya_active) else "yfinance",
+            selected_source or ("shoonya" if category == "etfs" and shoonya_active else "yfinance"),
             inserted,
             from_date.isoformat(),
             today.isoformat(),

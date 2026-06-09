@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import sys
 import logging
+import re
 from langchain_core.tools import tool
 
 from src.tools._subprocess import (  # shared helpers — no circular dep
@@ -55,6 +56,7 @@ def import_symbol_data_impl(
     days: int = 365,
     start_date: str = "",
     end_date: str = "",
+    data_source: str = "shoonya",
 ) -> str:
     """
     Core implementation to import price history for a specific symbol.
@@ -62,6 +64,20 @@ def import_symbol_data_impl(
     from datetime import date, timedelta, datetime
 
     sym = symbol.strip().upper()
+    source_aliases = {
+        "1": "shoonya",
+        "shoonya": "shoonya",
+        "2": "nse",
+        "nse": "nse",
+        "nselib": "nse",
+        "3": "yfinance",
+        "yf": "yfinance",
+        "yahoo": "yfinance",
+        "yfinance": "yfinance",
+    }
+    selected_source = source_aliases.get(data_source.strip().lower(), "")
+    if not selected_source:
+        return "Invalid data_source. Use shoonya, nse, or yfinance."
     if start_date:
         try:
             from_date = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -141,9 +157,15 @@ def import_symbol_data_impl(
 
     try:
         if category in ("stocks", "etfs"):
-            from src.importer.fetchers.adapters import ShoonyaFetcher
-            fetcher = ShoonyaFetcher(category, [(sym, yahoo_ticker)])
-            rows = fetcher.fetch(from_date, to_date)
+            if selected_source == "nse":
+                from src.importer.fetchers.adapters import NSElibFetcher
+                rows = NSElibFetcher(category, [(sym, yahoo_ticker)]).fetch(from_date, to_date)
+            elif selected_source == "yfinance":
+                from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
+                rows = fetch_ohlcv([(sym, yahoo_ticker)], category, from_date, to_date)
+            else:
+                from src.importer.fetchers.adapters import ShoonyaFetcher
+                rows = ShoonyaFetcher(category, [(sym, yahoo_ticker)]).fetch(from_date, to_date)
         else:
             from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
             rows = fetch_ohlcv([(sym, yahoo_ticker)], category, from_date, to_date)
@@ -174,7 +196,8 @@ def import_symbol_data_impl(
             ch.ensure_schema()
             n = ch.insert_prices(rows)
             max_date = max(r["trade_date"] for r in rows)
-            ch.set_watermark("yfinance", sym, max_date)
+            watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
+            ch.set_watermark(watermark_source, sym, max_date)
             sys.stdout.write(f"  ✓ {n} rows inserted. Last trade_date: {max_date}\n")
             sys.stdout.flush()
             return f"Imported {sym}: {n} rows inserted, {from_date} → {max_date}."
@@ -190,6 +213,7 @@ def import_symbol_data(
     days: int = 365,
     start_date: str = "",
     end_date: str = "",
+    data_source: str = "",
 ) -> str:
     """
     Import price history for a SPECIFIC NSE symbol. This is the PREFERRED tool when the user
@@ -204,8 +228,21 @@ def import_symbol_data(
         days:       Calendar days of history back from today. Ignored if start_date is set.
         start_date: Optional start date in YYYY-MM-DD format (e.g. '2019-01-01')
         end_date:   Optional end date in YYYY-MM-DD format (e.g. '2019-12-31')
+        data_source: Required for stocks/ETFs. Ask the user to choose:
+                     1=Shoonya, 2=NSE, or 3=yfinance.
     """
-    return import_symbol_data_impl(symbol, days, start_date, end_date)
+    from src.importer.source_preference import resolve_data_source
+
+    try:
+        data_source, _ = resolve_data_source(data_source)
+    except ValueError as exc:
+        return f"Invalid data source: {exc}"
+    if not data_source:
+        return (
+            "DATA_SOURCE_REQUIRED: Ask the user which data source to use before importing:\n"
+            "1. Shoonya\n2. NSE\n3. yfinance"
+        )
+    return import_symbol_data_impl(symbol, days, start_date, end_date, data_source)
 
 
 # ── Gold/GARCH domain tools — defined in market/gold.py ──────────────────────

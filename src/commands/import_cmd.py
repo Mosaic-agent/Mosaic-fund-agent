@@ -19,6 +19,7 @@ class ImportDataCommand(Command):
     lookback_days: int = 3650
     full_reimport: bool = False
     dry_run: bool = False
+    data_source: str = ""
     _snapshot: Optional[list[dict[str, Any]]] = field(default=None, repr=False)
 
     def execute(self) -> dict[str, Any]:
@@ -30,6 +31,7 @@ class ImportDataCommand(Command):
             lookback_days=self.lookback_days,
             full_reimport=self.full_reimport,
             dry_run=self.dry_run,
+            data_source=self.data_source,
         )
 
     def undo(self) -> None:

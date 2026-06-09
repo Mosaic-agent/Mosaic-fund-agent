@@ -847,6 +847,11 @@ def import_data(
         "--dry-run",
         help="Fetch data but do NOT write to ClickHouse. Prints row counts only.",
     ),
+    data_source: str = typer.Option(
+        "",
+        "--source",
+        help="Price source for stock/ETF imports: shoonya, nse, or yfinance.",
+    ),
 ) -> None:
     """
     Import historical market data (stocks, ETFs, MF NAV, commodities, indices)
@@ -859,6 +864,7 @@ def import_data(
     Examples:
       mosaic import                          # full sync, all categories
       mosaic import --category stocks,etfs   # only stocks and ETFs
+      mosaic import --category stocks --source nse
       mosaic import --category mf            # only mutual fund NAV
       mosaic import --dry-run                # preview without writing
       mosaic import --full --lookback 365    # re-import last 1 year
@@ -866,6 +872,33 @@ def import_data(
     _setup_logging()
 
     categories = [c.strip().lower() for c in category.split(",") if c.strip()]
+    imports_market_prices = "all" in categories or bool({"stocks", "etfs"} & set(categories))
+    reused_saved_source = False
+    if imports_market_prices:
+        from src.importer.source_preference import resolve_data_source
+
+        try:
+            data_source, reused_saved_source = resolve_data_source(data_source)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    if imports_market_prices and not data_source:
+        console.print(
+            "\n[bold]Select the stock/ETF data source:[/bold]\n"
+            "  1. Shoonya\n"
+            "  2. NSE\n"
+            "  3. yfinance"
+        )
+        source_choice = typer.prompt("Data source", type=int, default=1)
+        source_options = {1: "shoonya", 2: "nse", 3: "yfinance"}
+        if source_choice not in source_options:
+            raise typer.BadParameter("Choose 1 (Shoonya), 2 (NSE), or 3 (yfinance).")
+        data_source, _ = resolve_data_source(source_options[source_choice])
+    elif reused_saved_source:
+        console.print(
+            f"[dim]Using saved data source: {data_source} "
+            "(valid for 24 hours from selection).[/dim]"
+        )
 
     console.print(
         Panel(
@@ -873,6 +906,7 @@ def import_data(
             f"[dim]Categories: {', '.join(categories)} · "
             f"Lookback: {lookback_days}d · "
             f"{'Full re-import' if full_reimport else 'Delta sync'}"
+            f"{f' · Source: {data_source}' if data_source else ''}"
             f"{' · DRY RUN' if dry_run else ''}[/dim]",
             border_style="cyan",
         )
@@ -886,6 +920,7 @@ def import_data(
         lookback_days=lookback_days,
         full_reimport=full_reimport,
         dry_run=dry_run,
+        data_source=data_source,
     )
     runner = CommandRunner()
     

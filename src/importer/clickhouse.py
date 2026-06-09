@@ -110,6 +110,16 @@ PARTITION BY toYYYYMM(created_at)
 ORDER BY (agent, run_id, step_idx)
 """
 
+_DDL_AGENT_PREFERENCES = """
+CREATE TABLE IF NOT EXISTS market_data.agent_preferences (
+    preference_key String,
+    value          String,
+    updated_at     DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY preference_key
+"""
+
 # ── Idempotent column migrations (run on every startup) ───────────────────────
 # These ALTER statements are safe to run repeatedly — IF NOT EXISTS / IF EXISTS
 # guards prevent errors when the column already exists.
@@ -616,7 +626,7 @@ class ClickHouseImporter:
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
             _DDL_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
-            _DDL_AGENT_TRACES, _DDL_CORPORATE_ACTIONS,
+            _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
         ):
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)
@@ -1394,7 +1404,8 @@ class ClickHouseImporter:
         categories: list[str], 
         lookback_days: int = 3650, 
         full_reimport: bool = False, 
-        dry_run: bool = False
+        dry_run: bool = False,
+        data_source: str = "",
     ) -> dict[str, Any]:
         """
         Execute the import logic (refactored from cli.py).
@@ -1408,6 +1419,7 @@ class ClickHouseImporter:
             lookback_days=lookback_days,
             full_reimport=full_reimport,
             dry_run=dry_run,
+            data_source=data_source,
             clickhouse_host=self._host,
             clickhouse_port=self._port,
             clickhouse_database=self._database,
