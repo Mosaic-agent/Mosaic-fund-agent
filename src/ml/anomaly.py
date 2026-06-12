@@ -385,6 +385,27 @@ def fit_change_points(
     if valid_pos.size < 2 * min_size:
         return df  # too short to segment — leave all False
 
+    # Limit the time series length for change-point detection to the last 750 elements (~3 years of data)
+    # to bound O(N^3) complexity of RBF kernel.
+    limit = 750
+    if valid_pos.size > limit:
+        valid_pos_run = valid_pos[-limit:]
+        valid_mask_run = np.zeros(len(ret), dtype=bool)
+        valid_mask_run[valid_pos_run] = True
+    else:
+        valid_pos_run = valid_pos
+        valid_mask_run = valid_mask
+
+    # Dynamically scale jump size to prevent O(N^3) RBF kernel complexity slowdowns
+    if jump == 1:
+        n_val = valid_pos_run.size
+        if n_val > 1000:
+            jump = 10
+        elif n_val > 500:
+            jump = 5
+        elif n_val > 250:
+            jump = 2
+
     try:
         import ruptures as rpt  # type: ignore[import]
     except ImportError:
@@ -395,7 +416,7 @@ def fit_change_points(
         )
         return df
 
-    signal = ret[valid_mask]
+    signal = ret[valid_mask_run]
     std = signal.std()
     signal_z = ((signal - signal.mean()) / (std + 1e-12)).reshape(-1, 1)
 
@@ -415,7 +436,7 @@ def fit_change_points(
         return df
 
     # Map signal-relative breakpoint indices back to df row positions.
-    bkp_df_pos = valid_pos[[b - 1 for b in bkps]]
+    bkp_df_pos = valid_pos_run[[b - 1 for b in bkps]]
     df.iloc[bkp_df_pos, df.columns.get_loc("is_changepoint")] = True
 
     # cp_confirmed: any row within ±proximity_days *rows* of a breakpoint.
@@ -641,7 +662,12 @@ class CompositeAnomalyPipeline:
         ]
 
         for strategy in strategies:
+            strat_name = strategy.__class__.__name__
+            log.info(f"Running strategy: {strat_name}...")
+            import time
+            t0 = time.time()
             df = strategy.fit_predict(df)
+            log.info(f"Finished strategy {strat_name} in {time.time() - t0:.4f}s")
             if isinstance(strategy, GarchResidualStrategy):
                 self.garch_loglik = strategy.loglik
 
