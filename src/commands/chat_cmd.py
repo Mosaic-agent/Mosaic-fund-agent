@@ -888,6 +888,41 @@ Reply with exactly 3 lines — one question per line, no numbering, no bullet po
 """
 
 
+def _is_numeric_choice_prompt(answer: str) -> bool:
+    """
+    Detect if the assistant's answer is a prompt asking the user to choose
+    from numbered options (e.g., 1, 2, or 3 for data source selection).
+    """
+    if not answer:
+        return False
+    lower_ans = answer.lower()
+    
+    # Check if there are common choice prompt phrases
+    choice_phrases = [
+        "which source", 
+        "data_source_required", 
+        "enter 1, 2", 
+        "enter 1, 2, or 3", 
+        "choose 1, 2", 
+        "select 1, 2",
+        "which of the following",
+        "choose an option"
+    ]
+    if any(phrase in lower_ans for phrase in choice_phrases):
+        return True
+        
+    # Check if there are numbered options 1, 2, 3 and words indicating a question/choice
+    has_numbers = "1" in lower_ans and "2" in lower_ans and "3" in lower_ans
+    has_indicators = any(word in lower_ans for word in ("enter", "choose", "select", "prefer", "option", "source", "shoonya", "yfinance"))
+    if has_numbers and has_indicators:
+        # Check if they are structured as options (e.g., "1." or "1)" or "1 ")
+        import re
+        if re.search(r'\b1[\s\.\)]+\w+', lower_ans) and re.search(r'\b2[\s\.\)]+\w+', lower_ans) and re.search(r'\b3[\s\.\)]+\w+', lower_ans):
+            return True
+            
+    return False
+
+
 def _get_suggestions(question: str, answer: str, intent: str) -> list[str]:
     """
     Generate 3 contextual follow-up prompt suggestions via the LLM.
@@ -1780,7 +1815,10 @@ def run_chat_loop(console: Console | None = None) -> None:
                 logger.debug("stale-data check failed: %s", _fe)
 
             # ── Contextual follow-up suggestions
-            _last_suggestions = _get_suggestions(raw, answer, _intent)
+            if _is_numeric_choice_prompt(answer):
+                _last_suggestions = []
+            else:
+                _last_suggestions = _get_suggestions(raw, answer, _intent)
             if _last_suggestions:
                 from rich.text import Text as _RText
                 sug = _RText("\n")
