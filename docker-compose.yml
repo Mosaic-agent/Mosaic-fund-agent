@@ -89,9 +89,6 @@ services:
       - mosaic-output:/app/output   # named volume — persists inside Docker
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -123,9 +120,6 @@ services:
       - ./tests:/app/tests
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     depends_on:
       clickhouse:
         condition: service_healthy
