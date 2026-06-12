@@ -42,6 +42,7 @@ output/reports/*.md
 output/reports/*.html
 output/reports/*.png
 *.pdf
+!research_reports/*.pdf
 
 # Agent CLI configs
 .antigravitycli/
