@@ -97,8 +97,10 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set]
         # Return cached result if row count (data version) is unchanged.
         cache_key = (symbol.upper(), category, len(df))
         if cache_key in _ANOMALY_DATES_CACHE:
+            logger.info("Using cached anomaly detection results for %s.", symbol.upper())
             return _ANOMALY_DATES_CACHE[cache_key]
 
+        logger.info("Refitting anomaly detection models (cache miss for %s)...", symbol.upper())
         df_corp = _load_corp_actions(symbol)
 
         df["trade_date"] = pd.to_datetime(df["trade_date"])
@@ -218,6 +220,7 @@ def plot_price_chart(
     Example: plot_price_chart("GOLDBEES", start_date="2019-01-01", end_date="2019-12-31")
     """
     try:
+        logger.info("Plotting price chart for %s (days=%s)...", symbol, days)
         from src.db.pool import query_df
         cat_filter = f"AND category = '{category}'" if category else ""
         if start_date:
