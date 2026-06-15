@@ -1,4 +1,4 @@
-FROM gemma4:e4b
+FROM gemma4:12b-mlx
 
 # ── Context window ──────────────────────────────────────────────────────────
 # 16 384 is sufficient for a full Mosaic ReAct loop (tool schemas + history).
@@ -15,8 +15,9 @@ PARAMETER temperature 0
 PARAMETER num_predict 1024
 
 # ── Batch size ───────────────────────────────────────────────────────────────
-# Larger prompt batch = faster prefill on M-series unified memory.
-PARAMETER num_batch 2048
+# 4096 is safe for gemma4:12b-mlx (~7-8 GB) on M-series with 36 GB unified memory;
+# doubles prefill throughput vs 2048 with headroom to spare.
+PARAMETER num_batch 4096
 
 # ── System persona ──────────────────────────────────────────────────────────
 # Lightweight baseline; each sub-agent/main-agent overrides with its own
