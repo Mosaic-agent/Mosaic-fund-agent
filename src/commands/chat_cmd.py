@@ -10,7 +10,7 @@ Invoked by:
 Features
 --------
 - Infinite prompt loop; exits on 'quit' / Ctrl-C
-- In-session conversation memory via LangGraph MemorySaver (cleared on exit)
+- Persistent conversation memory via LangGraph SqliteSaver (saved in output/checkpoints.db)
 - Intent-based sub-agent auto-routing (deepdive / signal / macro / main)
 - Slash commands for direct dispatch and utility actions
 - Rich spinner while waiting; Markdown-rendered responses
@@ -1333,7 +1333,7 @@ def _dispatch_slash(
         new_id = str(uuid.uuid4())
         if conv_history is not None:
             conv_history.clear()
-        console.print("[yellow]Memory cleared — new conversation thread started.[/yellow]")
+        console.print(f"[yellow]Memory cleared — new conversation thread started:[/yellow] [bold cyan]{new_id}[/bold cyan]")
         return "", new_id
 
     # ── /analyze [--max N] ─────────────────────────────────────────────────
@@ -1479,7 +1479,7 @@ def extract_company_subject(question: str, intent: str) -> str | None:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
-def run_chat_loop(console: Console | None = None) -> None:
+def run_chat_loop(console: Console | None = None, thread_id: str | None = None) -> None:
     """
     Start the interactive REPL.
 
@@ -1488,19 +1488,30 @@ def run_chat_loop(console: Console | None = None) -> None:
     if console is None:
         console = Console()
 
+    # Ensure output directory exists for checkpoints database
+    import os
+    os.makedirs("output", exist_ok=True)
+
+    from langgraph.checkpoint.sqlite import SqliteSaver
+    with SqliteSaver.from_conn_string("output/checkpoints.db") as checkpointer:
+        _run_chat_loop_inner(console=console, checkpointer=checkpointer, thread_id=thread_id)
+
+
+def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | None = None) -> None:
     # Set environment variable to indicate interactive session for resolver prompts
     import os
     os.environ["MOSAIC_INTERACTIVE_CHAT"] = "1"
 
-    # Build agent with in-session memory
-    from langgraph.checkpoint.memory import MemorySaver
+    # Build agent with persistent sqlite checkpointer
     from src.agents.mosaic_fund_agent import MosaicFundAgent
 
     console.print(_BANNER)
 
     with console.status("[yellow]Loading agent…[/yellow]", spinner="dots"):
-        agent        = MosaicFundAgent(checkpointer=MemorySaver())
-        thread_id    = str(uuid.uuid4())
+        agent        = MosaicFundAgent(checkpointer=checkpointer)
+        is_resuming  = (thread_id is not None)
+        if not thread_id:
+            thread_id = str(uuid.uuid4())
         _pt_session  = _build_prompt_session()
 
     # Conversation history buffer — (user_msg, answer, intent) triples.
@@ -1514,6 +1525,12 @@ def run_chat_loop(console: Console | None = None) -> None:
     _backend = "ollama" if "11434" in settings.llm_base_url else ("local" if settings.llm_base_url else settings.llm_provider)
     _multiline_hint = "  [dim][Alt+↵ = newline  |  Ctrl+O = newline  |  ↑↓ = history][/dim]" if _pt_session else ""
     console.print(f"[dim]Agent ready  [bold]{settings.llm_model}[/bold] @ {_backend}.  Type your first question.[/dim]{_multiline_hint}\n")
+
+    if is_resuming:
+        console.print(f"[green]Resuming conversation thread:[/green] [bold cyan]{thread_id}[/bold cyan]\n")
+    else:
+        console.print(f"[green]Active conversation thread:[/green] [bold cyan]{thread_id}[/bold cyan] [dim](Use --thread-id {thread_id} to resume later)[/dim]\n")
+
 
     # Show 3 diverse starter suggestions
     from rich.text import Text as _RText
