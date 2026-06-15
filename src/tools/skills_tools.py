@@ -251,6 +251,9 @@ from src.tools.market.gold import (  # noqa: E402
     explain_price_anomalies,
 )
 
+# ── Macro context tools — defined in market_context.py ───────────────────────
+from src.tools.market_context import get_dxy_context  # noqa: E402
+
 
 @tool
 def query_clickhouse_db(sql_query: str) -> str:
@@ -552,6 +555,8 @@ SKILLS_TOOLS = [
     # Gold/GARCH domain — defined in market/gold.py, re-exported above
     run_risk_governor_analysis,
     explain_price_anomalies,
+    # Macro context tools — defined in market_context.py, re-exported above
+    get_dxy_context,
     # General-purpose tools defined in this file
     import_symbol_data,
     get_live_inav,

@@ -136,6 +136,7 @@ _INTENT_STEPS: dict[str, list] = {
             "Scan live macro / geopolitical events",
             "Fetch COMEX gold / silver / copper pre-market",
             "Query FII/DII institutional flows  [7 days]",
+            "Fetch DXY (US Dollar Index) trend  [get_dxy_context(30)]",
         ], "all fire in parallel"),
         "Plot FII/DII flow trend → plot_fii_dii_chart(30)",
         "Map events → ETF directional impact scores",
@@ -232,14 +233,17 @@ Examples:
 ── macro ────────────────────────────────────────
 When: ANY geopolitical event (Iran, Russia, China, Ukraine, Israel, Gaza, Pakistan, OPEC),
       sanctions, war, conflict, crude oil/energy, gold/silver price drivers, COMEX pre-market,
-      FII/DII institutional flows, RBI/Fed rate decisions, USD/INR, COT reports.
-Key tools: run_macro_scanner · run_comex_analysis · query_clickhouse_db (fii_dii_flows / cot_gold) ·
+      FII/DII institutional flows, RBI/Fed rate decisions, USD/INR, DXY / dollar index trend,
+      COT reports.
+Key tools: run_macro_scanner · run_comex_analysis · get_dxy_context · query_clickhouse_db (fii_dii_flows / cot_gold) ·
            plot_fii_dii_chart
 Examples:
   "comex gold signal"            → 1. run_comex_analysis()
   "iran sanctions oil impact"    → 1. run_macro_scanner()
   "FII DII flows last 30 days"   → 1. query_clickhouse_db("SELECT trade_date, fii_net_cr, dii_net_cr FROM market_data.fii_dii_flows FINAL ORDER BY trade_date DESC LIMIT 30")  2. plot_fii_dii_chart(30)
   "COT gold positioning"         → 1. query_clickhouse_db("SELECT report_date, mm_long, mm_short, mm_net FROM market_data.cot_gold FINAL ORDER BY report_date DESC LIMIT 10")
+  "dxy trend"                    → 1. get_dxy_context(days=30)  2. run_macro_scanner()
+  "dollar index strength"        → 1. get_dxy_context(days=30)
 
 ── news ─────────────────────────────────────────
 When: Latest news for a SPECIFIC Indian listed company or ETF symbol.
