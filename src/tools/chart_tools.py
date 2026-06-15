@@ -35,6 +35,28 @@ def _chart_width() -> int:
 _ANOMALY_DATES_CACHE: dict[tuple, tuple[set, set]] = {}  # → (anomaly_dates, corp_action_dates)
 
 
+import threading
+import functools
+import re
+
+_ACTIVE_CHARTS_LOCAL = threading.local()
+
+def get_active_charts() -> dict[str, str]:
+    if not hasattr(_ACTIVE_CHARTS_LOCAL, "charts"):
+        _ACTIVE_CHARTS_LOCAL.charts = {}
+    return _ACTIVE_CHARTS_LOCAL.charts
+
+def save_active_chart(key: str, chart_str: str) -> None:
+    get_active_charts()[key] = chart_str
+
+def clean_chart_tool_output(func):
+    """
+    No-op decorator since _build() now intercepts the plotting output directly
+    and saves it to thread-local storage.
+    """
+    return func
+
+
 def _load_corp_actions(symbol: str) -> "pd.DataFrame | None":
     """Load corporate actions from ClickHouse for a symbol. Returns None on miss."""
     try:
@@ -180,7 +202,29 @@ def _build(plt: Any) -> str:
     Text.from_ansi() in the callback handler renders them as Rich colors."""
     out = plt.build()
     plt.clear_figure()
-    return out
+    
+    # Infer key from the caller tool name to save the chart into the thread-local store
+    import inspect
+    frame = inspect.currentframe()
+    key = "chart"
+    try:
+        caller_frame = frame
+        while caller_frame:
+            func_name = caller_frame.f_code.co_name
+            if func_name.startswith("plot_"):
+                if "price" in func_name.lower():
+                    key = "price"
+                elif "shareholding" in func_name.lower():
+                    key = "shareholding"
+                else:
+                    key = func_name
+                break
+            caller_frame = caller_frame.f_back
+    finally:
+        del frame
+        
+    save_active_chart(key, out)
+    return f"[CHART:{key}]"
 
 
 def _data_table(headers: list[str], rows: list[list], title: str = "") -> str:
@@ -199,6 +243,7 @@ def _data_table(headers: list[str], rows: list[list], title: str = "") -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_price_chart(
     symbol: str,
     days: int = 60,
@@ -372,6 +417,7 @@ def plot_price_chart(
 
 
 @tool
+@clean_chart_tool_output
 def plot_fii_dii_chart(days: int = 30) -> str:
     """
     Plot FII and DII net flows as a dual bar chart.
@@ -452,6 +498,7 @@ def plot_fii_dii_chart(days: int = 30) -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_signal_scores(top_n: int = 18) -> str:
     """
     Plot the latest composite ETF signal scores as a horizontal bar chart.
@@ -500,6 +547,7 @@ def plot_signal_scores(top_n: int = 18) -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_nav_chart(symbol_or_scheme: str, days: int = 90) -> str:
     """
     Plot the NAV trend for a mutual fund or ETF from ClickHouse.
@@ -565,6 +613,7 @@ def plot_nav_chart(symbol_or_scheme: str, days: int = 90) -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "") -> str:
     """
     Plot price trends for multiple NSE symbols on the same chart for comparison.
@@ -685,6 +734,7 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "") -> 
 
 
 @tool
+@clean_chart_tool_output
 def plot_fund_holdings_chart(fund_name: str, top_n: int = 15, as_of_month: str = "") -> str:
     """
     Horizontal bar chart of a DSP fund's top holdings weighted by pct_of_nav.
@@ -736,6 +786,7 @@ def plot_fund_holdings_chart(fund_name: str, top_n: int = 15, as_of_month: str =
 
 
 @tool
+@clean_chart_tool_output
 def plot_signal_breakdown(etf_symbols: str = "") -> str:
     """
     Grouped bar chart showing the signal pillar weights (macro, sentiment,
@@ -789,6 +840,7 @@ def plot_signal_breakdown(etf_symbols: str = "") -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_garch_volatility_chart(symbol: str = "GOLDBEES", days: int = 90) -> str:
     """
     Plot the historical GARCH(1,1) annualised volatility trend for a symbol.
@@ -908,6 +960,7 @@ def plot_garch_volatility_chart(symbol: str = "GOLDBEES", days: int = 90) -> str
 
 
 @tool
+@clean_chart_tool_output
 def plot_weight_recommendations(method: str = "blended_50") -> str:
     """
     Horizontal bar chart of recommended position weights from weight_checkpoints.
@@ -951,6 +1004,7 @@ def plot_weight_recommendations(method: str = "blended_50") -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_intl_etf_performance() -> str:
     """
     Bar chart comparing 3-year Total Return % for all 6 international ETFs:
@@ -984,6 +1038,7 @@ def plot_intl_etf_performance() -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_intl_etf_premium(symbol: str = "MAFANG", days: int = 180) -> str:
     """
     Line chart of the scarcity premium / discount trend for one international ETF.
@@ -1029,6 +1084,7 @@ def plot_intl_etf_premium(symbol: str = "MAFANG", days: int = 180) -> str:
 
 
 @tool
+@clean_chart_tool_output
 def plot_shareholding_bar(symbol: str) -> str:
     """
     Plot a horizontal stacked bar chart of the shareholding pattern for an Indian NSE stock.
@@ -1133,12 +1189,15 @@ def plot_shareholding_bar(symbol: str) -> str:
             ""
         ] + legend_lines
 
-        return "\n".join(lines)
+        res = "\n".join(lines)
+        save_active_chart("shareholding", res)
+        return "[CHART:shareholding]"
     except Exception as exc:
         return f"Error plotting shareholding for {symbol}: {exc}"
 
 
 @tool
+@clean_chart_tool_output
 def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
     """
     Plot a MACD (12, 26, 9) indicator chart for an NSE symbol from ClickHouse.

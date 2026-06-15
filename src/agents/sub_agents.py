@@ -506,6 +506,9 @@ class _SubAgent:
         if self._agent is None:
             return self._confirm_fallback(question)
 
+        from src.tools.chart_tools import get_active_charts
+        get_active_charts().clear()
+
         from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
         from config.settings import settings
         is_local = (bool(settings.llm_base_url) and not settings.llm_local_disabled)
@@ -575,26 +578,8 @@ class _SubAgent:
                     # Print any extended-thinking blocks from the final message
                     _print_thinking_blocks(last_ai.content)
 
-                    # Collect chart tool outputs keyed by type
-                    chart_by_type: dict[str, str] = {}   # "price" | "shareholding" | tool_name → chart_str
-                    for m in msgs:
-                        if isinstance(m, ToolMessage):
-                            content_str = str(m.content)
-                            is_chart = (
-                                (m.name and m.name.startswith("plot_")) or
-                                ("┤" in content_str)
-                            )
-                            if is_chart:
-                                chart_val = m.content
-                                if isinstance(chart_val, dict):
-                                    chart_val = chart_val.get("chart", "") or chart_val.get("result", "") or str(chart_val)
-                                tname = m.name or "plot_chart"
-                                if "price" in tname.lower():
-                                    chart_by_type["price"] = str(chart_val)
-                                elif "shareholding" in tname.lower():
-                                    chart_by_type["shareholding"] = str(chart_val)
-                                else:
-                                    chart_by_type[tname] = str(chart_val)
+                    from src.tools.chart_tools import get_active_charts
+                    chart_by_type = get_active_charts().copy()
 
                     # Strip any box-drawing / chart characters the LLM may have
                     # reproduced despite instructions.  These corrupt Rich panels.
@@ -611,28 +596,32 @@ class _SubAgent:
                     # Collapse runs of 3+ blank lines
                     ai_text = _re.sub(r"\n{3,}", "\n\n", ai_text)
 
-                    # Replace [CHART:price] and [CHART:shareholding] placeholders
+                    # Replace placeholders for all charts in chart_by_type
+                    for tname in list(chart_by_type.keys()):
+                        placeholders = [f"[CHART:{tname}]"]
+                        if tname.startswith("plot_") and tname.endswith("_chart"):
+                            short_name = tname[5:-6]  # e.g., "plot_macd_chart" -> "macd"
+                            placeholders.append(f"[CHART:{short_name}]")
+                        
+                        for placeholder in placeholders:
+                            if placeholder in ai_text:
+                                ai_text = ai_text.replace(placeholder, chart_by_type.pop(tname))
+                                break
+
+                    # Fallbacks for specific standard sections if not explicitly replaced
                     if "price" in chart_by_type:
-                        if "[CHART:price]" in ai_text:
-                            ai_text = ai_text.replace("[CHART:price]", chart_by_type.pop("price"))
+                        snap = _re.search(r"(#+\s*(?:\(?\d\)?\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)", ai_text, _re.I | _re.DOTALL)
+                        if snap:
+                            ai_text = ai_text[:snap.end()] + "\n\n" + chart_by_type.pop("price") + "\n" + ai_text[snap.end():]
                         else:
-                            # Fallback: insert after Company Snapshot header
-                            snap = _re.search(r"(#+\s*(?:\(?\d\)?\s*)?Company\s+Snapshot.*?)(?=\n\s*#|\Z)", ai_text, _re.I | _re.DOTALL)
-                            if snap:
-                                ai_text = ai_text[:snap.end()] + "\n\n" + chart_by_type.pop("price") + "\n" + ai_text[snap.end():]
-                            else:
-                                ai_text += "\n\n" + chart_by_type.pop("price")
+                            ai_text += "\n\n" + chart_by_type.pop("price")
 
                     if "shareholding" in chart_by_type:
-                        if "[CHART:shareholding]" in ai_text:
-                            ai_text = ai_text.replace("[CHART:shareholding]", chart_by_type.pop("shareholding"))
+                        own = _re.search(r"(#+\s*(?:\(?\d\)?\s*)?Institutional\s+Ownership.*?)(?=\n\s*[╭|])", ai_text, _re.I | _re.DOTALL)
+                        if own:
+                            ai_text = ai_text[:own.end()] + "\n\n" + chart_by_type.pop("shareholding") + "\n" + ai_text[own.end():]
                         else:
-                            # Fallback: insert before the Institutional Ownership table
-                            own = _re.search(r"(#+\s*(?:\(?\d\)?\s*)?Institutional\s+Ownership.*?)(?=\n\s*[╭|])", ai_text, _re.I | _re.DOTALL)
-                            if own:
-                                ai_text = ai_text[:own.end()] + "\n\n" + chart_by_type.pop("shareholding") + "\n" + ai_text[own.end():]
-                            else:
-                                ai_text += "\n\n" + chart_by_type.pop("shareholding")
+                            ai_text += "\n\n" + chart_by_type.pop("shareholding")
 
                     # Append any remaining charts (FII/DII, etc.) that weren't placed
                     for tname, chart_str in chart_by_type.items():
