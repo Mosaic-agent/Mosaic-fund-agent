@@ -500,6 +500,89 @@ def plot_fii_dii_chart(days: int = 30) -> str:
 
 @tool
 @clean_chart_tool_output
+def plot_dxy_chart(days: int = 365) -> str:
+    """
+    Plot US Dollar Index (DXY) price trend as a line chart.
+
+    Args:
+        days: Number of calendar days of history to show (default 365 = 1 year)
+
+    Example: plot_dxy_chart(days=365)
+    """
+    try:
+        from src.db.pool import query_df
+        import pandas as pd
+        from datetime import datetime
+
+        df = query_df(f"""
+            SELECT trade_date, toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = 'DXY'
+              AND trade_date >= today() - {days}
+            GROUP BY trade_date
+            ORDER BY trade_date ASC
+        """)
+        if df.empty:
+            return (
+                "No DXY data found. "
+                "Run: `mosaic import --categories indices` to import it."
+            )
+
+        labels = df["trade_date"].astype(str).tolist()
+        prices = df["close"].tolist()
+
+        plt = _plt()
+        plt.clear_figure()
+        plt.plot(list(range(len(prices))), prices, label="DXY")
+        plt.title(f"US Dollar Index (DXY) — last {days} days")
+
+        step = max(1, len(prices) // 6)
+        tick_indices, tick_labels = [], []
+        for idx in range(0, len(prices), step):
+            tick_indices.append(idx)
+            try:
+                dt = datetime.strptime(labels[idx], "%Y-%m-%d")
+                tick_labels.append(dt.strftime("%b'%y"))
+            except Exception:
+                tick_labels.append(labels[idx])
+        if (len(prices) - 1) not in tick_indices:
+            tick_indices.append(len(prices) - 1)
+            try:
+                dt = datetime.strptime(labels[-1], "%Y-%m-%d")
+                tick_labels.append(dt.strftime("%b'%y"))
+            except Exception:
+                tick_labels.append(labels[-1])
+
+        plt.xticks(tick_indices, tick_labels)
+        plt.xlabel(f"{labels[0]} → {labels[-1]}")
+        plt.ylabel("DXY Level")
+        plt.plot_size(_chart_width(), _CHART_HEIGHT)
+        chart = _build(plt)
+
+        hi = max(prices)
+        lo = min(prices)
+        hi_date = labels[prices.index(hi)]
+        lo_date = labels[prices.index(lo)]
+        latest = prices[-1]
+        chg_pct = (latest - prices[0]) / prices[0] * 100
+
+        summary = (
+            f"\n**DXY Summary ({labels[0]} → {labels[-1]})**\n"
+            f"| Metric | Value |\n| --- | --- |\n"
+            f"| Latest | {latest:.2f} |\n"
+            f"| Period High | {hi:.2f} ({hi_date}) |\n"
+            f"| Period Low | {lo:.2f} ({lo_date}) |\n"
+            f"| Period Change | {chg_pct:+.2f}% |"
+        )
+        return chart + summary
+    except ImportError as exc:
+        return str(exc)
+    except Exception as exc:
+        return f"Error plotting DXY chart: {exc}"
+
+
+@tool
+@clean_chart_tool_output
 def plot_signal_scores(top_n: int = 18) -> str:
     """
     Plot the latest composite ETF signal scores as a horizontal bar chart.
@@ -1372,6 +1455,7 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
 CHART_TOOLS = [
     plot_price_chart,
     plot_fii_dii_chart,
+    plot_dxy_chart,
     plot_signal_scores,
     plot_nav_chart,
     plot_multi_price_chart,

@@ -1334,6 +1334,7 @@ class MacroSubAgent(_SubAgent):
         "## Charts\n"
         "If the user asks for a chart, visualisation, or trend:\n"
         "- FII/DII flow trend → `plot_fii_dii_chart(days)`\n"
+        "- DXY trend chart → `plot_dxy_chart(days)` (default 365 for 1 year)\n"
         "- Gold/silver/commodity price trend → `plot_price_chart(symbol, days)`\n"
         "- Multi-asset fund holdings, allocations, or institutional shifts → `run_whale_tracker` (automatically appends ASCII trend charts)\n"
         "Always call the appropriate chart tool to render the visual when requested.\n\n"
@@ -1351,7 +1352,7 @@ class MacroSubAgent(_SubAgent):
         )
         from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_db_news
-        from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
+        from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart, plot_dxy_chart
         return [
             run_macro_scanner,
             run_comex_analysis,
@@ -1363,6 +1364,7 @@ class MacroSubAgent(_SubAgent):
             get_db_news,
             plot_fii_dii_chart,
             plot_price_chart,
+            plot_dxy_chart,
         ]
 
 
