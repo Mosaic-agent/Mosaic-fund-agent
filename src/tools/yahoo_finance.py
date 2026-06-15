@@ -39,8 +39,15 @@ def _build_yf_symbol(symbol: str, exchange: str = "NSE") -> str:
       RELIANCE + BSE  →  RELIANCE.BO
       ADSK + US      →  ADSK
     """
-    # Already has suffix, starts with caret, or ends with =F – return as-is
-    if symbol.endswith(".NS") or symbol.endswith(".BO") or symbol.startswith("^") or symbol.endswith("=F"):
+    # Already has suffix, starts with caret, contains a dot/equals, or ends with =F – return as-is
+    if (
+        symbol.endswith(".NS")
+        or symbol.endswith(".BO")
+        or symbol.startswith("^")
+        or symbol.endswith("=F")
+        or "." in symbol
+        or "=" in symbol
+    ):
         return symbol
 
     if exchange.upper() in ("US", "NASDAQ", "NYSE"):
