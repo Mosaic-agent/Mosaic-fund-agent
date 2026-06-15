@@ -21,7 +21,10 @@ if %errorlevel% neq 0 (
 
 set FIRST_ARG=%1
 
-if "%FIRST_ARG%"=="" goto default_run
+if "%FIRST_ARG%"=="" goto run_chat
+if "%FIRST_ARG%"=="chat" goto run_chat_interactive
+if "%FIRST_ARG%"=="-t" goto run_chat_with_t
+if "%FIRST_ARG%"=="--thread-id" goto run_chat_with_t
 
 :: Extract the last 3 characters to check if it ends with .py
 set EXT=%FIRST_ARG:~-3%
@@ -33,4 +36,16 @@ if /I "%EXT%"==".py" (
 
 :default_run
 docker compose run --rm mosaic %*
+exit /b %errorlevel%
+
+:run_chat
+docker compose run --rm -it mosaic chat
+exit /b %errorlevel%
+
+:run_chat_interactive
+docker compose run --rm -it mosaic %*
+exit /b %errorlevel%
+
+:run_chat_with_t
+docker compose run --rm -it mosaic chat %*
 exit /b %errorlevel%
