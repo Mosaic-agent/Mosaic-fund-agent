@@ -31,6 +31,67 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _make_context_trimmer(context_window: int):
+    """
+    Returns a ``pre_model_hook`` for ``create_react_agent`` that keeps each
+    LLM call within *context_window* tokens (approximated as chars / 4).
+
+    Strategy (applied before every model call):
+      1. Hard-truncate each ToolMessage to ≤ 20 % of context (biggest single
+         source of overflow — SQL results, news dumps, chart ASCII).
+      2. If the total message chars still exceed 60 % of context, evict the
+         oldest AI+Tool round-trip (the pair of AIMessage-with-tool_calls +
+         its ToolMessages) repeatedly until it fits.
+      3. Return the trimmed list as ``llm_input_messages`` so the actual
+         LangGraph state (used for the fallback synthesis path) is untouched.
+
+    Only attached when running a local model; cloud models skip this.
+    """
+    max_input_chars = int(context_window * 0.60 * 4)   # 60 % of ctx for input
+    max_tool_chars  = int(context_window * 0.20 * 4)   # 20 % per tool output
+
+    def _hook(state: dict) -> dict:
+        from langchain_core.messages import ToolMessage, AIMessage
+
+        msgs = list(state.get("llm_input_messages") or state.get("messages") or [])
+
+        # Step 1 — truncate oversized ToolMessage content
+        result = []
+        for m in msgs:
+            if isinstance(m, ToolMessage):
+                content = str(m.content)
+                if len(content) > max_tool_chars:
+                    trimmed_n = len(content) - max_tool_chars
+                    content = (
+                        content[:max_tool_chars]
+                        + f"\n…[{trimmed_n} chars trimmed — use narrower queries to fit local context]"
+                    )
+                    m = m.model_copy(update={"content": content})
+            result.append(m)
+
+        # Step 2 — evict oldest AI+Tool round-trips until total fits
+        def _total(ms):
+            return sum(len(str(m.content)) for m in ms)
+
+        while _total(result) > max_input_chars and len(result) > 2:
+            evicted = False
+            for i in range(1, len(result)):
+                m = result[i]
+                if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+                    j = i + 1
+                    while j < len(result) and isinstance(result[j], ToolMessage):
+                        j += 1
+                    result = result[:i] + result[j:]
+                    evicted = True
+                    break
+            if not evicted:
+                break
+
+        return {"llm_input_messages": result}
+
+    return _hook
+
+
 def _print_thinking_blocks(content: Any, label: str = "🧠 Analyst Reasoning") -> None:
     """
     Extract Anthropic extended-thinking blocks from a message content and
@@ -474,10 +535,22 @@ class _SubAgent:
             # via its internal ThreadPoolExecutor — no extra configuration required.
             tool_node = ToolNode(tools)
             from src.utils.caveman import get_caveman_prompt
+
+            # Attach context trimmer for local models to prevent token-overflow mid-run.
+            # Cloud models have large enough windows to not need this.
+            pre_hook = None
+            if llm_override is None and settings.is_local_model:
+                pre_hook = _make_context_trimmer(settings.llm_context_window)
+                logger.info(
+                    "%s: context trimmer attached (window=%d tokens)",
+                    self.__class__.__name__, settings.llm_context_window,
+                )
+
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
                 prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE,
+                pre_model_hook=pre_hook,
             )
             logger.info("%s: agent built with parallel ToolNode (%d tools)", self.__class__.__name__, len(tools))
         except Exception as exc:
@@ -1241,6 +1314,10 @@ class MacroSubAgent(_SubAgent):
         "their directional impact to ETFs. "
         "Use `run_comex_analysis` for COMEX gold/silver/copper pre-market price signals. "
         "Use `run_whale_tracker` to track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear, Energy, Infra) across multi-asset funds. "
+        "Use `get_dxy_context` to get the current US Dollar Index (DXY) level, 5-day and "
+        "20-day change, trend direction, and macro interpretation for gold and INR. "
+        "Call `get_dxy_context` whenever the user asks about the dollar, DXY, USD strength, "
+        "or its impact on gold / USDINR. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL` and "
         "`market_data.cot_gold FINAL` for institutional positioning data. "
         "Net article flow index interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
@@ -1272,6 +1349,7 @@ class MacroSubAgent(_SubAgent):
             run_whale_tracker,
             run_market_indicators,
         )
+        from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_db_news
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
         return [
@@ -1280,6 +1358,7 @@ class MacroSubAgent(_SubAgent):
             query_clickhouse_db,
             run_whale_tracker,
             run_market_indicators,
+            get_dxy_context,
             search_financial_news,
             get_db_news,
             plot_fii_dii_chart,
@@ -1759,6 +1838,7 @@ aggregations must be computed by Python or SQL, then narrated.
             run_daily_signal_composite,
             run_risk_governor_analysis,
         )
+        from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_stock_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.intl_etf_tools import get_intl_etf_correlation, get_intl_etf_performance
@@ -1784,6 +1864,7 @@ aggregations must be computed by Python or SQL, then narrated.
             run_macro_scanner,
             run_daily_signal_composite,
             run_risk_governor_analysis,
+            get_dxy_context,
             search_financial_news,
             get_stock_news,
             get_newsapi_stock_news,
