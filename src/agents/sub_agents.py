@@ -1241,6 +1241,10 @@ class MacroSubAgent(_SubAgent):
         "their directional impact to ETFs. "
         "Use `run_comex_analysis` for COMEX gold/silver/copper pre-market price signals. "
         "Use `run_whale_tracker` to track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear, Energy, Infra) across multi-asset funds. "
+        "Use `get_dxy_context` to get the current US Dollar Index (DXY) level, 5-day and "
+        "20-day change, trend direction, and macro interpretation for gold and INR. "
+        "Call `get_dxy_context` whenever the user asks about the dollar, DXY, USD strength, "
+        "or its impact on gold / USDINR. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL` and "
         "`market_data.cot_gold FINAL` for institutional positioning data. "
         "Net article flow index interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
@@ -1272,6 +1276,7 @@ class MacroSubAgent(_SubAgent):
             run_whale_tracker,
             run_market_indicators,
         )
+        from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_db_news
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart
         return [
@@ -1280,6 +1285,7 @@ class MacroSubAgent(_SubAgent):
             query_clickhouse_db,
             run_whale_tracker,
             run_market_indicators,
+            get_dxy_context,
             search_financial_news,
             get_db_news,
             plot_fii_dii_chart,
@@ -1759,6 +1765,7 @@ aggregations must be computed by Python or SQL, then narrated.
             run_daily_signal_composite,
             run_risk_governor_analysis,
         )
+        from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_stock_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.intl_etf_tools import get_intl_etf_correlation, get_intl_etf_performance
@@ -1784,6 +1791,7 @@ aggregations must be computed by Python or SQL, then narrated.
             run_macro_scanner,
             run_daily_signal_composite,
             run_risk_governor_analysis,
+            get_dxy_context,
             search_financial_news,
             get_stock_news,
             get_newsapi_stock_news,

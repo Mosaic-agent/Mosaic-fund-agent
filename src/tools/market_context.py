@@ -1,28 +1,13 @@
 """
 src/tools/market_context.py
 ────────────────────────────
-Queries recent FII / DII institutional flow data from ClickHouse and
-formats it as a concise LLM-ready context string.
-
-Used by the portfolio agent (Phase 3) to ground the LLM's reasoning with
-actual institutional-flow figures rather than relying on the model's
-general knowledge about NSE market dynamics.
+Queries recent FII / DII institutional flow data and DXY (US Dollar Index)
+data from ClickHouse and formats them as concise LLM-ready context strings.
 
 Public API
 ──────────
     get_fii_dii_context(days: int = 5) -> dict
-
-    Returns:
-        {
-          "rows": [{"trade_date": date, "fii_net_cr": float, "dii_net_cr": float}, ...],
-          "fii_consec_sell_days": int,   # consecutive days FII was net seller
-          "fii_consec_buy_days":  int,   # consecutive days FII was net buyer
-          "summary_str": str,            # LLM-ready one-paragraph narrative
-        }
-
-    On any error (ClickHouse unavailable, table empty, etc.) returns:
-        {"rows": [], "fii_consec_sell_days": 0, "fii_consec_buy_days": 0,
-         "summary_str": "FII/DII flow data unavailable."}
+    get_dxy_context(days: int = 30) -> str   — @tool decorated, agent-callable
 """
 
 from __future__ import annotations
@@ -30,6 +15,8 @@ from __future__ import annotations
 import logging
 from datetime import date
 from typing import Any
+
+from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
@@ -190,4 +177,83 @@ def _build_summary(
     lines.append(fii_narrative)
     lines.append(dii_narrative)
 
+    return "\n".join(lines)
+
+
+@tool
+def get_dxy_context(days: int = 30) -> str:
+    """
+    Fetch recent US Dollar Index (DXY) data from ClickHouse (market_data.daily_prices)
+    and return an LLM-ready summary: current level, 5-day and 20-day change, trend
+    direction, and a short macro interpretation for gold and INR.
+
+    DXY must be imported first: `mosaic import --categories indices`
+    Falls back to a clear error message if data is unavailable.
+
+    Args:
+        days: number of calendar days of history to fetch (default 30; min 21 for trend)
+    """
+    days = max(int(days), 21)
+
+    try:
+        from src.db.pool import get_pool as _get_pool
+
+        with _get_pool().acquire() as client:
+            result = client.query(
+                f"""
+                SELECT trade_date, close
+                FROM market_data.daily_prices FINAL
+                WHERE symbol = 'DXY'
+                  AND trade_date >= today() - {days}
+                ORDER BY trade_date ASC
+                """
+            )
+
+        raw = result.result_rows
+        if not raw:
+            return (
+                "DXY data not available in ClickHouse. "
+                "Run: `mosaic import --categories indices` to import it."
+            )
+
+        rows = [{"trade_date": r[0], "close": float(r[1])} for r in raw]
+
+    except Exception as exc:
+        logger.warning("DXY context fetch failed: %s", exc)
+        return f"DXY context unavailable: {exc}"
+
+    latest   = rows[-1]
+    prev5    = rows[-6]["close"] if len(rows) >= 6 else rows[0]["close"]
+    prev20   = rows[-21]["close"] if len(rows) >= 21 else rows[0]["close"]
+    level    = latest["close"]
+    chg5     = (level - prev5)  / prev5  * 100
+    chg20    = (level - prev20) / prev20 * 100
+    as_of    = latest["trade_date"]
+    as_of_str = as_of.isoformat() if isinstance(as_of, date) else str(as_of)[:10]
+
+    # Trend label
+    if chg5 >= 0.3:
+        trend = "strengthening"
+    elif chg5 <= -0.3:
+        trend = "weakening"
+    else:
+        trend = "flat"
+
+    # Macro interpretation
+    if level <= 100:
+        regime = "weak-dollar regime — historically supportive for gold and INR."
+    elif level <= 104:
+        regime = "moderate-dollar zone — gold and INR under mild pressure."
+    elif level <= 108:
+        regime = "strong-dollar zone — headwind for gold (USD-denominated) and INR."
+    else:
+        regime = "very strong dollar — significant headwind for gold and EM currencies."
+
+    lines = [
+        f"US Dollar Index (DXY) as of {as_of_str}:",
+        f"  Level : {level:.2f}",
+        f"  5-day : {chg5:+.2f}%  ({trend})",
+        f"  20-day: {chg20:+.2f}%",
+        f"  Regime: {regime}",
+    ]
     return "\n".join(lines)

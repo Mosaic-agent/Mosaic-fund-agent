@@ -120,11 +120,60 @@ def _clamp01(value: float, low: float, high: float) -> float:
 
 def _fetch_dxy_tnx(lookback_days: int = _LOOKBACK_DAYS + 10) -> pd.DataFrame:
     """
-    Fetch DXY (DX-Y.NYB) and US 10Y yield (^TNX) from Yahoo Finance.
+    Fetch DXY and US 10Y yield.  Tries ClickHouse (daily_prices) first — both
+    DXY (symbol='DXY') and US10Y (symbol='US10Y') are imported by the indices
+    importer.  Falls back to Yahoo Finance when ClickHouse is unavailable or the
+    symbols are not yet imported.
 
     Returns a DataFrame with columns: trade_date, dxy_close, us10y_close.
     Degrades gracefully to an empty DataFrame on failure.
     """
+    # ── Primary path: ClickHouse ──────────────────────────────────────────────
+    try:
+        from src.db.pool import get_pool as _get_pool
+
+        with _get_pool().acquire() as client:
+            result = client.query(
+                f"""
+                SELECT trade_date, symbol, close
+                FROM market_data.daily_prices FINAL
+                WHERE symbol IN ('DXY', 'US10Y')
+                  AND trade_date >= today() - {lookback_days}
+                ORDER BY trade_date ASC
+                """
+            )
+
+        raw = result.result_rows
+        if raw:
+            import pandas as _pd
+            ch_df = _pd.DataFrame(raw, columns=["trade_date", "symbol", "close"])
+            ch_df["trade_date"] = _pd.to_datetime(ch_df["trade_date"]).dt.normalize()
+
+            dxy_df  = ch_df[ch_df["symbol"] == "DXY"][["trade_date", "close"]].rename(
+                columns={"close": "dxy_close"})
+            us10y_df = ch_df[ch_df["symbol"] == "US10Y"][["trade_date", "close"]].rename(
+                columns={"close": "us10y_close"})
+
+            if not dxy_df.empty or not us10y_df.empty:
+                if dxy_df.empty:
+                    merged = us10y_df
+                elif us10y_df.empty:
+                    merged = dxy_df
+                else:
+                    merged = dxy_df.merge(us10y_df, on="trade_date", how="outer")
+
+                for col in ("dxy_close", "us10y_close"):
+                    if col not in merged.columns:
+                        merged[col] = float("nan")
+
+                return merged.sort_values("trade_date").reset_index(drop=True)
+
+        log.debug("DXY/US10Y not yet in ClickHouse — falling back to yfinance")
+
+    except Exception as exc:
+        log.debug("ClickHouse DXY/TNX fetch failed (%s) — falling back to yfinance", exc)
+
+    # ── Fallback: Yahoo Finance ───────────────────────────────────────────────
     try:
         import yfinance as yf
         from datetime import date as _date
@@ -143,7 +192,6 @@ def _fetch_dxy_tnx(lookback_days: int = _LOOKBACK_DAYS + 10) -> pd.DataFrame:
         pieces: list[pd.DataFrame] = []
         if not dxy_raw.empty:
             d = dxy_raw[["Close"]].copy()
-            # yfinance may return MultiIndex columns even for a single ticker
             if isinstance(d.columns, pd.MultiIndex):
                 d.columns = ["dxy_close"]
             else:
@@ -169,7 +217,7 @@ def _fetch_dxy_tnx(lookback_days: int = _LOOKBACK_DAYS + 10) -> pd.DataFrame:
         return df.sort_values("trade_date").reset_index(drop=True)
 
     except Exception as exc:
-        log.warning("DXY/TNX fetch failed: %s", exc)
+        log.warning("DXY/TNX yfinance fallback also failed: %s", exc)
         return pd.DataFrame(columns=["trade_date", "dxy_close", "us10y_close"])
 
 
