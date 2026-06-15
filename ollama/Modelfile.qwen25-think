@@ -1,7 +1,7 @@
 FROM qwen2.5:14b
 
 # ── Context window ───────────────────────────────────────────────────────────
-PARAMETER num_ctx 32768
+PARAMETER num_ctx 16384
 
 # ── Sampling ─────────────────────────────────────────────────────────────────
 # Temperature 0 = deterministic, important for structured tool JSON

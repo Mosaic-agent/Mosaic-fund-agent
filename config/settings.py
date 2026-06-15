@@ -184,7 +184,7 @@ class Settings(BaseSettings):
     #   GPT-4o / GPT-4o-mini (OpenAI cloud):   32768
     #   Claude 3.5 Sonnet (Anthropic cloud):   200000
     llm_context_window: int = Field(
-        default=4096,
+        default=16384,
         description="Model input context window in tokens",
     )
 

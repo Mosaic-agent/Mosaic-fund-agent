@@ -30,7 +30,7 @@ services:
 
   # ── One-time model initialiser ───────────────────────────────────────────────
   # Pulls gemma4:latest into the ollama service and creates the mosaic-gemma4
-  # variant from ollama/Modelfile (num_ctx=32768, temperature=0).
+  # variant from ollama/Modelfile (num_ctx=16384, temperature=0).
   # FIRST RUN: downloads ~5-8 GB — runs once, then the volume cache is reused.
   ollama-init:
     image: ollama/ollama:latest
