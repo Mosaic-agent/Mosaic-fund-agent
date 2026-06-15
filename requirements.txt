@@ -9,6 +9,8 @@ langchain-openai>=0.2.0          # LLM provider (OpenAI GPT-4)
 langchain-anthropic>=0.2.0       # LLM provider (Anthropic Claude) – optional
 langchain-google-genai>=2.0.0   # LLM provider (Google Gemini) – used by CodeSubAgent
 langgraph>=0.2.0                 # Agent graph orchestration
+langgraph-checkpoint-sqlite>=2.0.0 # Persistent SQLite checkpointer for multi-turn threads
+
 
 # ── MCP (Model Context Protocol) Client ───────────────────────────────────────
 mcp>=1.0.0                       # Python MCP SDK to connect to kite-mcp-server

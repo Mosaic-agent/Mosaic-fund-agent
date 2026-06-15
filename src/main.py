@@ -222,19 +222,27 @@ def ask(
 
 
 @app.command()
-def chat() -> None:
+def chat(
+    thread_id: str = typer.Option(
+        None,
+        "--thread-id",
+        "-t",
+        help="The conversation thread ID to resume (resumes memory from persistent DB)",
+    )
+) -> None:
     """
     Start an interactive multi-turn chat session with the Mosaic-fund-agent.
 
     Features:
       - Infinite prompt loop (exit with 'quit' or Ctrl-C)
-      - In-session conversation memory (resets on exit)
+      - Persistent conversation memory via SqliteSaver (saved in output/checkpoints.db)
       - Intent-based sub-agent routing: deepdive / signals / macro / main
       - Slash commands: /analyze, /signals, /deepdive TICKER, /macro, /clear, /help
 
     Examples:
       ./mosaic.sh                     — default: starts this chat
       ./mosaic.sh chat                — explicit
+      ./mosaic.sh chat -t THREAD_ID   — resume an exited chat session
       /analyze --max 3               — run portfolio analysis inside chat
       /deepdive ADSK                 — US stock SEC deep-dive
       deep-dives adsk                — auto-routes to DeepDive sub-agent
@@ -243,7 +251,7 @@ def chat() -> None:
     if not _check_config():
         raise typer.Exit(code=1)
     from src.commands.chat_cmd import run_chat_loop
-    run_chat_loop(console)
+    run_chat_loop(console, thread_id=thread_id)
 
 
 @app.command()

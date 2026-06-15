@@ -4,7 +4,9 @@ __pycache__/
 .DS_Store
 output/*.json
 output/*.html
+output/*.db
 output/.cache/
+
 .pytest_cache/
 .mypy_cache/
 dist/
@@ -46,6 +48,7 @@ output/reports/*.png
 
 # Agent CLI configs
 .antigravitycli/
+.codex/
 
 # Local cache data
 data/isin_ticker_cache.json

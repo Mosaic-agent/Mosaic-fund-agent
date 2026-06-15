@@ -71,6 +71,12 @@ FIRST_ARG="$1"
 if [[ "$FIRST_ARG" == *.py ]]; then
     echo "Running Python script in Docker..."
     docker compose run --rm --entrypoint python mosaic "$@"
+elif [[ "$FIRST_ARG" == "chat" ]]; then
+    # Run interactive chat with args (e.g. -t <thread_id>)
+    docker compose run --rm -it mosaic "$@"
+elif [[ "$FIRST_ARG" == "-t" || "$FIRST_ARG" == "--thread-id" ]]; then
+    # Auto-prepend "chat" and run interactive
+    docker compose run --rm -it mosaic chat "$@"
 else
     # Default: pass args to main.py
     docker compose run --rm mosaic "$@"
