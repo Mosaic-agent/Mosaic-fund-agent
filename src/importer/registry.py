@@ -175,6 +175,7 @@ INDICES: list[tuple[str, str]] = [
     ("DOWJONES",       "^DJI"),
     ("US10Y",          "^TNX"),               # US 10-year Treasury yield
     ("US13W",          "^IRX"),               # US 13-week T-bill yield
+    ("DXY",            "DX-Y.NYB"),           # ICE US Dollar Index (DXY spot)
 ]
 
 # ── NSE-only indices (no Yahoo Finance ticker) ────────────────────────────────
