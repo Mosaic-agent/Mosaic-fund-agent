@@ -544,6 +544,13 @@ class MosaicFundAgent:
         )
         if self._checkpointer is not None:
             kwargs["checkpointer"] = self._checkpointer
+
+        # Attach context trimmer for local models to prevent token-overflow
+        if not settings.llm_local_disabled and settings.is_local_model:
+            from src.agents.sub_agents import _make_context_trimmer
+            kwargs["pre_model_hook"] = _make_context_trimmer(effective_window)
+            logger.info("MosaicFundAgent: context trimmer attached (window=%d tokens)", effective_window)
+
         return create_react_agent(**kwargs)
 
     # ── Public API ────────────────────────────────────────────────────────────
