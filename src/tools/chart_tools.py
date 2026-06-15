@@ -35,19 +35,20 @@ def _chart_width() -> int:
 _ANOMALY_DATES_CACHE: dict[tuple, tuple[set, set]] = {}  # → (anomaly_dates, corp_action_dates)
 
 
-import threading
 import functools
 import re
 
-_ACTIVE_CHARTS_LOCAL = threading.local()
+_ACTIVE_CHARTS: dict[str, str] = {}
 
 def get_active_charts() -> dict[str, str]:
-    if not hasattr(_ACTIVE_CHARTS_LOCAL, "charts"):
-        _ACTIVE_CHARTS_LOCAL.charts = {}
-    return _ACTIVE_CHARTS_LOCAL.charts
+    global _ACTIVE_CHARTS
+    return _ACTIVE_CHARTS
 
 def save_active_chart(key: str, chart_str: str) -> None:
     get_active_charts()[key] = chart_str
+
+def clear_active_charts() -> None:
+    get_active_charts().clear()
 
 def clean_chart_tool_output(func):
     """
