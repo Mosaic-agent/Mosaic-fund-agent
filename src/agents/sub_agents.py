@@ -47,8 +47,8 @@ def _make_context_trimmer(context_window: int):
 
     Only attached when running a local model; cloud models skip this.
     """
-    max_input_chars = int(context_window * 0.60 * 4)   # 60 % of ctx for input
-    max_tool_chars  = int(context_window * 0.20 * 4)   # 20 % per tool output
+    max_input_chars = int(context_window * 0.50 * 4)   # 50 % of ctx for input
+    max_tool_chars  = int(context_window * 0.10 * 4)   # 10 % per tool output
 
     def _hook(state: dict) -> dict:
         from langchain_core.messages import ToolMessage, AIMessage
