@@ -885,14 +885,21 @@ def test_multi_price_chart_fallback():
             return mock_history_2
         return []
 
+    from src.tools.chart_tools import get_active_charts
     with patch("src.db.pool.query_df", return_value=pd.DataFrame()), \
          patch("src.tools.yahoo_finance.fetch_price_history", side_effect=mock_fetch):
         output = plot_multi_price_chart.invoke({"symbols": "TATAPOWER,^CNXENERGY", "days": 30})
         
-        # Verify chart title and normalised labels are present
-        assert "Normalised price comparison" in output
-        assert "TATAPOWER" in output
-        assert "^CNXENERGY" in output
+        # Verify placeholder is returned (since ASCII chart is intercepted by @clean_chart_tool_output)
+        assert "[CHART:price]" in output
+        
+        # Verify the actual chart was saved to active charts store
+        charts = get_active_charts()
+        assert "price" in charts
+        chart_output = charts["price"]
+        assert "Normalised price comparison" in chart_output
+        assert "TATAPOWER" in chart_output
+        assert "^CNXENERGY" in chart_output
         
     print("  ✓ Multi price chart fallback and index caret symbols handling passed")
 
