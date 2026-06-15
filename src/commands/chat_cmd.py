@@ -139,6 +139,7 @@ _INTENT_STEPS: dict[str, list] = {
             "Fetch DXY (US Dollar Index) trend  [get_dxy_context(30)]",
         ], "all fire in parallel"),
         "Plot FII/DII flow trend → plot_fii_dii_chart(30)",
+        "Plot DXY trend chart → plot_dxy_chart(days)  [use days=365 for 1-year]",
         "Map events → ETF directional impact scores",
     ],
     "intl_etf": [
@@ -406,6 +407,7 @@ Chart tools available (use when the query involves price, trend, pattern, compar
   plot_price_chart(symbol, days)              — line chart: price trend
   plot_multi_price_chart('SYM1,SYM2', days)  — normalised comparison
   plot_fii_dii_chart(days)                   — bar chart: FII/DII net flows
+  plot_dxy_chart(days)                       — line chart: DXY (US Dollar Index) trend (default 365 = 1 year)
   plot_signal_scores()                       — bar chart: all ETF composite scores
   plot_signal_breakdown('SYM1,SYM2')         — grouped: pillar weights per ETF
   plot_fund_holdings_chart(fund, top_n)      — horizontal bar: holdings by pct_of_nav
