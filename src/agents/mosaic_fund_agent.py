@@ -422,11 +422,13 @@ class MosaicFundAgent:
         # ── Google Gemini cloud ───────────────────────────────────────────────
         if provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
             return ChatGoogleGenerativeAI(
                 model=settings.llm_model,
                 google_api_key=settings.google_api_key,
                 temperature=0,
                 max_output_tokens=settings.llm_token_budget,
+                rate_limiter=gemini_rate_limiter,
             )
 
         # ── OpenAI cloud (default) ─────────────────────────────────────────────
@@ -468,11 +470,13 @@ class MosaicFundAgent:
 
         if provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
             return ChatGoogleGenerativeAI(
                 model=settings.llm_cloud_model,
                 google_api_key=settings.google_api_key,
                 temperature=0,
                 max_output_tokens=cloud_budget,
+                rate_limiter=gemini_rate_limiter,
             )
 
         if provider == "openrouter":
@@ -533,11 +537,13 @@ class MosaicFundAgent:
 
         if provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
             return ChatGoogleGenerativeAI(
                 model=model,
                 google_api_key=settings.google_api_key,
                 temperature=0,
                 max_output_tokens=budget,
+                rate_limiter=gemini_rate_limiter,
             )
 
         if provider == "openrouter":

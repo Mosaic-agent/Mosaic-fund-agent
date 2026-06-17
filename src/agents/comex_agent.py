@@ -279,6 +279,17 @@ class ComexAgent:
                 extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
+        if settings.llm_provider.lower() == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
+            return ChatGoogleGenerativeAI(
+                model=settings.llm_model,
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=settings.llm_token_budget,
+                rate_limiter=gemini_rate_limiter,
+            )
+
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             model=settings.llm_model,

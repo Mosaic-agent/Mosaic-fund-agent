@@ -473,11 +473,13 @@ def _get_plan_llm() -> "Any":
             )
         elif settings.llm_provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
             _plan_llm = ChatGoogleGenerativeAI(
                 model=settings.llm_model,
                 google_api_key=settings.google_api_key,
                 temperature=0,
                 max_output_tokens=budget,
+                rate_limiter=gemini_rate_limiter,
             )
         else:
             from langchain_openai import ChatOpenAI

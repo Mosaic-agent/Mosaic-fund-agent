@@ -558,11 +558,13 @@ def _build_llm_for_deepdive():
     # 3. Google/Gemini
     if provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
+        from src.utils.google_limiter import gemini_rate_limiter
         return ChatGoogleGenerativeAI(
             model=settings.llm_model,
             google_api_key=settings.google_api_key,
             temperature=0,
             max_output_tokens=settings.llm_token_budget,
+            rate_limiter=gemini_rate_limiter,
         )
         
     # 4. Anthropic
