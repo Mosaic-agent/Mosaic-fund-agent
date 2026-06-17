@@ -753,6 +753,35 @@ class CorrelationService:
         except Exception as e:
             log.warning("Could not dynamically build USDINR macro events: %s", e)
 
+        # 4. Dynamic DXY extreme rate shocks (from daily_prices table)
+        try:
+            from src.db.pool import query_df
+            df_dxy = query_df(
+                "SELECT trade_date, toFloat64(close) AS close "
+                "FROM market_data.daily_prices FINAL WHERE symbol = 'DX-Y.NYB' "
+                "ORDER BY trade_date ASC"
+            )
+            if not df_dxy.empty:
+                df_dxy["trade_date"] = pd.to_datetime(df_dxy["trade_date"])
+                df_dxy["pct_change"] = df_dxy["close"].pct_change()
+                # Find days with > 0.50% global dollar index movement (large shock for DXY)
+                extreme_dxy = df_dxy[df_dxy["pct_change"].abs() >= 0.0050]
+                for _, row in extreme_dxy.iterrows():
+                    dxy_date = pd.to_datetime(row["trade_date"]).date()
+                    pct = float(row["pct_change"])
+                    direction = "Rise" if pct > 0 else "Fall"
+                    events.append(
+                        CandidateEvent(
+                            trade_date=dxy_date,
+                            event_type=EventType.MACRO_COMMODITY_SHOCK,
+                            label=f"DXY {direction} ({pct*100:+.2f}%)",
+                            description=f"Significant daily currency volatility shock in US Dollar Index (DXY).",
+                            metadata={"fx_pct_change": float(pct)},
+                        )
+                    )
+        except Exception as e:
+            log.warning("Could not dynamically build DXY macro events: %s", e)
+
         return events
 
     def _fetch_symbol_news(self, symbol: str, lookback_days: int) -> List[CandidateEvent]:

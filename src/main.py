@@ -237,7 +237,7 @@ def chat(
       - Infinite prompt loop (exit with 'quit' or Ctrl-C)
       - Persistent conversation memory via SqliteSaver (saved in output/checkpoints.db)
       - Intent-based sub-agent routing: deepdive / signals / macro / main
-      - Slash commands: /analyze, /signals, /deepdive TICKER, /macro, /clear, /help
+      - Slash commands: /analyze, /signals, /deepdive TICKER, /anomaly TICKER, /macro, /clear, /help
 
     Examples:
       ./mosaic.sh                     — default: starts this chat
@@ -245,6 +245,7 @@ def chat(
       ./mosaic.sh chat -t THREAD_ID   — resume an exited chat session
       /analyze --max 3               — run portfolio analysis inside chat
       /deepdive ADSK                 — US stock SEC deep-dive
+      /anomaly GOLDBEES              — scan price anomalies and correlations
       deep-dives adsk                — auto-routes to DeepDive sub-agent
     """
     _setup_logging()

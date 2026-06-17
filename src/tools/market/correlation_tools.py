@@ -102,6 +102,23 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     except Exception as e:
         log.warning("Could not fetch USDINR rates for statistical validation: %s", e)
 
+    # 2c. Fetch DXY rates for statistical validation
+    df_dxy = pd.DataFrame()
+    try:
+        df_dxy = query_df(
+            """
+            SELECT trade_date,
+                   toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = 'DX-Y.NYB'
+            GROUP BY trade_date ORDER BY trade_date ASC
+            """
+        )
+        if not df_dxy.empty:
+            df_dxy["trade_date"] = pd.to_datetime(df_dxy["trade_date"])
+    except Exception as e:
+        log.warning("Could not fetch DXY rates for statistical validation: %s", e)
+
     # 3. Execute Correlation Service
     service = CorrelationService()
     findings = service.find_correlations(sym, df_ohlcv, df_benchmark, lookback_days)
@@ -207,6 +224,87 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
                 f"{low_r2_caveat}\n"
             )
 
+    # Calculate FX Statistical Validation (DXY)
+    validation_block_dxy = ""
+    correlation_dxy = 0.0
+    beta_fx_dxy = 0.0
+    r_squared_dxy = 0.0
+    p_value_dxy = 1.0
+    t_stat_dxy = 0.0
+    if not df_dxy.empty and not df_ohlcv.empty:
+        df_dxy_sorted = df_dxy.sort_values("trade_date").copy()
+        df_dxy_sorted["dxy_return"] = df_dxy_sorted["close"].pct_change()
+
+        df_merged_dxy = pd.merge(
+            df_stock[["trade_date", "stock_return"]],
+            df_dxy_sorted[["trade_date", "dxy_return"]],
+            on="trade_date",
+        ).dropna()
+
+        if len(df_merged_dxy) >= 10:
+            try:
+                import scipy.stats as stats
+                # Perform linear regression to calculate beta, standard error, t-stat, p-value, R-squared
+                res_dxy = stats.linregress(df_merged_dxy["dxy_return"], df_merged_dxy["stock_return"])
+                beta_fx_dxy = res_dxy.slope
+                correlation_dxy = res_dxy.rvalue
+                r_squared_dxy = res_dxy.rvalue ** 2
+                p_value_dxy = res_dxy.pvalue
+                t_stat_dxy = res_dxy.slope / res_dxy.stderr if res_dxy.stderr and res_dxy.stderr > 0 else 0.0
+            except Exception as e:
+                log.warning("scipy.stats.linregress failed for DXY, falling back: %s", e)
+                correlation_dxy = df_merged_dxy["stock_return"].corr(df_merged_dxy["dxy_return"])
+                r_squared_dxy = correlation_dxy ** 2
+                p_value_dxy = 1.0
+                cov_dxy = df_merged_dxy["stock_return"].cov(df_merged_dxy["dxy_return"])
+                var_dxy = df_merged_dxy["dxy_return"].var()
+                beta_fx_dxy = cov_dxy / var_dxy if var_dxy > 0 else 0.0
+                t_stat_dxy = 0.0
+
+            # Compute windowed betas for 60, 120, and 252 trading days
+            def compute_window_beta_dxy(df_sub):
+                if len(df_sub) < 10:
+                    return 0.0
+                cov = df_sub["stock_return"].cov(df_sub["dxy_return"])
+                var_dxy = df_sub["dxy_return"].var()
+                return cov / var_dxy if var_dxy > 0 else 0.0
+
+            beta_60_dxy = compute_window_beta_dxy(df_merged_dxy.tail(60))
+            beta_120_dxy = compute_window_beta_dxy(df_merged_dxy.tail(120))
+            beta_252_dxy = compute_window_beta_dxy(df_merged_dxy.tail(252))
+
+            significance_dxy = "Weak"
+            if abs(correlation_dxy) >= 0.5:
+                significance_dxy = "Strong"
+            elif abs(correlation_dxy) >= 0.3:
+                significance_dxy = "Moderate"
+
+            sig_text_dxy = "statistically significant" if p_value_dxy < 0.05 else "not statistically significant"
+            interpretation_dxy = (
+                f"DXY explains ~{r_squared_dxy*100:.1f}% of {sym} return variance. "
+                f"The relationship is {sig_text_dxy} (p-value = {p_value_dxy:.4f})."
+            )
+
+            low_r2_caveat_dxy = ""
+            if r_squared_dxy < 0.10:
+                low_r2_caveat_dxy = (
+                    f"\n• ⚠️ **Low DXY Explanatory Power:** R² = `{r_squared_dxy:.3f}` means DXY "
+                    f"accounts for only {r_squared_dxy*100:.1f}% of return variance. "
+                    f"Statistical significance at n≈250 can arise from economically trivial effects — "
+                    f"the p-value confirms a non-zero beta, not a meaningful driver."
+                )
+
+            validation_block_dxy = (
+                "\n### 💵 Global Dollar Index Statistical Validation (DXY)\n"
+                f"• **Correlation Coefficient ($r$):** `{correlation_dxy:.4f}` ({significance_dxy} linear correlation)\n"
+                f"• **Beta ($\\beta_{{DXY}}$) relative to DXY:** `{beta_fx_dxy:.4f}` (t-stat: `{t_stat_dxy:.2f}`)\n"
+                f"• **R² (Coefficient of Determination):** `{r_squared_dxy:.4f}`\n"
+                f"• **p-value:** `{p_value_dxy:.4f}`\n"
+                f"• **Rolling Betas:** 60d: `{beta_60_dxy:.4f}` | 120d: `{beta_120_dxy:.4f}` | 252d: `{beta_252_dxy:.4f}`\n"
+                f"• **Interpretation:** {interpretation_dxy}"
+                f"{low_r2_caveat_dxy}\n"
+            )
+
     # Calculate Root Cause Attribution & Strength summary statistics
     total_anomalies = 0
     df_anomaly_res = None
@@ -246,12 +344,39 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         except Exception as e:
             log.warning("Could not compute FX placebo rate: %s", e)
 
+    # DXY Placebo / base-rate: what fraction of non-anomaly days also have a qualifying DXY
+    # shock (|DXY change| ≥ 0.50%) within ±1 day?
+    if validation_block_dxy and not df_dxy.empty and df_anomaly_res is not None and not df_anomaly_res.empty:
+        try:
+            df_dxy_pc = df_dxy.copy()
+            df_dxy_pc["pct_change"] = df_dxy_pc["close"].pct_change()
+            dxy_shock_dates = set(
+                pd.to_datetime(df_dxy_pc[df_dxy_pc["pct_change"].abs() >= 0.0050]["trade_date"]).dt.date.tolist()
+            )
+            anomaly_dates_set = set(
+                pd.to_datetime(df_anomaly_res[df_anomaly_res["is_anomaly"] == True]["trade_date"]).dt.date.tolist()
+            )
+            all_trade_dates = pd.to_datetime(df_stock["trade_date"]).dt.date.tolist()
+            non_anomaly_dates = [d for d in all_trade_dates if d not in anomaly_dates_set]
+            placebo_hits_dxy = sum(
+                1 for d in non_anomaly_dates
+                if any(abs((d - fd).days) <= 1 for fd in dxy_shock_dates)
+            )
+            placebo_rate_dxy = placebo_hits_dxy / len(non_anomaly_dates) if non_anomaly_dates else 0.0
+            validation_block_dxy += (
+                f"• **DXY Placebo Rate:** `{placebo_rate_dxy:.0%}` of non-anomaly days also had a qualifying "
+                f"DXY shock nearby (base rate).\n"
+            )
+        except Exception as e:
+            log.warning("Could not compute DXY placebo rate: %s", e)
+
     matched_dates = {f.anomaly_date for f in findings}
     unknown_anomalies = max(0, total_anomalies - len(matched_dates))
 
     driver_stats = {
         "Company News & Filings": {"count": 0, "total_score": 0.0},
         "USDINR Volatility": {"count": 0, "total_score": 0.0},
+        "DXY Volatility": {"count": 0, "total_score": 0.0},
         "Global Rate Decisions": {"count": 0, "total_score": 0.0},
         "Geopolitical Shocks": {"count": 0, "total_score": 0.0}
     }
@@ -269,9 +394,13 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         elif et == EventType.MACRO_GEOPOLITICAL:
             driver_stats["Geopolitical Shocks"]["count"] += 1
             driver_stats["Geopolitical Shocks"]["total_score"] += score
-        elif et == EventType.MACRO_COMMODITY_SHOCK or "USDINR" in lbl:
-            driver_stats["USDINR Volatility"]["count"] += 1
-            driver_stats["USDINR Volatility"]["total_score"] += score
+        elif et == EventType.MACRO_COMMODITY_SHOCK or "USDINR" in lbl or "DXY" in lbl:
+            if "DXY" in lbl:
+                driver_stats["DXY Volatility"]["count"] += 1
+                driver_stats["DXY Volatility"]["total_score"] += score
+            else:
+                driver_stats["USDINR Volatility"]["count"] += 1
+                driver_stats["USDINR Volatility"]["total_score"] += score
 
     # Format the Root Cause Attribution & Strength table
     attribution_table_lines = [
@@ -290,6 +419,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     category_scores = {
         "Corporate actions & news": driver_stats["Company News & Filings"]["total_score"],
         "USDINR volatility": driver_stats["USDINR Volatility"]["total_score"],
+        "DXY volatility": driver_stats["DXY Volatility"]["total_score"],
         "Global rate decisions": driver_stats["Global Rate Decisions"]["total_score"],
         "Geopolitical shocks": driver_stats["Geopolitical Shocks"]["total_score"],
     }
@@ -301,6 +431,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     total_findings_count = len(findings)
     company_pct = (driver_stats["Company News & Filings"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
     fx_pct = (driver_stats["USDINR Volatility"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
+    dxy_pct = (driver_stats["DXY Volatility"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
     rate_pct = (driver_stats["Global Rate Decisions"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
     geo_pct = (driver_stats["Geopolitical Shocks"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
 
@@ -334,19 +465,22 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         highest_confidence_str = f"**{highest_conf_finding.anomaly_date}** ({highest_conf_finding.event.label})"
 
     most_influential_factor = sorted_drivers[0][0] if sorted_drivers else "N/A"
-    # When FX tops the driver ranking but R² is low, flag it as tentative
+    # When FX/DXY tops the driver ranking but R² is low, flag it as tentative
     if most_influential_factor == "USDINR volatility" and r_squared < 0.10:
         most_influential_factor = "USDINR volatility (low R² — tentative)"
+    elif most_influential_factor == "DXY volatility" and r_squared_dxy < 0.10:
+        most_influential_factor = "DXY volatility (low R² — tentative)"
 
     attribution_summary_block = (
         "\n### 📊 Attribution Summary\n\n"
         f"• **Company News:** `{driver_stats['Company News & Filings']['count']}` events (`{company_pct:.0f}%`)\n"
-        f"• **FX Shocks:** `{driver_stats['USDINR Volatility']['count']}` events (`{fx_pct:.0f}%`)\n"
+        f"• **USDINR Shocks:** `{driver_stats['USDINR Volatility']['count']}` events (`{fx_pct:.0f}%`)\n"
+        f"• **DXY Shocks:** `{driver_stats['DXY Volatility']['count']}` events (`{dxy_pct:.0f}%`)\n"
         f"• **Macro Decisions:** `{driver_stats['Global Rate Decisions']['count']}` events (`{rate_pct:.0f}%`)\n"
         f"• **Geopolitical:** `{driver_stats['Geopolitical Shocks']['count']}` events (`{geo_pct:.0f}%`)\n\n"
         f"• **Most Influential Factor:** **{most_influential_factor}**\n"
-        f"• **FX Correlation:** `r = {correlation:.2f}`\n"
-        f"• **FX Beta:** `β = {beta_fx:.2f}` (t-stat: `{t_stat:.2f}`)\n"
+        f"• **USDINR Correlation:** `r = {correlation:.2f}` (Beta: `β = {beta_fx:.2f}`, t-stat: `{t_stat:.2f}`)\n"
+        f"• **DXY Correlation:** `r = {correlation_dxy:.2f}` (Beta: `β = {beta_fx_dxy:.2f}`, t-stat: `{t_stat_dxy:.2f}`)\n"
         f"• **Highest Confidence Attribution:** {highest_confidence_str}\n"
         f"• **Largest Abnormal Up-Move:** `{largest_pos_shock_date}` (`{largest_pos_shock_val:+.2f}%`)\n"
         f"• **Largest Abnormal Down-Move:** `{largest_neg_shock_date}` (`{largest_neg_shock_val:+.2f}%`)\n"
@@ -361,6 +495,8 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         )
         if validation_block:
             msg += "\n" + validation_block
+        if validation_block_dxy:
+            msg += "\n" + validation_block_dxy
         return msg
 
     # 4. Generate Visualizations
@@ -442,6 +578,9 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
 
     if validation_block:
         lines.append(validation_block)
+
+    if validation_block_dxy:
+        lines.append(validation_block_dxy)
 
     if attribution_summary_block:
         lines.append(attribution_summary_block)

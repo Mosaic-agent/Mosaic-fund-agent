@@ -1247,6 +1247,7 @@ Type your question, or use a slash command:
   [cyan]/ml[/cyan]                  — ML model status + live prediction
   [cyan]/prompts [category][/cyan]  — browse prompt library (signal·ml·equity·macro·intl_etf·chart·code·database·import)
   [cyan]/deepdive TICKER[/cyan]     — US stock SEC deep-dive (e.g. /deepdive ADSK)
+  [cyan]/anomaly TICKER [days][/cyan] — scan price anomalies and correlations (e.g. /anomaly GOLDBEES)
   [cyan]/macro[/cyan]              — macro events + COMEX + FII/DII scan
   [cyan]/cache[/cyan]              — show LLM cache stats  ([cyan]/cache clear[/cyan] to wipe)
   [cyan]/clear[/cyan]              — reset conversation memory (fresh thread)
@@ -1275,6 +1276,7 @@ _HELP_MD = """
 | `/signals` | ETF composite signal aggregator (all 18 ETFs) |
 | `/ml` | ML model status — LightGBM prediction, GARCH vol, anomaly regime |
 | `/deepdive TICKER` | US stock SEC 10-K deep-dive (e.g. `/deepdive ADSK`) |
+| `/anomaly TICKER [days]` | Scan price anomalies and event correlations (e.g. `/anomaly GOLDBEES`) |
 | `/macro` | Live macro events + COMEX + FII/DII institutional flows |
 | `/caveman [level]` | Toggle Caveman mode (`lite`/`full`/`ultra`/`wenyan`/`off`) |
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
@@ -1487,6 +1489,18 @@ def _dispatch_slash(
         if not ticker:
             return "Usage: `/deepdive TICKER`  — e.g. `/deepdive ADSK`", thread_id
         return agent.chat(f"deep-dive {ticker}", thread_id=thread_id), thread_id
+
+    # ── /anomaly TICKER [days] ──────────────────────────────────────────────
+    if name in ("anomaly", "annamoly"):
+        ticker = parts[1].upper() if len(parts) > 1 else ""
+        if not ticker:
+            return "Usage: `/anomaly TICKER [days]`  — e.g. `/anomaly GOLDBEES`", thread_id
+        days = parts[2] if len(parts) > 2 else "365"
+        return agent.chat(
+            f"Run the anomaly detection and event correlation pipeline for {ticker} "
+            f"over the last {days} days and show results.",
+            thread_id=thread_id,
+        ), thread_id
 
     # ── /macro ─────────────────────────────────────────────────────────────
     if name == "macro":

@@ -92,5 +92,35 @@ class TestChatPersistence(unittest.TestCase):
         # Verify console.print was called to render the table
         mock_console.print.assert_called()
 
+    def test_dispatch_anomaly(self):
+        from src.commands.chat_cmd import _dispatch_slash
+        
+        mock_agent = MagicMock()
+        mock_console = MagicMock()
+        
+        # 1. Test /anomaly without ticker
+        ans, tid = _dispatch_slash("/anomaly", mock_console, mock_agent, "thread-1")
+        self.assertIn("Usage: `/anomaly TICKER", ans)
+        mock_agent.chat.assert_not_called()
+        
+        # 2. Test /anomaly with ticker GOLDBEES
+        mock_agent.chat.return_value = "anomaly report"
+        ans, tid = _dispatch_slash("/anomaly GOLDBEES", mock_console, mock_agent, "thread-1")
+        self.assertEqual(ans, "anomaly report")
+        mock_agent.chat.assert_called_with(
+            "Run the anomaly detection and event correlation pipeline for GOLDBEES over the last 365 days and show results.",
+            thread_id="thread-1"
+        )
+        mock_agent.reset_mock()
+        
+        # 3. Test /annamoly with ticker GOLDBEES and days 180 (handling user spelling)
+        ans, tid = _dispatch_slash("/annamoly GOLDBEES 180", mock_console, mock_agent, "thread-1")
+        self.assertEqual(ans, "anomaly report")
+        mock_agent.chat.assert_called_with(
+            "Run the anomaly detection and event correlation pipeline for GOLDBEES over the last 180 days and show results.",
+            thread_id="thread-1"
+        )
+
 if __name__ == "__main__":
     unittest.main()
+
