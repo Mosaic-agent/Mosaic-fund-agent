@@ -219,7 +219,10 @@ def search_anomaly_events(
         try:
             import yfinance as yf
             suffix = ".BO" if category == "bse" else ".NS"
-            hist = yf.Ticker(f"{symbol_upper}{suffix}").history(period="2y")
+            ticker_name = f"{symbol_upper}{suffix}"
+            hist = yf.Ticker(ticker_name).history(period="2y")
+            if hist.empty and suffix == ".NS":
+                hist = yf.Ticker(symbol_upper).history(period="2y")
             if not hist.empty:
                 df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
                 df.columns = ["trade_date", "open", "high", "low", "close", "volume"]

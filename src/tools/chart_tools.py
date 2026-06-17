@@ -115,6 +115,21 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set]
             parameters=params,
         )
         if df.empty or len(df) < 60:
+            try:
+                import yfinance as yf
+                suffix = ".BO" if category == "bse" else ".NS"
+                ticker_name = f"{symbol.upper()}{suffix}"
+                hist = yf.Ticker(ticker_name).history(period="2y")
+                if hist.empty and suffix == ".NS":
+                    hist = yf.Ticker(symbol.upper()).history(period="2y")
+                if not hist.empty:
+                    df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
+                    df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
+                    df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.tz_localize(None)
+            except Exception as e:
+                logger.warning("yfinance fallback failed in _composite_anomaly_dates: %s", e)
+
+        if df.empty or len(df) < 60:
             return None
 
         # Return cached result if row count (data version) is unchanged.
@@ -310,6 +325,13 @@ def plot_price_chart(
                     start_date=start_date,
                     end_date=end_date,
                 )
+                if not hist and exchange == "NSE" and "." not in clean_symbol:
+                    hist = fetch_price_history(
+                        clean_symbol,
+                        "US",
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
             else:
                 if days <= 30:
                     yf_period = "1mo"
@@ -322,6 +344,8 @@ def plot_price_chart(
                 else:
                     yf_period = "2y"
                 hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
+                if not hist and exchange == "NSE" and "." not in clean_symbol:
+                    hist = fetch_price_history(clean_symbol, "US", period=yf_period)
 
             if not hist:
                 return f"No price data found for {symbol} (tried ClickHouse and Yahoo Finance fallback)."
