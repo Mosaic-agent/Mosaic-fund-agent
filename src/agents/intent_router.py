@@ -54,7 +54,7 @@ one of the following intents:
 |---------------|-------------------------------------------------------------------|
 | deepdive      | US stock SEC filings, 10-K/10-Q, XBRL, annual reports, EDGAR     |
 | research      | Autonomous/deep/comprehensive multi-domain research on a topic    |
-| india_equity  | Indian stock fundamentals, earnings, price, financials, MF hold.  |
+| india_equity  | Stock fundamentals, earnings, price, financials, MF hold, as well as anomaly analysis and charts for any stock (including US stocks) |
 | signal        | ETF signals, GOLDBEES ML pipeline, Kelly weight, GARCH, iNAV     |
 | macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD  |
 | intl_etf      | International ETFs (MAFANG, HNGSNGBEES, Hang Seng, Nasdaq ETF)   |
@@ -67,7 +67,8 @@ Special routing rules:
 - "import", "refresh", "sync", "backfill" data → always "main" (import runs there)
 - Questions mentioning specific Indian companies (RELIANCE, TCS, HDFC) → "india_equity"
 - "plot" or "chart" + macro keyword → "macro"; + ETF keyword → "signal"
-- "plot" or "chart" + Indian stock name (RELIANCE, TCS, ADVENZYMES, etc.) → "india_equity"
+- "plot" or "chart" + Indian or US stock name (RELIANCE, PCOR, ADSK, etc.) → "india_equity"
+- Anomaly analysis, price anomalies, return shocks, spikes, or crashes for any stock (Indian or US) → always "india_equity" (never "deepdive" which is strictly for SEC filings/annual reports)
 - When uncertain, prefer "main" over guessing
 
 Respond with ONLY a JSON object (no markdown, no explanation):

@@ -352,6 +352,12 @@ def route_intent(question: str) -> str:
     'deepdive' | 'research' | 'india_equity' | 'signal' | 'macro'
     | 'intl_etf' | 'news' | 'code' | 'database' | 'main'
     """
+    q = question.lower()
+    if any(kw in q for kw in ("anomal", "spike", "crash", "outlier", "shock")):
+        if any(kw in q for kw in ("gold", "etf", "bees", "index", "indices")):
+            return "signal"
+        return "india_equity"
+
     hit = _fast_path_intent(question)
     if hit is not None:
         return hit
@@ -369,6 +375,12 @@ def _regex_route_intent(question: str) -> str:
     router is configured (no OPENAI/ANTHROPIC/GOOGLE key) and called by
     intent_router._regex_fallback.
     """
+    q = question.lower()
+    if any(kw in q for kw in ("anomal", "spike", "crash", "outlier", "shock")):
+        if any(kw in q for kw in ("gold", "etf", "bees", "index", "indices")):
+            return "signal"
+        return "india_equity"
+
     if _DEEPDIVE_RE.search(question):
         return "deepdive"
     if _IMPORT_RE.search(question):

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.sub_agents import route_intent
+from src.agents.sub_agents import route_intent, _regex_route_intent
 
 
 # ── Golden pairs: (question, expected_intent) ─────────────────────────────────
@@ -91,6 +91,12 @@ GOLDEN_PAIRS: list[tuple[str, str]] = [
     ("deep research into pharma sector", "research"),
     ("full thesis on renewable energy stocks", "research"),
     ("why is GOLDBEES falling today?", "research"),
+
+    # ── anomaly routing logic (avoiding deepdive) ──────────────────────────────
+    ("explain PCOR price anomalies", "india_equity"),
+    ("what are the price anomalies for ADSK?", "india_equity"),
+    ("spikes and drops for AAPL", "india_equity"),
+    ("explain the price spike for GOLDBEES", "signal"),
 ]
 
 
@@ -99,9 +105,9 @@ class TestRegexRouter:
 
     @pytest.mark.parametrize("question,expected", GOLDEN_PAIRS)
     def test_golden_pair(self, question: str, expected: str) -> None:
-        result = route_intent(question)
+        result = _regex_route_intent(question)
         assert result == expected, (
-            f"route_intent({question!r}) = {result!r}, expected {expected!r}"
+            f"_regex_route_intent({question!r}) = {result!r}, expected {expected!r}"
         )
 
 
