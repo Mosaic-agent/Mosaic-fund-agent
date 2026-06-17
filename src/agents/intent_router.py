@@ -105,7 +105,11 @@ def _get_router_llm() -> Any | None:
     # Treat known placeholder values as "no key" — these are used for local
     # OpenAI-compatible endpoints (LM Studio, Ollama) which can't serve real
     # OpenAI cloud calls.
-    _PLACEHOLDERS = {"", "ollama", "local", "none", "null", "lm-studio", "lmstudio"}
+    _PLACEHOLDERS = {
+        "", "ollama", "local", "none", "null", "lm-studio", "lmstudio",
+        "your_openai_api_key_here", "your_anthropic_api_key_here",
+        "your_gold_api_key_here", "your_sec_api_key_here"
+    }
 
     def _real_key(k: str | None) -> bool:
         return bool(k) and k.strip().lower() not in _PLACEHOLDERS
@@ -168,8 +172,23 @@ def _get_router_llm() -> Any | None:
             logger.debug("Router LLM (NVIDIA NIM) build failed: %s", exc)
 
     # 3. Otherwise fall back to local/default API key providers
-    # Prefer a small fast model for routing — gpt-4o-mini costs ~$0.0001 per call
-    if settings.llm_provider.lower() == "openrouter" and _real_key(settings.openrouter_api_key):
+    # Prefer the configured provider if key is available
+    provider = settings.llm_provider.lower()
+    if provider == "google" and _real_key(getattr(settings, "google_api_key", None)):
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
+            return ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=50,
+                rate_limiter=gemini_rate_limiter,
+            )
+        except Exception as exc:
+            logger.debug("Router LLM (Configured Google) build failed: %s", exc)
+
+    if provider == "openrouter" and _real_key(settings.openrouter_api_key):
         try:
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(
@@ -182,7 +201,37 @@ def _get_router_llm() -> Any | None:
                 timeout=10,
             )
         except Exception as exc:
-            logger.debug("Router LLM (OpenRouter) build failed: %s", exc)
+            logger.debug("Router LLM (Configured OpenRouter) build failed: %s", exc)
+
+    # General fallback chain: Google → OpenRouter → OpenAI → Anthropic
+    if _real_key(getattr(settings, "google_api_key", None)):
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            from src.utils.google_limiter import gemini_rate_limiter
+            return ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=50,
+                rate_limiter=gemini_rate_limiter,
+            )
+        except Exception as exc:
+            logger.debug("Router LLM (Google Fallback) build failed: %s", exc)
+
+    if _real_key(settings.openrouter_api_key):
+        try:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model="openrouter/auto",
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0,
+                max_tokens=50,
+                request_timeout=10,
+                timeout=10,
+            )
+        except Exception as exc:
+            logger.debug("Router LLM (OpenRouter Fallback) build failed: %s", exc)
 
     if _real_key(settings.openai_api_key):
         try:
@@ -208,7 +257,7 @@ def _get_router_llm() -> Any | None:
                     request_timeout=5,
                 )
         except Exception as exc:
-            logger.debug("Router LLM (OpenAI) build failed: %s", exc)
+            logger.debug("Router LLM (OpenAI Fallback) build failed: %s", exc)
 
     if _real_key(settings.anthropic_api_key):
         try:
@@ -220,19 +269,7 @@ def _get_router_llm() -> Any | None:
                 max_tokens=50,
             )
         except Exception as exc:
-            logger.debug("Router LLM (Anthropic) build failed: %s", exc)
-
-    if _real_key(getattr(settings, "google_api_key", None)):
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            return ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
-                google_api_key=settings.google_api_key,
-                temperature=0,
-                max_output_tokens=50,
-            )
-        except Exception as exc:
-            logger.debug("Router LLM (Google) build failed: %s", exc)
+            logger.debug("Router LLM (Anthropic Fallback) build failed: %s", exc)
 
     return None
 
