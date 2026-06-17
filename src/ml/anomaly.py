@@ -305,13 +305,15 @@ def fit_isolation_forest(
     Cross-asset features (used when available — joined upstream):
         usdinr_logret  : USD/INR daily log-return (dollar stress)
         usdinr_vol14   : 14-day USDINR annualised vol (stress regime)
+        dxy_logret     : DXY daily log-return (global dollar index stress)
+        dxy_vol14      : 14-day DXY annualised vol (global dollar index stress regime)
         cot_pct_oi     : COT MM net / open interest × 100 (speculator crowding)
 
     Added columns: if_confidence [0→1], if_label (-1=anomaly, 1=normal).
     Returns a new DataFrame — does NOT mutate the input.
     """
     core_cols  = ["daily_return", "range_pct", "z_robust", "z_volume"]
-    extra_cols = [c for c in ["usdinr_logret", "usdinr_vol14", "cot_pct_oi"]
+    extra_cols = [c for c in ["usdinr_logret", "usdinr_vol14", "dxy_logret", "dxy_vol14", "cot_pct_oi"]
                   if c in df.columns and df[c].notna().sum() > 30]
     feat_cols  = core_cols + extra_cols
 
@@ -537,21 +539,82 @@ def _inject_cross_asset(
     # ── USDINR dollar-stress features ─────────────────────────────────────
     if df_fx is not None and len(df_fx) > 10:
         usdinr = df_fx[df_fx["symbol"] == "USDINR"][["trade_date", "close"]].copy()
-        usdinr = usdinr.sort_values("trade_date").reset_index(drop=True)
-        usdinr["usdinr_logret"] = np.log(usdinr["close"] / usdinr["close"].shift(1))
-        usdinr["usdinr_vol14"]  = (
-            usdinr["usdinr_logret"]
+        if not usdinr.empty:
+            usdinr = usdinr.sort_values("trade_date").reset_index(drop=True)
+            usdinr["usdinr_logret"] = np.log(usdinr["close"] / usdinr["close"].shift(1))
+            usdinr["usdinr_vol14"]  = (
+                usdinr["usdinr_logret"]
+                .rolling(14, min_periods=7)
+                .std() * np.sqrt(252) * 100
+            )
+            usdinr["trade_date"] = pd.to_datetime(usdinr["trade_date"])
+            df = df.merge(
+                usdinr[["trade_date", "usdinr_logret", "usdinr_vol14"]],
+                on="trade_date", how="left",
+            )
+            df[["usdinr_logret", "usdinr_vol14"]] = (
+                df[["usdinr_logret", "usdinr_vol14"]].fillna(0.0)
+            )
+
+    # ── DXY global dollar-index features ───────────────────────────────────
+    # Check if DXY is already in df_fx (e.g. symbol = 'DXY' or 'DX-Y.NYB')
+    dxy_df = pd.DataFrame()
+    if df_fx is not None and len(df_fx) > 10:
+        dxy_in_fx = df_fx[df_fx["symbol"].isin(["DXY", "DX-Y.NYB"])][["trade_date", "close"]].copy()
+        if not dxy_in_fx.empty:
+            dxy_df = dxy_in_fx
+
+    # If not found in df_fx, try loading from ClickHouse (daily_prices)
+    if dxy_df.empty:
+        try:
+            from src.db.pool import get_pool
+            pool = get_pool()
+            dxy_df = pool.query_df(
+                "SELECT trade_date, argMax(close, imported_at) AS close "
+                "FROM market_data.daily_prices FINAL "
+                "WHERE symbol = 'DX-Y.NYB' "
+                "GROUP BY trade_date ORDER BY trade_date ASC"
+            )
+        except Exception as e:
+            log.warning("Failed to fetch DXY from ClickHouse: %s. Trying yfinance fallback...", e)
+
+    # Fallback to yfinance if both empty
+    if dxy_df.empty:
+        try:
+            import yfinance as yf
+            # Use a safe lookback window (e.g., 10 years or matching df's start)
+            dxy_raw = yf.download("DX-Y.NYB", period="10y", progress=False, auto_adjust=True)
+            if not dxy_raw.empty:
+                if isinstance(dxy_raw.columns, pd.MultiIndex):
+                    dxy_raw = dxy_raw.xs("Close", axis=1, level=0)
+                else:
+                    dxy_raw = dxy_raw["Close"]
+                dxy_df = dxy_raw.reset_index()
+                dxy_df.columns = ["trade_date", "close"]
+        except Exception as yf_err:
+            log.warning("yfinance fallback for DXY failed: %s", yf_err)
+
+    if not dxy_df.empty:
+        dxy_df = dxy_df.sort_values("trade_date").reset_index(drop=True)
+        dxy_df["dxy_logret"] = np.log(dxy_df["close"] / dxy_df["close"].shift(1))
+        dxy_df["dxy_vol14"]  = (
+            dxy_df["dxy_logret"]
             .rolling(14, min_periods=7)
             .std() * np.sqrt(252) * 100
         )
-        usdinr["trade_date"] = pd.to_datetime(usdinr["trade_date"])
+        dxy_df["trade_date"] = pd.to_datetime(dxy_df["trade_date"])
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
         df = df.merge(
-            usdinr[["trade_date", "usdinr_logret", "usdinr_vol14"]],
+            dxy_df[["trade_date", "dxy_logret", "dxy_vol14"]],
             on="trade_date", how="left",
         )
-        df[["usdinr_logret", "usdinr_vol14"]] = (
-            df[["usdinr_logret", "usdinr_vol14"]].fillna(0.0)
+        df[["dxy_logret", "dxy_vol14"]] = (
+            df[["dxy_logret", "dxy_vol14"]].fillna(0.0)
         )
+    else:
+        # Fallback to zeros if DXY is not available
+        df["dxy_logret"] = 0.0
+        df["dxy_vol14"]  = 0.0
 
     return df
 

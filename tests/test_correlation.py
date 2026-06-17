@@ -672,4 +672,33 @@ def test_fx_validation_linregress_and_rolling_betas():
         assert "Rolling Betas" in res_str
 
 
+def test_anomaly_dxy_injection():
+    from src.ml.anomaly import _inject_cross_asset
+    import pandas as pd
+    import numpy as np
+
+    dates = pd.date_range("2026-01-01", periods=10, freq="D")
+    df = pd.DataFrame({
+        "trade_date": dates,
+        "open": [100.0] * 10,
+        "high": [101.0] * 10,
+        "low": [99.0] * 10,
+        "close": [100.0] * 10,
+        "volume": [1000.0] * 10,
+    })
+
+    # Scenario 1: DXY is in df_fx
+    df_fx = pd.DataFrame({
+        "symbol": ["USDINR"] * 10 + ["DXY"] * 10,
+        "trade_date": list(dates) + list(dates),
+        "close": [83.0] * 10 + [104.0] * 10,
+    })
+
+    res = _inject_cross_asset(df, df_cot=None, df_fx=df_fx)
+    assert "dxy_logret" in res.columns
+    assert "dxy_vol14" in res.columns
+    assert (res["dxy_logret"] == 0.0).all()
+
+
+
 
