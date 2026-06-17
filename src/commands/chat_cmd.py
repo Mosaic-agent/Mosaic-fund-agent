@@ -67,6 +67,13 @@ _CONFIRMATION_RE = re.compile(
     re.I,
 )
 
+# Report-specific follow-up keywords/phrases (e.g. for deepdive, research, equity reports)
+_REPORT_FOLLOWUP_RE = re.compile(
+    r"\b(?:summarise|summarize|summary|takeaway|takeaways|risk|risks|red\s*flags?|competitor|competitors|financial|financials|valuation|multiple|multiples|sec|filing|filings|detail|details|elaborate|explain|narrative|key|outlook|highlight|highlights)\b"
+    r"|\b(?:this|it|its|the|that)\s+(?:report|analysis|company|stock|ticker|filing|filings)\b",
+    re.I,
+)
+
 
 # ── prompt_toolkit input session ──────────────────────────────────────────────
 
@@ -1734,12 +1741,15 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
             # should stay on the previous agent.
             _is_followup = False
             if _intent == "main" and _conv_history:
+                _prev_raw, _prev_answer, _prev_intent = _conv_history[-1]
                 if _FOLLOWUP_RE.match(raw.strip()):
                     _is_followup = True
                 elif _CONFIRMATION_RE.match(raw.strip()) and len(raw.split()) <= 4:
                     _is_followup = True
+                elif _prev_intent in ("deepdive", "research", "india_equity"):
+                    if _REPORT_FOLLOWUP_RE.search(raw.strip()):
+                        _is_followup = True
                 else:
-                    _prev_raw, _prev_answer, _prev_intent = _conv_history[-1]
                     _cleaned_answer = _prev_answer.strip().rstrip("`").strip().rstrip("*").strip()
                     if _cleaned_answer.endswith("?") and len(raw.split()) <= 8:
                         _is_followup = True
@@ -1776,7 +1786,10 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                     "[Session context — prior turns in this conversation]"
                 ]
                 for _u, _a, _i in recent:
-                    _a_short = _a[:400] + "…" if len(_a) > 400 else _a
+                    if _i in ("deepdive", "research", "india_equity"):
+                        _a_short = _a
+                    else:
+                        _a_short = _a[:400] + "…" if len(_a) > 400 else _a
                     ctx_lines.append(f"User ({_i}): {_u}")
                     ctx_lines.append(f"Assistant: {_a_short}")
                 ctx_lines.append("[End of context]\n")

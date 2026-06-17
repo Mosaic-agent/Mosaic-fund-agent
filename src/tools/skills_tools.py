@@ -667,6 +667,44 @@ def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: b
     return f"Deep-dive analysis executed.\n\nCommand Log:\n{cmd_output}{preview}"
 
 
+@tool
+def read_deepdive_report(ticker: str) -> str:
+    """
+    Read the latest compiled US equity deep-dive report for a given ticker.
+    Use this to read, summarize, or answer follow-up questions about a company's deep-dive report.
+    Args:
+        ticker: The US ticker symbol (e.g. 'ADSK', 'AAPL').
+    """
+    from datetime import date
+    from pathlib import Path
+    
+    ticker_clean = ticker.strip().upper()
+    base_dir = Path(PROJECT_ROOT) / "output" / "deepdive" / ticker_clean
+    if not base_dir.exists():
+        return f"No deep-dive reports found for ticker: {ticker_clean}"
+    
+    today_str = date.today().isoformat()
+    report_path = base_dir / today_str / "report.md"
+    
+    if not report_path.exists():
+        # Find latest date directory
+        if not os.path.exists(base_dir):
+            return f"No deep-dive reports found for ticker: {ticker_clean}"
+        dates = sorted([d for d in os.listdir(base_dir) if os.path.isdir(base_dir / d)], reverse=True)
+        if not dates:
+            return f"No deep-dive reports found for ticker: {ticker_clean}"
+        report_path = base_dir / dates[0] / "report.md"
+        
+    if not report_path.exists():
+        return f"Report file not found for ticker {ticker_clean} (expected at {report_path})"
+        
+    try:
+        content = report_path.read_text(encoding="utf-8")
+        return content
+    except Exception as exc:
+        return f"Error reading report for {ticker_clean}: {exc}"
+
+
 # ── Canonical tool list ────────────────────────────────────────────────────────
 # Single source of truth — all other lists are subsets of this.
 SKILLS_TOOLS = [
@@ -693,4 +731,5 @@ SKILLS_TOOLS = [
     query_clickhouse_db,
     run_premium_alerts,
     run_deepdive_analysis,
+    read_deepdive_report,
 ]
