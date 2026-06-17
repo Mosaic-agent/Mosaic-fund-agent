@@ -2,10 +2,7 @@
 *.pyc
 __pycache__/
 .DS_Store
-output/*.json
-output/*.html
-output/*.db
-output/.cache/
+output/
 
 .pytest_cache/
 .mypy_cache/
@@ -39,10 +36,6 @@ temp/
 scratch/
 
 # Generated report artifacts (PDF, HTML, MD, PNG outputs)
-output/reports/*.pdf
-output/reports/*.md
-output/reports/*.html
-output/reports/*.png
 *.pdf
 !research_reports/*.pdf
 
