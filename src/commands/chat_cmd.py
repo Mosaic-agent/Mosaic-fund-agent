@@ -436,7 +436,17 @@ def _get_plan_llm() -> "Any":
         from config.settings import settings
         budget = settings.llm_token_budget
         kw = dict(temperature=0, max_tokens=budget)
-        if settings.llm_base_url:
+        if settings.llm_provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            _plan_llm = ChatOpenAI(
+                model=settings.llm_model,
+                base_url="https://openrouter.ai/api/v1",
+                api_key=settings.openrouter_api_key,
+                request_timeout=30,
+                timeout=30,
+                **kw,
+            )
+        elif settings.llm_base_url:
             from langchain_openai import ChatOpenAI
             _plan_llm = ChatOpenAI(
                 model=settings.llm_model,

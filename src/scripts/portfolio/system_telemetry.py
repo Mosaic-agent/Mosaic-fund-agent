@@ -448,7 +448,16 @@ def run_test_prompt(prompt: str):
     
     start_time = time.time()
     try:
-        if settings.llm_base_url:
+        if provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(
+                model=settings.llm_model,
+                base_url="https://openrouter.ai/api/v1",
+                api_key=settings.openrouter_api_key,
+                temperature=0,
+                max_tokens=settings.llm_token_budget,
+            )
+        elif settings.llm_base_url:
             from langchain_openai import ChatOpenAI
             llm = ChatOpenAI(
                 model=settings.llm_model,

@@ -112,7 +112,8 @@ def _get_resolver_llm() -> "Any":
     try:
         from config.settings import settings
         kwargs = dict(temperature=0, max_tokens=20)
-        if settings.llm_base_url and not settings.llm_local_disabled:
+        provider = (settings.llm_cloud_provider if settings.llm_local_disabled else settings.llm_provider).strip().lower()
+        if settings.llm_base_url and not settings.llm_local_disabled and provider != "openrouter":
             from langchain_openai import ChatOpenAI
             _resolver_llm = ChatOpenAI(
                 model=settings.llm_model,
@@ -121,7 +122,6 @@ def _get_resolver_llm() -> "Any":
                 **kwargs,
             )
         else:
-            provider = (settings.llm_cloud_provider if settings.llm_local_disabled else settings.llm_provider).strip().lower()
             model = settings.llm_cloud_model if settings.llm_local_disabled else settings.llm_model
             if provider == "anthropic":
                 from langchain_anthropic import ChatAnthropic
@@ -129,6 +129,14 @@ def _get_resolver_llm() -> "Any":
                     model=model,
                     api_key=settings.anthropic_api_key,
                     extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+                    **kwargs,
+                )
+            elif provider == "openrouter":
+                from langchain_openai import ChatOpenAI
+                _resolver_llm = ChatOpenAI(
+                    model=model,
+                    api_key=settings.openrouter_api_key,
+                    base_url="https://openrouter.ai/api/v1",
                     **kwargs,
                 )
             elif provider == "google":

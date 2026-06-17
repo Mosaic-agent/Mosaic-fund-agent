@@ -58,7 +58,83 @@ def _output_dir(ticker: str, run_date: str) -> Path:
     return Path(settings.output_dir) / "deepdive" / ticker / run_date
 
 
+def _build_llm_for_deepdive():
+    from config.settings import settings
+    provider = settings.llm_provider.lower()
+    
+    # 1. OpenRouter
+    if provider == "openrouter":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=settings.llm_model,
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+            temperature=0,
+            max_tokens=settings.llm_token_budget,
+            timeout=settings.cloud_llm_request_timeout,
+        )
+        
+    # 2. Local/Custom OpenAI-compatible Endpoint
+    if settings.llm_base_url:
+        from langchain_openai import ChatOpenAI
+        is_nvidia = "nvidia" in settings.llm_base_url.lower()
+        if is_nvidia:
+            from src.utils.nim_pool import NIMPool
+            return NIMPool.get().acquire(
+                model=settings.llm_model,
+                extra_body={},
+                timeout=settings.llm_request_timeout,
+                max_tokens=settings.llm_token_budget,
+            )
+        extra_body = {"options": {"num_ctx": settings.llm_context_window}}
+        if settings.llm_think:
+            extra_body["think"] = True
+        return ChatOpenAI(
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            api_key=settings.openai_api_key or "local",
+            temperature=0,
+            max_tokens=settings.llm_token_budget,
+            extra_body=extra_body,
+            timeout=settings.llm_request_timeout,
+            streaming=False,
+        )
+        
+    # 3. Google/Gemini
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=settings.llm_model,
+            google_api_key=settings.google_api_key,
+            temperature=0,
+            max_output_tokens=settings.llm_token_budget,
+        )
+        
+    # 4. Anthropic
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(
+            model=settings.llm_model,
+            api_key=settings.anthropic_api_key,
+            temperature=0,
+            max_tokens=settings.llm_token_budget,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+            timeout=settings.cloud_llm_request_timeout,
+        )
+        
+    # 5. OpenAI Cloud (Default)
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model=settings.llm_model,
+        api_key=settings.openai_api_key,
+        temperature=0,
+        max_tokens=settings.llm_token_budget,
+        timeout=settings.cloud_llm_request_timeout,
+    )
+
+
 # ── Main entry point ───────────────────────────────────────────────────────────
+
 
 def run_deepdive(
     ticker: str,
@@ -515,19 +591,65 @@ def run_deepdive(
     )
 
     # ── Phase 7: Report assembly ───────────────────────────────────────────────
-    # Sections are written to sections/<key>.md by the caller (Claude CLI) after
-    # reading the Phase 6 prompt blocks from stdout and generating the content.
-    # This phase assembles whatever section files are present into report.md.
-    console.print("[bold]Phase 7:[/bold] Assembling report.md + sources.md…")
+    # If any sections are missing, we automatically generate them using the LLM.
+    console.print("[bold]Phase 7:[/bold] Checking and generating narrative sections…")
 
     from src.deepdive.report import SECTION_ORDER, assemble_report  # noqa: PLC0415
+    from src.deepdive.analyze.gemini_cli import PROMPTS_DIR, assemble_prompt  # noqa: PLC0415
 
     sections_dir = out_dir / "sections"
+    sections_dir.mkdir(parents=True, exist_ok=True)
+    prompts_dir = out_dir / "prompts"
 
     # Report which sections are present / missing before assembly
-    present = [k for k, _ in SECTION_ORDER if (sections_dir / f"{k}.md").exists()
-               and (sections_dir / f"{k}.md").stat().st_size > 100]
+    present = []
+    for k, _ in SECTION_ORDER:
+        section_file = sections_dir / f"{k}.md"
+        if section_file.exists():
+            content = section_file.read_text(encoding="utf-8").strip()
+            if len(content) > 100 and not content.startswith("<!--"):
+                present.append(k)
+
     missing = [k for k, _ in SECTION_ORDER if k not in present]
+    
+    if missing:
+        console.print(f"  [yellow]Missing   : {', '.join(missing)} — generating via LLM…[/yellow]")
+        llm = None
+        for key in missing:
+            prompt_file = prompts_dir / f"{key}_assembled.txt"
+            section_file = sections_dir / f"{key}.md"
+            
+            # Read prompt
+            if not prompt_file.exists():
+                # Re-assemble prompt if missing on disk
+                try:
+                    dataset_json = dataset_path.read_text(encoding="utf-8")
+                    full_prompt = assemble_prompt(key, dataset_json, PROMPTS_DIR)
+                    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+                    prompt_file.write_text(full_prompt, encoding="utf-8")
+                except Exception as e:
+                    log.warning("Could not assemble prompt for %s: %s", key, e)
+                    continue
+            
+            if prompt_file.exists():
+                prompt_content = prompt_file.read_text(encoding="utf-8")
+                try:
+                    if llm is None:
+                        llm = _build_llm_for_deepdive()
+                    
+                    console.print(f"  Generating: [cyan]{key}[/cyan] narrative…")
+                    response = llm.invoke(prompt_content)
+                    narrative = response.content if hasattr(response, 'content') else str(response)
+                    
+                    section_file.write_text(narrative.strip(), encoding="utf-8")
+                    present.append(key)
+                except Exception as exc:
+                    log.error("Failed to generate narrative for %s: %s", key, exc)
+                    console.print(f"  [red]Failed to generate {key}: {exc}[/red]")
+                    
+        # Update missing list after generation attempt
+        missing = [k for k, _ in SECTION_ORDER if k not in present]
+
     if present:
         console.print(f"  Sections  : {len(present)} ready — {', '.join(present)}")
     if missing:

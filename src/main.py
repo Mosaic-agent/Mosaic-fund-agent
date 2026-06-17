@@ -302,6 +302,7 @@ def config() -> None:
         # [SENSITIVE] settings are masked
         ("OpenAI API Key", masked(settings.openai_api_key), "⚠ YES"),
         ("Anthropic API Key", masked(settings.anthropic_api_key), "⚠ YES"),
+        ("OpenRouter API Key", masked(settings.openrouter_api_key), "⚠ YES"),
         ("NewsAPI Key", masked(settings.newsapi_key), "⚠ YES"),
         ("Kite API Key", masked(settings.kite_api_key), "⚠ YES"),
         ("Kite API Secret", masked(settings.kite_api_secret), "⚠ YES"),

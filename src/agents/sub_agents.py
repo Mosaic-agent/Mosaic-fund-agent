@@ -1944,9 +1944,10 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     budget = BudgetCallbackHandler()
     if callbacks is None:
         callbacks = []
-        if os.getenv("VERBOSE") == "1":
+        from config.settings import settings
+        if os.getenv("VERBOSE") == "1" or settings.llm_think:
             from src.agents.mosaic_fund_agent import RichConsoleCallbackHandler
-            callbacks.append(RichConsoleCallbackHandler())
+            callbacks.append(RichConsoleCallbackHandler(agent_name=intent))
     callbacks.extend([tracer, budget])
 
     # Log the routing decision itself
