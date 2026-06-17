@@ -1280,6 +1280,7 @@ _HELP_MD = """
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
 | `/telemetry` | View telemetry; `/telemetry on` or `off` toggles turn overlay |
 | `/clear` | Reset session memory — next question starts a fresh thread |
+| `/list thread` | List all previous conversation threads with summaries |
 | `/help` | This help text |
 | `quit` / `exit` / `q` | Exit the chat |
 
@@ -1358,6 +1359,84 @@ def _dispatch_slash(
             conv_history.clear()
         console.print(f"[yellow]Memory cleared — new conversation thread started:[/yellow] [bold cyan]{new_id}[/bold cyan]")
         return "", new_id
+
+    # ── /list thread / /threads ───────────────────────────────────────────
+    if name in ("threads", "thread") or (name == "list" and len(parts) > 1 and parts[1].lower() in ("thread", "threads")):
+        checkpointer = getattr(agent, "_checkpointer", None)
+        if checkpointer is None:
+            console.print("[yellow]No checkpoints database found (thread history is unavailable).[/yellow]")
+            return "", thread_id
+
+        from rich.table import Table
+        table = Table(title="[bold cyan]Conversation Threads[/bold cyan]", border_style="cyan")
+        table.add_column("Thread ID", style="cyan", no_wrap=True)
+        table.add_column("Last Active", style="green")
+        table.add_column("Messages", style="magenta")
+        table.add_column("Initial Query / Summary", style="white")
+
+        threads = {}
+        try:
+            for cp_tuple in checkpointer.list(None):
+                cfg = cp_tuple.config
+                tid = cfg.get("configurable", {}).get("thread_id")
+                if not tid:
+                    continue
+                
+                msgs = cp_tuple.checkpoint.get("channel_values", {}).get("messages", [])
+                ts = cp_tuple.checkpoint.get("ts")
+                
+                if tid not in threads or len(msgs) > len(threads[tid]["messages"]):
+                    threads[tid] = {
+                        "ts": ts,
+                        "messages": msgs
+                    }
+        except Exception as exc:
+            console.print(f"[bold red]Error loading thread history:[/bold red] {exc}")
+            return "", thread_id
+
+        if not threads:
+            console.print("[yellow]No conversation history found.[/yellow]")
+            return "", thread_id
+
+        # Sort threads by timestamp descending
+        def get_sort_key(item):
+            val = item[1]["ts"]
+            return str(val) if val is not None else ""
+
+        sorted_threads = sorted(threads.items(), key=get_sort_key, reverse=True)
+
+        for tid, data in sorted_threads:
+            ts_val = data["ts"]
+            ts_str = ""
+            if ts_val:
+                if hasattr(ts_val, "strftime"):
+                    ts_str = ts_val.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    ts_str = str(ts_val).split(".")[0].replace("T", " ")
+                    
+            msgs = data["messages"]
+            num_msgs = len(msgs)
+            
+            first_human = None
+            for m in msgs:
+                if m.__class__.__name__ == "HumanMessage" or getattr(m, "type", None) == "human":
+                    first_human = m.content
+                    break
+                    
+            if first_human:
+                summary = first_human.strip()
+                if "[End of context]\n" in summary:
+                    summary = summary.split("[End of context]\n", 1)[1].strip()
+                if len(summary) > 80:
+                    summary = summary[:77] + "..."
+            else:
+                summary = "[No user queries]"
+                
+            table.add_row(tid, ts_str, f"{num_msgs} msgs", summary)
+
+        console.print(table)
+        console.print(f"\n[dim]To resume a thread, restart the chat with: [cyan]--thread-id <id>[/cyan] or [cyan]-t <id>[/cyan][/dim]")
+        return "", thread_id
 
     # ── /analyze [--max N] ─────────────────────────────────────────────────
     if name == "analyze":
