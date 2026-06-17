@@ -131,6 +131,26 @@ class TestCustomImport(unittest.TestCase):
         self.assertEqual(res, "Imported RELIANCE")
         mock_import.assert_called_once_with("RELIANCE", 365, "", "", "nse")
 
+    @patch("src.tools.company_resolver.resolve_company_info")
+    @patch("src.tools.skills_tools.import_symbol_data_impl")
+    def test_import_symbol_us_stock_bypasses_source_prompt(self, mock_import, mock_resolve_info):
+        mock_resolve_info.return_value = {
+            "symbol": "PCOR",
+            "nse_symbol": None,
+            "yf_symbol": "PCOR",
+            "exchange": "NYQ",
+            "market": "US",
+            "company_name": "Procore Technologies",
+            "currency": "USD",
+            "source": "yahoo_search",
+        }
+        mock_import.return_value = "Imported PCOR"
+
+        res = import_symbol_data.invoke({"symbol": "PCOR"})
+
+        self.assertEqual(res, "Imported PCOR")
+        mock_import.assert_called_once_with("PCOR", 365, "", "", "yfinance")
+
 class TestQueryDateRangeParser(unittest.TestCase):
     def test_parse_single_year(self):
         from src.commands.chat_cmd import parse_query_date_range

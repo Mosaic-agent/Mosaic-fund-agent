@@ -98,7 +98,7 @@ def import_symbol_data_impl(
 
     # Build lookup: nse_symbol → (yahoo_ticker, category)
     try:
-        from src.importer.registry import ETFS, STOCKS, COMMODITIES, INDICES
+        from src.importer.registry import ETFS, STOCKS, COMMODITIES, INDICES, US_STOCKS
         _lookup: dict[str, tuple[str, str]] = {}
         for nse, yahoo in ETFS:
             _lookup[nse] = (yahoo, "etfs")
@@ -108,6 +108,8 @@ def import_symbol_data_impl(
             _lookup[nse] = (yahoo, "commodities")
         for nse, yahoo in INDICES:
             _lookup[nse] = (yahoo, "indices")
+        for us, yahoo in US_STOCKS:
+            _lookup[us] = (yahoo, "us_stocks")
     except Exception as exc:
         return f"Registry load error: {exc}"
 
@@ -130,6 +132,14 @@ def import_symbol_data_impl(
                     f"  Resolved → {sym} ({yahoo_ticker}) on {info.get('exchange', 'NSE')}\n"
                 )
                 sys.stdout.flush()
+            elif yf_sym and market == "US" and source != "fallback_unverified":
+                yahoo_ticker = yf_sym
+                category = "us_stocks"
+                sym = yf_sym  # use the resolved US symbol going forward
+                sys.stdout.write(
+                    f"  Resolved → {sym} ({yahoo_ticker}) on {info.get('exchange', 'US')}\n"
+                )
+                sys.stdout.flush()
             elif source == "fallback_unverified":
                 return (
                     f"SYMBOL_NOT_FOUND: '{sym}' could not be verified on Yahoo Finance. "
@@ -140,7 +150,7 @@ def import_symbol_data_impl(
                 cname = info.get("company_name", "unknown")
                 return (
                     f"UNKNOWN_SYMBOL: Yahoo search found '{cname}' ({market}) for '{sym}', "
-                    f"not an Indian listing. Try the exact NSE symbol (e.g. LICICORP, HNGSNGBEES)."
+                    f"not an Indian or US listing. Try the exact NSE or US symbol (e.g. LICICORP, ADSK)."
                 )
         except Exception as exc:
             return (
@@ -233,15 +243,36 @@ def import_symbol_data(
     """
     from src.importer.source_preference import resolve_data_source
 
+    sym = symbol.strip().upper()
+    is_us = False
     try:
-        data_source, _ = resolve_data_source(data_source)
-    except ValueError as exc:
-        return f"Invalid data source: {exc}"
-    if not data_source:
-        return (
-            "DATA_SOURCE_REQUIRED: Ask the user which data source to use before importing:\n"
-            "1. Shoonya\n2. NSE\n3. yfinance"
-        )
+        from src.importer.registry import US_STOCKS
+        if any(us == sym for us, _ in US_STOCKS):
+            is_us = True
+    except Exception:
+        pass
+
+    if not is_us:
+        try:
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(sym, auto_import=False)
+            if info.get("market") == "US":
+                is_us = True
+        except Exception:
+            pass
+
+    if is_us:
+        data_source = "yfinance"
+    else:
+        try:
+            data_source, _ = resolve_data_source(data_source)
+        except ValueError as exc:
+            return f"Invalid data source: {exc}"
+        if not data_source:
+            return (
+                "DATA_SOURCE_REQUIRED: Ask the user which data source to use before importing:\n"
+                "1. Shoonya\n2. NSE\n3. yfinance"
+            )
     return import_symbol_data_impl(symbol, days, start_date, end_date, data_source)
 
 
