@@ -419,6 +419,16 @@ class MosaicFundAgent:
                 timeout=settings.cloud_llm_request_timeout,  # cloud — tight (default 60s)
             )
 
+        # ── Google Gemini cloud ───────────────────────────────────────────────
+        if provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(
+                model=settings.llm_model,
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=settings.llm_token_budget,
+            )
+
         # ── OpenAI cloud (default) ─────────────────────────────────────────────
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
@@ -454,6 +464,15 @@ class MosaicFundAgent:
                 temperature=0,
                 max_tokens=cloud_budget,
                 extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+            )
+
+        if provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(
+                model=settings.llm_cloud_model,
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=cloud_budget,
             )
 
         if provider == "openrouter":
