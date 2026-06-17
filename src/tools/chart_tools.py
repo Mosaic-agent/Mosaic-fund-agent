@@ -76,7 +76,7 @@ def _load_corp_actions(symbol: str) -> "pd.DataFrame | None":
         return None
 
 
-def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set] | None:
+def _composite_anomaly_dates(symbol: str, category: str = "", z_threshold: float = 3.0) -> tuple[set, set] | None:
     """
     Run the composite anomaly pipeline (GARCH vol-normalization + Isolation
     Forest + PELT change-point detection) on the symbol's FULL OHLCV history,
@@ -133,7 +133,7 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set]
             return None
 
         # Return cached result if row count (data version) is unchanged.
-        cache_key = (symbol.upper(), category, len(df))
+        cache_key = (symbol.upper(), category, len(df), z_threshold)
         if cache_key in _ANOMALY_DATES_CACHE:
             logger.info("Using cached anomaly detection results for %s.", symbol.upper())
             return _ANOMALY_DATES_CACHE[cache_key]
@@ -172,13 +172,14 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set]
         from src.ml.anomaly import run_composite_anomaly
         df_result, df_flagged, _ = run_composite_anomaly(
             df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
+            z_threshold=z_threshold,
             df_cot=df_cot, df_fx=df_fx,
             df_corp_actions=df_corp,
         )
         anomaly_dates = {
             pd.Timestamp(d).normalize() for d in df_flagged["trade_date"]
         }
-        # Corporate action dates for 🏦 markers (all action types, from df_result)
+        # Corporate action dates for 2 markers (all action types, from df_result)
         corp_action_dates: set = set()
         if "is_corporate_action" in df_result.columns:
             corp_action_dates = {
@@ -266,6 +267,7 @@ def plot_price_chart(
     category: str = "",
     start_date: str = "",
     end_date: str = "",
+    z_threshold: float = 3.0,
 ) -> str:
     """
     Plot a price (close) trend chart for any NSE symbol from ClickHouse.
@@ -376,7 +378,7 @@ def plot_price_chart(
             corp_act_xs:   list[int] = []
             corp_act_ys:   list[float] = []
 
-            pipeline_result = _composite_anomaly_dates(symbol, category)
+            pipeline_result = _composite_anomaly_dates(symbol, category, z_threshold=z_threshold)
             if pipeline_result is not None:
                 flagged_dates, corp_dates = pipeline_result
                 for idx, d in enumerate(dates):
