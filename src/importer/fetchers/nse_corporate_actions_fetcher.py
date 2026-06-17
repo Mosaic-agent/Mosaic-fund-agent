@@ -129,28 +129,33 @@ def fetch_corporate_actions(symbol: str) -> list[dict[str, Any]]:
     """
     symbol_upper = symbol.strip().upper()
     rows: list[dict[str, Any]] = []
+
+    from src.tools.company_resolver import resolve_company_info
+    info = resolve_company_info(symbol_upper)
+    is_us = info.get("market") == "US"
+
     data = None
-
-    try:
-        with httpx.Client(
-            headers=_NSE_HEADERS,
-            follow_redirects=True,
-            timeout=_TIMEOUT,
-        ) as client:
-            # Warm-up: obtain NSE session cookies (required — NSE blocks cookie-less requests)
-            client.get(_NSE_WARMUP, timeout=10)
-            time.sleep(0.8)
-
-            resp = client.get(
-                _NSE_CA_URL,
-                params={"index": "equities", "symbol": symbol_upper},
+    if not is_us:
+        try:
+            with httpx.Client(
+                headers=_NSE_HEADERS,
+                follow_redirects=True,
                 timeout=_TIMEOUT,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            ) as client:
+                # Warm-up: obtain NSE session cookies (required — NSE blocks cookie-less requests)
+                client.get(_NSE_WARMUP, timeout=10)
+                time.sleep(0.8)
 
-    except Exception as exc:
-        logger.warning("NSE corporate actions fetch failed for %s: %s", symbol_upper, exc)
+                resp = client.get(
+                    _NSE_CA_URL,
+                    params={"index": "equities", "symbol": symbol_upper},
+                    timeout=_TIMEOUT,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+        except Exception as exc:
+            logger.warning("NSE corporate actions fetch failed for %s: %s", symbol_upper, exc)
 
     if isinstance(data, list):
         for item in data:
@@ -190,7 +195,7 @@ def fetch_corporate_actions(symbol: str) -> list[dict[str, Any]]:
         )
         try:
             import yfinance as yf
-            yf_symbol = f"{symbol_upper}.NS"
+            yf_symbol = symbol_upper if is_us else f"{symbol_upper}.NS"
             ticker = yf.Ticker(yf_symbol)
             actions = ticker.actions
             if actions is not None and not actions.empty:
