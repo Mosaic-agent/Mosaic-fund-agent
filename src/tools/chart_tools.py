@@ -117,11 +117,14 @@ def _composite_anomaly_dates(symbol: str, category: str = "", z_threshold: float
         if df.empty or len(df) < 60:
             try:
                 import yfinance as yf
-                suffix = ".BO" if category == "bse" else ".NS"
-                ticker_name = f"{symbol.upper()}{suffix}"
+                from src.tools.company_resolver import resolve_company_info
+                info = resolve_company_info(symbol)
+                if info.get("market") == "US":
+                    ticker_name = symbol.upper()
+                else:
+                    suffix = ".BO" if category == "bse" else ".NS"
+                    ticker_name = f"{symbol.upper()}{suffix}"
                 hist = yf.Ticker(ticker_name).history(period="2y")
-                if hist.empty and suffix == ".NS":
-                    hist = yf.Ticker(symbol.upper()).history(period="2y")
                 if not hist.empty:
                     df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
                     df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
@@ -311,14 +314,19 @@ def plot_price_chart(
         if df.empty:
             # Fallback to yfinance price history
             from src.tools.yahoo_finance import fetch_price_history
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(symbol)
             clean_symbol = symbol.upper()
-            exchange = "NSE"
-            if clean_symbol.endswith(".NS"):
-                clean_symbol = clean_symbol[:-3]
+            if info.get("market") == "US":
+                exchange = "US"
+            else:
                 exchange = "NSE"
-            elif clean_symbol.endswith(".BO"):
-                clean_symbol = clean_symbol[:-3]
-                exchange = "BSE"
+                if clean_symbol.endswith(".NS"):
+                    clean_symbol = clean_symbol[:-3]
+                    exchange = "NSE"
+                elif clean_symbol.endswith(".BO"):
+                    clean_symbol = clean_symbol[:-3]
+                    exchange = "BSE"
 
             if start_date:
                 hist = fetch_price_history(

@@ -218,11 +218,14 @@ def search_anomaly_events(
     if df.empty:
         try:
             import yfinance as yf
-            suffix = ".BO" if category == "bse" else ".NS"
-            ticker_name = f"{symbol_upper}{suffix}"
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(symbol_upper)
+            if info.get("market") == "US":
+                ticker_name = symbol_upper
+            else:
+                suffix = ".BO" if category == "bse" else ".NS"
+                ticker_name = f"{symbol_upper}{suffix}"
             hist = yf.Ticker(ticker_name).history(period="2y")
-            if hist.empty and suffix == ".NS":
-                hist = yf.Ticker(symbol_upper).history(period="2y")
             if not hist.empty:
                 df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
                 df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
