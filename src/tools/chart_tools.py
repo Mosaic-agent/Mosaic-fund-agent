@@ -123,7 +123,8 @@ def _composite_anomaly_dates(symbol: str, category: str = "", z_threshold: float
                     ticker_name = symbol.upper()
                 else:
                     suffix = ".BO" if category == "bse" else ".NS"
-                    hist = yf.Ticker(ticker_name).history(period="5y")
+                    ticker_name = f"{symbol.upper()}{suffix}"
+                hist = yf.Ticker(ticker_name).history(period="5y")
                 if not hist.empty:
                     df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
                     df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
