@@ -280,12 +280,31 @@ def fit_garch_residuals(
     df["z_resid"]     = robust_zscore(df["residual"].fillna(0))
     df["z_resid_abs"] = df["z_resid"].abs()
 
+    # ── GARCH model diagnostics ──────────────────────────────────────────────
+    omega = float(res.params["omega"]) if "omega" in res.params else np.nan
+    alpha = float(res.params["alpha[1]"]) if "alpha[1]" in res.params else np.nan
+    beta = float(res.params["beta[1]"]) if "beta[1]" in res.params else np.nan
+    persistence = alpha + beta if not (np.isnan(alpha) or np.isnan(beta)) else np.nan
+    persistence_is_sane = bool(persistence < 1.0 and alpha > 0 and beta > 0 and omega > 0)
+
+    log.info(
+        "GARCH(1,1) diagnostics: omega=%.6f, alpha=%.4f, beta=%.4f, persistence=%.4f (stationary=%s)",
+        omega, alpha, beta, persistence, persistence_is_sane
+    )
+
+    df["garch_omega"] = omega
+    df["garch_alpha"] = alpha
+    df["garch_beta"] = beta
+    df["garch_persistence"] = persistence
+    df["garch_persistence_sane"] = persistence_is_sane
+
     loglik = float(res.loglikelihood)
 
     # Cache the computed GARCH columns
     cols_to_cache = [
         "trade_date", "garch_vol", "rf_pred", "garch_band_1s",
-        "garch_band_2s", "residual", "z_resid", "z_resid_abs"
+        "garch_band_2s", "residual", "z_resid", "z_resid_abs",
+        "garch_omega", "garch_alpha", "garch_beta", "garch_persistence", "garch_persistence_sane"
     ]
     _GARCH_CACHE[cache_key] = (df[cols_to_cache].copy(), loglik)
 

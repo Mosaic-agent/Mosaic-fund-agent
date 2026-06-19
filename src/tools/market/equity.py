@@ -335,6 +335,27 @@ def search_anomaly_events(
 
     lines.append("")
     lines.append("---\n")
+
+    # ── GARCH(1,1) Volatility Model Diagnostics ──
+    garch_omega = df_result["garch_omega"].iloc[-1] if "garch_omega" in df_result.columns else np.nan
+    garch_alpha = df_result["garch_alpha"].iloc[-1] if "garch_alpha" in df_result.columns else np.nan
+    garch_beta = df_result["garch_beta"].iloc[-1] if "garch_beta" in df_result.columns else np.nan
+    garch_persistence = df_result["garch_persistence"].iloc[-1] if "garch_persistence" in df_result.columns else np.nan
+    garch_persistence_sane = df_result["garch_persistence_sane"].iloc[-1] if "garch_persistence_sane" in df_result.columns else False
+
+    lines.append("### 📊 GARCH(1,1) Volatility Model Diagnostics")
+    if not pd.isna(garch_persistence):
+        lines.append(f"- **Omega ($\\omega$):** {garch_omega:.6f}")
+        lines.append(f"- **Alpha ($\\alpha$):** {garch_alpha:.4f} (ARCH lag-1)")
+        lines.append(f"- **Beta ($\\beta$):** {garch_beta:.4f} (GARCH lag-1)")
+        lines.append(f"- **Persistence ($\\alpha + \\beta$):** {garch_persistence:.4f}")
+        check_str = "✅ Pass (Covariance Stationary)" if garch_persistence_sane else "⚠️ Fail (Non-Stationary / Explosive)"
+        lines.append(f"- **Persistence Sanity Check:** {check_str}")
+    else:
+        lines.append("*GARCH diagnostics not available for this run.*")
+
+    lines.append("")
+    lines.append("---\n")
     lines.append("### 📰 Google News Search — Per Anomaly Date\n")
 
     # ── 5. Parallel Google News searches ─────────────────────────────────────
