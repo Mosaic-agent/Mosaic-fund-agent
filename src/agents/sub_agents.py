@@ -376,7 +376,7 @@ def _regex_route_intent(question: str) -> str:
     intent_router._regex_fallback.
     """
     q = question.lower()
-    if any(kw in q for kw in ("anomal", "spike", "crash", "outlier", "shock")):
+    if any(kw in q for kw in ("anomal", "anamol", "spike", "crash", "outlier", "shock")):
         if any(kw in q for kw in ("gold", "etf", "bees", "index", "indices")):
             return "signal"
         return "india_equity"
