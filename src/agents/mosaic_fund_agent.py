@@ -350,18 +350,6 @@ class MosaicFundAgent:
 
         provider = settings.llm_provider.lower()
 
-        # ── OpenRouter cloud ───────────────────────────────────────────────────
-        if provider == "openrouter":
-            from langchain_openai import ChatOpenAI
-            return ChatOpenAI(
-                model=settings.llm_model,
-                api_key=settings.openrouter_api_key,
-                base_url="https://openrouter.ai/api/v1",
-                temperature=0,
-                max_tokens=settings.llm_token_budget,
-                timeout=settings.cloud_llm_request_timeout,
-            )
-
         # ── Local / custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.) ──
         if settings.llm_base_url:
             from langchain_openai import ChatOpenAI
@@ -404,6 +392,18 @@ class MosaicFundAgent:
                 extra_body=extra_body,
                 timeout=settings.llm_request_timeout,
                 streaming=False,
+            )
+
+        # ── OpenRouter cloud ───────────────────────────────────────────────────
+        if provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=settings.llm_model,
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0,
+                max_tokens=settings.llm_token_budget,
+                timeout=settings.cloud_llm_request_timeout,
             )
 
         # ── Anthropic cloud ────────────────────────────────────────────────────

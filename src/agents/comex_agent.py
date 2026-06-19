@@ -238,21 +238,12 @@ class ComexAgent:
     def _build_llm(self) -> Any:
         """
         Build LLM with same priority as MosaicFundAgent and NewsSentimentAgent:
-          1. OpenRouter cloud
-          2. Local OpenAI-compatible server (LLM_BASE_URL)
+          1. Local OpenAI-compatible server (LLM_BASE_URL)
+          2. OpenRouter cloud
           3. Anthropic cloud
           4. OpenAI cloud
         """
-        if settings.llm_provider.lower() == "openrouter":
-            from langchain_openai import ChatOpenAI
-            return ChatOpenAI(
-                model=settings.llm_model,
-                api_key=settings.openrouter_api_key,
-                base_url="https://openrouter.ai/api/v1",
-                temperature=0,
-                max_tokens=settings.llm_token_budget,
-            )
-
+        # ── Local / custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.) ──
         if settings.llm_base_url:
             from langchain_openai import ChatOpenAI
             logger.info(
@@ -267,6 +258,17 @@ class ComexAgent:
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_body={"options": {"num_ctx": settings.llm_context_window}},
+            )
+
+        # ── OpenRouter cloud ───────────────────────────────────────────────────
+        if settings.llm_provider.lower() == "openrouter":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=settings.llm_model,
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0,
+                max_tokens=settings.llm_token_budget,
             )
 
         if settings.llm_provider.lower() == "anthropic":

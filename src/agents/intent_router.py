@@ -172,6 +172,22 @@ def _get_router_llm() -> Any | None:
             logger.debug("Router LLM (NVIDIA NIM) build failed: %s", exc)
 
     # 3. Otherwise fall back to local/default API key providers
+    if settings.llm_base_url:
+        try:
+            from langchain_openai import ChatOpenAI
+            logger.info("Router LLM — local LLM: %s @ %s", settings.llm_model, settings.llm_base_url)
+            return ChatOpenAI(
+                model=settings.llm_model,
+                base_url=settings.llm_base_url,
+                api_key=settings.openai_api_key or "local",
+                temperature=0,
+                max_tokens=50,
+                request_timeout=120,
+                timeout=120,
+            )
+        except Exception as exc:
+            logger.debug("Router LLM (Local Base URL) build failed: %s", exc)
+
     # Prefer the configured provider if key is available
     provider = settings.llm_provider.lower()
     if provider == "google" and _real_key(getattr(settings, "google_api_key", None)):

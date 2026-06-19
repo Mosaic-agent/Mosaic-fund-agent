@@ -45,22 +45,22 @@ def _get_llm() -> Any:
     """
     from langchain_openai import ChatOpenAI
 
-    # ── OpenRouter cloud ──────────────────────────────────────────────────────
-    if settings.llm_provider.lower() == "openrouter":
-        return ChatOpenAI(
-            model=settings.llm_model,
-            base_url="https://openrouter.ai/api/v1",
-            api_key=settings.openrouter_api_key,
-            temperature=0.2,
-            max_tokens=settings.llm_token_budget,
-        )
-
     # ── Local / custom OpenAI-compatible endpoint ─────────────────────────────
     if settings.llm_base_url:
         return ChatOpenAI(
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             api_key=settings.openai_api_key or "local",
+            temperature=0.2,
+            max_tokens=settings.llm_token_budget,
+        )
+
+    # ── OpenRouter cloud ──────────────────────────────────────────────────────
+    if settings.llm_provider.lower() == "openrouter":
+        return ChatOpenAI(
+            model=settings.llm_model,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key,
             temperature=0.2,
             max_tokens=settings.llm_token_budget,
         )
