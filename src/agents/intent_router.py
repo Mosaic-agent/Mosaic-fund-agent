@@ -166,13 +166,29 @@ def _get_router_llm() -> Any | None:
         except Exception as exc:
             logger.debug("Router LLM (NVIDIA NIM) build failed: %s", exc)
 
-    # 3. Otherwise fall back to local/default API key providers
-    # Prefer a small fast model for routing — gpt-4o-mini costs ~$0.0001 per call
-    if settings.llm_provider.lower() == "openrouter" and _real_key(settings.openrouter_api_key):
+    # 3. Local Ollama / LM Studio — use when base_url points to localhost
+    if settings.llm_base_url and any(h in settings.llm_base_url for h in ("localhost", "127.0.0.1")):
         try:
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(
                 model=settings.llm_model,
+                base_url=settings.llm_base_url,
+                api_key=settings.openai_api_key or "ollama",
+                temperature=0,
+                max_tokens=50,
+                request_timeout=120,
+                timeout=120,
+            )
+        except Exception as exc:
+            logger.debug("Router LLM (Local/Ollama) build failed: %s", exc)
+
+    # 4. OpenRouter cloud — use a cheap routing model, NOT settings.llm_model
+    #    (which may be a local Ollama name like 'mosaic-gemma4')
+    if settings.llm_provider.lower() == "openrouter" and _real_key(settings.openrouter_api_key):
+        try:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model="google/gemma-3-12b-it:free",
                 api_key=settings.openrouter_api_key,
                 base_url="https://openrouter.ai/api/v1",
                 temperature=0,
