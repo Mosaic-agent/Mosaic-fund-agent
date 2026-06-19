@@ -18,8 +18,13 @@ from config.settings import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# International ETFs to backfill
-SYMBOLS = ["MAFANG", "HNGSNGBEES", "MAHKTECH", "MON100", "MASPTOP50", "MONQ50"]
+# ETFs to backfill (includes all international and domestic composite ETFs)
+SYMBOLS = [
+    "GOLDBEES", "NIFTYBEES", "BANKBEES", "ITBEES", "JUNIORBEES",
+    "SILVERBEES", "CPSEETF", "LIQUIDBEES", "LIQUIDCASE", "GILT5YBEES",
+    "MON100", "MAFANG", "HNGSNGBEES", "AUTOBEES", "PHARMABEES",
+    "PSUBNKBEES", "MID150BEES", "SMALL250", "MAHKTECH", "MASPTOP50", "MONQ50"
+]
 
 def backfill():
     client = clickhouse_connect.get_client(
