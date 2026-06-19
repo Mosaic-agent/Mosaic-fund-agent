@@ -44,13 +44,13 @@ class Settings(BaseSettings):
     llm_provider: str = Field(default="openai", description="LLM provider")
 
     # [NON-SENSITIVE] Model name to use (gpt-4o-mini, claude-3-haiku, deepseek-r1:7b, etc.)
-    llm_model: str = Field(default="gpt-4o-mini", description="LLM model name")
+    llm_model: str = Field(default="google/gemma-4-31b-it", description="LLM model name")
 
     # [NON-SENSITIVE] Custom base URL for OpenAI-compatible local inference servers.
     # Ollama:    http://localhost:11434/v1
     # LM Studio: http://localhost:1234/v1
     # Leave blank to use the official OpenAI/Anthropic cloud endpoints.
-    llm_base_url: str = Field(default="", description="Custom OpenAI-compatible base URL (local models)")
+    llm_base_url: str = Field(default="https://integrate.api.nvidia.com/v1", description="Custom OpenAI-compatible base URL (local models)")
 
     # [NON-SENSITIVE] Set to true to skip the local LLM entirely and use only the cloud LLM.
     # Useful when you want to route all traffic through the cloud model (e.g. Claude Sonnet).
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # [NON-SENSITIVE] Enable native thinking/reasoning tokens for supported Ollama models
     # (qwen3, deepseek-r1). Passes think=true in the request body. Has no effect on cloud models.
-    llm_think: bool = Field(default=False, description="Enable Ollama native thinking mode (qwen3, deepseek-r1)")
+    llm_think: bool = Field(default=True, description="Enable Ollama native thinking mode (qwen3, deepseek-r1)")
 
     # ── Timeouts ─────────────────────────────────────────────────────────────────
     # Local LLMs (Ollama) need generous timeouts — GARCH + news + tool chains
@@ -191,7 +191,7 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Configured input context window in tokens.
     # Set to 0 to auto-detect based on model.
     llm_context_window_configured: int = Field(
-        default=0,
+        default=16384,
         alias="llm_context_window",
         description="Model input context window in tokens (0 = auto-detect)",
     )
