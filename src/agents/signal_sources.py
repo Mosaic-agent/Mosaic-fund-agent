@@ -326,11 +326,17 @@ class GARCHAnomalySource(AnomalySource):
             for col in ["open", "high", "low", "close", "volume"]:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
             from src.ml.anomaly import run_composite_anomaly
-            _, df_flagged, _ = run_composite_anomaly(df, z_threshold=2.0)
+            _, df_flagged, _ = run_composite_anomaly(df, z_threshold=3.0)
             if not df_flagged.empty:
                 flags["GOLDBEES"] = str(df_flagged.iloc[-1].get("regime", "Normal"))
-            log.info("Anomaly: GOLDBEES regime=%s, %d flagged days",
-                     flags["GOLDBEES"], len(df_flagged))
+            
+            # Count anomalies in the last 90 days for clearer logging context
+            from datetime import datetime
+            cutoff_90d = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=90)
+            df_flagged_90d = df_flagged[df_flagged["trade_date"] >= cutoff_90d] if not df_flagged.empty else pd.DataFrame()
+            
+            log.info("Anomaly: GOLDBEES regime=%s, %d flagged days in last 90 days (%d total over %d days of history)",
+                     flags["GOLDBEES"], len(df_flagged_90d), len(df_flagged), len(df))
         except Exception as exc:
             log.warning("GARCHAnomalySource failed: %s", exc)
         return flags
