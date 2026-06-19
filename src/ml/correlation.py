@@ -548,6 +548,13 @@ class CorrelationService:
         df_corp = self._load_corp_actions(symbol)
         df_anomaly_res, _, _ = run_composite_anomaly(df_ohlcv, df_corp_actions=df_corp)
 
+        # Filter price history and anomaly results to the lookback window for event correlation
+        from datetime import datetime
+        cutoff = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=lookback_days)
+        df_ohlcv = df_ohlcv[df_ohlcv["trade_date"] >= cutoff].copy()
+        if df_anomaly_res is not None and not df_anomaly_res.empty:
+            df_anomaly_res = df_anomaly_res[df_anomaly_res["trade_date"] >= cutoff].copy()
+
         # Build candidate event registry
         events = self._build_candidate_events(symbol, df_corp)
 

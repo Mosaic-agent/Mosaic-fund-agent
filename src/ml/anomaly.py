@@ -242,18 +242,59 @@ def fit_garch_residuals(
     df = df.copy()
     returns = df["log_return"].dropna() * 100  # arch works in % scale
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        am  = arch_model(returns, vol="Garch", p=1, q=1, dist="t", rescale=False)
-        res = am.fit(disp="off", show_warning=False)
+    use_ewma_fallback = False
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            am  = arch_model(returns, vol="Garch", p=1, q=1, dist="t", rescale=False)
+            res = am.fit(disp="off", show_warning=False)
+
+        omega = float(res.params["omega"]) if "omega" in res.params else np.nan
+        alpha = float(res.params["alpha[1]"]) if "alpha[1]" in res.params else np.nan
+        beta = float(res.params["beta[1]"]) if "beta[1]" in res.params else np.nan
+        persistence = alpha + beta if not (np.isnan(alpha) or np.isnan(beta)) else np.nan
+
+        if not np.isnan(persistence) and (persistence >= 0.999 or alpha <= 0 or beta <= 0 or omega <= 0):
+            log.warning(
+                "Rejecting unstable GARCH fit (persistence=%.4f, omega=%.6f, alpha=%.4f, beta=%.4f). Falling back to EWMA.",
+                persistence, omega, alpha, beta
+            )
+            use_ewma_fallback = True
+    except Exception as exc:
+        log.warning("GARCH estimation failed (%s). Falling back to EWMA volatility.", exc)
+        use_ewma_fallback = True
 
     # arch returns vectors aligned to the *non-NaN* log_return rows (N-1 values)
     # We need to map them back to the full df index (N rows).
     valid_idx = df.index[df["log_return"].notna()]   # integer positions of valid rows
 
-    cond_vol_pct = res.conditional_volatility.values   # (N-1,) daily σ in %
-    cond_vol     = cond_vol_pct / 100                  # (N-1,) daily σ in log-return scale
-    fitted_ret   = res.resid.values / 100              # (N-1,) GARCH-fitted log-returns
+    if use_ewma_fallback:
+        # Standard RiskMetrics EWMA: lambda = 0.94
+        decay = 0.94
+        r2 = returns ** 2
+        init_var = float(returns.var()) if len(returns) > 0 else 1.0
+        ewma_var = np.zeros_like(returns)
+        current_var = init_var
+        for i in range(len(returns)):
+            current_var = decay * current_var + (1 - decay) * r2.iloc[i]
+            ewma_var[i] = current_var
+        cond_vol_pct = np.sqrt(ewma_var)
+        cond_vol     = cond_vol_pct / 100
+        fitted_ret   = np.zeros_like(returns) + (returns.mean() / 100 if len(returns) > 0 else 0.0)
+
+        # Override diagnostic values for EWMA
+        omega = np.nan
+        alpha = 0.06
+        beta = 0.94
+        persistence = 0.94
+        persistence_is_sane = True
+        loglik = -9999.0
+    else:
+        cond_vol_pct = res.conditional_volatility.values   # (N-1,) daily σ in %
+        cond_vol     = cond_vol_pct / 100                  # (N-1,) daily σ in log-return scale
+        fitted_ret   = res.resid.values / 100              # (N-1,) GARCH-fitted log-returns
+        persistence_is_sane = bool(persistence < 1.0 and alpha > 0 and beta > 0 and omega > 0)
+        loglik = float(res.loglikelihood)
 
     # ── Annualised conditional volatility ────────────────────────────────────
     df["garch_vol"] = np.nan

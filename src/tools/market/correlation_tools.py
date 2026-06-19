@@ -60,13 +60,11 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     if df_ohlcv.empty:
         return f"❌ No price data found in ClickHouse for symbol '{sym}'"
 
-    # Filter to lookback window
+    # Ensure trade_date is datetime
     df_ohlcv["trade_date"] = pd.to_datetime(df_ohlcv["trade_date"])
-    cutoff = datetime.now() - pd.Timedelta(days=lookback_days)
-    df_ohlcv = df_ohlcv[df_ohlcv["trade_date"] >= cutoff].copy()
 
-    if len(df_ohlcv) < 5:
-        return f"❌ Too few rows ({len(df_ohlcv)}) in the lookback window for {sym}."
+    if len(df_ohlcv) < 60:
+        return f"❌ Too few rows ({len(df_ohlcv)}) in ClickHouse for {sym} (need >=60 for GARCH)."
 
     # 2. Fetch benchmark prices (NIFTYBEES)
     df_benchmark = None
@@ -126,6 +124,11 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     # Pre-calculate daily returns and historical percentiles for findings
     df_stock = df_ohlcv.sort_values("trade_date").copy()
     df_stock["stock_return"] = df_stock["close"].pct_change()
+    
+    # Filter df_stock to lookback window for stats calculation and reporting
+    cutoff = datetime.now() - pd.Timedelta(days=lookback_days)
+    df_stock = df_stock[df_stock["trade_date"] >= cutoff].copy()
+    
     all_abs_returns = df_stock["stock_return"].abs().dropna()
 
     date_to_stats = {}
@@ -311,7 +314,9 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     try:
         from src.ml.anomaly import run_composite_anomaly
         df_corp = service._load_corp_actions(sym)
-        df_anomaly_res, _, _ = run_composite_anomaly(df_ohlcv, df_corp_actions=df_corp)
+        df_anomaly_res_full, _, _ = run_composite_anomaly(df_ohlcv, df_corp_actions=df_corp)
+        cutoff = datetime.now() - pd.Timedelta(days=lookback_days)
+        df_anomaly_res = df_anomaly_res_full[df_anomaly_res_full["trade_date"] >= cutoff].copy() if df_anomaly_res_full is not None and not df_anomaly_res_full.empty else pd.DataFrame()
         if not df_anomaly_res.empty and "is_anomaly" in df_anomaly_res.columns:
             total_anomalies = int(df_anomaly_res["is_anomaly"].sum())
     except Exception as e:
