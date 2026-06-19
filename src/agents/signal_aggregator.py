@@ -86,6 +86,9 @@ def _compute_composite(
         # Blow-off top: dampen bullish signal
         elif "Blow-off" in a_flag and composite > 60:
             composite = max(composite - 10, 55)
+        # Note: "Strong Trend (HODL)" is intentionally handled neutrally (no score modification)
+        # to prevent momentum-chasing (buying high). Position-sizing adjustments (Risk Governor)
+        # are used instead to maintain full exposure (1.00x multiplier) without deploying new cash.
 
         composite = round(composite, 1)
 

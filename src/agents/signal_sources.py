@@ -330,13 +330,30 @@ class GARCHAnomalySource(AnomalySource):
             if not df_flagged.empty:
                 flags["GOLDBEES"] = str(df_flagged.iloc[-1].get("regime", "Normal"))
             
-            # Count anomalies in the last 90 days for clearer logging context
+            # Calculate Anomaly Density Report
             from datetime import datetime
-            cutoff_90d = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=90)
-            df_flagged_90d = df_flagged[df_flagged["trade_date"] >= cutoff_90d] if not df_flagged.empty else pd.DataFrame()
-            
-            log.info("Anomaly: GOLDBEES regime=%s, %d flagged days in last 90 days (%d total over %d days of history)",
-                     flags["GOLDBEES"], len(df_flagged_90d), len(df_flagged), len(df))
+            now = pd.Timestamp(datetime.now().date())
+            densities = {}
+            for label, days in [("30D", 30), ("90D", 90), ("1Y", 365), ("Lifetime", None)]:
+                if days is not None:
+                    cutoff = now - pd.Timedelta(days=days)
+                    sub_df = df[df["trade_date"] >= cutoff]
+                    sub_flagged = df_flagged[df_flagged["trade_date"] >= cutoff] if not df_flagged.empty else pd.DataFrame()
+                else:
+                    sub_df = df
+                    sub_flagged = df_flagged
+                
+                n_total = len(sub_df)
+                n_flag = len(sub_flagged)
+                pct = (n_flag / n_total * 100) if n_total > 0 else 0.0
+                densities[label] = (pct, n_flag, n_total)
+
+            log.info("Anomaly: GOLDBEES regime=%s", flags["GOLDBEES"])
+            log.info("GOLDBEES Anomaly Density Report:")
+            log.info("  Lifetime: %.2f%% (%d/%d)", densities["Lifetime"][0], densities["Lifetime"][1], densities["Lifetime"][2])
+            log.info("  1Y:       %.2f%% (%d/%d)", densities["1Y"][0], densities["1Y"][1], densities["1Y"][2])
+            log.info("  90D:      %.2f%% (%d/%d)", densities["90D"][0], densities["90D"][1], densities["90D"][2])
+            log.info("  30D:      %.2f%% (%d/%d)", densities["30D"][0], densities["30D"][1], densities["30D"][2])
         except Exception as exc:
             log.warning("GARCHAnomalySource failed: %s", exc)
         return flags
