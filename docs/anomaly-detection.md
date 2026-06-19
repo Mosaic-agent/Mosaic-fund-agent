@@ -91,16 +91,77 @@ Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights
 
 Thresholds are dynamic (80th percentile of the full window) to prevent threshold drift across different vol regimes.
 
-| Regime | Condition | Action |
+Each regime label is also mapped to a **numeric score (0–100)** that participates in the signal composite weighted sum (see [Signal Composite Integration](#signal-composite-integration) below).
+
+| Regime | Condition | Score | Action |
+|---|---|---|---|
+| ⚡ Flash Crash / Black Swan (EXIT) | Low z_robust + High z_resid | 25 | Unexpected shock — reduce exposure |
+| 🔥 Volatile Breakout | High z_robust + High z_resid | 40 | Caution |
+| ⚠️ Crowded Long (Squeeze Risk) | High z_robust + COT > 75th pct + Positive return | 40 | Positioning risk |
+| 🧨 Blow-off Top (Weak) | High z_robust + Low volume + Positive return | 30 | Thin-volume rally |
+| 📈 Strong Trend (HODL) | High z_robust + Low z_resid | 70 | Predictable uptrend — hold position |
+| 🔀 Regime Shift (Change Point) | Flagged date confirmed by a PELT break (±3 rows) | 35 | Structural vol-regime change — re-assess sizing |
+| 🏦 Corporate Action | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) | 50 | No action (suppressed from anomalies, plotted as gold `🏦` marker) |
+| 😱 Panic | Extreme drawdown across multiple indicators | 20 | Severe stress — maximum defensive |
+| ✅ Normal | All other | 50 | No action |
+
+> **Design note:** "Strong Trend (HODL)" maps to 70 (moderately bullish) rather than neutral 50. The composite acknowledges that a trending regime is mildly positive for the held asset. The *Risk Governor* handles sizing via a 1.0× multiplier — it maintains full exposure without deploying new cash.
+
+## Signal Composite Integration
+
+Anomaly regimes feed into the [signal_aggregator.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/agents/signal_aggregator.py) as one of six weighted pillars. The regime label is converted to a 0–100 numeric score via `ANOMALY_REGIME_SCORES` and multiplied by the anomaly weight.
+
+### Composite Weights
+
+| Pillar | Weight | Source |
 |---|---|---|
-| ⚡ Flash Crash / Black Swan (EXIT) | Low z_robust + High z_resid | Unexpected shock — reduce exposure |
-| 🔥 Volatile Breakout | High z_robust + High z_resid | Caution |
-| ⚠️ Crowded Long (Squeeze Risk) | High z_robust + COT > 75th pct + Positive return | Positioning risk |
-| 🧨 Blow-off Top (Weak) | High z_robust + Low volume + Positive return | Thin-volume rally |
-| 📈 Strong Trend (HODL) | High z_robust + Low z_resid | Predictable uptrend |
-| 🔀 Regime Shift (Change Point) | Flagged date confirmed by a PELT break (±3 rows) | Structural vol-regime change — re-assess sizing |
-| 🏦 Corporate Action | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) | No action (suppressed from anomalies, plotted as gold `🏦` marker) |
-| ✅ Normal | All other | No action |
+| Macro | 20% | Google News RSS theme scanner + IMF/WB fundamentals overlay |
+| Sentiment | 15% | News article positive/negative ratio (7-day) |
+| Valuation | 25% | iNAV premium/discount Z-score (30-day) |
+| Flow | 10% | FII + DII 5-day net institutional flows |
+| ML | 20% | LightGBM 5-day directional forecast (GOLDBEES; others neutral) |
+| Anomaly | 10% | GARCH+IF+PELT regime score (this pipeline) |
+
+Weights sum to **1.00**. Valuation, ML, and Anomaly are prioritised over Flow because FII/DII net-flow is a single scalar applied uniformly — it adds zero cross-ETF ranking power when flat.
+
+### Flow Bucket Classification
+
+FII/DII equity flows are applied differently depending on ETF type:
+
+| Bucket | ETFs | Flow Score | Rationale |
+|---|---|---|---|
+| Equity | NIFTYBEES, BANKBEES, ITBEES, etc. (10) | `eq_score` | FII/DII directly trades these |
+| Haven | LIQUIDBEES, LIQUIDCASE, GILT5YBEES (3) | `100 - eq_score` | Risk-on → money exits liquid/gilt |
+| Commodity | GOLDBEES, SILVERBEES (2) | 50 (neutral) | Commodity-backed — FII/DII equity flows irrelevant |
+| International | MON100, MAFANG, HNGSNGBEES (3) | 50 (neutral) | Tracks foreign indices, not INR flows |
+
+When no FII/DII data exists in the 5-day window, `fii_dii_5d()` returns `None` (not `(0, 0)`) and the flow source logs `⚠ No FII/DII data` and returns neutral scores.
+
+### Auditable Score Breakdown
+
+Every ETF's composite score includes a per-pillar breakdown stored in the `rationale` field and displayed in a "Score Breakdown" panel:
+
+```
+GOLDBEES = 72
+  Macro=100 ×0.20=+20.0 | Sent.=42 ×0.15=+6.4 | Val.=95 ×0.25=+23.6
+  Flow=50 ×0.10=+5.0 | ML=52 ×0.20=+10.3 | Anom.=70 ×0.10=+7.0
+```
+
+The breakdown is persisted to ClickHouse `signal_composite.rationale` for historical auditability.
+
+### Anomaly Density Report
+
+The `GARCHAnomalySource` logs an anomaly density report showing what fraction of trading days were flagged across different windows:
+
+```
+GOLDBEES Anomaly Density Report:
+  Lifetime: 8.46% (316/3737)
+  1Y:       10.40% (26/250)
+  90D:      10.00% (6/60)
+  30D:      9.09% (2/22)
+```
+
+Rising density (30D > 1Y > Lifetime) indicates the market is entering an unusually turbulent regime.
 
 ## Risk Governor Integration
 
@@ -183,8 +244,10 @@ Append: COMEX futures chart (GC=F / SI=F) + GARCH vol chart
 | 🔥 Volatile Breakout | Both trend and residual extreme — directional, but fragile. |
 | ⚠️ Crowded Long (Squeeze Risk) | Speculator crowding (COT) + positive return — reversal risk elevated. |
 | 🧨 Blow-off Top (Weak) | Thin-volume rally — low conviction. |
-| 📈 Strong Trend (HODL) | High trend Z, low residual — predictable, hold position. |
-| ✅ Normal | No action. |
+| 📈 Strong Trend (HODL) | High trend Z, low residual — predictable, hold position. Composite score +7.0 (70 ×0.10). |
+| 🔀 Regime Shift (Change Point) | Structural break — composite score +3.5 (35 ×0.10). Re-assess sizing. |
+| 😱 Panic | Extreme stress — composite score +2.0 (20 ×0.10). Maximum defensive. |
+| ✅ Normal | No action. Composite score +5.0 (50 ×0.10). |
 
 ### Divergence signal
 When `|daily_return| ≥ 3%` and the news sentiment is `NEUTRAL`, the tool flags:
