@@ -337,11 +337,11 @@ def search_anomaly_events(
     lines.append("---\n")
 
     # ── GARCH(1,1) Volatility Model Diagnostics ──
-    garch_omega = df_result["garch_omega"].iloc[-1] if "garch_omega" in df_result.columns else np.nan
-    garch_alpha = df_result["garch_alpha"].iloc[-1] if "garch_alpha" in df_result.columns else np.nan
-    garch_beta = df_result["garch_beta"].iloc[-1] if "garch_beta" in df_result.columns else np.nan
-    garch_persistence = df_result["garch_persistence"].iloc[-1] if "garch_persistence" in df_result.columns else np.nan
-    garch_persistence_sane = df_result["garch_persistence_sane"].iloc[-1] if "garch_persistence_sane" in df_result.columns else False
+    garch_omega = df_result["garch_omega"].iloc[-1] if ("df_result" in locals() and "garch_omega" in df_result.columns) else np.nan
+    garch_alpha = df_result["garch_alpha"].iloc[-1] if ("df_result" in locals() and "garch_alpha" in df_result.columns) else np.nan
+    garch_beta = df_result["garch_beta"].iloc[-1] if ("df_result" in locals() and "garch_beta" in df_result.columns) else np.nan
+    garch_persistence = df_result["garch_persistence"].iloc[-1] if ("df_result" in locals() and "garch_persistence" in df_result.columns) else np.nan
+    garch_persistence_sane = df_result["garch_persistence_sane"].iloc[-1] if ("df_result" in locals() and "garch_persistence_sane" in df_result.columns) else False
 
     lines.append("### 📊 GARCH(1,1) Volatility Model Diagnostics")
     if not pd.isna(garch_persistence):

@@ -83,6 +83,7 @@ def explain_price_anomalies(
     Use days=30 for recent-only, days=180 for seasonal review.
     """
     import pandas as pd
+    import numpy as np
     from datetime import datetime
     from src.db.pool import query_df
     from src.tools.news_search import search_financial_news
@@ -302,6 +303,26 @@ def explain_price_anomalies(
         anomaly_queries.append(
             (date_str, close_px, daily_ret, vol_20d_str, vol_spike_str, regime, fz_str, query)
         )
+
+    output.append("\n" + "─" * 40 + "\n")
+
+    # ── GARCH(1,1) Volatility Model Diagnostics ──
+    garch_omega = df_result["garch_omega"].iloc[-1] if (composite_ok and "df_result" in locals() and "garch_omega" in df_result.columns) else np.nan
+    garch_alpha = df_result["garch_alpha"].iloc[-1] if (composite_ok and "df_result" in locals() and "garch_alpha" in df_result.columns) else np.nan
+    garch_beta = df_result["garch_beta"].iloc[-1] if (composite_ok and "df_result" in locals() and "garch_beta" in df_result.columns) else np.nan
+    garch_persistence = df_result["garch_persistence"].iloc[-1] if (composite_ok and "df_result" in locals() and "garch_persistence" in df_result.columns) else np.nan
+    garch_persistence_sane = df_result["garch_persistence_sane"].iloc[-1] if (composite_ok and "df_result" in locals() and "garch_persistence_sane" in df_result.columns) else False
+
+    output.append("### 📊 GARCH(1,1) Volatility Model Diagnostics")
+    if not pd.isna(garch_persistence):
+        output.append(f"- **Omega ($\\omega$):** {garch_omega:.6f}")
+        output.append(f"- **Alpha ($\\alpha$):** {garch_alpha:.4f} (ARCH lag-1)")
+        output.append(f"- **Beta ($\\beta$):** {garch_beta:.4f} (GARCH lag-1)")
+        output.append(f"- **Persistence ($\\alpha + \\beta$):** {garch_persistence:.4f}")
+        check_str = "✅ Pass (Covariance Stationary)" if garch_persistence_sane else "⚠️ Fail (Non-Stationary / Explosive)"
+        output.append(f"- **Persistence Sanity Check:** {check_str}")
+    else:
+        output.append("*GARCH diagnostics not available for this run.*")
 
     output.append("\n" + "─" * 40 + "\n")
     output.append("### 📰 Detailed Date-by-Date News Correlation:\n")
