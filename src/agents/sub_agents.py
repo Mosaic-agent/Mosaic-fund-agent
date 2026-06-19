@@ -24,11 +24,102 @@ Usage (internal)
 """
 from __future__ import annotations
 
+import contextvars
+import json as _json
 import logging
 import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# ── Per-turn tool-call deduplication ──────────────────────────────────────────
+#
+# LLMs occasionally re-issue an identical tool call within the same ReAct loop
+# (same tool name + same args).  Re-running an expensive tool (anomaly correlation,
+# ClickHouse query, news scrape) wastes seconds and burns context tokens with
+# duplicate output.  We attach a per-run cache via a ContextVar so the same
+# (tool_name, args_json) returns the cached result on the second hit instead of
+# re-executing.
+#
+# - Cache is scoped to one `_SubAgent.run()` invocation via the context manager.
+# - Tool instances are wrapped exactly once (idempotent via __dedup_wrapped__).
+# - Outside an active context the wrapper is a no-op, so direct tool calls in
+#   tests / scripts behave normally.
+
+_dedup_cache: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_subagent_tool_dedup_cache", default=None
+)
+
+
+def _wrap_tool_for_dedup(tool: Any) -> Any:
+    """Wrap a tool's underlying function so duplicate calls return cached results.
+
+    Idempotent — re-wrapping the same tool instance is a no-op.
+
+    Implementation note: StructuredTool is a frozen Pydantic model, so we cannot
+    monkey-patch `invoke`. Instead we wrap `.func` (and `.coroutine` if present),
+    which is what the tool's run path ultimately calls.
+    """
+    if getattr(tool, "__dedup_wrapped__", False):
+        return tool
+
+    tool_name = getattr(tool, "name", repr(tool))
+    original_func = getattr(tool, "func", None)
+    original_coro = getattr(tool, "coroutine", None)
+
+    def _make_key(args: tuple, kwargs: dict) -> str | None:
+        try:
+            # Build a stable, hashable representation of the call args.
+            payload = {"args": list(args), "kwargs": kwargs}
+            return f"{tool_name}::{_json.dumps(payload, sort_keys=True, default=str)}"
+        except Exception:
+            return None
+
+    if original_func is not None:
+        def cached_func(*args: Any, **kwargs: Any) -> Any:
+            cache = _dedup_cache.get()
+            if cache is None:
+                return original_func(*args, **kwargs)
+            key = _make_key(args, kwargs)
+            if key is None:
+                return original_func(*args, **kwargs)
+            if key in cache:
+                logger.info(
+                    "tool dedup: %s called twice with same args this turn — returning cached result",
+                    tool_name,
+                )
+                return cache[key]
+            result = original_func(*args, **kwargs)
+            cache[key] = result
+            return result
+
+        # StructuredTool stores `func` as a Pydantic field — assignment is allowed,
+        # but goes through Pydantic validation.  Use object.__setattr__ to bypass.
+        object.__setattr__(tool, "func", cached_func)
+
+    if original_coro is not None:
+        async def cached_coro(*args: Any, **kwargs: Any) -> Any:
+            cache = _dedup_cache.get()
+            if cache is None:
+                return await original_coro(*args, **kwargs)
+            key = _make_key(args, kwargs)
+            if key is None:
+                return await original_coro(*args, **kwargs)
+            if key in cache:
+                logger.info(
+                    "tool dedup: %s called twice with same args this turn — returning cached result",
+                    tool_name,
+                )
+                return cache[key]
+            result = await original_coro(*args, **kwargs)
+            cache[key] = result
+            return result
+
+        object.__setattr__(tool, "coroutine", cached_coro)
+
+    object.__setattr__(tool, "__dedup_wrapped__", True)
+    return tool
 
 
 def _make_context_trimmer(context_window: int):
@@ -531,6 +622,9 @@ class _SubAgent:
                 logger.warning("%s: LLM unavailable — sub-agent disabled", self.__class__.__name__)
                 return
             tools = self._get_tools()
+            # Per-turn dedup: wrap each tool so duplicate (name, args) calls in the
+            # same run return cached results instead of re-executing.
+            tools = [_wrap_tool_for_dedup(t) for t in tools]
             # ToolNode runs all tool calls returned in a single AIMessage concurrently
             # via its internal ThreadPoolExecutor — no extra configuration required.
             tool_node = ToolNode(tools)
@@ -599,6 +693,10 @@ class _SubAgent:
         # collected so far and can synthesise from them.
         msgs: list = []
         _recursion_hit = False
+        # Open a per-run dedup cache so duplicate tool calls in this single turn
+        # return cached results instead of re-executing.  Each .run() call sets
+        # a fresh dict, so old caches are overwritten — no manual reset needed.
+        _dedup_cache.set({})
         try:
             for state in self._agent.stream(
                 {"messages": [HumanMessage(content=question)]},
@@ -1195,6 +1293,7 @@ class SignalSubAgent(_SubAgent):
         )
         from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
         from src.tools.market.equity import search_anomaly_events
+        from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
             run_daily_signal_composite,
@@ -1206,6 +1305,7 @@ class SignalSubAgent(_SubAgent):
             query_clickhouse_db,
             explain_price_anomalies,
             search_anomaly_events,
+            find_anomaly_correlations,
             plot_price_chart,
             plot_signal_scores,
             plot_signal_breakdown,
@@ -1355,6 +1455,7 @@ class MacroSubAgent(_SubAgent):
         )
         from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_db_news
+        from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart, plot_dxy_chart
         return [
             run_macro_scanner,
@@ -1365,6 +1466,7 @@ class MacroSubAgent(_SubAgent):
             get_dxy_context,
             search_financial_news,
             get_db_news,
+            find_anomaly_correlations,
             plot_fii_dii_chart,
             plot_price_chart,
             plot_dxy_chart,
@@ -1523,6 +1625,7 @@ class NewsSubAgent(_SubAgent):
         from src.tools.skills_tools import run_etf_news_sentiment, explain_price_anomalies
         from src.tools.chart_tools import plot_price_chart
         from src.tools.market.equity import search_anomaly_events
+        from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
             resolve_company,
@@ -1533,6 +1636,7 @@ class NewsSubAgent(_SubAgent):
             run_etf_news_sentiment,
             explain_price_anomalies,
             search_anomaly_events,
+            find_anomaly_correlations,
             plot_price_chart,
             publish_research_pdf,
             publish_consolidated_pdf,
