@@ -123,8 +123,7 @@ def _composite_anomaly_dates(symbol: str, category: str = "", z_threshold: float
                     ticker_name = symbol.upper()
                 else:
                     suffix = ".BO" if category == "bse" else ".NS"
-                    ticker_name = f"{symbol.upper()}{suffix}"
-                hist = yf.Ticker(ticker_name).history(period="2y")
+                    hist = yf.Ticker(ticker_name).history(period="5y")
                 if not hist.empty:
                     df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
                     df.columns = ["trade_date", "open", "high", "low", "close", "volume"]
@@ -352,7 +351,7 @@ def plot_price_chart(
                 elif days <= 365:
                     yf_period = "1y"
                 else:
-                    yf_period = "2y"
+                    yf_period = "5y"
                 hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
                 if not hist and exchange == "NSE" and "." not in clean_symbol:
                     hist = fetch_price_history(clean_symbol, "US", period=yf_period)
@@ -788,7 +787,7 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "") -> 
                 elif days <= 365:
                     yf_period = "1y"
                 else:
-                    yf_period = "2y"
+                    yf_period = "5y"
 
                 hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
                 if hist:

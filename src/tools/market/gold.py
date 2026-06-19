@@ -118,7 +118,7 @@ def explain_price_anomalies(
             else:
                 suffix = ".BO" if exchange_val == "BSE" else ".NS"
                 ticker_sym = f"{symbol_upper}{suffix}"
-            hist = yf.Ticker(ticker_sym).history(period="2y")
+            hist = yf.Ticker(ticker_sym).history(period="5y")
             if not hist.empty:
                 df = hist.reset_index()[["Date", "Open", "High", "Low", "Close", "Volume"]]
                 df.columns = ["trade_date", "open", "high", "low", "close", "volume"]

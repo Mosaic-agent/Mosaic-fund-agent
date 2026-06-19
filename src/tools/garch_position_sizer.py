@@ -76,7 +76,7 @@ def _save_cache(symbol: str, payload: dict) -> None:
 
 
 def _fetch_ohlcv(symbol: str, exchange: str) -> pd.DataFrame | None:
-    """Download 2 years of daily OHLCV via yfinance. Returns None on failure."""
+    """Download 5 years of daily OHLCV via yfinance. Returns None on failure."""
     try:
         import yfinance as yf
     except ImportError:
@@ -85,7 +85,7 @@ def _fetch_ohlcv(symbol: str, exchange: str) -> pd.DataFrame | None:
 
     ticker_sym = _yahoo_symbol(symbol, exchange)
     try:
-        hist = yf.Ticker(ticker_sym).history(period="2y")
+        hist = yf.Ticker(ticker_sym).history(period="5y")
         if hist.empty or len(hist) < _MIN_ROWS:
             logger.warning(
                 "Only %d rows for %s (need %d) — skipping GARCH",
