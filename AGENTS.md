@@ -256,7 +256,7 @@ to narrate results that already exist in the tool/script output.
 - ❌ Deriving PE ratios, CAGR, Kelly weights, or any financial metric from training knowledge
 
 ### Commit and PR Workflow
-- Never push directly to `main`. Always create a Pull Request (PR) for any changes.
+- Committing directly to `main` locally is fine — PRs always use **squash-and-merge**, so history stays clean.
 - Never add a `Co-Authored-By:` trailer to git commit messages. Write clean, single-author commit messages only.
 
 ### Verify Dilution Before Flagging Promoter Sale
