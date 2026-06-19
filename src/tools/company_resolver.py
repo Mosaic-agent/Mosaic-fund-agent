@@ -112,8 +112,7 @@ def _get_resolver_llm() -> "Any":
     try:
         from config.settings import settings
         kwargs = dict(temperature=0, max_tokens=20)
-        provider = (settings.llm_cloud_provider if settings.llm_local_disabled else settings.llm_provider).strip().lower()
-        if settings.llm_base_url and not settings.llm_local_disabled and provider != "openrouter":
+        if settings.llm_base_url and not settings.llm_local_disabled:
             from langchain_openai import ChatOpenAI
             _resolver_llm = ChatOpenAI(
                 model=settings.llm_model,
@@ -122,6 +121,7 @@ def _get_resolver_llm() -> "Any":
                 **kwargs,
             )
         else:
+            provider = (settings.llm_cloud_provider if settings.llm_local_disabled else settings.llm_provider).strip().lower()
             model = settings.llm_cloud_model if settings.llm_local_disabled else settings.llm_model
             if provider == "anthropic":
                 from langchain_anthropic import ChatAnthropic
@@ -871,17 +871,25 @@ def _resolve_company_info_impl(query: str) -> dict:
     """
     Core resolver implementation.
     """
-    # If the query itself is a caret-prefixed index, resolve immediately
-    if query.strip().startswith("^"):
-        sym = query.strip().upper()
+    q = query.strip().upper()
+
+    # ── Bypasses for indices, commodities, FX pairs, and futures ─────────────────
+    from src.importer.registry import INDICES, COMMODITIES, FX_PAIRS
+    yf_map = {k: v for k, v in INDICES + COMMODITIES + FX_PAIRS}
+    all_known_yf_symbols = set(yf_map.values()) | {k for k, _ in INDICES + COMMODITIES + FX_PAIRS}
+
+    if q in all_known_yf_symbols or q.endswith("=F") or q.startswith("^"):
+        name = SYMBOL_TO_COMPANY.get(q, q)
+        yf_symbol = yf_map.get(q, q)
+        is_futures = q.endswith("=F")
         return {
-            "symbol":       sym,
-            "nse_symbol":   sym,
-            "yf_symbol":    sym,
-            "exchange":     "NSE",
-            "market":       "India",
-            "company_name": sym,
-            "currency":     "INR",
+            "symbol":       q,
+            "nse_symbol":   q,
+            "yf_symbol":    yf_symbol,
+            "exchange":     "NYSE" if is_futures else "NSE",
+            "market":       "US" if is_futures else "India",
+            "company_name": name,
+            "currency":     "USD" if is_futures else "INR",
             "source":       "local_map",
         }
 
