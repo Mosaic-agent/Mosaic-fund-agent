@@ -57,5 +57,40 @@ class TestChatPersistence(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             mock_run_chat_loop.assert_called_with(None, thread_id="resume-id-short")
 
+    def test_dispatch_list_threads(self):
+        from src.commands.chat_cmd import _dispatch_slash
+        
+        # Mock agent and checkpointer
+        mock_agent = MagicMock()
+        mock_checkpointer = MagicMock()
+        mock_agent._checkpointer = mock_checkpointer
+        
+        # Mock checkpoints returned by checkpointer.list(None)
+        from langchain_core.messages import HumanMessage
+        mock_tuple = MagicMock()
+        mock_tuple.config = {"configurable": {"thread_id": "thread-1"}}
+        mock_tuple.checkpoint = {
+            "ts": "2026-06-17T11:42:55",
+            "channel_values": {
+                "messages": [HumanMessage(content="test query")]
+            }
+        }
+        mock_checkpointer.list.return_value = [mock_tuple]
+        
+        mock_console = MagicMock()
+        
+        # Dispatch the slash command /list thread
+        ans, tid = _dispatch_slash("/list thread", mock_console, mock_agent, "thread-1")
+        
+        # Verify response
+        self.assertEqual(ans, "")
+        self.assertEqual(tid, "thread-1")
+        
+        # Verify checkpointer.list was called
+        mock_checkpointer.list.assert_called_once_with(None)
+        
+        # Verify console.print was called to render the table
+        mock_console.print.assert_called()
+
 if __name__ == "__main__":
     unittest.main()

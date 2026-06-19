@@ -65,15 +65,22 @@ def _make_daemon_thread() -> None:
 class RichConsoleCallbackHandler(BaseCallbackHandler):
     """Callback handler to print intermediate LLM steps and tool calls beautifully in the console."""
 
-    def __init__(self) -> None:
+    def __init__(self, agent_name: str | None = None) -> None:
         self.console = Console()
+        self.agent_name = agent_name
         self._llm_start_time = None
         self._reasoning_started = False
         self._reasoning_ended   = False
 
     def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
         import time
-        self.console.print("\n[bold cyan]🤖 Thinking...[/bold cyan]")
+        if self.agent_name:
+            agent_label = self.agent_name.replace("_", " ").title()
+            if not agent_label.lower().endswith("agent"):
+                agent_label += " Agent"
+            self.console.print(f"\n[bold cyan]🤖 Thinking ({agent_label})...[/bold cyan]")
+        else:
+            self.console.print("\n[bold cyan]🤖 Thinking...[/bold cyan]")
         self._llm_start_time    = time.time()
         self._reasoning_started = False
         self._reasoning_ended   = False
@@ -343,6 +350,18 @@ class MosaicFundAgent:
 
         provider = settings.llm_provider.lower()
 
+        # ── OpenRouter cloud ───────────────────────────────────────────────────
+        if provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=settings.llm_model,
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0,
+                max_tokens=settings.llm_token_budget,
+                timeout=settings.cloud_llm_request_timeout,
+            )
+
         # ── Local / custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.) ──
         if settings.llm_base_url:
             from langchain_openai import ChatOpenAI
@@ -437,6 +456,16 @@ class MosaicFundAgent:
                 extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
 
+        if provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=settings.llm_cloud_model,
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0,
+                max_tokens=cloud_budget,
+            )
+
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             model=settings.llm_cloud_model,
@@ -490,6 +519,16 @@ class MosaicFundAgent:
                 google_api_key=settings.google_api_key,
                 temperature=0,
                 max_output_tokens=budget,
+            )
+
+        if provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=model,
+                api_key=settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                temperature=0,
+                max_tokens=budget,
             )
 
         from langchain_openai import ChatOpenAI
@@ -830,7 +869,7 @@ class MosaicFundAgent:
             messages = [HumanMessage(content=question)]
             config = {}
             if os.getenv("VERBOSE") == "1" or settings.llm_think:
-                config["callbacks"] = [RichConsoleCallbackHandler()]
+                config["callbacks"] = [RichConsoleCallbackHandler(agent_name="main")]
 
             agent_timeout = settings.agent_timeout
             with concurrent.futures.ThreadPoolExecutor(max_workers=1, initializer=_make_daemon_thread) as _ex:
@@ -1057,7 +1096,7 @@ class MosaicFundAgent:
 
         config: dict = {"configurable": {"thread_id": thread_id}}
         if os.getenv("VERBOSE") == "1" or settings.llm_think:
-            config["callbacks"] = [RichConsoleCallbackHandler()]
+            config["callbacks"] = [RichConsoleCallbackHandler(agent_name="main")]
 
         # Clean up incomplete tool calls in history if any
         if self._checkpointer is not None:

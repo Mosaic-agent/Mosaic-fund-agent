@@ -84,16 +84,20 @@ class MarketDataRepository:
 
     # ── FII / DII ─────────────────────────────────────────────────────────────
 
-    def fii_dii_5d(self) -> tuple[float, float]:
-        """5-day rolling FII and DII net flows in ₹ Crore."""
+    def fii_dii_5d(self) -> tuple[float, float] | None:
+        """5-day rolling FII and DII net flows in ₹ Crore.
+
+        Returns None when no rows exist in the window (missing data),
+        vs (0.0, 0.0) when rows exist but net flow is genuinely zero.
+        """
         rows = self._q(
-            "SELECT sum(fii_net_cr), sum(dii_net_cr) "
+            "SELECT sum(fii_net_cr), sum(dii_net_cr), count(*) "
             "FROM market_data.fii_dii_flows FINAL "
             "WHERE trade_date >= today() - 5"
         )
-        if rows and rows[0][0] is not None:
+        if rows and rows[0][2] and int(rows[0][2]) > 0:
             return float(rows[0][0] or 0), float(rows[0][1] or 0)
-        return 0.0, 0.0
+        return None
 
     # ── News sentiment ────────────────────────────────────────────────────────
 

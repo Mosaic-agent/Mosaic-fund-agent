@@ -171,11 +171,40 @@ class MacroSignalSource(SignalSource):
                 base    = 50 + (clamped / 8) * 50
                 delta   = self._fundamentals_delta(mf, etf)
                 scores[etf] = round(max(0.0, min(100.0, base + delta)), 1)
-            log.info(
-                "Macro: %d themes, %d ETF signals, fundamentals=%s",
-                len(report.themes_detected), len(scores),
-                "ok" if mf.gdp_growth_pct is not None else "unavailable",
-            )
+            
+            # Compute macro theme breakdown for GOLDBEES and SILVERBEES for debugging/logging
+            from collections import defaultdict
+            theme_mapping = {
+                "Geopolitical / War": "Geopolitics",
+                "Trade War / Tariffs": "Geopolitics",
+                "Central Bank Policy (Fed / RBI)": "CentralBanks",
+                "Currency / INR Move": "USD",
+                "Crude Oil Shock": "Inflation",
+                "Gold / Commodity Specific": "Inflation",
+                "Global Risk-Off / Equity Sell-Off": "Geopolitics"
+            }
+            breakdown_gold = defaultdict(int)
+            breakdown_silver = defaultdict(int)
+            
+            for event in report.events:
+                theme_cat = theme_mapping.get(event.theme, "Geopolitics")
+                # Re-classify as RealRates if keyword indicators exist
+                hl = event.headline.lower()
+                if "real rate" in hl or "real yield" in hl or "interest rate" in hl:
+                    theme_cat = "RealRates"
+                
+                breakdown_gold[theme_cat] += event.impact.get("GOLDBEES", 0)
+                breakdown_silver[theme_cat] += event.impact.get("SILVERBEES", 0)
+
+            log.info("Macro: %d themes, %d ETF signals, fundamentals=%s",
+                     len(report.themes_detected), len(scores),
+                     "ok" if mf.gdp_growth_pct is not None else "unavailable")
+            
+            log.info("GOLDBEES Macro Breakdown: USD: %d | RealRates: %d | CentralBanks: %d | Geopolitics: %d | Inflation: %d",
+                     breakdown_gold["USD"], breakdown_gold["RealRates"], breakdown_gold["CentralBanks"], breakdown_gold["Geopolitics"], breakdown_gold["Inflation"])
+            log.info("SILVERBEES Macro Breakdown: USD: %d | RealRates: %d | CentralBanks: %d | Geopolitics: %d | Inflation: %d",
+                     breakdown_silver["USD"], breakdown_silver["RealRates"], breakdown_silver["CentralBanks"], breakdown_silver["Geopolitics"], breakdown_silver["Inflation"])
+            
             return scores
         except Exception as exc:
             log.warning("MacroSignalSource failed: %s", exc)
@@ -254,21 +283,26 @@ class FlowSignalSource(SignalSource):
     International ETFs: neutral.
     """
     name   = "flow"
-    weight = 0.25  # 0.15 base + 0.10 extra allocated in aggregator
+    weight = 0.10
 
-    _EQUITY_ETFS = {"NIFTYBEES", "BANKBEES", "ITBEES", "JUNIORBEES", "CPSEETF",
-                    "AUTOBEES", "PHARMABEES", "PSUBNKBEES", "MID150BEES", "SMALL250"}
-    _HAVEN_ETFS  = {"GOLDBEES", "SILVERBEES", "LIQUIDBEES", "LIQUIDCASE", "GILT5YBEES"}
-    _INTL_ETFS   = {"MON100", "MAFANG", "HNGSNGBEES"}
+    _EQUITY_ETFS    = {"NIFTYBEES", "BANKBEES", "ITBEES", "JUNIORBEES", "CPSEETF",
+                        "AUTOBEES", "PHARMABEES", "PSUBNKBEES", "MID150BEES", "SMALL250"}
+    _HAVEN_ETFS     = {"LIQUIDBEES", "LIQUIDCASE", "GILT5YBEES"}   # money-market/gilt: inverse equity flows
+    _COMMODITY_ETFS = {"GOLDBEES", "SILVERBEES"}                   # commodity-backed: FII/DII equity flows don't apply
+    _INTL_ETFS      = {"MON100", "MAFANG", "HNGSNGBEES"}
 
     def collect(self, repo) -> dict[str, float]:
         try:
-            fii_5d, dii_5d = repo.fii_dii_5d()
+            result = repo.fii_dii_5d()
+            if result is None:
+                log.warning("Flow: ⚠ No FII/DII data in last 5 days — returning neutral scores")
+                return self.neutral()
+            fii_5d, dii_5d = result
             net         = fii_5d + dii_5d
             clamped     = max(-15000, min(15000, net))
             eq_score    = round(50 + (clamped / 15000) * 50, 1)
-            log.info("Flow: FII 5d=%.0f Cr, DII 5d=%.0f Cr, eq_score=%.1f",
-                     fii_5d, dii_5d, eq_score)
+            log.info("Flow: FII 5d=%.0f Cr, DII 5d=%.0f Cr, net=%.0f Cr, eq_score=%.1f",
+                     fii_5d, dii_5d, net, eq_score)
             scores = {}
             for etf in SIGNAL_ETFS:
                 if etf in self._EQUITY_ETFS:

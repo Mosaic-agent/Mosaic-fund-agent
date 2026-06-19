@@ -482,6 +482,81 @@ def run_premium_alerts(
     return _run_cmd(args)
 
 
+def _build_llm_for_deepdive():
+    from config.settings import settings
+    provider = settings.llm_provider.lower()
+    
+    # 1. OpenRouter
+    if provider == "openrouter":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=settings.llm_model,
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+            temperature=0,
+            max_tokens=settings.llm_token_budget,
+            timeout=settings.cloud_llm_request_timeout,
+        )
+        
+    # 2. Local/Custom OpenAI-compatible Endpoint
+    if settings.llm_base_url:
+        from langchain_openai import ChatOpenAI
+        is_nvidia = "nvidia" in settings.llm_base_url.lower()
+        if is_nvidia:
+            from src.utils.nim_pool import NIMPool
+            return NIMPool.get().acquire(
+                model=settings.llm_model,
+                extra_body={},
+                timeout=settings.llm_request_timeout,
+                max_tokens=settings.llm_token_budget,
+            )
+        extra_body = {"options": {"num_ctx": settings.llm_context_window}}
+        if settings.llm_think:
+            extra_body["think"] = True
+        return ChatOpenAI(
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            api_key=settings.openai_api_key or "local",
+            temperature=0,
+            max_tokens=settings.llm_token_budget,
+            extra_body=extra_body,
+            timeout=settings.llm_request_timeout,
+            streaming=False,
+        )
+        
+    # 3. Google/Gemini
+    if provider == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=settings.llm_model,
+            google_api_key=settings.google_api_key,
+            temperature=0,
+            max_output_tokens=settings.llm_token_budget,
+        )
+        
+    # 4. Anthropic
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(
+            model=settings.llm_model,
+            api_key=settings.anthropic_api_key,
+            temperature=0,
+            max_tokens=settings.llm_token_budget,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+            timeout=settings.cloud_llm_request_timeout,
+        )
+        
+    # 5. OpenAI Cloud (Default)
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(
+        model=settings.llm_model,
+        api_key=settings.openai_api_key,
+        temperature=0,
+        max_tokens=settings.llm_token_budget,
+        timeout=settings.cloud_llm_request_timeout,
+    )
+
+
 @tool
 def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: bool = False) -> str:
     """
@@ -495,6 +570,10 @@ def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: b
                  core_business, financials, competitors, investments, execution, valuation, talent.
         skip_fetch: If True, uses cached data only and skips live network calls.
     """
+    from datetime import date
+    from pathlib import Path
+    from config.settings import settings
+    
     ticker_clean = ticker.strip().upper()
     args = ["src/main.py", "deepdive", ticker_clean]
     if section:
@@ -504,11 +583,62 @@ def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: b
         
     cmd_output = _run_cmd(args)
     
-    # Try to locate the generated report.md file
-    from datetime import date
+    # Locate output directories
     today_str = date.today().isoformat()
-    report_path = os.path.join(PROJECT_ROOT, "output", "deepdive", ticker_clean, today_str, "report.md")
+    out_dir = Path(PROJECT_ROOT) / "output" / "deepdive" / ticker_clean / today_str
+    prompts_dir = out_dir / "prompts"
+    sections_dir = out_dir / "sections"
     
+    # We must support generating missing narrative sections
+    from src.deepdive.analyze.gemini_cli import SECTION_KEYS
+    targets = [section] if section and section in SECTION_KEYS else SECTION_KEYS
+    
+    sections_dir.mkdir(parents=True, exist_ok=True)
+    
+    llm = None
+    generated_any = False
+    
+    for key in targets:
+        prompt_file = prompts_dir / f"{key}_assembled.txt"
+        section_file = sections_dir / f"{key}.md"
+        
+        # If the prompt exists and the section hasn't been generated yet (or is empty placeholder)
+        if prompt_file.exists():
+            # Check if we need to generate it
+            needs_generation = True
+            if section_file.exists():
+                content = section_file.read_text(encoding="utf-8").strip()
+                # If it's a template error placeholder or empty, regenerate
+                if len(content) > 100 and not content.startswith("<!--"):
+                    needs_generation = False
+            
+            if needs_generation:
+                logger.info(f"Generating narrative for deep-dive section '{key}' using configured LLM...")
+                prompt_content = prompt_file.read_text(encoding="utf-8")
+                
+                try:
+                    if llm is None:
+                        llm = _build_llm_for_deepdive()
+                    
+                    response = llm.invoke(prompt_content)
+                    narrative = response.content if hasattr(response, 'content') else str(response)
+                    
+                    section_file.write_text(narrative.strip(), encoding="utf-8")
+                    generated_any = True
+                except Exception as exc:
+                    logger.error(f"Failed to generate deep-dive section '{key}' narrative: {exc}")
+                    
+    # If we generated any sections, re-run Phase 7 assembly (using --skip-fetch to use cache)
+    if generated_any:
+        logger.info(f"Re-running deep-dive assembly to compile final report.md for {ticker_clean}...")
+        assembly_args = ["src/main.py", "deepdive", ticker_clean, "--skip-fetch"]
+        if section:
+            assembly_args.extend(["--section", section])
+        assembly_output = _run_cmd(assembly_args)
+        cmd_output += f"\n\nAssembly Log:\n{assembly_output}"
+        
+    # Preview output
+    report_path = os.path.join(PROJECT_ROOT, "output", "deepdive", ticker_clean, today_str, "report.md")
     if os.path.exists(report_path):
         try:
             with open(report_path, "r", encoding="utf-8") as f:
@@ -537,6 +667,44 @@ def run_deepdive_analysis(ticker: str, section: str | None = None, skip_fetch: b
     return f"Deep-dive analysis executed.\n\nCommand Log:\n{cmd_output}{preview}"
 
 
+@tool
+def read_deepdive_report(ticker: str) -> str:
+    """
+    Read the latest compiled US equity deep-dive report for a given ticker.
+    Use this to read, summarize, or answer follow-up questions about a company's deep-dive report.
+    Args:
+        ticker: The US ticker symbol (e.g. 'ADSK', 'AAPL').
+    """
+    from datetime import date
+    from pathlib import Path
+    
+    ticker_clean = ticker.strip().upper()
+    base_dir = Path(PROJECT_ROOT) / "output" / "deepdive" / ticker_clean
+    if not base_dir.exists():
+        return f"No deep-dive reports found for ticker: {ticker_clean}"
+    
+    today_str = date.today().isoformat()
+    report_path = base_dir / today_str / "report.md"
+    
+    if not report_path.exists():
+        # Find latest date directory
+        if not os.path.exists(base_dir):
+            return f"No deep-dive reports found for ticker: {ticker_clean}"
+        dates = sorted([d for d in os.listdir(base_dir) if os.path.isdir(base_dir / d)], reverse=True)
+        if not dates:
+            return f"No deep-dive reports found for ticker: {ticker_clean}"
+        report_path = base_dir / dates[0] / "report.md"
+        
+    if not report_path.exists():
+        return f"Report file not found for ticker {ticker_clean} (expected at {report_path})"
+        
+    try:
+        content = report_path.read_text(encoding="utf-8")
+        return content
+    except Exception as exc:
+        return f"Error reading report for {ticker_clean}: {exc}"
+
+
 # ── Canonical tool list ────────────────────────────────────────────────────────
 # Single source of truth — all other lists are subsets of this.
 SKILLS_TOOLS = [
@@ -563,4 +731,5 @@ SKILLS_TOOLS = [
     query_clickhouse_db,
     run_premium_alerts,
     run_deepdive_analysis,
+    read_deepdive_report,
 ]

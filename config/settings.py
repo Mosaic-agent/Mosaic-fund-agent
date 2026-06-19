@@ -34,10 +34,13 @@ class Settings(BaseSettings):
     # [SENSITIVE] Anthropic API key – https://console.anthropic.com/
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
 
+    # [SENSITIVE] OpenRouter API key – https://openrouter.ai/keys
+    openrouter_api_key: str = Field(default="", description="OpenRouter API key")
+
     # [SENSITIVE] NVIDIA NIM API key – https://integrate.api.nvidia.com/
     nvidia_api_key: str = Field(default="", description="NVIDIA NIM API key (nvapi-...)")
 
-    # [NON-SENSITIVE] Which LLM provider to use: "openai" or "anthropic"
+    # [NON-SENSITIVE] Which LLM provider to use: "openai", "anthropic", or "openrouter"
     llm_provider: str = Field(default="openai", description="LLM provider")
 
     # [NON-SENSITIVE] Model name to use (gpt-4o-mini, claude-3-haiku, deepseek-r1:7b, etc.)
@@ -91,8 +94,12 @@ class Settings(BaseSettings):
     code_llm_model: str = Field(default="", description="Code agent LLM model name")
     # [NON-SENSITIVE] Optional custom base URL (Ollama / LM Studio) for the code agent
     code_llm_base_url: str = Field(default="", description="Code agent custom base URL")
-    # [NON-SENSITIVE] Context window for the code agent's LLM (0 = inherit from llm_context_window)
-    code_llm_context_window: int = Field(default=0, description="Code agent context window (0 = inherit)")
+    # [NON-SENSITIVE] Context window for the code agent's LLM (0 = auto-detect / inherit)
+    code_llm_context_window_configured: int = Field(
+        default=0,
+        alias="code_llm_context_window",
+        description="Code agent context window (0 = inherit)",
+    )
 
     # [SENSITIVE] Google / Gemini API key — https://aistudio.google.com/app/apikey
     google_api_key: str = Field(default="", description="Google Gemini API key")
@@ -109,8 +116,12 @@ class Settings(BaseSettings):
     llm_cloud_provider: str = Field(default="", description="Cloud LLM provider (openai|anthropic); blank = disabled")
     # [NON-SENSITIVE] Cloud model name
     llm_cloud_model: str = Field(default="claude-3-5-haiku-20241022", description="Cloud LLM model name")
-    # [NON-SENSITIVE] Context window of the cloud model (tokens)
-    llm_cloud_context_window: int = Field(default=200000, description="Cloud model context window")
+    # [NON-SENSITIVE] Context window of the cloud model (tokens) (0 = auto-detect)
+    llm_cloud_context_window_configured: int = Field(
+        default=0,
+        alias="llm_cloud_context_window",
+        description="Cloud model context window (0 = auto-detect)",
+    )
     # ── Zerodha Kite MCP ─────────────────────────────────────────────────────
 
     # [NON-SENSITIVE] Hosted Kite MCP endpoint – no auth needed for hosted version
@@ -177,16 +188,110 @@ class Settings(BaseSettings):
         description="LLM cache TTL in hours (0 = no expiry)",
     )
 
-    # [NON-SENSITIVE] Input context window of the model in tokens.
-    # Recommended values:
-    #   DeepSeek-R1-14B local (LM Studio, Q4):  4096
-    #   DeepSeek-R1-14B local (LM Studio, Q8):  8192
-    #   GPT-4o / GPT-4o-mini (OpenAI cloud):   32768
-    #   Claude 3.5 Sonnet (Anthropic cloud):   200000
-    llm_context_window: int = Field(
-        default=16384,
-        description="Model input context window in tokens",
+    # [NON-SENSITIVE] Configured input context window in tokens.
+    # Set to 0 to auto-detect based on model.
+    llm_context_window_configured: int = Field(
+        default=0,
+        alias="llm_context_window",
+        description="Model input context window in tokens (0 = auto-detect)",
     )
+
+    def _resolve_context_window(self, model_name: str, provider: str, base_url: str) -> int:
+        """Dynamically resolve the context window size based on model type and provider."""
+        model_lower = model_name.lower() if model_name else ""
+        prov_lower = provider.lower() if provider else ""
+        
+        # 1. Local models via base URL (Ollama, LM Studio)
+        if base_url and "openrouter" not in base_url and "nvidia" not in base_url:
+            if "gemma4" in model_lower or "3.1" in model_lower or "3.2" in model_lower or "3.3" in model_lower:
+                return 32768
+            return 16384
+            
+        # 2. OpenRouter (can run any model)
+        if prov_lower == "openrouter" or "openrouter.ai" in base_url:
+            if "openrouter/auto" in model_lower or "auto" == model_lower:
+                return 128000
+            if "gemini-2.5" in model_lower or "gemini-2.0" in model_lower or "gemini-1.5" in model_lower:
+                return 1000000
+            if "claude-3" in model_lower:
+                return 200000
+            if "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower:
+                return 128000
+            if "llama-3.1" in model_lower or "llama-3.2" in model_lower or "llama-3.3" in model_lower:
+                return 128000
+            if "deepseek-r1" in model_lower or "deepseek-v3" in model_lower:
+                return 64000
+            if "gemini" in model_lower:
+                return 1000000
+            if "claude" in model_lower:
+                return 200000
+            if "gpt-4" in model_lower:
+                return 128000
+            if "llama-3" in model_lower:
+                return 8192
+            return 16384
+
+        # 3. Direct Google / Gemini
+        if prov_lower == "google" or "gemini" in model_lower:
+            return 1000000
+
+        # 4. Direct Anthropic
+        if prov_lower == "anthropic" or "claude" in model_lower:
+            return 200000
+
+        # 5. Direct OpenAI
+        if prov_lower == "openai":
+            if "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower:
+                return 128000
+            if "gpt-4" in model_lower:
+                return 8192
+            if "gpt-3.5" in model_lower:
+                return 16385
+            return 128000
+
+        # 6. NVIDIA NIM
+        if base_url and "nvidia" in base_url.lower():
+            if "deepseek" in model_lower or "llama-3.1" in model_lower or "llama-3.3" in model_lower:
+                return 16384
+            return 16384
+
+        return 16384
+
+    @property
+    def llm_context_window(self) -> int:
+        """Dynamic model input context window in tokens."""
+        if self.llm_context_window_configured > 0:
+            return self.llm_context_window_configured
+        return self._resolve_context_window(
+            model_name=self.llm_model,
+            provider=self.llm_provider,
+            base_url=self.llm_base_url,
+        )
+
+    @property
+    def code_llm_context_window(self) -> int:
+        """Dynamic code agent context window."""
+        if self.code_llm_context_window_configured > 0:
+            return self.code_llm_context_window_configured
+        model = self.code_llm_model or self.llm_model
+        provider = self.code_llm_provider or self.llm_provider
+        base_url = self.code_llm_base_url or self.llm_base_url
+        return self._resolve_context_window(
+            model_name=model,
+            provider=provider,
+            base_url=base_url,
+        )
+
+    @property
+    def llm_cloud_context_window(self) -> int:
+        """Dynamic cloud model context window."""
+        if self.llm_cloud_context_window_configured > 0:
+            return self.llm_cloud_context_window_configured
+        return self._resolve_context_window(
+            model_name=self.llm_cloud_model,
+            provider=self.llm_cloud_provider,
+            base_url="",
+        )
 
     @property
     def llm_token_budget(self) -> int:
@@ -336,9 +441,9 @@ class Settings(BaseSettings):
         using_local = bool(self.llm_base_url)
 
         if not using_local:
-            if not self.openai_api_key and not self.anthropic_api_key:
+            if not self.openai_api_key and not self.anthropic_api_key and not self.openrouter_api_key:
                 warnings.append(
-                    "[SENSITIVE] Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set. "
+                    "[SENSITIVE] Neither OPENAI_API_KEY, ANTHROPIC_API_KEY, nor OPENROUTER_API_KEY is set. "
                     "Set at least one in your .env file."
                 )
 
@@ -350,6 +455,11 @@ class Settings(BaseSettings):
             if self.llm_provider == "anthropic" and not self.anthropic_api_key:
                 warnings.append(
                     "[SENSITIVE] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set."
+                )
+
+            if self.llm_provider == "openrouter" and not self.openrouter_api_key:
+                warnings.append(
+                    "[SENSITIVE] LLM_PROVIDER=openrouter but OPENROUTER_API_KEY is not set."
                 )
 
         if not self.newsapi_key:

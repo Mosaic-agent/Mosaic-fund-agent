@@ -22,14 +22,35 @@ from src.agents.signal_sources import SIGNAL_ETFS  # noqa: E402
 # ── Weights for each pillar ───────────────────────────────────────────────────
 
 WEIGHTS = {
-    "macro":     0.25,
+    "macro":     0.20,
     "sentiment": 0.15,
-    "valuation": 0.15,
-    "flow":      0.15,
-    "ml":        0.15,
-    "anomaly":   0.05,
+    "valuation": 0.25,
+    "flow":      0.10,
+    "ml":        0.20,
+    "anomaly":   0.10,
 }
-# Remaining 0.10 is distributed to flow (FII/DII component)
+# Weights sum to 1.00.  Valuation, ML, and Anomaly are prioritised over Flow
+# because FII/DII net-flow is a single scalar applied uniformly to equity vs.
+# haven buckets — it currently adds zero cross-ETF ranking power when the
+# 5-day net is flat.  When per-ETF AUM flow data is added, Flow weight can
+# be revisited.
+
+# ── Anomaly regime → numeric score ───────────────────────────────────────────
+# Regime labels from the GARCH+IF+PELT anomaly pipeline are mapped to 0-100
+# scores that participate in the weighted composite.  "Strong Trend (HODL)"
+# maps to 70 (moderately bullish) rather than neutral 50 — the *Risk Governor*
+# handles sizing (1.0× multiplier), but the composite should acknowledge that
+# a trending regime is mildly positive for the held asset.
+ANOMALY_REGIME_SCORES: dict[str, float] = {
+    "Strong Trend (HODL)":           70.0,
+    "Normal":                        50.0,
+    "Volatile Breakout":             40.0,
+    "🔀 Regime Shift (Change Point)": 35.0,
+    "Flash Crash (Contrarian BUY)":  25.0,
+    "Blow-off Top":                  30.0,
+    "Panic":                         20.0,
+    "🏦 Corporate Action":            50.0,   # mechanical — neutral
+}
 
 
 @dataclass
@@ -42,9 +63,10 @@ class ETFSignal:
     flow_score: float = 50.0
     ml_score: float = 50.0
     anomaly_flag: str = "Normal"
+    anomaly_score: float = 50.0       # numeric regime score (0–100)
     composite_score: float = 50.0
     action: str = "HOLD"
-    rationale: str = ""
+    rationale: str = ""               # human-readable pillar breakdown
 
 
 @dataclass
@@ -57,35 +79,74 @@ class SignalReport:
 
 # ── Composite scoring ─────────────────────────────────────────────────────────
 
+def _anomaly_to_score(flag: str) -> float:
+    """Convert an anomaly regime label to a 0–100 numeric score."""
+    # Exact match first, then substring fallback
+    if flag in ANOMALY_REGIME_SCORES:
+        return ANOMALY_REGIME_SCORES[flag]
+    flag_lower = flag.lower()
+    for key, score in ANOMALY_REGIME_SCORES.items():
+        if key.lower() in flag_lower:
+            return score
+    return 50.0  # unknown → neutral
+
+
+def _build_breakdown(scores: dict[str, float]) -> str:
+    """
+    Build a human-readable, auditable per-pillar breakdown.
+
+    Each line shows the pillar, its effective weight, its raw 0–100 score,
+    and its *weighted contribution* (score × weight).  The sum of contributions
+    equals the composite score.
+
+    Example output:
+        Macro=75 ×0.20=+15.0 | Sent.=40 ×0.15=+6.0 | Val.=60 ×0.25=+15.0
+        Flow=55 ×0.10=+5.5 | ML=52 ×0.20=+10.4 | Anom.=70 ×0.10=+7.0
+    """
+    parts = []
+    for label, key in [
+        ("Macro", "macro"), ("Sent.", "sentiment"), ("Val.", "valuation"),
+        ("Flow", "flow"), ("ML", "ml"), ("Anom.", "anomaly"),
+    ]:
+        raw = scores[key]
+        w = WEIGHTS[key]
+        parts.append(f"{label}={raw:.0f} ×{w:.2f}={raw * w:+.1f}")
+
+    # Split into two lines of 3 for readability
+    return " | ".join(parts[:3]) + "\n" + " | ".join(parts[3:])
+
+
 def _compute_composite(
     macro: dict, sentiment: dict, valuation: dict,
     flow: dict, ml: dict, anomaly: dict,
 ) -> list[ETFSignal]:
-    """Compute weighted composite score and action for each ETF."""
+    """Compute weighted composite score and action for each ETF.
+
+    All six pillars (including anomaly) are weighted numerically.
+    The anomaly regime label is converted to a 0–100 score via
+    ANOMALY_REGIME_SCORES and participates in the weighted sum.
+    Weights sum to 1.00 — no extra allocation hacks.
+    """
     signals = []
     for etf in SIGNAL_ETFS:
-        m = macro.get(etf, 50)
-        s = sentiment.get(etf, 50)
-        v = valuation.get(etf, 50)
-        f = flow.get(etf, 50)
-        ml_s = ml.get(etf, 50)
+        m      = macro.get(etf, 50)
+        s      = sentiment.get(etf, 50)
+        v      = valuation.get(etf, 50)
+        f      = flow.get(etf, 50)
+        ml_s   = ml.get(etf, 50)
         a_flag = anomaly.get(etf, "Normal")
+        a_score = _anomaly_to_score(a_flag)
 
-        # Weighted composite
+        # Fully weighted composite — all 6 pillars, weights sum to 1.00
         composite = (
-            m * WEIGHTS["macro"]
-            + s * WEIGHTS["sentiment"]
-            + v * WEIGHTS["valuation"]
-            + f * (WEIGHTS["flow"] + 0.10)  # flow gets extra 10% from the remaining
-            + ml_s * WEIGHTS["ml"]
+            m       * WEIGHTS["macro"]
+            + s     * WEIGHTS["sentiment"]
+            + v     * WEIGHTS["valuation"]
+            + f     * WEIGHTS["flow"]
+            + ml_s  * WEIGHTS["ml"]
+            + a_score * WEIGHTS["anomaly"]
         )
 
-        # Anomaly override: boost contrarian if Flash Crash
-        if "Flash Crash" in a_flag and composite < 40:
-            composite = min(composite + 15, 60)
-        # Blow-off top: dampen bullish signal
-        elif "Blow-off" in a_flag and composite > 60:
-            composite = max(composite - 10, 55)
 
         composite = round(composite, 1)
 
@@ -101,6 +162,13 @@ def _compute_composite(
         else:
             action = "AVOID"
 
+        # Build auditable breakdown string
+        pillar_scores = {
+            "macro": m, "sentiment": s, "valuation": v,
+            "flow": f, "ml": ml_s, "anomaly": a_score,
+        }
+        breakdown = _build_breakdown(pillar_scores)
+
         signals.append(ETFSignal(
             etf=etf,
             macro_score=m,
@@ -109,8 +177,10 @@ def _compute_composite(
             flow_score=f,
             ml_score=ml_s,
             anomaly_flag=a_flag,
+            anomaly_score=a_score,
             composite_score=composite,
             action=action,
+            rationale=breakdown,
         ))
 
     signals.sort(key=lambda s: s.composite_score, reverse=True)
@@ -239,7 +309,8 @@ def print_signal_report(report: SignalReport) -> None:
     table.add_column("Val.", justify="right", width=7)
     table.add_column("Flow", justify="right", width=7)
     table.add_column("ML", justify="right", width=7)
-    table.add_column("Anomaly", width=12)
+    table.add_column("Anom.", justify="right", width=7)
+    table.add_column("Regime", width=16)
     table.add_column("Score", justify="right", style="bold", width=7)
     table.add_column("Action", width=12)
 
@@ -266,12 +337,27 @@ def print_signal_report(report: SignalReport) -> None:
             _score_color(s.valuation_score),
             _score_color(s.flow_score),
             _score_color(s.ml_score),
+            _score_color(s.anomaly_score),
             s.anomaly_flag,
             _score_color(s.composite_score),
             ACTION_STYLE.get(s.action, s.action),
         )
 
     console.print(table)
+
+    # ── Score Breakdown panel (verbose detail for top 5 ETFs) ─────────────
+    if report.signals:
+        breakdown_lines = []
+        for s in report.signals[:5]:
+            breakdown_lines.append(
+                f"[bold]{s.etf}[/bold] = {s.composite_score:.0f}\n"
+                f"  {s.rationale}"
+            )
+        console.print(Panel(
+            "\n\n".join(breakdown_lines),
+            title="Score Breakdown (Top 5)",
+            border_style="dim cyan",
+        ))
 
     # Top picks
     buys = [s for s in report.signals if s.action in ("BUY", "ACCUMULATE")]

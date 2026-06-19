@@ -6,7 +6,7 @@ Unit tests for the follow-up routing logic in chat_cmd.py.
 import unittest
 import re
 
-from src.commands.chat_cmd import _FOLLOWUP_RE, _CONFIRMATION_RE, _is_numeric_choice_prompt
+from src.commands.chat_cmd import _FOLLOWUP_RE, _CONFIRMATION_RE, _is_numeric_choice_prompt, _REPORT_FOLLOWUP_RE
 
 class TestChatFollowupRouting(unittest.TestCase):
     def test_followup_regex(self):
@@ -21,6 +21,19 @@ class TestChatFollowupRouting(unittest.TestCase):
         self.assertFalse(_FOLLOWUP_RE.match("yes"))
         self.assertFalse(_FOLLOWUP_RE.match("no"))
         self.assertFalse(_FOLLOWUP_RE.match("show composite signals"))
+
+    def test_report_followup_regex(self):
+        """Test that _REPORT_FOLLOWUP_RE correctly matches report-specific queries."""
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("summarise the report"))
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("summarize it"))
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("explain the risks"))
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("any red flags?"))
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("what is the valuation?"))
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("tell me about the competitors"))
+        self.assertTrue(_REPORT_FOLLOWUP_RE.search("details on the company"))
+        
+        self.assertFalse(_REPORT_FOLLOWUP_RE.search("compare goldbees and nifty"))
+        self.assertFalse(_REPORT_FOLLOWUP_RE.search("get stock news for tata"))
 
     def test_confirmation_regex(self):
         """Test that _CONFIRMATION_RE correctly matches confirmation/negation words."""

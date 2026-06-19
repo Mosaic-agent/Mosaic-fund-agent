@@ -67,6 +67,13 @@ _CONFIRMATION_RE = re.compile(
     re.I,
 )
 
+# Report-specific follow-up keywords/phrases (e.g. for deepdive, research, equity reports)
+_REPORT_FOLLOWUP_RE = re.compile(
+    r"\b(?:summarise|summarize|summary|takeaway|takeaways|risk|risks|red\s*flags?|competitor|competitors|financial|financials|valuation|multiple|multiples|sec|filing|filings|detail|details|elaborate|explain|narrative|key|outlook|highlight|highlights)\b"
+    r"|\b(?:this|it|its|the|that)\s+(?:report|analysis|company|stock|ticker|filing|filings)\b",
+    re.I,
+)
+
 
 # ── prompt_toolkit input session ──────────────────────────────────────────────
 
@@ -436,7 +443,17 @@ def _get_plan_llm() -> "Any":
         from config.settings import settings
         budget = settings.llm_token_budget
         kw = dict(temperature=0, max_tokens=budget)
-        if settings.llm_base_url:
+        if settings.llm_provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            _plan_llm = ChatOpenAI(
+                model=settings.llm_model,
+                base_url="https://openrouter.ai/api/v1",
+                api_key=settings.openrouter_api_key,
+                request_timeout=30,
+                timeout=30,
+                **kw,
+            )
+        elif settings.llm_base_url:
             from langchain_openai import ChatOpenAI
             _plan_llm = ChatOpenAI(
                 model=settings.llm_model,
@@ -1263,6 +1280,7 @@ _HELP_MD = """
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
 | `/telemetry` | View telemetry; `/telemetry on` or `off` toggles turn overlay |
 | `/clear` | Reset session memory — next question starts a fresh thread |
+| `/list thread` | List all previous conversation threads with summaries |
 | `/help` | This help text |
 | `quit` / `exit` / `q` | Exit the chat |
 
@@ -1341,6 +1359,84 @@ def _dispatch_slash(
             conv_history.clear()
         console.print(f"[yellow]Memory cleared — new conversation thread started:[/yellow] [bold cyan]{new_id}[/bold cyan]")
         return "", new_id
+
+    # ── /list thread / /threads ───────────────────────────────────────────
+    if name in ("threads", "thread") or (name == "list" and len(parts) > 1 and parts[1].lower() in ("thread", "threads")):
+        checkpointer = getattr(agent, "_checkpointer", None)
+        if checkpointer is None:
+            console.print("[yellow]No checkpoints database found (thread history is unavailable).[/yellow]")
+            return "", thread_id
+
+        from rich.table import Table
+        table = Table(title="[bold cyan]Conversation Threads[/bold cyan]", border_style="cyan")
+        table.add_column("Thread ID", style="cyan", no_wrap=True)
+        table.add_column("Last Active", style="green")
+        table.add_column("Messages", style="magenta")
+        table.add_column("Initial Query / Summary", style="white")
+
+        threads = {}
+        try:
+            for cp_tuple in checkpointer.list(None):
+                cfg = cp_tuple.config
+                tid = cfg.get("configurable", {}).get("thread_id")
+                if not tid:
+                    continue
+                
+                msgs = cp_tuple.checkpoint.get("channel_values", {}).get("messages", [])
+                ts = cp_tuple.checkpoint.get("ts")
+                
+                if tid not in threads or len(msgs) > len(threads[tid]["messages"]):
+                    threads[tid] = {
+                        "ts": ts,
+                        "messages": msgs
+                    }
+        except Exception as exc:
+            console.print(f"[bold red]Error loading thread history:[/bold red] {exc}")
+            return "", thread_id
+
+        if not threads:
+            console.print("[yellow]No conversation history found.[/yellow]")
+            return "", thread_id
+
+        # Sort threads by timestamp descending
+        def get_sort_key(item):
+            val = item[1]["ts"]
+            return str(val) if val is not None else ""
+
+        sorted_threads = sorted(threads.items(), key=get_sort_key, reverse=True)
+
+        for tid, data in sorted_threads:
+            ts_val = data["ts"]
+            ts_str = ""
+            if ts_val:
+                if hasattr(ts_val, "strftime"):
+                    ts_str = ts_val.strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    ts_str = str(ts_val).split(".")[0].replace("T", " ")
+                    
+            msgs = data["messages"]
+            num_msgs = len(msgs)
+            
+            first_human = None
+            for m in msgs:
+                if m.__class__.__name__ == "HumanMessage" or getattr(m, "type", None) == "human":
+                    first_human = m.content
+                    break
+                    
+            if first_human:
+                summary = first_human.strip()
+                if "[End of context]\n" in summary:
+                    summary = summary.split("[End of context]\n", 1)[1].strip()
+                if len(summary) > 80:
+                    summary = summary[:77] + "..."
+            else:
+                summary = "[No user queries]"
+                
+            table.add_row(tid, ts_str, f"{num_msgs} msgs", summary)
+
+        console.print(table)
+        console.print(f"\n[dim]To resume a thread, restart the chat with: [cyan]--thread-id <id>[/cyan] or [cyan]-t <id>[/cyan][/dim]")
+        return "", thread_id
 
     # ── /analyze [--max N] ─────────────────────────────────────────────────
     if name == "analyze":
@@ -1724,12 +1820,15 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
             # should stay on the previous agent.
             _is_followup = False
             if _intent == "main" and _conv_history:
+                _prev_raw, _prev_answer, _prev_intent = _conv_history[-1]
                 if _FOLLOWUP_RE.match(raw.strip()):
                     _is_followup = True
                 elif _CONFIRMATION_RE.match(raw.strip()) and len(raw.split()) <= 4:
                     _is_followup = True
+                elif _prev_intent in ("deepdive", "research", "india_equity"):
+                    if _REPORT_FOLLOWUP_RE.search(raw.strip()):
+                        _is_followup = True
                 else:
-                    _prev_raw, _prev_answer, _prev_intent = _conv_history[-1]
                     _cleaned_answer = _prev_answer.strip().rstrip("`").strip().rstrip("*").strip()
                     if _cleaned_answer.endswith("?") and len(raw.split()) <= 8:
                         _is_followup = True
@@ -1766,7 +1865,10 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                     "[Session context — prior turns in this conversation]"
                 ]
                 for _u, _a, _i in recent:
-                    _a_short = _a[:400] + "…" if len(_a) > 400 else _a
+                    if _i in ("deepdive", "research", "india_equity"):
+                        _a_short = _a
+                    else:
+                        _a_short = _a[:400] + "…" if len(_a) > 400 else _a
                     ctx_lines.append(f"User ({_i}): {_u}")
                     ctx_lines.append(f"Assistant: {_a_short}")
                 ctx_lines.append("[End of context]\n")

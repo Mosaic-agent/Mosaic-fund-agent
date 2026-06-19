@@ -45,7 +45,16 @@ def get_llm_recommendation(
         llm = None
         if not settings.llm_local_disabled:
             provider = settings.llm_provider.lower()
-            if settings.llm_base_url:
+            if provider == "openrouter":
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(
+                    model=settings.llm_model,
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=settings.openrouter_api_key,
+                    temperature=0.2,
+                    max_tokens=256,
+                )
+            elif settings.llm_base_url:
                 from langchain_openai import ChatOpenAI
                 llm = ChatOpenAI(
                     model=settings.llm_model,
@@ -82,6 +91,15 @@ def get_llm_recommendation(
                     temperature=0.2,
                     max_tokens=256,
                     extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+                )
+            elif provider == "openrouter":
+                from langchain_openai import ChatOpenAI
+                llm = ChatOpenAI(
+                    model=settings.llm_cloud_model,
+                    api_key=settings.openrouter_api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    temperature=0.2,
+                    max_tokens=256,
                 )
             else:
                 from langchain_openai import ChatOpenAI

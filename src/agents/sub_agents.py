@@ -981,6 +981,9 @@ class DeepDiveSubAgent(_SubAgent):
         "immediately reply: \"This stock is listed in India (NSE/BSE). "
         "Please use the Indian equity research path.\".  "
         "For US tickers: use `run_deepdive_analysis` to fetch SEC filings. "
+        "If you need to summarize an existing deep-dive report, or if the user asks "
+        "follow-up questions about a previously generated deep-dive report, "
+        "use `read_deepdive_report` to load the full report content first. "
         "Use `query_clickhouse_db` to read deepdive_* tables in ClickHouse "
         "(always add FINAL). "
         "Use `get_yahoo_finance_data` for live price and valuation multiples. "
@@ -990,10 +993,10 @@ class DeepDiveSubAgent(_SubAgent):
     def _get_tools(self) -> list:
         from src.tools.yahoo_finance import YAHOO_TOOLS
         from src.tools.earnings_scraper import EARNINGS_TOOLS
-        from src.tools.skills_tools import run_deepdive_analysis, query_clickhouse_db
+        from src.tools.skills_tools import run_deepdive_analysis, query_clickhouse_db, read_deepdive_report
         from src.tools.company_resolver import resolve_company
         return [resolve_company] + YAHOO_TOOLS + EARNINGS_TOOLS + [
-            run_deepdive_analysis, query_clickhouse_db,
+            run_deepdive_analysis, query_clickhouse_db, read_deepdive_report,
         ]
 
 
@@ -1928,7 +1931,7 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     import time
 
     cloud_llm = None
-    if _needs_cloud(question):
+    if _needs_cloud(question) or intent in ("deepdive", "research"):
         try:
             from src.agents.mosaic_fund_agent import MosaicFundAgent
             tmp = object.__new__(MosaicFundAgent)
@@ -1944,9 +1947,10 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     budget = BudgetCallbackHandler()
     if callbacks is None:
         callbacks = []
-        if os.getenv("VERBOSE") == "1":
+        from config.settings import settings
+        if os.getenv("VERBOSE") == "1" or settings.llm_think:
             from src.agents.mosaic_fund_agent import RichConsoleCallbackHandler
-            callbacks.append(RichConsoleCallbackHandler())
+            callbacks.append(RichConsoleCallbackHandler(agent_name=intent))
     callbacks.extend([tracer, budget])
 
     # Log the routing decision itself

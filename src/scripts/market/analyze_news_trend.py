@@ -23,6 +23,13 @@ console = Console()
 
 def get_llm():
     """Simple LLM factory based on project settings."""
+    if settings.llm_provider.lower() == "openrouter":
+        return ChatOpenAI(
+            model=settings.llm_model,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=settings.openrouter_api_key,
+            temperature=0.2,
+        )
     if settings.llm_base_url:
         return ChatOpenAI(
             model=settings.llm_model,
