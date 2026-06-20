@@ -10,6 +10,20 @@ PREFERENCE_KEY = "market_import_data_source"
 TTL_HOURS = 24
 VALID_SOURCES = {"shoonya", "nse", "yfinance"}
 
+# Canonical alias map — single source of truth for all modules that accept
+# a data_source string (cli.py, skills_tools.py, parallel_importer, etc.)
+SOURCE_ALIASES: dict[str, str] = {
+    "1": "shoonya",
+    "shoonya": "shoonya",
+    "2": "nse",
+    "nse": "nse",
+    "nselib": "nse",
+    "3": "yfinance",
+    "yf": "yfinance",
+    "yahoo": "yfinance",
+    "yfinance": "yfinance",
+}
+
 _DDL = """
 CREATE TABLE IF NOT EXISTS market_data.agent_preferences (
     preference_key String,
@@ -22,18 +36,7 @@ ORDER BY preference_key
 
 
 def normalize_data_source(value: str) -> str:
-    aliases = {
-        "1": "shoonya",
-        "shoonya": "shoonya",
-        "2": "nse",
-        "nse": "nse",
-        "nselib": "nse",
-        "3": "yfinance",
-        "yf": "yfinance",
-        "yahoo": "yfinance",
-        "yfinance": "yfinance",
-    }
-    return aliases.get(value.strip().lower(), "")
+    return SOURCE_ALIASES.get(value.strip().lower(), "")
 
 
 def get_saved_data_source() -> str:
