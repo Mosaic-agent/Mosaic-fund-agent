@@ -62,20 +62,10 @@ def import_symbol_data_impl(
     Core implementation to import price history for a specific symbol.
     """
     from datetime import date, timedelta, datetime
+    from src.importer.source_preference import normalize_data_source
 
     sym = symbol.strip().upper()
-    source_aliases = {
-        "1": "shoonya",
-        "shoonya": "shoonya",
-        "2": "nse",
-        "nse": "nse",
-        "nselib": "nse",
-        "3": "yfinance",
-        "yf": "yfinance",
-        "yahoo": "yfinance",
-        "yfinance": "yfinance",
-    }
-    selected_source = source_aliases.get(data_source.strip().lower(), "")
+    selected_source = normalize_data_source(data_source)
     if not selected_source:
         return "Invalid data_source. Use shoonya, nse, or yfinance."
     if start_date:

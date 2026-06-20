@@ -29,10 +29,71 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 from rich import box
 
+from src.importer.source_preference import normalize_data_source
+
 logger = logging.getLogger(__name__)
 
 # Days of overlap when doing a delta sync (to catch weekend / late corrections)
 _OVERLAP_DAYS = 3
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers — DRY the repeated watermark/fetch/insert cycle
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _resolve_from_date(
+    ch,
+    source: str,
+    symbols: list[str] | str,
+    *,
+    lookback_days: int,
+    overlap_days: int = _OVERLAP_DAYS,
+    full_reimport: bool = False,
+    dry_run: bool = False,
+    today: date | None = None,
+) -> date:
+    """
+    Compute the inclusive start date for a delta-sync fetch.
+
+    For a single symbol pass it as a string; for a group pass a list.
+    Returns the earliest (worst-case) watermark minus overlap, or falls back
+    to (today − lookback_days) on first run.
+    """
+    today = today or date.today()
+    if full_reimport:
+        return today - timedelta(days=lookback_days)
+
+    sym_list = [symbols] if isinstance(symbols, str) else symbols
+    earliest: date | None = None
+    for sym in sym_list:
+        wm = ch.get_watermark(source, sym) if not dry_run else None
+        if wm is None:
+            return today - timedelta(days=lookback_days)
+        candidate = wm - timedelta(days=overlap_days)
+        if earliest is None or candidate < earliest:
+            earliest = candidate
+    return earliest or (today - timedelta(days=lookback_days))
+
+
+def _update_watermarks(
+    ch,
+    rows: list[dict],
+    source: str,
+    *,
+    date_field: str = "trade_date",
+    dry_run: bool = False,
+) -> None:
+    """
+    Set per-symbol watermarks from the fetched rows.
+    Noop on dry_run or empty rows.
+    """
+    if dry_run or not rows:
+        return
+    symbols_seen = {r["symbol"] for r in rows}
+    for sym in symbols_seen:
+        sym_dates = [r[date_field] for r in rows if r["symbol"] == sym]
+        if sym_dates:
+            ch.set_watermark(source, sym, max(sym_dates))
 
 
 def run_import(
@@ -79,18 +140,7 @@ def run_import(
     from config.settings import settings
 
     shoonya_active = bool(settings.shoonya_user_id and settings.shoonya_api_secret)
-    source_aliases = {
-        "1": "shoonya",
-        "shoonya": "shoonya",
-        "2": "nse",
-        "nse": "nse",
-        "nselib": "nse",
-        "3": "yfinance",
-        "yf": "yfinance",
-        "yahoo": "yfinance",
-        "yfinance": "yfinance",
-    }
-    selected_source = source_aliases.get(data_source.strip().lower(), "")
+    selected_source = normalize_data_source(data_source)
     if data_source and not selected_source:
         raise ValueError("data_source must be one of: shoonya, nse, yfinance")
 
@@ -173,23 +223,18 @@ def run_import(
         if category == "nse_indices":
             from src.importer.fetchers.nse_index_fetcher import fetch_nse_indices
 
-            if full_reimport:
-                from_date = today - timedelta(days=lookback_days)
-            else:
-                wm = ch.get_watermark("nselib_index", "NSE_INDICES") if not dry_run else None
-                from_date = (wm - timedelta(days=_OVERLAP_DAYS)) if wm else (today - timedelta(days=lookback_days))
+            from_date = _resolve_from_date(
+                ch, "nselib_index", "NSE_INDICES",
+                lookback_days=lookback_days, full_reimport=full_reimport,
+                dry_run=dry_run, today=today,
+            )
 
             console.print(f"  [dim]Fetching via nselib {from_date} → {today}…[/dim]")
             rows = fetch_nse_indices(symbol_list, from_date, today)
             inserted = ch.insert_prices(rows, dry_run=dry_run)
             console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
 
-            if not dry_run and rows:
-                symbols_seen = {r["symbol"] for r in rows}
-                for sym in symbols_seen:
-                    sym_dates = [r["trade_date"] for r in rows if r["symbol"] == sym]
-                    if sym_dates:
-                        ch.set_watermark("nselib_index", sym, max(sym_dates))
+            _update_watermarks(ch, rows, "nselib_index", dry_run=dry_run)
 
             summary_rows.append((
                 category, "nselib", inserted, from_date.isoformat(), today.isoformat(),
@@ -209,24 +254,13 @@ def run_import(
             for nse_sym, _yahoo in symbol_list:
                 progress.update(task, advance=1, description=f"[dim]{nse_sym}[/dim]")
 
-            # Determine date range
-            # Use a single from_date for the whole category (worst-case watermark)
-            if full_reimport:
-                from_date = today - timedelta(days=lookback_days)
-            else:
-                # Find earliest watermark across all symbols in this category
-                earliest: date | None = None
-                for nse_sym, _ in symbol_list:
-                    watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
-                    wm = ch.get_watermark(watermark_source or "shoonya", nse_sym) if not dry_run else None
-                    if wm is None:
-                        # Never imported — need full lookback
-                        earliest = today - timedelta(days=lookback_days)
-                        break
-                    candidate = wm - timedelta(days=_OVERLAP_DAYS)
-                    if earliest is None or candidate < earliest:
-                        earliest = candidate
-                from_date = earliest or (today - timedelta(days=lookback_days))
+            # Determine date range (worst-case watermark across all symbols)
+            watermark_source = (selected_source or "shoonya") if category in ("stocks", "etfs") else "yfinance"
+            from_date = _resolve_from_date(
+                ch, watermark_source, [sym for sym, _ in symbol_list],
+                lookback_days=lookback_days, full_reimport=full_reimport,
+                dry_run=dry_run, today=today,
+            )
 
             progress.update(task, description=f"Downloading {category} {from_date}→{today}…")
             if category in ("stocks", "etfs"):
@@ -244,13 +278,7 @@ def run_import(
         console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
 
         # Update watermarks
-        if not dry_run:
-            symbols_seen = {r["symbol"] for r in rows}
-            for sym in symbols_seen:
-                sym_dates = [r["trade_date"] for r in rows if r["symbol"] == sym]
-                if sym_dates:
-                    watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
-                    ch.set_watermark(watermark_source or "shoonya", sym, max(sym_dates))
+        _update_watermarks(ch, rows, watermark_source, dry_run=dry_run)
 
         summary_rows.append((
             category,
@@ -290,12 +318,7 @@ def run_import(
                 f"  [green]✓[/green] {inserted} rows "
                 f"{'(dry-run)' if dry_run else 'inserted'}"
             )
-            if not dry_run:
-                symbols_seen = {r["symbol"] for r in eod_rows}
-                for sym in symbols_seen:
-                    sym_dates = [r["trade_date"] for r in eod_rows if r["symbol"] == sym]
-                    if sym_dates:
-                        ch.set_watermark("nse_quote", sym, max(sym_dates))
+            _update_watermarks(ch, eod_rows, "nse_quote", dry_run=dry_run)
             summary_rows.append((
                 "nse_eod", "nse_quote", inserted, str(today), str(today),
             ))
@@ -321,31 +344,18 @@ def run_import(
     if "mf" in categories:
         console.print(f"\n[bold cyan]▶ MF NAV[/bold cyan] ({len(MF_SCHEME_CODES)} schemes)")
 
-        if full_reimport:
-            mf_from = today - timedelta(days=lookback_days)
-        else:
-            earliest_mf: date | None = None
-            for sym in MF_SCHEME_CODES:
-                wm = ch.get_watermark("mfapi", sym) if not dry_run else None
-                if wm is None:
-                    earliest_mf = today - timedelta(days=lookback_days)
-                    break
-                candidate = wm - timedelta(days=_OVERLAP_DAYS)
-                if earliest_mf is None or candidate < earliest_mf:
-                    earliest_mf = candidate
-            mf_from = earliest_mf or (today - timedelta(days=lookback_days))
+        mf_from = _resolve_from_date(
+            ch, "mfapi", list(MF_SCHEME_CODES),
+            lookback_days=lookback_days, full_reimport=full_reimport,
+            dry_run=dry_run, today=today,
+        )
 
         console.print(f"  [dim]Fetching {mf_from} → {today} (MFAPI.in, polite delays)[/dim]")
         nav_rows = fetch_all_nav(MF_SCHEME_CODES, mf_from, today)
         inserted = ch.insert_nav(nav_rows, dry_run=dry_run)
         console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
 
-        if not dry_run:
-            syms_seen = {r["symbol"] for r in nav_rows}
-            for sym in syms_seen:
-                sym_dates = [r["nav_date"] for r in nav_rows if r["symbol"] == sym]
-                if sym_dates:
-                    ch.set_watermark("mfapi", sym, max(sym_dates))
+        _update_watermarks(ch, nav_rows, "mfapi", date_field="nav_date", dry_run=dry_run)
 
         summary_rows.append(("mf", "mfapi", inserted, mf_from.isoformat(), today.isoformat()))
 
@@ -427,19 +437,11 @@ def run_import(
         console.print("\n[bold cyan]▶ FX Rates — USD Pairs[/bold cyan] (USDINR · USDCNY · USDAED · USDSAR · USDKWD)")
         console.print("  [dim]Daily OHLC via Yahoo Finance — delta-synced per pair[/dim]")
 
-        # Use per-pair watermarks for delta sync
-        fx_from = today - timedelta(days=lookback_days)
-        if not full_reimport:
-            earliest_fx: date | None = None
-            for sym, _ in FX_PAIRS:
-                wm = ch.get_watermark("yfinance_fx", sym) if not dry_run else None
-                if wm is None:
-                    earliest_fx = today - timedelta(days=lookback_days)
-                    break
-                candidate = wm - timedelta(days=_OVERLAP_DAYS)
-                if earliest_fx is None or candidate < earliest_fx:
-                    earliest_fx = candidate
-            fx_from = earliest_fx or (today - timedelta(days=lookback_days))
+        fx_from = _resolve_from_date(
+            ch, "yfinance_fx", [sym for sym, _ in FX_PAIRS],
+            lookback_days=lookback_days, full_reimport=full_reimport,
+            dry_run=dry_run, today=today,
+        )
 
         console.print(f"  [dim]Fetching {fx_from} → {today}[/dim]")
         fx_rows = fetch_fx_rates(from_date=fx_from, to_date=today)
@@ -448,13 +450,8 @@ def run_import(
         else:
             inserted = ch.insert_fx_rates(fx_rows, dry_run=dry_run)
             console.print(f"  [green]✓[/green] {inserted} FX rate rows {'(dry-run)' if dry_run else 'stored'}")
-            if not dry_run:
-                for sym, _ in FX_PAIRS:
-                    sym_dates = [r["trade_date"] for r in fx_rows if r["symbol"] == sym]
-                    if sym_dates:
-                        ch.set_watermark("yfinance_fx", sym, max(sym_dates))
+            _update_watermarks(ch, fx_rows, "yfinance_fx", dry_run=dry_run)
             # Print latest close per pair
-            from collections import defaultdict
             latest_by_sym: dict[str, dict] = {}
             for r in fx_rows:
                 if r["symbol"] not in latest_by_sym or r["trade_date"] > latest_by_sym[r["symbol"]]["trade_date"]:
@@ -635,11 +632,11 @@ def run_import(
             "FII & DII gross buy/sell/net in ₹ Crore[/dim]"
         )
 
-        fii_wm = ch.get_watermark("nse_fii_dii", "MARKET") if not dry_run else None
-        if full_reimport or fii_wm is None:
-            fii_from = today - timedelta(days=lookback_days)
-        else:
-            fii_from = fii_wm - timedelta(days=_OVERLAP_DAYS)
+        fii_from = _resolve_from_date(
+            ch, "nse_fii_dii", "MARKET",
+            lookback_days=lookback_days, full_reimport=full_reimport,
+            dry_run=dry_run, today=today,
+        )
 
         console.print(f"  [dim]Fetching {fii_from} → {today}[/dim]")
         
