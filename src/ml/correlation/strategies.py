@@ -498,8 +498,13 @@ class PostMacroShockStrategy(CorrelationStrategy):
         is_anomaly_day  = m["is_anomaly_day"]
         lag_days        = m["lag_days"]
 
-        move_val = abs(shock_return) * 100.0
-        # Filter: must have meaningful move OR be a flagged anomaly day
+        # Score on the *idiosyncratic* (market-adjusted) move, not the raw
+        # return.  A 5% drop where NIFTY was also down 5% is a market event,
+        # not a stock-specific reaction to the macro trigger.  Falls back to
+        # raw return when no benchmark was provided (abnormal_return is None).
+        signal_return = abnormal_return if abnormal_return is not None else shock_return
+        move_val = abs(signal_return) * 100.0
+        # Filter: must have meaningful idiosyncratic move OR be a flagged anomaly day
         if not (move_val >= self.min_return_pct or is_anomaly_day):
             return None
 
@@ -507,8 +512,15 @@ class PostMacroShockStrategy(CorrelationStrategy):
         if is_anomaly_day:
             score = min(100.0, score + 20.0)
 
-        # Lag-weighted decay
-        lag_weight = np.exp(-abs(lag_days) / 2.0)
+        # Lag-weighted decay — peak weight at lag=+1 (textbook next-day
+        # reaction to a public event). Same-day matches are statistically
+        # easier to hit by coincidence (any anomaly day will likely have
+        # *some* macro headline on the same calendar date), so they receive
+        # a small relative penalty vs. +1.
+        # Curve: weight = exp(-|lag - 1| / 3.0)
+        #   lag = -2 → 0.37   lag = -1 → 0.51   lag =  0 → 0.72
+        #   lag = +1 → 1.00   lag = +2 → 0.72   lag = +3 → 0.51
+        lag_weight = np.exp(-abs(lag_days - 1) / 3.0)
         score = score * lag_weight
 
         # Direction-consistency check for FX events
@@ -648,6 +660,13 @@ class CrossAssetCoMovementStrategy(CorrelationStrategy):
         abnormal_return = m["abnormal_return"]
         fx_pct          = m["fx_pct"]
         fx_magnitude    = m["fx_magnitude"]
+
+        # Require a meaningful *idiosyncratic* move before attributing to FX.
+        # A day where stock = +5.5% but abnormal = +0.16% is the market moving,
+        # not the stock reacting to USDINR — attributing FX here is a textbook
+        # false positive.  Threshold ≈ 0.5% covers ~95% of trading days as noise.
+        if abs(abnormal_return) < 0.005:
+            return None
 
         # Scale base score by FX shock magnitude (cap at 0.015 = ~1.5% USDINR move)
         magnitude_scale = min(1.0, fx_magnitude / 0.015) if fx_magnitude > 0 else 0.5

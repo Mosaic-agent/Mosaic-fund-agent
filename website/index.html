@@ -861,6 +861,20 @@
         </ul>
       </div>
 
+      <div class="feature-card">
+        <span class="feat-tag gold">Correlation</span>
+        <h3>News-RAG Correlation Engine</h3>
+        <p>Four parallel strategies attribute each anomaly to a likely cause — earnings, leak, macro shock, or cross-asset move — with calibrated confidence and direction-consistency checks. No LLM in the scoring loop.</p>
+        <ul class="feat-bullets">
+          <li><strong>Post-Macro Shock:</strong> scores on <em>idiosyncratic</em> return (stock − benchmark), not raw move — a 5% drop on a -5% NIFTY day gets zero credit</li>
+          <li><strong>Pre-Event Leak:</strong> cumulative abnormal return in the 3 days before earnings/dividends/bonuses flags suspicious pre-positioning</li>
+          <li><strong>Cross-Asset Co-Movement:</strong> USDINR &amp; commodity shocks; same-direction co-movement on negative-beta pairs is penalised 70% as a likely false positive</li>
+          <li><strong>News-RAG:</strong> publisher-quality + event-type hierarchy weights; blocked opinion sources auto-filtered</li>
+          <li><strong>Lag-weighted decay:</strong> peak weight at lag = +1 day (textbook next-session reaction); same-day matches penalised for coincidence risk</li>
+          <li><strong>Clustering dedup:</strong> multiple strategies firing on the same anomaly merge into one finding, primary strategy = highest score</li>
+        </ul>
+      </div>
+
       <div class="feature-card blue">
         <span class="feat-tag blue">ML</span>
         <h3>LightGBM 5-Day Forecast</h3>

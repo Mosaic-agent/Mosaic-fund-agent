@@ -125,7 +125,10 @@ def test_post_macro_shock_strategy():
     f = findings[0]
     assert f.event.label == "RBI Easing"
     assert f.lead_lag_days >= 0  # Anomaly happened AFTER or ON event day
-    assert f.confidence == "MODERATE"
+    # Lag = +1 (event day 4 → anomaly day 5) is the peak of the new lag curve
+    # (exp(-|1-1|/3) = 1.0). With 4.5% shock_return → raw 112.5 capped at 100,
+    # decayed score = 100. Confidence is HIGH.
+    assert f.confidence == "HIGH"
 
 
 def test_correlation_service_fallback_empty_data():
