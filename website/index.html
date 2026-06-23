@@ -626,48 +626,59 @@
       </div>
     </div>
 
-    <!-- Row 2: two columns — the AI output quality screenshots -->
+    <!-- Row 2: two columns — the two flagship daily-use screens -->
     <div class="gallery-grid">
       <div class="gallery-item reveal">
-        <img src="screenshots/anomaly_analysis.png" alt="GOLDBEES anomaly analysis output" loading="lazy" />
+        <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">🔍 AI anomaly explanation — plain English, grounded in data</div>
-          <div class="gc-desc">5 anomalies detected over 90 days. Import duty hike (+5.72%), USDINR shock (−8.54%), market sentiment spike — each one correlated with its real-world cause. Not a guess — every number is from ClickHouse.</div>
+          <div class="gc-title">🎛️ Signal Dashboard — your daily BUY / HOLD / AVOID</div>
+          <div class="gc-desc">18 NSE ETFs scored 0–100 across 6 pillars (macro, sentiment, valuation, FII/DII flows, ML, anomaly). Colour-coded, ranked, with a per-pillar breakdown table below.</div>
         </div>
       </div>
 
       <div class="gallery-item reveal">
-        <img src="screenshots/root_cause.png" alt="Root cause attribution and anomaly timeline" loading="lazy" />
+        <img src="screenshots/anomaly_detection.png" alt="Composite Anomaly Detection — GOLD regime chart" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">🎯 Root cause attribution — ranked by driver strength</div>
-          <div class="gc-desc">Company news (score 314.8) · USDINR volatility (157.8) · Rate decisions (37.9). Each anomaly mapped to a trigger with confidence level (HIGH / MODERATE / LOW) and strategy type.</div>
+          <div class="gc-title">🔬 Anomaly Detection — spot the unusual moves</div>
+          <div class="gc-desc">GARCH(1,1) + Isolation Forest over 3,763 days of GOLD. Every flagged day colour-coded by regime: Crowded Long, Strong Trend, Volatile Breakout, Blow-off Top. Tune the threshold live.</div>
         </div>
       </div>
     </div>
 
-    <!-- Row 3: three columns — the dashboard tabs -->
-    <div class="gallery-grid-3">
-      <div class="gallery-item light reveal">
-        <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
+    <!-- Row 3: two columns — AI explanation + company research -->
+    <div class="gallery-grid">
+      <div class="gallery-item reveal">
+        <img src="screenshots/anomaly_analysis.png" alt="AI anomaly explanation in plain English" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">🎛️ Signal Dashboard</div>
-          <div class="gc-desc">18 NSE ETFs scored 0–100 daily. GOLDBEES and SILVERBEES leading — 4 BUY, 8 HOLD, 6 TRIM/AVOID.</div>
+          <div class="gc-title">🔍 …and the AI explains why, in plain English</div>
+          <div class="gc-desc">Import duty hike (+5.72%), USDINR shock (−8.54%), market sentiment spike — each anomaly correlated with its real-world cause. Every number comes from ClickHouse, never invented.</div>
         </div>
       </div>
 
+      <div class="gallery-item reveal">
+        <img src="screenshots/deep_dive.png" alt="Company Deep Dive — SEC filings, financials, hiring" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">🏢 Company Deep Dive — US stock research</div>
+          <div class="gc-desc">SEC filings, XBRL financials, exec comp, 10-K sections, and live hiring trends (678 open ADSK roles across 9 functions). Cached to ClickHouse — repeat runs are instant.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 4: two columns — MF tracking + workflows (Streamlit tabs) -->
+    <div class="gallery-grid">
       <div class="gallery-item light reveal">
         <img src="screenshots/mf_holdings.png" alt="Multi-Asset Fund Holdings Tracker" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">📦 MF Holdings Tracker</div>
-          <div class="gc-desc">Asset allocation pie charts across DSP, Nippon, Quant, ICICI, Bajaj — live from monthly disclosures.</div>
+          <div class="gc-title">📦 MF Holdings — what the funds are buying</div>
+          <div class="gc-desc">Asset allocation across DSP, Nippon, Quant, ICICI, Bajaj multi-asset funds — live from monthly disclosures, month-by-month.</div>
         </div>
       </div>
 
       <div class="gallery-item light reveal">
         <img src="screenshots/workflows.png" alt="Workflows tab" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">🤖 Workflows</div>
-          <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens. Adversarial verification before every final report.</div>
+          <div class="gc-title">🤖 Workflows — token-efficient deep research</div>
+          <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens than ReAct agents, with adversarial verification before every final report.</div>
         </div>
       </div>
     </div>
