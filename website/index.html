@@ -248,6 +248,23 @@
     /* Charts revealed in sync with the stepper phases */
     .anom-chart { opacity: 0; transform: translateY(22px); transition: opacity .6s ease, transform .6s ease; }
     .anom-chart.shown { opacity: 1; transform: none; }
+
+    /* ── Anomaly flagship showcase (dark band) ──────────────────── */
+    .anomaly-showcase {
+      background: radial-gradient(ellipse 90% 70% at 50% 0%, #16243a 0%, #0b1018 62%);
+      border-top: 1px solid #1e293b; border-bottom: 1px solid #1e293b;
+    }
+    .anomaly-showcase .section-label { color: var(--gold); }
+    .anomaly-showcase .section-title { color: #fff; }
+    .anomaly-showcase .section-body  { color: #cbd5e1; }
+    .anomaly-showcase .section-body strong { color: #fff; }
+    .anomaly-showcase .gallery-grid { margin-top: 24px; }
+    .anom-feature { max-width: 1000px; margin: 24px auto 0; }
+    /* dark stepper variant inside the showcase */
+    .anomaly-showcase .anom-step { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.14); color: #94a3b8; box-shadow: none; }
+    .anomaly-showcase .anom-step.active { color: #fff; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(245,158,11,.22); }
+    .anomaly-showcase .anom-step.done { color: #fff; border-color: var(--gold); box-shadow: 0 0 14px rgba(245,158,11,.25); }
+    .anomaly-showcase .anom-arrow { color: var(--gold); opacity: .7; }
     @media (max-width: 680px) { .anom-arrow { transform: rotate(90deg); } .anomaly-pipeline { flex-direction: column; } }
     @media (prefers-reduced-motion: reduce) {
       .anom-step { opacity: 1; } .anom-step .anom-check { opacity: 1; }
@@ -499,8 +516,8 @@
     </div>
     <div class="nav-links">
       <a href="#paths">Who it's for</a>
+      <a href="#anomaly">Why it moved</a>
       <a href="#gallery">Screenshots</a>
-      <a href="#why">Why</a>
       <a href="#how">How it works</a>
       <a href="#quickstart">Quick Start</a>
       <a href="#docs">Docs</a>
@@ -631,44 +648,18 @@
   </div>
 </section>
 
-<!-- ── SCREENSHOT GALLERY ────────────────────────────────────────── -->
-<section class="section-sm gallery-section" id="gallery">
+<!-- ── ANOMALY SHOWCASE (flagship feature) ───────────────────────── -->
+<section class="section anomaly-showcase" id="anomaly">
   <div class="container">
-    <div class="section-label">Live screenshots</div>
-    <h2 class="section-title">See it actually work</h2>
-    <p class="section-body">Every screen runs against live ClickHouse data. No demo mode, no sample data, no mockups.</p>
+    <div class="section-label">The feature nobody else has</div>
+    <h2 class="section-title">"Why did it move?" — answered.</h2>
+    <p class="section-body">
+      Every tool shows you a red candle. Mosaic tells you <em>what caused it</em> — and whether
+      the move happened <strong>before</strong> or <strong>after</strong> the news broke.
+      A four-stage pipeline runs on any stock, ETF, or commodity:
+    </p>
 
-    <!-- Row 1: full-width featured — the CLI showing it's conversational -->
-    <div class="gallery-featured">
-      <div class="gallery-item reveal">
-        <img src="screenshots/cli.png" alt="Mosaic interactive CLI chat" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">💬 Interactive CLI — just type, it shows its work</div>
-          <div class="gc-desc">Ask "analyse gold bees anomaly" — Mosaic resolves the symbol (and confirms it), then prints a live plan: fetch price, NAV, earnings, MF holdings, and news all in parallel, plot the chart, synthesise. Runs on local Ollama or any cloud LLM.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Row 2: two columns — the two flagship daily-use screens -->
-    <div class="gallery-grid">
-      <div class="gallery-item reveal">
-        <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">🎛️ Signal Dashboard — your daily BUY / HOLD / AVOID</div>
-          <div class="gc-desc">18 NSE ETFs scored 0–100 across 6 pillars (macro, sentiment, valuation, FII/DII flows, ML, anomaly). Colour-coded, ranked, with a per-pillar breakdown table below.</div>
-        </div>
-      </div>
-
-      <div class="gallery-item reveal">
-        <img src="screenshots/anomaly_detection.png" alt="Composite Anomaly Detection — GOLD regime chart" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">🔬 Anomaly Detection — spot the unusual moves</div>
-          <div class="gc-desc">GARCH(1,1) + Isolation Forest over 3,763 days of GOLD. Every flagged day colour-coded by regime: Crowded Long, Strong Trend, Volatile Breakout, Blow-off Top. Tune the threshold live.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Anomaly attribution: animated phase stepper + the two correlation charts -->
+    <!-- Animated phase stepper -->
     <div class="anomaly-pipeline" id="anomalyPipe">
       <div class="anom-step" data-step="0"><span class="anom-ico">🔍</span> Detect anomalies <span class="anom-check">✓</span></div>
       <div class="anom-arrow">→</div>
@@ -679,11 +670,23 @@
       <div class="anom-step" data-step="3"><span class="anom-ico">📊</span> Map to triggers <span class="anom-check">✓</span></div>
     </div>
 
+    <!-- Step 1: detection (full width) -->
+    <div class="anom-feature reveal">
+      <div class="gallery-item">
+        <img src="screenshots/anomaly_detection.png" alt="Composite Anomaly Detection — GOLD regime chart" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">① Detect — GARCH(1,1) + Isolation Forest over 3,763 days</div>
+          <div class="gc-desc">Every flagged day colour-coded by regime: Crowded Long, Strong Trend, Volatile Breakout, Blow-off Top. Tune the contamination and Z-threshold live.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Steps 2-3: the two correlation charts (reveal in sync with stepper) -->
     <div class="gallery-grid">
       <div class="gallery-item anom-chart" id="anomChart1">
         <img src="screenshots/correlation_timeline.png" alt="Event correlation timeline — anomalies mapped to triggers" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">🔗 Event Correlation Timeline — every shock mapped to a cause</div>
+          <div class="gc-title">② Correlate — every shock mapped to a cause</div>
           <div class="gc-desc">Each red dot is a flagged anomaly, lined up against the trigger that moved it: macro shocks, RBI/Fed policy events, and news announcements — overlaid on the price line.</div>
         </div>
       </div>
@@ -691,19 +694,54 @@
       <div class="gallery-item anom-chart" id="anomChart2">
         <img src="screenshots/lead_lag_grid.png" alt="Anomaly lead-lag feature grid" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">⏱️ Lead-Lag Grid — reaction or insider leak?</div>
-          <div class="gc-desc">Plots each anomaly by trading days from its trigger. Left of zero = the move happened <em>before</em> the news (potential leak); right = normal market reaction. The Fed-pause shock lagged 4 days; the duty hike hit same-day.</div>
+          <div class="gc-title">③ Lead/lag — reaction or insider leak?</div>
+          <div class="gc-desc">Plots each anomaly by trading days from its trigger. Left of zero = the move happened <em>before</em> the news (potential leak); right = normal reaction. The Fed-pause shock lagged 4 days; the duty hike hit same-day.</div>
         </div>
       </div>
     </div>
 
-    <!-- Row 3: two columns — AI explanation + company research -->
-    <div class="gallery-grid">
-      <div class="gallery-item reveal">
+    <!-- Step 4: AI explanation (full width) -->
+    <div class="anom-feature reveal">
+      <div class="gallery-item">
         <img src="screenshots/anomaly_analysis.png" alt="AI anomaly explanation in plain English" loading="lazy" />
         <div class="gallery-caption">
-          <div class="gc-title">🔍 …and the AI explains why, in plain English</div>
-          <div class="gc-desc">Import duty hike (+5.72%), USDINR shock (−8.54%), market sentiment spike — each anomaly correlated with its real-world cause. Every number comes from ClickHouse, never invented.</div>
+          <div class="gc-title">④ Explain — in plain English, grounded in data</div>
+          <div class="gc-desc">Import duty hike (+5.72%), USDINR shock (−8.54%), market sentiment spike — each anomaly tied to its real-world cause with a confidence score. Every number comes from ClickHouse, never invented by the LLM.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:44px">
+      <a href="#quickstart" class="btn-primary">🚀 Try it on your own stocks</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── SCREENSHOT GALLERY ────────────────────────────────────────── -->
+<section class="section-sm gallery-section" id="gallery">
+  <div class="container">
+    <div class="section-label">Live screenshots</div>
+    <h2 class="section-title">Everything else, running live</h2>
+    <p class="section-body">Every screen runs against live ClickHouse data. No demo mode, no sample data, no mockups.</p>
+
+    <!-- Full-width featured: the CLI showing it's conversational -->
+    <div class="gallery-featured">
+      <div class="gallery-item reveal">
+        <img src="screenshots/cli.png" alt="Mosaic interactive CLI chat" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">💬 Interactive CLI — just type, it shows its work</div>
+          <div class="gc-desc">Ask "analyse gold bees anomaly" — Mosaic resolves the symbol (and confirms it), then prints a live plan: fetch price, NAV, earnings, MF holdings, and news all in parallel, plot the chart, synthesise. Runs on local Ollama or any cloud LLM.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Signal Dashboard + Company Deep Dive -->
+    <div class="gallery-grid">
+      <div class="gallery-item reveal">
+        <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">🎛️ Signal Dashboard — your daily BUY / HOLD / AVOID</div>
+          <div class="gc-desc">18 NSE ETFs scored 0–100 across 6 pillars (macro, sentiment, valuation, FII/DII flows, ML, anomaly). Colour-coded, ranked, with a per-pillar breakdown table below.</div>
         </div>
       </div>
 
@@ -716,7 +754,7 @@
       </div>
     </div>
 
-    <!-- Row 4: two columns — MF tracking + workflows (Streamlit tabs) -->
+    <!-- MF tracking + workflows (Streamlit tabs) -->
     <div class="gallery-grid">
       <div class="gallery-item light reveal">
         <img src="screenshots/mf_holdings.png" alt="Multi-Asset Fund Holdings Tracker" loading="lazy" />
@@ -1618,7 +1656,7 @@ document.querySelectorAll('.qs-body').forEach(body => {
 
 /* ── Scroll reveal ──────────────────────────────────────────────── */
 const revealEls = document.querySelectorAll(
-  '.why-card, .feature-card, .agent-card, .pipeline-step, .qs-card, .doc-link, .path-card, .gallery-item, .section-title, .section-body'
+  '.why-card, .feature-card, .agent-card, .pipeline-step, .qs-card, .doc-link, .path-card, .gallery-item, .anom-feature, .section-title, .section-body'
 );
 revealEls.forEach(el => el.classList.add('reveal'));
 const revObs = new IntersectionObserver((entries) => {
