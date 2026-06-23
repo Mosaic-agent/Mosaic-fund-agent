@@ -1,6 +1,6 @@
 # Agent Architecture
 
-> Last updated: 2026-06-05
+> Last updated: 2026-06-23 (patterns: Null Object, Hook Method, table-driven routing)
 
 This document details the multi-agent orchestration layer of the Mosaic Fund Agent platform. For the broader system architecture (data pipeline, ClickHouse schema, ML, tools), see [architecture.md](architecture.md).
 
@@ -24,7 +24,7 @@ User Query
            ▼
 ┌──────────────────────────────────────────────────┐
 │  run_subagent_for(question)                      │
-│  src/agents/sub_agents.py                        │
+│  src/agents/sub_agents/registry.py               │
 │                                                  │
 │  Middleware auto-attached:                        │
 │  ┌───────────────────┐  ┌─────────────────────┐  │
@@ -63,8 +63,14 @@ The router classifies free-form user questions into one of 10 intents, which map
 
 ### Regex Router (fallback)
 
-- **File:** `src/agents/sub_agents.py` → `route_intent()`
-- 15+ compiled regex patterns (e.g. `_SIGNAL_RE`, `_DEEPDIVE_RE`, `_MACRO_RE`)
+- **File:** `src/agents/sub_agents/routing.py` → `_regex_route_intent()` / `route_intent()`
+- 12 compiled regex patterns (`_SIGNAL_RE`, `_DEEPDIVE_RE`, `_MACRO_RE`, `_MF_RE`, `_IMPORT_RE`, `_DB_RE`, `_CODE_RE`, `_NEWS_RE`, `_INTL_ETF_RE`, `_RESEARCH_RE`, `_GENERAL_RESEARCH_RE`, `_CLOUD_NEEDED_RE`)
+- 3-case fast path (`_fast_path_intent`) fires before LLM: `import/refresh/sync` → `main`; explicit SQL → `database`; bare 1-2 word ticker → `india_equity` or `signal`
+- **Table-driven dispatch** — `_regex_route_intent` uses three ordered tables instead of a 45-line if-elif block:
+  - `_PRE_PLOT_TABLE` (4 entries) — deepdive, main, database, code (must fire before visualisation branch)
+  - `_VIZ_ROUTE_TABLE` (3 entries) — intl_etf, macro, mf (checked only when query contains "plot"/"chart"/"show")
+  - `_POST_PLOT_TABLE` (6 entries) — signal, intl_etf, mf, research, macro, news
+  - Adding a new intent = one `insert()` at the correct table position; priority is explicit by index
 - Activates when: no cloud API key configured, LLM call fails, or network error
 - Deterministic, zero-cost, zero-latency
 
@@ -79,25 +85,27 @@ The router classifies free-form user questions into one of 10 intents, which map
 | `news` | `NewsSubAgent` | "HDFC Bank news", "market sentiment" |
 | `code` | `CodeSubAgent` | "run this Python", "query ClickHouse" |
 | `database` | `DatabaseSubAgent` | "show schema", "watermark status", "row counts" |
+| `mf` | `MFSubAgent` | "DSP multi asset holdings", "which funds hold Reliance", "cross-fund consensus" |
 | `intl_etf` | `IntlETFSubAgent` | "MAFANG performance", "Hang Seng premium" |
-| `research` | `ResearchSubAgent` | "compare gold vs silver", "cross-asset analysis" |
+| `research` | `AutonomousResearchAgent` | "comprehensive research ADANIENT", "why is gold falling", "cross-asset analysis" |
 | `main` | `MosaicFundAgent` (direct) | General / unclassifiable queries |
 
 ---
 
 ## Sub-Agent Base Class
 
-**File:** `src/agents/sub_agents.py` → `_SubAgent`
+**File:** `src/agents/sub_agents/base.py` → `_SubAgent`
 
 All sub-agents inherit from `_SubAgent`, which provides:
 
 ```python
 class _SubAgent:
     SYSTEM_PROMPT: str    # Domain-specific instructions (override in subclass)
-    TOOLS: list           # Tool set (override in subclass)
+    TOOLS: list           # Tool set (override _get_tools() in subclass)
     RECURSION_LIMIT: int  # Max LangGraph steps (default: 20)
 
-    def _build()          # Lazy-init: create LLM + create_react_agent + ToolNode
+    def _select_llm(llm_override)  # Hook: local → cloud-upgrade → None. Override to inject a domain-specific model before base logic runs (e.g. CodeSubAgent)
+    def _build()          # Lazy-init: calls _select_llm(), installs _NullAgent on failure, wraps tools, builds ToolNode + create_react_agent
     def run(question)     # Invoke the ReAct agent and return text
     def _fallback()       # Programmatic data gathering when LLM can't call tools
 ```
@@ -106,8 +114,9 @@ class _SubAgent:
 
 1. **Lazy initialisation** — LLM and agent are built on first `run()` call, not at import time
 2. **Parallel tool execution** — `ToolNode` runs all tool calls from a single `AIMessage` concurrently via `ThreadPoolExecutor`
-3. **Cloud upgrade** — If local model context window < 12,000 tokens, automatically promotes to cloud LLM
-4. **Strategy fallback** — When LLM tool-calling fails entirely (e.g. gemma4 with 4k context), `_fallback()` collects data via direct Python function calls, then a single LLM synthesis call produces the narrative
+3. **Hook Method for LLM selection** — `_select_llm(llm_override)` encapsulates the full local→cloud-upgrade→None resolution. Subclasses that need a domain-specific model (e.g. `CodeSubAgent` with `CODE_LLM_PROVIDER`) override only `_select_llm()` and call `super()._select_llm(llm_override)`. `_build()` assembly logic is never duplicated.
+4. **Null Object for absent LLM** — `_build()` always assigns `self._agent`: a real LangGraph agent or `_NullAgent()`. `run()` needs no `None` guard; `_NullAgent.stream()` raises `"not support tool calling"` which hits the existing error handler → `_confirm_fallback()`. New no-LLM modes = one class to change.
+5. **Strategy fallback** — When LLM tool-calling fails entirely (e.g. gemma4 with 4k context), `_fallback()` collects data via direct Python function calls, then a single LLM synthesis call produces the narrative
 
 ---
 
@@ -121,50 +130,60 @@ class _SubAgent:
 
 ### IndianEquityResearchSubAgent
 
-- **Purpose:** NSE/BSE company research — price, earnings, cashflow, holdings, news
-- **Tools (~15):** `resolve_company`, Yahoo Finance, earnings, cashflow, MF holdings, FII/DII, news, `plot_price_chart`
-- **Recursion limit:** 40 (needs more steps for parallel multi-tool batches)
-- **Workflow:** Round 1 → resolve symbol; Round 2 → emit all data-fetching tools in parallel
-- **Fallback:** `_gather_indian_equity_data()` — programmatic data collection
+- **Purpose:** NSE/BSE company research — price, earnings, cashflow, holdings, news, anomaly correlation
+- **Tools (~19):** `resolve_company`, Yahoo Finance, `get_quarterly_results`, `get_stock_cashflow`, `get_db_price_summary`, `plot_price_chart`, `plot_shareholding_bar`, `plot_macd_chart`, `get_mf_holdings_for_stock`, `get_stock_news`, `get_newsapi_stock_news`, `query_clickhouse_db`, `import_symbol_data`, `check_and_refresh_symbol_data`, `search_anomaly_events`, `find_anomaly_correlations`, `publish_research_pdf`, `publish_consolidated_pdf`
+- **Recursion limit:** 50 (needs more steps for parallel multi-tool batches + anomaly correlation)
+- **Workflow:** Round 1 → resolve symbol; Round 2 → emit all data-fetching tools in parallel in one AIMessage
+- **Fallback:** `_gather_indian_equity_data()` in `equity_gatherer.py` — programmatic data collection
 
 ### SignalSubAgent
 
 - **Purpose:** ETF composite scores, ML prediction, Kelly weights, GARCH vol-targeting, iNAV, and anomaly explanation
-- **Tools (~15):** `run_daily_signal_composite`, `run_goldbees_pipeline`, `run_risk_governor_analysis`, `run_etf_news_sentiment`, `run_premium_alerts`, `get_live_inav`, `query_clickhouse_db`, `explain_price_anomalies`, 5× `plot_*` chart tools
+- **Tools (~19):** `run_daily_signal_composite`, `run_goldbees_pipeline`, `run_etf_news_sentiment`, `run_risk_governor_analysis`, `run_premium_alerts`, `get_live_inav`, `query_clickhouse_db`, `explain_price_anomalies`, `search_anomaly_events`, `find_anomaly_correlations`, `plot_price_chart`, `plot_signal_scores`, `plot_signal_breakdown`, `plot_weight_recommendations`, `plot_garch_volatility_chart`, `plot_multi_price_chart`, `plot_macd_chart`, `get_shoonya_quotes`, `get_shoonya_live_tick`, `publish_consolidated_pdf`
 - **Rule:** Never invent composite scores or regime labels — only narrate tool output
 - **Anomaly tool:** `explain_price_anomalies` calls `run_composite_anomaly` (GARCH + IF + MAD-Z) on full OHLCV history, surfaces per-date `regime` + `Final Z`, correlates news, and appends ML forward context (`ml_prediction_asof`, `signal_composite_asof`) — always invoke `plot_price_chart` in parallel
 - **Fallback (`_fallback`):** keyword-routed programmatic path for local models that can't emit tool-call JSON. Detects intent from the question and calls tools directly — *anomaly/spike/crash* → `explain_price_anomalies` + `plot_price_chart`; *signal/pipeline/goldbees* → `run_goldbees_pipeline`; *composite/score* → `run_daily_signal_composite`. Extracts symbol + time window (`30 days`, `3 months`, `1 year`) from the prompt, then runs an optional single LLM synthesis pass over the tool output.
 
 ### MacroSubAgent
 
-- **Purpose:** COMEX pre-market, FII/DII flows, macro themes, geopolitics
-- **Tools (~10):** `fetch_all_comex_signals`, `run_macro_theme_scanner`, `collate_news_sentiment`, `get_fii_dii_summary`, `plot_*` charts
+- **Purpose:** COMEX pre-market, FII/DII flows, macro themes, geopolitics, market indicators, DXY
+- **Tools (~12):** `run_macro_scanner`, `run_comex_analysis`, `query_clickhouse_db`, `run_whale_tracker`, `run_market_indicators`, `get_dxy_context`, `search_financial_news`, `get_db_news`, `find_anomaly_correlations`, `plot_fii_dii_chart`, `plot_price_chart`, `plot_dxy_chart`
+
+### MFSubAgent
+
+- **Purpose:** Indian mutual-fund analysis — holdings, NAV returns, cross-fund consensus, whale tracking
+- **Tools (~12):** `run_multi_asset_holdings_mom_yoy`, `run_multi_asset_consensus`, `run_whale_tracker`, `run_dsp_multi_asset_comparison`, `run_fund_mom_returns`, `run_dsp_multi_asset_importer`, `run_nippon_importer`, `get_mf_holdings_for_stock`, `plot_fund_holdings_chart`, `plot_price_chart`, `query_clickhouse_db`, `publish_consolidated_pdf`
+- **Recursion limit:** 30
+- **Routing keywords:** "mutual fund", "DSP multi asset", "cross-fund consensus", "which funds hold", "NAV return", "holding pattern"
+- **Fallback:** keyword-routed — `consensus/pattern` → `run_multi_asset_consensus`; `mom/yoy/changes` → `run_multi_asset_holdings_mom_yoy`; `which funds hold` → `get_mf_holdings_for_stock`; `whale/theme` → `run_whale_tracker`; `nav return` → `run_fund_mom_returns`
 
 ### NewsSubAgent
 
-- **Purpose:** Latest news headlines and sentiment per stock/ETF
-- **Tools (~5):** `get_stock_news`, `get_newsapi_stock_news`, `get_etf_news_sentiment`, `query_clickhouse_db`
+- **Purpose:** Latest news headlines, sentiment, and anomaly explanation per stock/ETF
+- **Tools (~12):** `resolve_company`, `get_stock_news`, `get_newsapi_stock_news`, `search_financial_news`, `get_db_news`, `run_etf_news_sentiment`, `explain_price_anomalies`, `search_anomaly_events`, `find_anomaly_correlations`, `plot_price_chart`, `publish_research_pdf`, `publish_consolidated_pdf`
 
 ### CodeSubAgent
 
-- **Purpose:** Ad-hoc Python execution and ClickHouse queries
-- **Tools (~5):** `exec_python_snippet`, `query_clickhouse_db`, `import_symbol_data`, `run_data_engineering_importer`
+- **Purpose:** Ad-hoc Python execution, ClickHouse queries, script writing
+- **Tools:** `CODE_TOOLS` + `query_clickhouse_db` + `CHART_TOOLS`
+- **LLM hook:** Overrides `_select_llm()` — tries `_build_code_llm()` (`CODE_LLM_PROVIDER`) first; if unavailable falls through to `super()._select_llm()` (standard local → cloud upgrade). No `_build()` override needed.
 
 ### DatabaseSubAgent
 
-- **Purpose:** ClickHouse schema inspection, watermarks, data freshness
-- **Tools (~5):** `query_clickhouse_db`, `describe_schema`, `show_watermarks`, `query_raw_db_table`
+- **Purpose:** ClickHouse schema inspection, watermarks, data freshness, NL → SQL
+- **Tools:** `DB_TOOLS` + `CHART_TOOLS` (all chart tools included for post-query visualisation)
 
 ### IntlETFSubAgent
 
-- **Purpose:** International ETF analysis (MAFANG, HNGSNGBEES, Nasdaq 100)
-- **Tools (~8):** `get_intl_etf_performance`, `get_intl_etf_premium`, `plot_intl_etf_*`
+- **Purpose:** International ETFs (MAFANG, HNGSNGBEES, MON100, MASPTOP50, MAHKTECH, MONQ50) — performance, scarcity premium, regimes, seasonality, correlation, LightGBM feature importance, drawdowns
+- **Tools (~9):** `INTL_ETF_TOOLS` + `plot_intl_etf_performance` + `plot_intl_etf_premium` + `plot_price_chart`
 
-### ResearchSubAgent / AutonomousResearchAgent
+### AutonomousResearchAgent (`research`)
 
-- **Purpose:** Multi-domain cross-asset research combining fundamentals, ML, macro, news, MF holdings
-- **Tools (~30):** Union of most tool sets
-- **Use case:** Complex comparative questions ("gold vs silver positioning", "best ETF this quarter")
+- **Purpose:** Multi-domain, self-directed 10-layer research framework: entity resolution → price/momentum → fundamentals → institutional footprint → macro → news intelligence → volatility/signals → correlation/ML → visualisation → synthesis
+- **Tools (~30):** Union of Yahoo Finance, Indian equity, skills, macro, news, intl ETF, code execution, chart, and `AGENT_TOOLS` (delegation tools: `delegate_to_signal_agent`, `delegate_to_macro_agent`, `delegate_to_intl_etf_agent`, `delegate_to_news_agent`, `delegate_to_india_equity_agent`, `check_and_refresh_symbol_data`)
+- **Recursion limit:** 50
+- **Delegation:** Can hand off to specialised sub-agents for GOLDBEES ML, COMEX commodities, intl ETF deep dives, multi-source news sweeps, or full equity research notes
 
 ---
 
@@ -221,7 +240,7 @@ Enforces per-run resource limits. Raises `BudgetExceededError(RuntimeError)` on 
 Both callbacks are **auto-attached** in `run_subagent_for()` — no per-agent wiring needed:
 
 ```python
-# src/agents/sub_agents.py — run_subagent_for()
+# src/agents/sub_agents/registry.py — run_subagent_for()
 callbacks = [TracingCallbackHandler(run_id, agent=intent), BudgetCallbackHandler()]
 answer = subagent.run(question, callbacks=callbacks)
 ```
@@ -248,7 +267,7 @@ This is the **second storage engine** in the platform: ClickHouse holds market d
 
 ### No LLM Calculations
 
-Every agent system prompt includes the `NO_LLM_CALC_RULE` (defined in `src/agents/sub_agents.py`):
+Every agent system prompt includes the `NO_LLM_CALC_RULE` (defined in `src/agents/sub_agents/prompts.py`):
 
 > **NEVER compute, estimate, or derive any number** (returns, ratios, averages, percentages, scores, sums, differences, CAGR, PE, Kelly fractions, etc.) inside your response. ALL numeric work MUST be performed by a tool call (Python, SQL, or a dedicated function). You may ONLY narrate or format numbers that were returned verbatim by a tool.
 
@@ -430,13 +449,14 @@ graph TB
 
     subgraph "Sub-Agents (LangGraph ReAct + ToolNode)"
         DD["DeepDive<br/>~6 tools"]
-        IE["IndianEquity<br/>~15 tools"]
-        SIG["Signal<br/>~14 tools"]
-        MAC["Macro<br/>~10 tools"]
-        NEWS["News<br/>~5 tools"]
-        CODE["Code<br/>~5 tools"]
-        DB["Database<br/>~5 tools"]
-        INTL["IntlETF<br/>~8 tools"]
+        IE["IndianEquity<br/>~19 tools"]
+        SIG["Signal<br/>~19 tools"]
+        MAC["Macro<br/>~12 tools"]
+        MF["MF<br/>~12 tools"]
+        NEWS["News<br/>~12 tools"]
+        CODE["Code<br/>CODE_TOOLS"]
+        DB["Database<br/>DB+CHART_TOOLS"]
+        INTL["IntlETF<br/>~9 tools"]
         RES["Research<br/>~30 tools"]
     end
 
@@ -458,34 +478,59 @@ graph TB
     CLI --> IR
     MCP --> CLI
     IR -->|fallback| RX
-    IR --> DD & IE & SIG & MAC & NEWS & CODE & DB & INTL & RES
-    DD & IE & SIG & MAC & NEWS & CODE & DB & INTL & RES -.->|auto| TRC & BUD
-    DD & IE & SIG & MAC & NEWS & CODE & DB & INTL & RES --> T
+    IR --> DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES
+    DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES -.->|auto| TRC & BUD
+    DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES --> T
     COMEX & NSENT --> T
     T --> REPO --> CH
     TRC --> CH
-    DD & IE & SIG & MAC & NEWS & CODE & DB & INTL & RES -.->|cache| SQLITE
+    DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES -.->|cache| SQLITE
 ```
 
 ---
 
 ## Adding a New Sub-Agent
 
-1. Create a subclass of `_SubAgent` in `src/agents/sub_agents.py`:
+1. Create `src/agents/sub_agents/<name>.py` with a subclass of `_SubAgent`:
 
 ```python
+from __future__ import annotations
+import logging
+from .base import _SubAgent
+
+logger = logging.getLogger(__name__)
+
+
 class MySubAgent(_SubAgent):
     SYSTEM_PROMPT = "You are a specialist in ..."
     RECURSION_LIMIT = 20
 
-    @property
-    def TOOLS(self):
-        return [my_tool_1, my_tool_2]
+    def _get_tools(self) -> list:
+        from src.tools.my_tools import MY_TOOLS
+        return MY_TOOLS
+
+    # Optional: override only if this agent needs a domain-specific LLM
+    # (e.g. a cheaper model for classification, a larger one for long reports)
+    def _select_llm(self, llm_override=None):
+        if llm_override is None:
+            # inject domain-specific model here, then fall through
+            pass
+        return super()._select_llm(llm_override)
 ```
 
-2. Register the intent in `route_intent()` (regex) and `_ROUTER_SYSTEM_PROMPT` (LLM router)
-3. Add the sub-agent to the `_SUBAGENT_MAP` dict
-4. The `NO_LLM_CALC_RULE` and middleware (tracer + budget) are attached automatically
+2. Import and register in `src/agents/sub_agents/registry.py`:
+   - Add `from .my_module import MySubAgent` at the top
+   - Add `"my_intent": MySubAgent` to `cls_map` inside `get_subagent()`
+
+3. Re-export from `src/agents/sub_agents/__init__.py`:
+   - Add `from .my_module import MySubAgent`
+   - Add `"MySubAgent"` to `__all__`
+
+4. Add the intent to routing:
+   - `src/agents/sub_agents/routing.py` → add a compiled regex constant, then `insert()` a `(pattern, "my_intent")` tuple at the correct position in `_PRE_PLOT_TABLE`, `_VIZ_ROUTE_TABLE`, or `_POST_PLOT_TABLE`
+   - `src/agents/intent_router.py` → add the intent to `_ROUTER_SYSTEM_PROMPT` for the LLM router
+
+5. The `NO_LLM_CALC_RULE` and middleware (tracer + budget) are attached automatically — no per-agent wiring needed
 
 ---
 

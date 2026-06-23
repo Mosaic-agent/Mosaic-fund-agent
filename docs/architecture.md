@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-06-06
+> Last updated: 2026-06-23
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -16,6 +16,10 @@ The codebase is built on four patterns that keep it extensible and testable. Und
 | **Adapter** | `src/importer/fetchers/` | Every data source implements one `Fetcher` ABC (`fetch → validate → insert`). Add a source = one class + one registry entry. |
 | **Strategy** | `src/agents/signal_sources.py` | Each composite-score pillar is a `SignalSource` subclass. Add a pillar = one class + one list append; the aggregator runs them all in parallel. |
 | **Observer** | `src/events/bus.py` | A live import publishes one `DataImportedEvent`; cache-invalidation, ML re-prediction, signal refresh, and sanity checks all react independently. |
+| **Façade** | `src/agents/sub_agents/` | The sub-agents package exposes a single `__init__.py` that re-exports all 20+ public and private symbols. Internal module layout (17 files) is hidden; all callers keep `from src.agents.sub_agents import X` unchanged. |
+| **Null Object** | `src/agents/sub_agents/base.py` | `_build()` always assigns `self._agent` — either a real LangGraph agent or `_NullAgent()`. `run()` needs no `None` guard; `_NullAgent.stream()` raises into the existing error handler → `_confirm_fallback()`. New "no-LLM" behaviour lives in one class. |
+| **Hook Method** | `src/agents/sub_agents/base.py` | `_SubAgent._select_llm(llm_override)` is a single overridable hook for LLM selection (local → cloud upgrade → `None`). Subclasses override only this hook to inject a domain-specific model; `_build()` assembly logic is never duplicated. |
+| **Table-driven routing** | `src/agents/sub_agents/routing.py` | Three ordered tables (`_PRE_PLOT_TABLE`, `_VIZ_ROUTE_TABLE`, `_POST_PLOT_TABLE`) replace a 45-line if-elif block. Priority is explicit by list index; adding a new intent = one `insert()` at the right position. |
 
 Two cross-cutting rules:
 
@@ -74,6 +78,25 @@ src/
   agents/
     signal_aggregator.py  Composite score orchestrator — parallel Strategy sources
     signal_sources.py     Strategy pattern: SignalSource ABC + 5 pillars + GARCHAnomalySource
+    intent_router.py      LLM-based intent router (Haiku / gpt-4o-mini) with regex fallback
+    sub_agents/           Façade package — 10 specialised sub-agents + routing + registry
+      __init__.py         Re-exports all public + private symbols; zero call-site changes
+      base.py             _SubAgent Template Method base + _get_message_text
+      infra.py            Per-turn dedup cache, context trimmer, thinking-block printer
+      prompts.py          NO_LLM_CALC_RULE, indicator-typo fixups
+      routing.py          12 regex patterns + _fast_path_intent / route_intent / _regex_route_intent
+      registry.py         get_subagent(), run_subagent_for(), _registry singleton
+      equity_gatherer.py  _gather_indian_equity_data (programmatic, tool-calling-free)
+      deepdive.py         DeepDiveSubAgent — US SEC/EDGAR research
+      india_equity.py     IndianEquityResearchSubAgent — NSE/BSE 8-section research note
+      signal.py           SignalSubAgent — ETF composite scores, GOLDBEES ML, Kelly weights
+      macro.py            MacroSubAgent — COMEX, FII/DII, macro themes
+      mf.py               MFSubAgent — fund holdings, NAV returns, cross-fund consensus
+      intl_etf.py         IntlETFSubAgent — 6 overseas ETFs, scarcity premium, regimes
+      news.py             NewsSubAgent — headlines + sentiment
+      database.py         DatabaseSubAgent — NL → ClickHouse SQL
+      code.py             CodeSubAgent — ad-hoc Python execution and scripting
+      research.py         AutonomousResearchAgent — multi-domain 10-layer research framework
   analyzers/              Per-asset and portfolio-level enrichment
   clients/
     mcp_client.py         Zerodha Kite MCP (JSON-RPC 2.0)
@@ -450,7 +473,7 @@ The `*_asof(date)` variants enable **point-in-time queries** — used by `explai
 
 > **Full reference:** [docs/agent-architecture.md](agent-architecture.md) — intent routing, sub-agent catalogue, middleware (tracer + budget), mandatory rules, request flows, observability queries.
 
-The platform employs a **Multi-Agent Orchestrator** pattern. A main `MosaicFundAgent` uses an **LLM-based Intent Router** (`src/agents/intent_router.py`, with regex fallback in `src/agents/sub_agents.py`) to delegate user queries to 10 specialised sub-agents. Every sub-agent invocation auto-attaches **TracingCallbackHandler** (→ `agent_traces` table) and **BudgetCallbackHandler** (20 calls / 30k tokens / 180s wall-clock). All agent prompts include the **NO_LLM_CALC_RULE** — the LLM may never compute any number; all numeric work must come from tool output.
+The platform employs a **Multi-Agent Orchestrator** pattern. A main `MosaicFundAgent` uses an **LLM-based Intent Router** (`src/agents/intent_router.py`, with regex fallback in `src/agents/sub_agents/routing.py`) to delegate user queries to 10 specialised sub-agents. Sub-agents are organised as a **Façade package** (`src/agents/sub_agents/`) — one class per file, with `__init__.py` re-exporting every public and private symbol so all external callers (`chat_cmd`, `mosaic_fund_agent`, `agent_tools`, tests) use unchanged `from src.agents.sub_agents import X` imports. Every sub-agent invocation auto-attaches **TracingCallbackHandler** (→ `agent_traces` table) and **BudgetCallbackHandler** (20 calls / 30k tokens / 180s wall-clock). All agent prompts include the **NO_LLM_CALC_RULE** — the LLM may never compute any number; all numeric work must come from tool output.
 
 | Sub-Agent | Purpose | Tools |
 |---|---|---|

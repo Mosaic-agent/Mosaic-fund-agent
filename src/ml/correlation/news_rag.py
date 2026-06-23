@@ -33,6 +33,9 @@ _EMBED_MODEL = "nomic-embed-text"
 _EMBED_DIM = 768
 _CACHE_DIR = Path("data/.cache/embeddings")
 
+# Warn once per process when Ollama is unreachable; subsequent failures go to DEBUG.
+_ollama_warned = False
+
 # ── Embedding primitives ──────────────────────────────────────────────────────
 
 
@@ -74,7 +77,12 @@ def embed_text(text: str) -> list[float]:
         # Ollama returns {"embeddings": [[...]]} for /api/embed
         vec = data["embeddings"][0]
     except Exception as e:
-        log.warning("Ollama embed failed: %s", e)
+        global _ollama_warned
+        if not _ollama_warned:
+            log.warning("Ollama embed unavailable — semantic scoring disabled (set OLLAMA_HOST to enable): %s", e)
+            _ollama_warned = True
+        else:
+            log.debug("Ollama embed failed: %s", e)
         return [0.0] * _EMBED_DIM
 
     # Cache to disk
@@ -206,7 +214,7 @@ def _load_exemplars() -> dict:
     try:
         exemplars = json.loads(_EXEMPLARS_PATH.read_text())
     except Exception as e:
-        log.warning("Could not load news quality exemplars: %s", e)
+        log.debug("Could not load news quality exemplars (falling back to neutral weight=0.20): %s", e)
         _exemplar_cache = {"texts": [], "weights": [], "vectors": []}
         return _exemplar_cache
 

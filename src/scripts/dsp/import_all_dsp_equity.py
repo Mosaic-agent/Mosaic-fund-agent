@@ -218,7 +218,11 @@ def process_month(as_of_str, url):
                 continue
 
             # --- Detect pct scale once per sheet ---
-            valid_pcts = [r[4] for r in raw_rows if not pd.isna(r[4])]
+            # Exclude outlier pct values (>200) before scale detection so that a
+            # rogue total/AUM row doesn't force pct_scale=1.0 on decimal-form sheets.
+            valid_pcts = [r[4] for r in raw_rows if not pd.isna(r[4]) and r[4] <= 200.0]
+            if not valid_pcts:
+                valid_pcts = [r[4] for r in raw_rows if not pd.isna(r[4])]
             max_pct = max(valid_pcts) if valid_pcts else 0.0
             pct_scale = 1.0 if max_pct > 1.0 else (100.0 if max_pct > 0.0 else 1.0)
             
@@ -241,6 +245,15 @@ def process_month(as_of_str, url):
                 else:
                     continue
 
+                pct_of_nav = round(pct_raw * pct_scale, 4)
+                # Guard: no single holding in a diversified fund can exceed 50%
+                # of NAV. Values >50 indicate a rogue Excel row (e.g. the fund's
+                # own NAV total leaked into the pct column) — skip it.
+                if pct_of_nav > 50.0:
+                    console.print(
+                        f"[yellow]  Skipping '{name}' — pct_of_nav={pct_of_nav:.2f} exceeds 50% guard[/yellow]"
+                    )
+                    continue
                 sheet_holdings.append({
                     "scheme_code": scheme_code,
                     "fund_name": fund_name,
@@ -249,7 +262,7 @@ def process_month(as_of_str, url):
                     "security_name": name,
                     "asset_type": classify_asset(name, sector),
                     "market_value_cr": round(mv_lakhs / 100, 4),   # Lakhs → Crores
-                    "pct_of_nav": round(pct_raw * pct_scale, 4),
+                    "pct_of_nav": pct_of_nav,
                     "imported_at": imported_at,
                 })
 

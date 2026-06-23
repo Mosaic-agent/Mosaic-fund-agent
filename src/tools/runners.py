@@ -70,12 +70,144 @@ def run_etf_news_sentiment(max_articles: int = 3, save: bool = True) -> str:
 
 
 @tool
-def run_dsp_multi_asset_importer() -> str:
+def run_dsp_multi_asset_importer(full: bool = False) -> str:
     """
-    Import and backfill DSP Multi Asset Allocation Fund holdings history into the ClickHouse database.
-    Use this when asked to import or update DSP holdings data.
+    Import DSP Mutual Fund portfolio holdings into ClickHouse.
+
+    Default (full=False): delta sync — discovers and imports only the latest
+    month from dspim.com (fast, ~5–10s). Use this for "import DSP holdings",
+    "refresh DSP data", "import DSP May holdings", etc.
+
+    Set full=True to re-import the entire 32-month history. Use only when
+    asked to "backfill", "re-import all DSP history", or "full DSP import".
     """
-    return _run_cmd(["src/scripts/dsp/import_all_dsp_equity.py"])
+    if full:
+        return _run_cmd(["src/scripts/dsp/import_all_dsp_equity.py"])
+    return _run_cmd(["src/scripts/dsp/import_latest_dsp.py"])
+
+
+@tool
+def run_nippon_importer(full: bool = False) -> str:
+    """
+    Import Nippon India Mutual Fund portfolio holdings into ClickHouse.
+
+    Default (full=False): delta sync — imports only the latest month not yet
+    in the database (fast). Use this for "import Nippon holdings",
+    "refresh Nippon data", "import Nippon May holdings", etc.
+
+    Set full=True to re-import the entire history. Use only when asked to
+    "backfill", "re-import all Nippon history", or "full Nippon import".
+    """
+    args = ["src/main.py", "import", "--category", "nippon"]
+    if full:
+        args.append("--full")
+    return _run_cmd_streaming(args)
+
+
+@tool
+def run_multi_asset_holdings_mom_yoy(
+    fund: str = "",
+    scheme_code: str = "",
+    search: str = "",
+    top: int = 15,
+    no_yoy: bool = False,
+    list_funds: bool = False,
+) -> str:
+    """
+    Analyse position-level Month-over-Month (MoM) and Year-over-Year (YoY)
+    holdings changes for a multi-asset (or any) Indian mutual fund stored in
+    `market_data.mf_holdings`.
+
+    Different from `run_fund_mom_returns` (which is NAV-only): this tool shows
+    what the fund manager actually bought, sold, increased, or trimmed at the
+    security level, plus a roll-up of asset-class weight shifts.
+
+    Use this when the user asks:
+      • "How did DSP Multi Asset change MoM?"
+      • "Show YoY position changes for Bajaj Multi Asset"
+      • "What did Nippon Multi Asset add or trim this month?"
+      • "Asset-class weight shift in DSP Multi Asset over 12 months"
+
+    Args:
+        fund:        Exact fund_name in mf_holdings (e.g. 'DSP_MULTI_ASSET').
+        scheme_code: Numeric/code identifier (e.g. '152056').
+        search:      Fuzzy fund_name search (e.g. 'DSP Multi'); takes first match.
+        top:         Top N MoM/YoY movers to display (default 15).
+        no_yoy:      Skip the YoY block when history is < 13 months.
+        list_funds:  List every fund with ≥2 months of holdings and return.
+
+    Provide at least one of fund / scheme_code / search (unless list_funds=True).
+    """
+    args = ["src/scripts/portfolio/multi_asset_holdings_mom_yoy.py"]
+    if list_funds:
+        args.append("--list")
+    else:
+        if not (fund or scheme_code or search):
+            return (
+                "FUND_REQUIRED: Provide fund, scheme_code, or search; "
+                "or set list_funds=True to discover available funds."
+            )
+        if fund:
+            args.extend(["--fund", fund])
+        if scheme_code:
+            args.extend(["--scheme", str(scheme_code)])
+        if search:
+            args.extend(["--search", search])
+        args.extend(["--top", str(top)])
+        if no_yoy:
+            args.append("--no-yoy")
+    return _run_cmd(args)
+
+
+@tool
+def run_multi_asset_consensus(
+    period: str = "mom",
+    min_funds: int = 2,
+    min_delta: float = 0.10,
+    asset: str = "",
+    top: int = 15,
+    no_rotation: bool = False,
+) -> str:
+    """
+    Cross-fund pattern detector across all 7 multi-asset Indian mutual funds in
+    `market_data.mf_holdings` (Nippon, Nippon FoF, DSP, DSP Omni, Bajaj, Quant,
+    ICICI).
+
+    Different from `run_multi_asset_holdings_mom_yoy` (single fund) and
+    `run_whale_tracker` (theme-level, predefined ETF baskets): this tool finds
+    **consensus signals** — securities and asset classes that *multiple
+    multi-asset funds* are simultaneously adding to or trimming from. The
+    institutional "smart money overlap" signal.
+
+    Use this when the user asks:
+      • "What are multi-asset funds collectively buying / selling?"
+      • "Any pattern across multi-asset funds?"
+      • "Smart-money consensus this month?"
+      • "Are funds rotating from cash/bond to gold?"
+      • "Which gold/equity name has multi-fund consensus?"
+
+    Args:
+        period:      'mom' (latest vs prev month, default) or 'yoy' (vs 12 months back).
+        min_funds:   Min # of funds moving the same way to count as consensus (default 2).
+        min_delta:   Min |Δ pct-pts| per fund to count as add/trim (default 0.10).
+        asset:       Optional filter — restrict to a single asset_type (e.g. 'gold', 'equity', 'bond').
+        top:         Top N rows to show per side (default 15).
+        no_rotation: Skip the asset-class rotation roll-up.
+    """
+    if period not in ("mom", "yoy"):
+        return f"INVALID_PERIOD: '{period}' — must be 'mom' or 'yoy'."
+    args = [
+        "src/scripts/portfolio/multi_asset_consensus.py",
+        "--period", period,
+        "--min-funds", str(min_funds),
+        "--min-delta", str(min_delta),
+        "--top", str(top),
+    ]
+    if asset:
+        args.extend(["--asset", asset])
+    if no_rotation:
+        args.append("--no-rotation")
+    return _run_cmd(args)
 
 
 @tool
@@ -201,6 +333,9 @@ RUNNER_TOOLS = [
     run_macro_scanner,
     run_etf_news_sentiment,
     run_dsp_multi_asset_importer,
+    run_nippon_importer,
+    run_multi_asset_holdings_mom_yoy,
+    run_multi_asset_consensus,
     run_data_engineering_importer,
     run_comex_analysis,
     run_whale_tracker,
