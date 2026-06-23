@@ -244,8 +244,15 @@
     .anom-step.done { opacity: 1; color: var(--text); border-color: var(--gold-bd); box-shadow: var(--sh-sm); transform: translateY(-1px); }
     .anom-step.done .anom-check { opacity: 1; }
     .anom-arrow { color: var(--gold-dk); font-size: 16px; opacity: .5; }
+    .anom-step.active { color: var(--text); border-color: var(--gold-dk); box-shadow: 0 0 0 3px var(--gold-bd); }
+    /* Charts revealed in sync with the stepper phases */
+    .anom-chart { opacity: 0; transform: translateY(22px); transition: opacity .6s ease, transform .6s ease; }
+    .anom-chart.shown { opacity: 1; transform: none; }
     @media (max-width: 680px) { .anom-arrow { transform: rotate(90deg); } .anomaly-pipeline { flex-direction: column; } }
-    @media (prefers-reduced-motion: reduce) { .anom-step { opacity: 1; } .anom-step .anom-check { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+      .anom-step { opacity: 1; } .anom-step .anom-check { opacity: 1; }
+      .anom-chart { opacity: 1; transform: none; transition: none; }
+    }
 
     /* ── "Who it's for" chooser ─────────────────────────────────── */
     .paths-section { background: var(--bg1); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -673,7 +680,7 @@
     </div>
 
     <div class="gallery-grid">
-      <div class="gallery-item reveal">
+      <div class="gallery-item anom-chart" id="anomChart1">
         <img src="screenshots/correlation_timeline.png" alt="Event correlation timeline — anomalies mapped to triggers" loading="lazy" />
         <div class="gallery-caption">
           <div class="gc-title">🔗 Event Correlation Timeline — every shock mapped to a cause</div>
@@ -681,7 +688,7 @@
         </div>
       </div>
 
-      <div class="gallery-item reveal">
+      <div class="gallery-item anom-chart" id="anomChart2">
         <img src="screenshots/lead_lag_grid.png" alt="Anomaly lead-lag feature grid" loading="lazy" />
         <div class="gallery-caption">
           <div class="gc-title">⏱️ Lead-Lag Grid — reaction or insider leak?</div>
@@ -1560,11 +1567,30 @@ const QUERIES = {
   const pipe = document.getElementById('anomalyPipe');
   if (!pipe) return;
   const steps = [...pipe.querySelectorAll('.anom-step')];
+  const chart1 = document.getElementById('anomChart1');  // correlation timeline
+  const chart2 = document.getElementById('anomChart2');  // lead-lag grid
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Charts reveal as their phase completes: timeline at 'Correlate' (step 1),
+  // grid at 'Lead/lag' (step 2). Map step index → chart to show on completion.
+  const chartForStep = { 1: chart1, 2: chart2 };
+
   function play() {
-    if (reduce) { steps.forEach(s => s.classList.add('done')); return; }
-    steps.forEach((s, i) => setTimeout(() => s.classList.add('done'), 350 + i * 550));
+    if (reduce) {
+      steps.forEach(s => s.classList.add('done'));
+      [chart1, chart2].forEach(c => c && c.classList.add('shown'));
+      return;
+    }
+    const STEP = 700;  // ms between phases
+    steps.forEach((s, i) => {
+      // brief 'active' (processing) state, then 'done'
+      setTimeout(() => s.classList.add('active'), i * STEP);
+      setTimeout(() => {
+        s.classList.remove('active');
+        s.classList.add('done');
+        if (chartForStep[i]) chartForStep[i].classList.add('shown');
+      }, i * STEP + 450);
+    });
   }
 
   const obs = new IntersectionObserver((entries) => {
