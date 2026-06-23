@@ -475,11 +475,10 @@
       <img src="logo.png" alt="Mosaic Fund Agent" style="height:104px;width:auto;flex-shrink:0" />
     </div>
     <div class="nav-links">
+      <a href="#paths">Who it's for</a>
+      <a href="#gallery">Screenshots</a>
       <a href="#why">Why</a>
-      <a href="#dashboard">Dashboard</a>
       <a href="#how">How it works</a>
-      <a href="#features">Features</a>
-      <a href="#agents">Agents</a>
       <a href="#quickstart">Quick Start</a>
       <a href="#docs">Docs</a>
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" class="nav-cta">GitHub →</a>
@@ -504,9 +503,9 @@
 
     <div class="hero-actions">
       <a href="#quickstart" class="btn-primary">
-        🚀 Launch the dashboard
+        🚀 Get started in 5 minutes
       </a>
-      <a href="#dashboard" class="btn-outline">
+      <a href="#gallery" class="btn-outline">
         See it first →
       </a>
     </div>
@@ -573,12 +572,48 @@
   </div>
 </section>
 
+<!-- ── WHO IT'S FOR ───────────────────────────────────────────────── -->
+<section class="section paths-section" id="paths">
+  <div class="container">
+    <div class="section-label">Who it's for</div>
+    <h2 class="section-title">Quant-grade tools, built for retail investors</h2>
+    <p class="section-body">Hedge-fund techniques — ML forecasts, GARCH volatility, institutional flow tracking — packaged so you can use them without a quant degree.</p>
+
+    <div class="paths-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+      <a href="#gallery" class="path-card">
+        <div class="path-num">🎯</div>
+        <h3>ETF traders</h3>
+        <p>"I trade GOLDBEES, SILVERBEES, NIFTYBEES. I want a daily signal — not gut feel." Composite 0–100 score across 6 pillars, iNAV premium alert, and a clear BUY / HOLD / AVOID with recommended position weight.</p>
+        <span class="path-go">See today's signals →</span>
+      </a>
+      <a href="#gallery" class="path-card">
+        <div class="path-num">🏦</div>
+        <h3>MF watchers</h3>
+        <p>"I want to know what DSP, Nippon, and Bajaj are buying before the market prices it in." Track 7 multi-asset funds month-by-month. Cross-fund consensus = the strongest single-name conviction signal.</p>
+        <span class="path-go">See institutional holdings →</span>
+      </a>
+      <a href="#gallery" class="path-card">
+        <div class="path-num">📊</div>
+        <h3>Zerodha users</h3>
+        <p>"I want to know if my portfolio is actually at risk, not just whether it's green today." Connect your live Kite account. Mosaic analyzes each holding — price momentum, earnings, news, MF ownership — and flags concentration risk.</p>
+        <span class="path-go">Analyze your portfolio →</span>
+      </a>
+      <a href="#quickstart" class="path-card">
+        <div class="path-num">🔍</div>
+        <h3>Stock researchers</h3>
+        <p>"I spend 3 hours pulling data before I can even start analyzing." Ask in plain English. Mosaic fetches price history, quarterly results, MF holdings, news, and anomaly correlations in parallel — synthesised in seconds.</p>
+        <span class="path-go">Try a deep dive →</span>
+      </a>
+    </div>
+  </div>
+</section>
+
 <!-- ── SCREENSHOT GALLERY ────────────────────────────────────────── -->
 <section class="section-sm gallery-section" id="gallery">
   <div class="container">
     <div class="section-label">Live screenshots</div>
-    <h2 class="section-title">The real dashboard</h2>
-    <p class="section-body">Every tab runs against your live ClickHouse data. No demo mode, no sample data.</p>
+    <h2 class="section-title">See it actually work</h2>
+    <p class="section-body">Every screen runs against live ClickHouse data. No demo mode, no sample data, no mockups.</p>
 
     <!-- Row 1: full-width featured — the CLI showing it's conversational -->
     <div class="gallery-featured">
@@ -636,121 +671,11 @@
         </div>
       </div>
     </div>
-  </div>
-</section>
 
-<!-- ── WHO IT'S FOR ───────────────────────────────────────────────── -->
-<section class="section paths-section" id="paths">
-  <div class="container">
-    <div class="section-label">Who it's for</div>
-    <h2 class="section-title">Four investors, one platform</h2>
-
-    <div class="paths-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
-      <a href="#dashboard" class="path-card">
-        <div class="path-num">🎯</div>
-        <h3>ETF traders</h3>
-        <p>"I trade GOLDBEES, SILVERBEES, NIFTYBEES. I want a daily signal — not gut feel." Composite 0–100 score across 6 pillars, iNAV premium alert, and a clear BUY / HOLD / AVOID with recommended position weight.</p>
-        <span class="path-go">See today's signals →</span>
-      </a>
-      <a href="#features" class="path-card">
-        <div class="path-num">🏦</div>
-        <h3>MF watchers</h3>
-        <p>"I want to know what DSP, Nippon, and Bajaj are buying before the market prices it in." Track 7 multi-asset funds month-by-month. Cross-fund consensus = the strongest single-name conviction signal.</p>
-        <span class="path-go">See institutional holdings →</span>
-      </a>
-      <a href="#dashboard" class="path-card">
-        <div class="path-num">📊</div>
-        <h3>Zerodha users</h3>
-        <p>"I want to know if my portfolio is actually at risk, not just whether it's green today." Connect your live Kite account. Mosaic analyzes each holding — price momentum, earnings, news, MF ownership — and flags concentration risk.</p>
-        <span class="path-go">Analyze your portfolio →</span>
-      </a>
-      <a href="#quickstart" class="path-card">
-        <div class="path-num">🔍</div>
-        <h3>Stock researchers</h3>
-        <p>"I spend 3 hours pulling data before I can even start analyzing." Ask in plain English. Mosaic fetches price history, quarterly results, MF holdings, news, and anomaly correlations in parallel — synthesised in seconds.</p>
-        <span class="path-go">Try a deep dive →</span>
-      </a>
+    <div style="text-align:center;margin-top:48px">
+      <a href="#quickstart" class="btn-primary">🚀 Get started in 5 minutes</a>
+      <p style="font-size:13px;color:var(--text-3);margin-top:12px">Free &amp; open source · runs on your laptop · no signup</p>
     </div>
-  </div>
-</section>
-
-<!-- ── DASHBOARD SHOWCASE ─────────────────────────────────────────── -->
-<section class="section" id="dashboard">
-  <div class="container">
-    <div class="section-label">The Dashboard</div>
-    <h2 class="section-title">One window into every market</h2>
-    <p class="section-body">
-      Launch with a single <code style="background:var(--bg2);padding:2px 8px;border-radius:4px;font-size:14px">./run.sh</code>
-      and the full Streamlit hub opens at <b style="color:var(--text)">localhost:8501</b> 12 tabs over your live
-      ClickHouse data. No Python, no notebooks, no glue code.
-    </p>
-
-    <div class="browser">
-      <div class="browser-bar">
-        <div class="browser-dots">
-          <span class="term-dot red"></span>
-          <span class="term-dot yel"></span>
-          <span class="term-dot grn"></span>
-        </div>
-        <div class="browser-url"><span class="lock">🔒</span> localhost:8501 &nbsp;·&nbsp; Mosaic Data Hub</div>
-      </div>
-      <div class="dash-tabs">
-        <span class="dash-tab">📥 Import</span>
-        <span class="dash-tab">🔍 SQL Query</span>
-        <span class="dash-tab">📊 Explorer</span>
-        <span class="dash-tab active">🔬 Anomaly Detection</span>
-        <span class="dash-tab">🕵️ Who Is Selling?</span>
-        <span class="dash-tab">📦 MF Holdings</span>
-        <span class="dash-tab">🏦 ETF Scanner</span>
-        <span class="dash-tab">📰 Market News</span>
-        <span class="dash-tab">🎛️ Signals</span>
-        <span class="dash-tab">🪁 Kite Dashboard</span>
-        <span class="dash-tab">🏢 Deep Dive</span>
-        <span class="dash-tab">🌍 Intl ETFs</span>
-        <span class="dash-tab">🤖 Workflows</span>
-      </div>
-      <div class="dash-body">
-        <div class="dash-h">🔬 Anomaly Detection GOLDBEES</div>
-        <div class="dash-sub">GARCH(1,1) + Isolation Forest · last 90 trading days · live from ClickHouse</div>
-
-        <div class="dash-metrics">
-          <div class="dash-metric">
-            <div class="ml">GARCH Vol</div>
-            <div class="mv">16.5%</div>
-            <div class="md down">▲ above 15% target</div>
-          </div>
-          <div class="dash-metric">
-            <div class="ml">Latest Regime</div>
-            <div class="mv" style="font-size:18px;color:var(--gold)">🔥 Breakout</div>
-            <div class="md">Final Z = +3.81</div>
-          </div>
-          <div class="dash-metric">
-            <div class="ml">Anomalies (90d)</div>
-            <div class="mv">4</div>
-            <div class="md">fire rate 4.4%</div>
-          </div>
-          <div class="dash-metric">
-            <div class="ml">ML 5d prob_up</div>
-            <div class="mv up">64%</div>
-            <div class="md up">WATCH_LONG</div>
-          </div>
-        </div>
-
-        <div class="dash-chart"><span class="axis">₹ </span>132 ┤                          <span class="marker">●</span>
-<span class="axis">    </span>130 ┤                       ╭─╯ ╰──╮      ╭───
-<span class="axis">    </span>128 ┤                   ╭───╯       ╰─────╯
-<span class="axis">    </span>126 ┤              ╭────╯
-<span class="axis">    </span>124 ┤    ╭────╮╭───╯
-<span class="axis">    </span>122 ┤────╯    ╰╯              <span class="marker">●</span> = flagged anomaly
-<span class="axis">        └──────────────────────────────────────────</span>
-<span class="axis">         Mar        Apr        May        Jun</span></div>
-      </div>
-    </div>
-
-    <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:18px">
-      14 tabs: Import · SQL Query · Explorer · Anomaly Detection · Who Is Selling · MF Holdings · ETF Scanner · Market News · Signals · Kite Dashboard · Deep Dive · Intl ETFs · <strong>Workflows</strong> · Reports
-      &nbsp;·&nbsp; <a href="#gallery">See real screenshots ↓</a>
-    </p>
   </div>
 </section>
 
