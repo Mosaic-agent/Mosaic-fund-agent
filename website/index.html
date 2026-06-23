@@ -216,14 +216,20 @@
 
     /* ── Screenshot gallery ─────────────────────────────────────── */
     .gallery-section { background: var(--bg1); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-    .gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top: 48px; }
-    @media (max-width: 840px) { .gallery-grid { grid-template-columns: 1fr; } }
-    .gallery-item { border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--sh-lg); border: 1px solid var(--border); background: #fff; transition: transform .2s, box-shadow .2s; }
-    .gallery-item:hover { transform: translateY(-4px); box-shadow: 0 28px 64px rgba(0,0,0,.13); }
+    .gallery-featured { margin-top: 48px; }
+    .gallery-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 20px; }
+    .gallery-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 20px; }
+    @media (max-width: 840px) { .gallery-grid, .gallery-grid-3 { grid-template-columns: 1fr; } }
+    .gallery-item { border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--sh-lg); border: 1px solid var(--border); background: #0d1117; transition: transform .2s, box-shadow .2s; }
+    .gallery-item.light { background: #fff; }
+    .gallery-item:hover { transform: translateY(-4px); box-shadow: 0 28px 64px rgba(0,0,0,.16); }
     .gallery-item img { width: 100%; display: block; }
-    .gallery-caption { padding: 14px 18px; border-top: 1px solid var(--border); }
-    .gallery-caption .gc-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
-    .gallery-caption .gc-desc  { font-size: 12px; color: var(--text-3); line-height: 1.5; }
+    .gallery-caption { padding: 14px 18px; border-top: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.3); }
+    .gallery-item.light .gallery-caption { border-top: 1px solid var(--border); background: #fff; }
+    .gallery-caption .gc-title { font-size: 13px; font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
+    .gallery-item.light .gallery-caption .gc-title { color: var(--text); }
+    .gallery-caption .gc-desc  { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+    .gallery-item.light .gallery-caption .gc-desc { color: var(--text-3); }
 
     /* ── "Who it's for" chooser ─────────────────────────────────── */
     .paths-section { background: var(--bg1); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -574,40 +580,61 @@
     <h2 class="section-title">The real dashboard</h2>
     <p class="section-body">Every tab runs against your live ClickHouse data. No demo mode, no sample data.</p>
 
+    <!-- Row 1: full-width featured — the CLI showing it's conversational -->
+    <div class="gallery-featured">
+      <div class="gallery-item reveal">
+        <img src="screenshots/cli.png" alt="Mosaic interactive CLI chat" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">💬 Interactive CLI — just type, no commands needed</div>
+          <div class="gc-desc">Auto-routes to the right specialist agent. LightGBM 5-day forecast · GARCH volatility · Isolation Forest anomaly running in the background. Works with local Ollama or any cloud LLM.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: two columns — the AI output quality screenshots -->
     <div class="gallery-grid">
+      <div class="gallery-item reveal">
+        <img src="screenshots/anomaly_analysis.png" alt="GOLDBEES anomaly analysis output" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">🔍 AI anomaly explanation — plain English, grounded in data</div>
+          <div class="gc-desc">5 anomalies detected over 90 days. Import duty hike (+5.72%), USDINR shock (−8.54%), market sentiment spike — each one correlated with its real-world cause. Not a guess — every number is from ClickHouse.</div>
+        </div>
+      </div>
 
       <div class="gallery-item reveal">
+        <img src="screenshots/root_cause.png" alt="Root cause attribution and anomaly timeline" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">🎯 Root cause attribution — ranked by driver strength</div>
+          <div class="gc-desc">Company news (score 314.8) · USDINR volatility (157.8) · Rate decisions (37.9). Each anomaly mapped to a trigger with confidence level (HIGH / MODERATE / LOW) and strategy type.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: three columns — the dashboard tabs -->
+    <div class="gallery-grid-3">
+      <div class="gallery-item light reveal">
         <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
         <div class="gallery-caption">
           <div class="gc-title">🎛️ Signal Dashboard</div>
-          <div class="gc-desc">18 NSE ETFs scored 0–100 daily. GOLDBEES and SILVERBEES leading — 4 BUY, 8 HOLD, 6 TRIM/AVOID as of today.</div>
+          <div class="gc-desc">18 NSE ETFs scored 0–100 daily. GOLDBEES and SILVERBEES leading — 4 BUY, 8 HOLD, 6 TRIM/AVOID.</div>
         </div>
       </div>
 
-      <div class="gallery-item reveal">
+      <div class="gallery-item light reveal">
         <img src="screenshots/mf_holdings.png" alt="Multi-Asset Fund Holdings Tracker" loading="lazy" />
         <div class="gallery-caption">
           <div class="gc-title">📦 MF Holdings Tracker</div>
-          <div class="gc-desc">Asset allocation pie charts across DSP, Nippon Omni, Quant, ICICI Pru, and Bajaj multi-asset funds — live from monthly disclosures.</div>
+          <div class="gc-desc">Asset allocation pie charts across DSP, Nippon, Quant, ICICI, Bajaj — live from monthly disclosures.</div>
         </div>
       </div>
 
-      <div class="gallery-item reveal">
-        <img src="screenshots/anomaly.png" alt="Anomaly Detection — GARCH regime analysis" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">🔬 Anomaly Detection</div>
-          <div class="gc-desc">GARCH(1,1) + Isolation Forest flags price shocks. Each anomaly is correlated with news, COMEX futures, and ML prediction — point-in-time, no future leakage.</div>
-        </div>
-      </div>
-
-      <div class="gallery-item reveal">
-        <img src="screenshots/workflows.png" alt="Workflows tab — LangGraph StateGraph pipelines" loading="lazy" />
+      <div class="gallery-item light reveal">
+        <img src="screenshots/workflows.png" alt="Workflows tab" loading="lazy" />
         <div class="gallery-caption">
           <div class="gc-title">🤖 Workflows</div>
-          <div class="gc-desc">LangGraph StateGraph pipelines with 80–90% fewer tokens than ReAct agents. Adversarial verification built in — high-conviction calls are challenged before the final report.</div>
+          <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens. Adversarial verification before every final report.</div>
         </div>
       </div>
-
     </div>
   </div>
 </section>
