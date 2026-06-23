@@ -300,3 +300,27 @@ def acquire() -> Generator:
     """Acquire a pooled client — delegates to the singleton pool."""
     with get_pool().acquire() as client:
         yield client
+
+
+def get_client():
+    """
+    Return an unmanaged client from the pool singleton.
+
+    The connection parameters are read from ``config.settings`` (env vars) — no
+    explicit host/port/user/password needed anywhere in calling code.
+
+    The returned client is NOT pool-managed: the caller is responsible for
+    calling ``client.close()`` when done.  For automatic lifecycle use
+    ``acquire()`` instead.
+
+    Usage::
+
+        from src.db.pool import get_client
+
+        client = get_client()
+        try:
+            client.insert_df("market_data.daily_prices", df)
+        finally:
+            client.close()
+    """
+    return get_pool().get_client()

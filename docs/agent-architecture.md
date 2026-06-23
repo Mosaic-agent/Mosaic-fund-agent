@@ -1,6 +1,6 @@
 # Agent Architecture
 
-> Last updated: 2026-06-23 (patterns: Null Object, Hook Method, table-driven routing)
+> Last updated: 2026-06-23 (patterns: Null Object, Hook Method, table-driven routing; StateGraph workflows)
 
 This document details the multi-agent orchestration layer of the Mosaic Fund Agent platform. For the broader system architecture (data pipeline, ClickHouse schema, ML, tools), see [architecture.md](architecture.md).
 
@@ -13,7 +13,13 @@ The platform uses a **Multi-Agent Orchestrator** pattern built on [LangGraph](ht
 ```
 User Query
     │
-    ▼
+    ├─── CLI: python src/main.py research / portfolio-wf
+    │         ↓
+    │    StateGraph Workflow (src/workflows/)
+    │    Pure-Python nodes + 1-2 LLM calls — no agent overhead
+    │
+    └─── Chat / Agent path:
+         ▼
 ┌─────────────────────────────┐
 │  Intent Router              │
 │  (LLM classifier →          │
@@ -184,6 +190,73 @@ class _SubAgent:
 - **Tools (~30):** Union of Yahoo Finance, Indian equity, skills, macro, news, intl ETF, code execution, chart, and `AGENT_TOOLS` (delegation tools: `delegate_to_signal_agent`, `delegate_to_macro_agent`, `delegate_to_intl_etf_agent`, `delegate_to_news_agent`, `delegate_to_india_equity_agent`, `check_and_refresh_symbol_data`)
 - **Recursion limit:** 50
 - **Delegation:** Can hand off to specialised sub-agents for GOLDBEES ML, COMEX commodities, intl ETF deep dives, multi-source news sweeps, or full equity research notes
+
+---
+
+## Workflows (`src/workflows/`)
+
+Workflows are **LangGraph `StateGraph` pipelines** for tasks with a fixed, known
+structure. Unlike ReAct sub-agents (which resend the full system prompt on every
+tool call), workflows use pure-Python nodes for all data fetch and reserve LLM calls
+only for synthesis and adversarial verification.
+
+### Why workflows instead of sub-agents for these tasks
+
+| | ReAct sub-agent | StateGraph workflow |
+|---|---|---|
+| System prompt cost | Resent every step (×15–50) | Zero for data nodes |
+| Parallelism | LLM must emit correct parallel tool calls | `ThreadPoolExecutor` — guaranteed |
+| Section completeness | Silently skipped on token pressure | Every node always runs |
+| Adversarial verify | Not built in | Dedicated `verify` node |
+| Typical token cost | 15,000–42,000 | 4,000–9,800 |
+
+### Workflow catalogue
+
+| Workflow | File | Nodes | LLM calls | Est. tokens |
+|---|---|---|---|---|
+| `run_autonomous_research(question)` | `autonomous_research.py` | resolve → fetch_all → correlate → **verify** → synthesise | 2 | ~8,800 |
+| `run_india_equity_research(question)` | `india_equity.py` | resolve → fetch_all (12 tools, guaranteed) → synthesise | 1 | ~7,000 |
+| `run_multi_fund_consensus(period)` | `multi_fund_consensus.py` | fetch_all_funds (7 parallel) → fetch_consensus → synthesise | 1 | ~4,000 |
+| `run_portfolio_analysis()` | `portfolio_analysis.py` | discover → enrich_all → score_all → **verify_high** → fetch_macro → synthesise | N+K+1 | ~9,800 |
+
+### Shared infrastructure (`base.py`)
+
+- **`_get_llm(prefer_cloud=True)`** — reuses `MosaicFundAgent._build_llm()` / `_build_cloud_llm()`; no duplicate LLM construction
+- **`_par(fetchers: dict)`** — `ThreadPoolExecutor` fan-out: runs any dict of `{key: callable}` concurrently, returns `{key: result}`; failed fetchers return a `*key unavailable*` placeholder so synthesis always receives a complete state
+- **`SYNTH_SUFFIX`** — the `NO_LLM_CALC_RULE` injected into every synthesis prompt
+
+### How to invoke
+
+```bash
+# CLI — bypasses the agent entirely, no system-prompt overhead
+python src/main.py research "comprehensive research on ADANIENT"
+python src/main.py portfolio-wf
+
+# Via chat — all 4 are @tool wrappers in SKILLS_TOOLS,
+# callable from any sub-agent (e.g. AutonomousResearchAgent)
+run_autonomous_research("research ADANIENT")
+run_multi_fund_consensus_workflow("yoy")
+```
+
+### fetch_all parallelism detail (autonomous_research)
+
+Six data groups run concurrently inside one `StateGraph` node:
+
+| Group | Tools |
+|---|---|
+| price | `get_yahoo_finance_data`, `get_price_momentum`, `get_db_price_summary` |
+| fundamentals | `get_quarterly_results`, `get_stock_cashflow` |
+| institutional | `get_mf_holdings_for_stock`, `get_fii_dii_summary`, `plot_shareholding_bar` |
+| macro | `run_macro_scanner`, `get_dxy_context` |
+| news | `get_stock_news`, `get_newsapi_stock_news`, `search_financial_news` |
+| volatility | `run_risk_governor_analysis`, `plot_price_chart`, `plot_macd_chart` |
+
+### Adversarial verification nodes
+
+Two workflows include an adversarial pass:
+
+- **`verify` (autonomous_research)** — one LLM call: "generate 3 data-grounded bear cases that could invalidate a bullish thesis". Bear cases are injected into the synthesis prompt.
+- **`verify_high` (portfolio_analysis)** — for each `HIGH`-conviction score, one LLM call tries to refute it. If refuted, conviction is downgraded to `MEDIUM` with the refutation reason appended to the rationale.
 
 ---
 

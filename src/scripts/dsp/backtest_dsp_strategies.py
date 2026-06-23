@@ -10,7 +10,6 @@ from rich.table import Table
 sys.path.append(os.path.join(os.getcwd(), "src"))
 try:
     from config.settings import settings
-    import clickhouse_connect
 except ImportError as e:
     print(f"Error importing project modules: {e}")
     sys.exit(1)
@@ -156,13 +155,8 @@ def run_backtest():
     console.print("[bold cyan]Running Deep Quantitative Backtests (DSP RV Strategies)[/bold cyan]")
     
     try:
-        client = clickhouse_connect.get_client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            database=settings.clickhouse_database
-        )
+        from src.db.pool import get_client
+        client = get_client()
     except Exception as e:
         console.print(f"[red]Failed to connect to ClickHouse: {e}[/red]")
         return

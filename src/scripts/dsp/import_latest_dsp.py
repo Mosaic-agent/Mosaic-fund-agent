@@ -87,16 +87,10 @@ def discover_latest_zip() -> tuple[str, str] | None:
 def last_imported_date() -> date | None:
     """Return the latest as_of_month already stored for DSP_MULTI_ASSET."""
     try:
-        import clickhouse_connect
-        from config.settings import settings
+        from config.from src.db.pool import get_client
+settings import settings
 
-        client = clickhouse_connect.get_client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            database=settings.clickhouse_database,
-        )
+        client = get_client()
         rows = client.query(
             "SELECT max(last_date) FROM market_data.import_watermarks "
             "WHERE source = 'mf_holdings' AND symbol = 'DSP_MULTI_ASSET'"

@@ -25,7 +25,6 @@ from pathlib import Path
 sys.path.insert(0, os.getcwd())
 from config.settings import settings
 
-import clickhouse_connect
 from rich.console import Console
 from rich.table import Table
 
@@ -46,13 +45,8 @@ PARQUET_BASE = Path("output/db-backups/parquet")
 
 
 def _client():
-    return clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=DATABASE,
-    )
+    from src.db.pool import get_client
+    return get_client()
 
 
 def _http_url():

@@ -9,19 +9,13 @@ sys.path.append(os.getcwd())
 
 try:
     from config.settings import settings
-    import clickhouse_connect
 except ImportError as e:
     print(f"Error: {e}")
     sys.exit(1)
 
 def get_return():
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=settings.clickhouse_database
-    )
+    from src.db.pool import get_client
+    client = get_client()
     
     # Scheme 152056 is DSP Multi Asset Allocation Fund - Direct Plan - Growth
     scheme_code = '152056'

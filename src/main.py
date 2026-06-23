@@ -1426,5 +1426,31 @@ def correlate_cmd(
     typer.echo(result)
 
 
+@app.command()
+def research(
+    question: str = typer.Argument(..., help="Free-text question, e.g. 'research ADANIENT'"),
+) -> None:
+    """Deep equity research via LangGraph StateGraph workflow (80% fewer tokens than agent)."""
+    _setup_logging()
+    from rich.console import Console
+    from rich.markdown import Markdown
+    _console = Console()
+    from src.workflows.autonomous_research import run
+    report = run(question)
+    _console.print(Markdown(report))
+
+
+@app.command(name="portfolio-wf")
+def portfolio_wf() -> None:
+    """Portfolio analysis with adversarial verification from ClickHouse holdings."""
+    _setup_logging()
+    from rich.console import Console
+    from rich.markdown import Markdown
+    _console = Console()
+    from src.workflows.portfolio_analysis import run
+    report = run()
+    _console.print(Markdown(report))
+
+
 if __name__ == "__main__":
     app()

@@ -10,7 +10,6 @@ import sys
 import warnings
 import numpy as np
 import pandas as pd
-import clickhouse_connect
 
 sys.path.insert(0, os.getcwd())
 warnings.filterwarnings("ignore")
@@ -20,13 +19,8 @@ from src.tools.risk_governor import _REGIME_MULT, _W_MAX
 from config.settings import settings
 
 def load_data(symbol="GOLDBEES"):
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
     df = client.query_df(f"""
         SELECT
             trade_date,

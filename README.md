@@ -30,12 +30,16 @@ The core design principle is strict: **all numeric work happens in Python or SQL
 
 **Volatility-aware position sizing** — A Risk Governor computes inverse-volatility target weights; a Kelly optimizer derives growth-optimal weights from walk-forward hit ratios. The recommended output is a `blended_50` weight (50% RG + 50% Kelly), with a `blended_30` conservative fallback.
 
-**Multi-agent LLM guild** — A LangGraph ReAct orchestrator routes free-form queries to specialist sub-agents covering portfolio analysis, COMEX pre-market metals, macro theme scanning, ETF news sentiment, anomaly attribution, and iNAV premium/discount alerts.
+**Multi-agent LLM guild** — A 10-agent LangGraph guild where an LLM intent router (with regex fallback) dispatches free-form queries to specialist sub-agents: Indian equity research, US deep-dive (SEC/EDGAR), ETF signals, macro/COMEX, mutual-fund holdings, international ETFs, news sentiment, ClickHouse database, code execution, and autonomous multi-domain research. Sub-agents are organised as a Façade package (`src/agents/sub_agents/`) — one class per file, all external imports unchanged.
+
+**StateGraph workflows** — Four token-efficient LangGraph `StateGraph` pipelines replace the highest-cost ReAct loops. Pure-Python nodes fan out data fetchers in parallel (no LLM); the LLM is called only for adversarial verification and final synthesis (1–2 calls total). Token savings: **80–90%** vs equivalent ReAct agents.
 
 ```
 Zerodha (MCP) ─┐
-13+ fetchers   ─┤→ ClickHouse lake → ML / GARCH / signals / anomaly → LangGraph agents → CLI / Streamlit
-NSE / CFTC / IMF┘
+13+ fetchers   ─┤→ ClickHouse lake → ML / GARCH / signals / anomaly ─┬→ ReAct sub-agents (interactive chat)
+NSE / CFTC / IMF┘                                                     └→ StateGraph workflows (CLI, token-efficient)
+                                                                              ↓
+                                                                    CLI / Streamlit / reports
 ```
 
 ---
@@ -93,6 +97,8 @@ GOLD_API_KEY=...
 | `premium-alerts` | Live iNAV premium/discount alerts |
 | `import` | Delta-sync market data to ClickHouse |
 | `correlate --symbol X` | Map price anomalies to FX shocks, macro events, filings |
+| `research "..."` | Deep equity research via StateGraph workflow (80% fewer tokens) |
+| `portfolio-wf` | Portfolio analysis with adversarial verification from ClickHouse |
 | `config` | Show current settings (keys masked) |
 
 ---
@@ -116,11 +122,12 @@ LLM_BASE_URL=http://localhost:11434/v1
 
 | Layer | Key files |
 |---|---|
-| CLI | `src/main.py` — 13 Typer commands |
-| Agents | `src/agents/` — MosaicFundAgent + 7 specialist sub-agents |
+| CLI | `src/main.py` — 15 Typer commands |
+| Agents | `src/agents/sub_agents/` — Façade package: 10 specialist sub-agents (one class per file) |
+| Workflows | `src/workflows/` — 4 LangGraph StateGraph pipelines; 80–90% fewer tokens than ReAct equivalents |
 | Signals | `src/agents/signal_sources.py` — 6-pillar composite (macro, flows, valuation, sentiment, ML, volatility) |
 | ML | `src/ml/trend_predictor.py` — LightGBM 5-day forecast; `src/ml/anomaly.py` — GARCH + Isolation Forest |
-| Correlation | `src/ml/correlation.py` — anomaly-to-event attribution (FX, macro, filings) |
+| Correlation | `src/ml/correlation/` — anomaly-to-event attribution (FX, macro, filings); news-RAG engine |
 | Importer | `src/importer/` — 14 fetcher adapters, watermark delta-sync, EventBus |
 | Repository | `src/db/repository.py` — all ClickHouse reads, point-in-time variants |
 | UI | `src/ui/app.py` — Streamlit dashboard (12 tabs) |

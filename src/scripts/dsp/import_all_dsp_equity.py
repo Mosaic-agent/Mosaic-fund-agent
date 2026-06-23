@@ -5,7 +5,6 @@ import shutil
 import argparse
 import pandas as pd
 import requests
-import clickhouse_connect
 from datetime import datetime
 from pathlib import Path
 from rich.console import Console
@@ -290,13 +289,8 @@ def run_import(months=None, dry_run=False):
     targets = months or ZIP_FILES
     client = None
     if not dry_run:
-        client = clickhouse_connect.get_client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            database=settings.clickhouse_database,
-        )
+        from src.db.pool import get_client
+        client = get_client()
 
     all_holdings = []
     failed_months = []

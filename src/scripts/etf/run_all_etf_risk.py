@@ -3,7 +3,6 @@ import sys
 import warnings
 from datetime import date, timedelta
 
-import clickhouse_connect
 import pandas as pd
 from rich.console import Console
 from rich.table import Table
@@ -23,13 +22,8 @@ console = Console()
 def run_all_etf_risk():
     console.print("[bold cyan]🛡️  Running Risk Governor across all ETFs…[/bold cyan]")
 
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     # 1. Fetch all ETF symbols
     etf_symbols = [r[0] for r in client.query("SELECT DISTINCT symbol FROM market_data.daily_prices WHERE category = 'etfs'").result_rows]

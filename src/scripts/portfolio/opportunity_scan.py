@@ -31,7 +31,6 @@ import math
 from datetime import date, timedelta
 import numpy as np
 import pandas as pd
-import clickhouse_connect
 from rich.console import Console
 from rich.table import Table
 from rich.rule import Rule
@@ -408,13 +407,8 @@ def print_results(results: list[dict], fii_net: float) -> None:
 
 
 if __name__ == "__main__":
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        connect_timeout=10,
-    )
+    from src.db.pool import get_client
+    client = get_client()
     console.print("[bold cyan]Scanning database for opportunities...[/bold cyan]")
     data    = fetch_all(client)
     client.close()

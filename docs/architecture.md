@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-06-23
+> Last updated: 2026-06-23 (added LangGraph StateGraph workflows)
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -20,6 +20,7 @@ The codebase is built on four patterns that keep it extensible and testable. Und
 | **Null Object** | `src/agents/sub_agents/base.py` | `_build()` always assigns `self._agent` — either a real LangGraph agent or `_NullAgent()`. `run()` needs no `None` guard; `_NullAgent.stream()` raises into the existing error handler → `_confirm_fallback()`. New "no-LLM" behaviour lives in one class. |
 | **Hook Method** | `src/agents/sub_agents/base.py` | `_SubAgent._select_llm(llm_override)` is a single overridable hook for LLM selection (local → cloud upgrade → `None`). Subclasses override only this hook to inject a domain-specific model; `_build()` assembly logic is never duplicated. |
 | **Table-driven routing** | `src/agents/sub_agents/routing.py` | Three ordered tables (`_PRE_PLOT_TABLE`, `_VIZ_ROUTE_TABLE`, `_POST_PLOT_TABLE`) replace a 45-line if-elif block. Priority is explicit by list index; adding a new intent = one `insert()` at the right position. |
+| **Pure-Python LangGraph node** | `src/workflows/` | StateGraph nodes that call Python tools directly (no LLM) replace the LLM-driven ReAct tool-call loop for fixed-structure pipelines. Parallel data fetch via `ThreadPoolExecutor` inside a single node; LLM reserved for synthesis/verify only (1–2 calls vs 15–50). Token savings: 80–90%. |
 
 Two cross-cutting rules:
 
@@ -78,6 +79,12 @@ src/
   agents/
     signal_aggregator.py  Composite score orchestrator — parallel Strategy sources
     signal_sources.py     Strategy pattern: SignalSource ABC + 5 pillars + GARCHAnomalySource
+  workflows/              LangGraph StateGraph workflows — token-efficient fixed-structure pipelines
+    base.py               _get_llm(), _par() (ThreadPoolExecutor fan-out), SYNTH_SUFFIX
+    autonomous_research.py  5-node graph: resolve → fetch_all(6 parallel) → correlate → verify → synthesise (~8 800 tokens)
+    india_equity.py         3-node graph: resolve → fetch_all(12 parallel, guaranteed) → synthesise (~7 000 tokens)
+    multi_fund_consensus.py 3-node graph: fetch_all_funds(7 parallel) → fetch_consensus → synthesise (~4 000 tokens)
+    portfolio_analysis.py   6-node graph: discover → enrich_all → score_all → verify_high → fetch_macro → synthesise
     intent_router.py      LLM-based intent router (Haiku / gpt-4o-mini) with regex fallback
     sub_agents/           Façade package — 10 specialised sub-agents + routing + registry
       __init__.py         Re-exports all public + private symbols; zero call-site changes
@@ -426,6 +433,8 @@ Standalone scripts that run analyses against the live database and print Rich co
 | `news SYMBOL` | Multi-source sentiment for a symbol | Console |
 | `ask "question"` | Free-form ReAct agent with tool access | Console |
 | `config` | Show current settings (API keys masked) | Console |
+| `research "question"` | Deep equity research via StateGraph workflow (80% fewer tokens than agent) | Console |
+| `portfolio-wf` | Portfolio analysis with adversarial verification from ClickHouse holdings | Console |
 
 ---
 

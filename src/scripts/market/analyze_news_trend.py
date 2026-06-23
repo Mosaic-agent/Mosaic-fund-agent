@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import clickhouse_connect
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -45,13 +44,8 @@ def get_llm():
 
 def fetch_last_5_days_news():
     """Fetch news articles from ClickHouse for the last 5 days."""
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
     
     query = """
     SELECT 

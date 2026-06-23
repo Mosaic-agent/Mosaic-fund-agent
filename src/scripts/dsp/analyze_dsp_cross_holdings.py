@@ -2,7 +2,6 @@
 import os
 import sys
 import pandas as pd
-import clickhouse_connect
 
 # Add src to path
 sys.path.append(os.getcwd())
@@ -13,13 +12,8 @@ from rich.table import Table
 console = Console()
 
 def analyze():
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=settings.clickhouse_database
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     # 1. Stocks by Overlap (count of schemes)
     query_overlap = """

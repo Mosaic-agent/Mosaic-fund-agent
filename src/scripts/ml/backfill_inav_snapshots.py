@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-import clickhouse_connect
 from config.settings import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -22,12 +21,8 @@ logger = logging.getLogger(__name__)
 SYMBOLS = ["MAFANG", "HNGSNGBEES", "MAHKTECH", "MON100", "MASPTOP50", "MONQ50"]
 
 def backfill():
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     for sym in SYMBOLS:
         logger.info(f"Backfilling {sym}...")
