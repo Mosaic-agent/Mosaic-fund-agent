@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mosaic Quantitative Co-Pilot for Indian & Global Markets</title>
-  <meta name="description" content="ML-driven alpha, institutional flow tracking, and volatility-aware position sizing all on a private, local-first data lake." />
+  <title>Mosaic · Your AI Research Desk for Indian Markets</title>
+  <meta name="description" content="Daily buy/sell signals for GOLDBEES and 18 NSE ETFs. Track what DSP, Nippon, and Bajaj mutual funds are buying. Analyze your Zerodha portfolio with AI. Free, open-source, runs locally — your data never leaves." />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
@@ -475,14 +475,14 @@
   <div class="container">
     <div class="badge">
       <span class="dot"></span>
-      Open Source · Python 3.11+ · Local-first
+      Free & Open Source · Runs on your laptop · Your data stays yours
     </div>
 
     <h1>Know <span>before</span> you invest.</h1>
 
     <p class="hero-sub">
-      ML signals, institutional flows, and volatility-aware sizing
-      on a private data lake you control.
+      Today's ETF signal. What smart money is buying.
+      Why your stock moved. Ask in plain English — answers backed by live data, not guesswork.
     </p>
 
     <div class="hero-actions">
@@ -521,9 +521,10 @@
     <div class="try-label">👆 Click a question watch Mosaic <b>route &amp; answer</b> it live</div>
     <div class="query-chips" id="chips">
       <button class="chip active" data-q="anomaly"><span class="chip-ico">🔍</span>Explain GOLDBEES anomalies</button>
-      <button class="chip" data-q="macro"><span class="chip-ico">🌍</span>Show macro</button>
-      <button class="chip" data-q="premium"><span class="chip-ico">💰</span>Which ETFs trade at a premium?</button>
       <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>Today's GOLDBEES signal</button>
+      <button class="chip" data-q="dsp"><span class="chip-ico">🏦</span>What is DSP buying?</button>
+      <button class="chip" data-q="macro"><span class="chip-ico">🌍</span>Show macro</button>
+      <button class="chip" data-q="premium"><span class="chip-ico">💰</span>ETF premium alerts</button>
       <button class="chip" data-q="prompts"><span class="chip-ico">📖</span>/prompts</button>
     </div>
 
@@ -559,26 +560,32 @@
 <section class="section paths-section" id="paths">
   <div class="container">
     <div class="section-label">Who it's for</div>
-    <h2 class="section-title">Three users, one platform</h2>
+    <h2 class="section-title">Four investors, one platform</h2>
 
-    <div class="paths-grid">
+    <div class="paths-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
       <a href="#dashboard" class="path-card">
-        <div class="path-num">🧑‍💻</div>
-        <h3>Retail investor</h3>
-        <p>"What should I buy today? Am I overexposed?" One-click dashboard + plain-English ask. Composite 0–100 scores, premium alerts, and clear BUY / HOLD / AVOID no spreadsheets, no jargon.</p>
-        <span class="path-go">Launch the dashboard →</span>
+        <div class="path-num">🎯</div>
+        <h3>ETF traders</h3>
+        <p>"I trade GOLDBEES, SILVERBEES, NIFTYBEES. I want a daily signal — not gut feel." Composite 0–100 score across 6 pillars, iNAV premium alert, and a clear BUY / HOLD / AVOID with recommended position weight.</p>
+        <span class="path-go">See today's signals →</span>
       </a>
       <a href="#features" class="path-card">
         <div class="path-num">🏦</div>
-        <h3>Fund manager / institutional analyst</h3>
-        <p>Track institutional flows, reverse-engineer DSP / Nippon / ICICI conviction, map macro themes to positioning, and size with the GARCH Risk Governor. Built by data enthusiasts with deep AMC domain knowledge and quant network backing.</p>
-        <span class="path-go">See institutional signals →</span>
+        <h3>MF watchers</h3>
+        <p>"I want to know what DSP, Nippon, and Bajaj are buying before the market prices it in." Track 7 multi-asset funds month-by-month. Cross-fund consensus = the strongest single-name conviction signal.</p>
+        <span class="path-go">See institutional holdings →</span>
+      </a>
+      <a href="#dashboard" class="path-card">
+        <div class="path-num">📊</div>
+        <h3>Zerodha users</h3>
+        <p>"I want to know if my portfolio is actually at risk, not just whether it's green today." Connect your live Kite account. Mosaic analyzes each holding — price momentum, earnings, news, MF ownership — and flags concentration risk.</p>
+        <span class="path-go">Analyze your portfolio →</span>
       </a>
       <a href="#quickstart" class="path-card">
-        <div class="path-num">⚡</div>
-        <h3>Quant engineer</h3>
-        <p>Walk-forward LightGBM, GARCH + Isolation Forest, Kelly sizing, raw ClickHouse SQL. Add a signal pillar in one class, backtest it, ship it all via <code style="background:var(--bg3);padding:1px 5px;border-radius:4px">./mosaic.sh</code>.</p>
-        <span class="path-go">See the CLI &amp; architecture →</span>
+        <div class="path-num">🔍</div>
+        <h3>Stock researchers</h3>
+        <p>"I spend 3 hours pulling data before I can even start analyzing." Ask in plain English. Mosaic fetches price history, quarterly results, MF holdings, news, and anomaly correlations in parallel — synthesised in seconds.</p>
+        <span class="path-go">Try a deep dive →</span>
       </a>
     </div>
   </div>
@@ -617,6 +624,7 @@
         <span class="dash-tab">🪁 Kite Dashboard</span>
         <span class="dash-tab">🏢 Deep Dive</span>
         <span class="dash-tab">🌍 Intl ETFs</span>
+        <span class="dash-tab">🤖 Workflows</span>
       </div>
       <div class="dash-body">
         <div class="dash-h">🔬 Anomaly Detection GOLDBEES</div>
@@ -657,7 +665,7 @@
     </div>
 
     <p style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:18px">
-      12 tabs: Import · SQL Query · Explorer · Anomaly Detection · Who Is Selling · MF Holdings · ETF Scanner · Market News · Signals · Kite Dashboard · Deep Dive · Intl ETFs
+      14 tabs: Import · SQL Query · Explorer · Anomaly Detection · Who Is Selling · MF Holdings · ETF Scanner · Market News · Signals · Kite Dashboard · Deep Dive · Intl ETFs · <strong>Workflows</strong> · Reports
     </p>
   </div>
 </section>
@@ -1007,6 +1015,20 @@
           <p>Schema inspection, watermark status, import freshness checks.</p>
         </div>
       </div>
+      <div class="agent-card">
+        <div class="agent-icon">🏦</div>
+        <div>
+          <h4>MFSubAgent</h4>
+          <p>DSP, Nippon, Bajaj, Quant, ICICI fund holdings — MoM changes, cross-fund consensus, NAV returns.</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <div class="agent-icon">🔭</div>
+        <div>
+          <h4>AutonomousResearchAgent</h4>
+          <p>Self-directed 10-layer research: fundamentals + macro + MF holdings + news + anomaly correlation, all in one report.</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -1177,7 +1199,7 @@ http://localhost:8501
       <div class="nav-logo">
         <img src="logo.png" alt="Mosaic Fund Agent" style="height:120px;width:auto;flex-shrink:0" />
       </div>
-      <p>A personal quantitative research platform for Indian &amp; global markets. Not financial advice.</p>
+      <p>Your AI research desk for Indian markets — signals, smart-money tracking, and portfolio intelligence on your own machine.</p>
     </div>
     <div class="footer-links">
       <div class="footer-col">
@@ -1359,6 +1381,35 @@ const QUERIES = {
 <br/>
 <div class="out">All 6 ETFs carry structural premiums of <span class="hi">15–20%+</span> — this is the RBI overseas-cap effect, not mispricing.</div>
 <div class="out hi-green">Strategy: wait for a Z-score dip below <span class="hi">−1.5σ</span> (premium drops below its own mean) — that's the entry signal.</div>`
+  },
+  dsp: {
+    cmd: './mosaic.sh ask "what is DSP multi asset buying this month?"',
+    out: `<div class="out term-thinking">Routing → <span class="hi">mf agent</span> (confidence 0.97)…</div>
+<br/>
+<div class="section-header">🏦 DSP Multi Asset — MoM Position Changes (Jun 2026)</div>
+<div class="out dim">Cross-fund consensus active: 7 funds tracked · min 2 funds · min Δ 0.10%</div>
+<br/>
+<div class="out dim">┌─────────────────────────────┬──────────┬──────────┬──────────┬────────┐</div>
+<div class="out dim">│ Security                    │ Action   │ Prev %   │ Curr %   │ Delta  │</div>
+<div class="out dim">├─────────────────────────────┼──────────┼──────────┼──────────┼────────┤</div>
+<div class="out">│ Muthoot Finance             │ <span class="hi-green">📈 ADD</span>    │ 1.23%    │ 1.64%    │ <span class="hi-green">+0.41%</span> │</div>
+<div class="out">│ SBI Life Insurance          │ <span class="hi-green">📈 ADD</span>    │ 0.89%    │ 1.17%    │ <span class="hi-green">+0.28%</span> │</div>
+<div class="out">│ Gold (GOLDBEES equiv)       │ <span class="hi-green">📈 ADD</span>    │ 11.2%    │ 11.5%    │ <span class="hi-green">+0.30%</span> │</div>
+<div class="out">│ Coal India                  │ <span class="hi-red">📉 TRIM</span>   │ 1.82%    │ 1.49%    │ <span class="hi-red">−0.33%</span> │</div>
+<div class="out">│ Mankind Pharma              │ <span class="hi-red">❌ EXIT</span>   │ 0.42%    │ 0.00%    │ <span class="hi-red">−0.42%</span> │</div>
+<div class="out dim">└─────────────────────────────┴──────────┴──────────┴──────────┴────────┘</div>
+<br/>
+<div class="section-header">🔗 Cross-Fund Consensus — Top Buys (3+ funds agree)</div>
+<div class="out"><span class="hi-green">★ Muthoot Finance</span>  +0.41%  — <span class="hi">4 / 7 funds adding</span>  avg Δ +0.38%  <span class="hi-green">[STRONG CONVICTION]</span></div>
+<div class="out"><span class="hi-green">★ Gold allocation</span>   +0.28%  — <span class="hi">5 / 7 funds adding</span>  avg Δ +0.22%  <span class="hi-green">[STRONG CONVICTION]</span></div>
+<br/>
+<div class="section-header">📐 Asset-Class Rotation (all 7 multi-asset funds)</div>
+<div class="out">Gold / Silver   <span class="hi-green">↑ UP</span>   5/7 funds increased allocation this month</div>
+<div class="out">Equity          <span class="ax">→ FLAT</span>  Mixed — adds in BFSI, trims in pharma/consumer</div>
+<div class="out">Cash / Debt     <span class="hi-red">↓ DOWN</span>  3/7 funds reduced cash — risk-on rotation signal</div>
+<br/>
+<div class="out dim">What this signals: Multi-asset funds collectively moving risk-on — reducing cash, adding gold and</div>
+<div class="out dim">financial names. Muthoot Finance at 4/7 fund consensus for 2+ months = highest-conviction name.</div>`
   },
   signal: {
     cmd: './mosaic.sh src/scripts/goldbees_report.py',
