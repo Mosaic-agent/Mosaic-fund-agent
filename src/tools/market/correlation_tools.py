@@ -212,7 +212,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     df_anomaly_res = None
     try:
         from src.ml.anomaly import run_composite_anomaly
-        df_corp = service._load_corp_actions(sym)
+        df_corp = service._registry.load_corp_actions(sym)
         df_anomaly_res, _, _ = run_composite_anomaly(df_ohlcv, df_corp_actions=df_corp)
         if not df_anomaly_res.empty and "is_anomaly" in df_anomaly_res.columns:
             total_anomalies = int(df_anomaly_res["is_anomaly"].sum())

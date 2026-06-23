@@ -37,6 +37,7 @@ VALID_INTENTS = frozenset({
     "india_equity",
     "signal",
     "macro",
+    "mf",
     "intl_etf",
     "news",
     "code",
@@ -57,6 +58,7 @@ one of the following intents:
 | india_equity  | Indian stock fundamentals, earnings, price, financials, MF hold.  |
 | signal        | ETF signals, GOLDBEES ML pipeline, Kelly weight, GARCH, iNAV     |
 | macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD  |
+| mf            | Mutual-fund holdings, NAV returns, fund consensus, fund managers  |
 | intl_etf      | International ETFs (MAFANG, HNGSNGBEES, Hang Seng, Nasdaq ETF)   |
 | news          | Latest news, headlines, news sentiment for a stock/ETF/market     |
 | code          | Write/run/debug Python code, create scripts, ad-hoc analysis      |
@@ -65,6 +67,7 @@ one of the following intents:
 
 Special routing rules:
 - "import", "refresh", "sync", "backfill" data → always "main" (import runs there)
+- Questions about a SPECIFIC mutual fund (DSP / Nippon / Bajaj / Quant / ICICI Multi Asset, scheme codes, fund managers, MF holdings, fund cross-ownership, NAV returns, "which funds hold X", "smart-money consensus across funds") → "mf"
 - Questions mentioning specific Indian companies (RELIANCE, TCS, HDFC) → "india_equity"
 - "plot" or "chart" + macro keyword → "macro"; + ETF keyword → "signal"
 - "plot" or "chart" + Indian stock name (RELIANCE, TCS, ADVENZYMES, etc.) → "india_equity"
