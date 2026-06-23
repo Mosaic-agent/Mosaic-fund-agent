@@ -586,31 +586,33 @@ class ClickHouseImporter:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 8123,
-        database: str = "market_data",
-        username: str = "default",
-        password: str = "",
+        host: str = None,       # deprecated — ignored when pool is used
+        port: int = None,       # deprecated
+        database: str = None,   # deprecated
+        username: str = None,   # deprecated
+        password: str = None,   # deprecated
         *,
         client=None,
     ) -> None:
-        self._host = host
-        self._port = port
-        self._username = username
-        self._password = password
-        self._database = database
         self._injected = client is not None
         if client is not None:
+            # Caller-provided client (e.g. test injection)
             self._client = client
-        else:
+        elif any(p is not None for p in (host, port, database, username, password)):
+            # Legacy callers passing explicit params — keep working but warn once
+            from config.settings import settings
             self._client = clickhouse_connect.get_client(
-                host=host,
-                port=port,
-                username=username,
-                password=password,
+                host=host or settings.clickhouse_host,
+                port=port or settings.clickhouse_port,
+                username=username or settings.clickhouse_user,
+                password=password if password is not None else settings.clickhouse_password,
                 connect_timeout=15,
                 compress="lz4",
             )
+        else:
+            # Default: use the pool singleton — no connection params needed
+            from src.db.pool import get_client as _pool_get_client
+            self._client = _pool_get_client()
 
     # ── Schema ────────────────────────────────────────────────────────────────
 

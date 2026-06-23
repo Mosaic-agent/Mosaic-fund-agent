@@ -1,7 +1,6 @@
 import os
 import sys
 from pathlib import Path
-import clickhouse_connect
 import pandas as pd
 import numpy as np
 
@@ -14,13 +13,8 @@ def main():
     try:
         # Initialize ClickHouse connection
         # Inside the docker container, host is 'clickhouse'
-        client = clickhouse_connect.get_client(
-            host="clickhouse",
-            port=8123,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            database=settings.clickhouse_database
-        )
+        from src.db.pool import get_client
+        client = get_client()
         
         # Query GOLDBEES prices for the last 90 trading days
         query = """

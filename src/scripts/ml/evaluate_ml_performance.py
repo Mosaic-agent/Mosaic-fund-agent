@@ -34,13 +34,8 @@ console = Console()
 
 
 def _get_client():
-    return clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    return get_client()
 
 
 def evaluate_ml(display_rows: int = 15):

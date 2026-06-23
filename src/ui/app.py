@@ -92,11 +92,7 @@ def _ensure_schema() -> None:
     """Create all market_data tables if they don't exist (idempotent DDL)."""
     try:
         from src.importer.clickhouse import ClickHouseImporter
-        ch = ClickHouseImporter(
-            host=CH_HOST, port=CH_PORT,
-            database="market_data",
-            username=CH_USER, password=CH_PASS,
-        )
+        ch = ClickHouseImporter()   # uses pool singleton — no params needed
         ch.ensure_schema()
         ch.close()
     except Exception:
@@ -188,7 +184,7 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_reports = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "📁 Reports"])
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_workflows, tab_reports = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "🤖 Workflows", "📁 Reports"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5772,6 +5768,153 @@ with tab_intl_etf:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB — REPORTS  (download generated PDFs, HTML, Markdown)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 14 — WORKFLOWS
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_workflows:
+    st.header("🤖 Workflows")
+    st.caption(
+        "LangGraph **StateGraph** pipelines — deterministic structure, guaranteed section "
+        "completeness, and **80–90% fewer tokens** than equivalent ReAct sub-agents. "
+        "Data fetch runs in parallel Python threads; the LLM is called only for "
+        "adversarial verification and final synthesis (1–2 calls per workflow)."
+    )
+
+    _wf_col_left, _wf_col_right = st.columns([2, 1])
+    with _wf_col_right:
+        st.info(
+            "**Token estimates**\n\n"
+            "| Workflow | Tokens |\n"
+            "|---|---|\n"
+            "| Autonomous Research | ~8,800 |\n"
+            "| Indian Equity | ~7,000 |\n"
+            "| MF Fund Consensus | ~4,000 |\n"
+            "| Portfolio Analysis | ~9,800 |\n\n"
+            "vs 15,000–42,000 for ReAct equivalent",
+            icon="💡",
+        )
+
+    wf_research_tab, wf_equity_tab, wf_consensus_tab, wf_portfolio_tab = st.tabs([
+        "🔭 Autonomous Research",
+        "📈 Indian Equity",
+        "🏦 MF Consensus",
+        "💼 Portfolio Analysis",
+    ])
+
+    # ── Workflow 1: Autonomous Research ───────────────────────────────────────
+    with wf_research_tab:
+        st.subheader("🔭 Autonomous Research")
+        st.caption(
+            "5 phases · 2 LLM calls · ~8,800 tokens  \n"
+            "`resolve → fetch_all (6 parallel groups) → correlate → verify (adversarial) → synthesise`"
+        )
+        _q_research = st.text_input(
+            "Question",
+            placeholder="comprehensive research on ADANIENT",
+            key="wf_research_q",
+        )
+        _run_research = st.button("▶ Run", key="wf_research_run", type="primary", use_container_width=False)
+        if _run_research:
+            if not _q_research.strip():
+                st.warning("Enter a question first.")
+            else:
+                _phases = st.empty()
+                _phases.info("Phase 1/5 · Resolving symbol…")
+                try:
+                    with st.spinner("Running autonomous research workflow…"):
+                        from src.workflows.autonomous_research import run as _run_ar
+                        _result = _run_ar(_q_research.strip())
+                    _phases.empty()
+                    st.markdown(_result)
+                    st.success("Workflow complete.", icon="✅")
+                except Exception as _e:
+                    _phases.empty()
+                    st.error(f"Workflow failed: {_e}")
+
+    # ── Workflow 2: Indian Equity ──────────────────────────────────────────────
+    with wf_equity_tab:
+        st.subheader("📈 Indian Equity Research")
+        st.caption(
+            "3 phases · 1 LLM call · ~7,000 tokens  \n"
+            "`resolve → fetch_all (12 tools, guaranteed) → synthesise`  \n"
+            "All 12 Round-2 tools run in parallel — no silent section skips."
+        )
+        _q_equity = st.text_input(
+            "Company or question",
+            placeholder="RELIANCE quarterly results and MF holdings",
+            key="wf_equity_q",
+        )
+        _run_equity = st.button("▶ Run", key="wf_equity_run", type="primary", use_container_width=False)
+        if _run_equity:
+            if not _q_equity.strip():
+                st.warning("Enter a company name or question first.")
+            else:
+                try:
+                    with st.spinner("Fetching 12 data sources in parallel…"):
+                        from src.workflows.india_equity import run as _run_ie
+                        _result = _run_ie(_q_equity.strip())
+                    st.markdown(_result)
+                    st.success("Workflow complete.", icon="✅")
+                except Exception as _e:
+                    st.error(f"Workflow failed: {_e}")
+
+    # ── Workflow 3: MF Fund Consensus ──────────────────────────────────────────
+    with wf_consensus_tab:
+        st.subheader("🏦 Multi-Fund Consensus")
+        st.caption(
+            "3 phases · 1 LLM call · ~4,000 tokens  \n"
+            "`fetch_all_funds (7 parallel) → fetch_consensus → synthesise`  \n"
+            "Covers: Nippon, DSP, Bajaj, Quant, ICICI multi-asset funds."
+        )
+        _period = st.radio(
+            "Period",
+            options=["mom", "yoy"],
+            format_func=lambda x: "Month-over-Month" if x == "mom" else "Year-over-Year",
+            horizontal=True,
+            key="wf_consensus_period",
+        )
+        _run_consensus = st.button("▶ Run", key="wf_consensus_run", type="primary", use_container_width=False)
+        if _run_consensus:
+            try:
+                with st.spinner(f"Fetching 7 funds in parallel ({_period.upper()})…"):
+                    from src.workflows.multi_fund_consensus import run as _run_mfc
+                    _result = _run_mfc(_period)
+                st.markdown(_result)
+                st.success("Workflow complete.", icon="✅")
+            except Exception as _e:
+                st.error(f"Workflow failed: {_e}")
+
+    # ── Workflow 4: Portfolio Analysis ─────────────────────────────────────────
+    with wf_portfolio_tab:
+        st.subheader("💼 Portfolio Analysis")
+        st.caption(
+            "6 phases · N+K+1 LLM calls · ~9,800 tokens (10 holdings, 3 HIGH-conviction)  \n"
+            "`discover → enrich_all → score_all → verify_high (adversarial) → fetch_macro → synthesise`  \n"
+            "Reads from `market_data.user_holdings FINAL`. HIGH-conviction scores are "
+            "adversarially challenged before the final report."
+        )
+        st.info(
+            "Ensure holdings are synced: run **Import Data → Kite Holdings** first, "
+            "or `python src/main.py analyze` to backfill `user_holdings`.",
+            icon="ℹ️",
+        )
+        _run_portfolio = st.button("▶ Run Portfolio Analysis", key="wf_portfolio_run", type="primary")
+        if _run_portfolio:
+            try:
+                with st.spinner("Running portfolio workflow (discover → enrich → score → verify → macro → synthesise)…"):
+                    from src.workflows.portfolio_analysis import run as _run_pa
+                    _result = _run_pa()
+                st.markdown(_result)
+                st.success("Workflow complete.", icon="✅")
+            except Exception as _e:
+                st.error(f"Workflow failed: {_e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 15 — REPORTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_reports:

@@ -62,6 +62,18 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     from src.agents.budget import BudgetCallbackHandler
     import time
 
+    # research intent: bypass ReAct loop and use StateGraph workflow (80% fewer tokens).
+    # Set MOSAIC_USE_WORKFLOWS=0 to fall back to the ReAct agent for debugging.
+    if intent == "research" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+        try:
+            from src.workflows.autonomous_research import run as _wf_run
+            logger.info("run_subagent_for: routing 'research' → StateGraph workflow")
+            return _wf_run(question)
+        except Exception as _wf_exc:
+            logger.warning(
+                "run_subagent_for: workflow failed, falling back to ReAct agent: %s", _wf_exc
+            )
+
     cloud_llm = None
     if _needs_cloud(question) or intent in ("deepdive", "research"):
         try:

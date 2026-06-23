@@ -66,13 +66,9 @@ def classify_asset(name: str, industry: str = "") -> str:
 # ── ClickHouse helper ─────────────────────────────────────────────────────────
 
 def _ch_client():
-    return clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=settings.clickhouse_database,
-    )
+    """Return an unmanaged ClickHouse client from the pool singleton."""
+    from src.db.pool import get_client
+    return get_client()
 
 
 # ── Base importer ─────────────────────────────────────────────────────────────

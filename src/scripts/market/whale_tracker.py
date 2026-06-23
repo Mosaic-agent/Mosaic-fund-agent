@@ -19,7 +19,6 @@ from typing import Dict, List, Any
 sys.path.append(os.getcwd())
 
 from config.settings import settings
-import clickhouse_connect
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -79,12 +78,8 @@ def get_fund_holdings(client, query_filter: str, as_of_month: str) -> Dict[str, 
 
 def run_whale_tracker():
     console = Console()
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     console.print(Panel(
         "[bold cyan]🐋 Whale Tracker: Institutional Macro Moves[/bold cyan]\n"

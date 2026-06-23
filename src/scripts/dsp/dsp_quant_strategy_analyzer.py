@@ -13,7 +13,6 @@ sys.path.append(os.path.join(os.getcwd(), "src"))
 
 try:
     from config.settings import settings
-    import clickhouse_connect
 except ImportError as e:
     print(f"Error importing project modules: {e}")
     sys.exit(1)
@@ -161,13 +160,8 @@ def get_historical_quant_data(client, dates):
 def run_analysis():
     console.print("[bold cyan]DSP Multi Asset Quant Strategy Analyzer[/bold cyan]")
     
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=settings.clickhouse_database
-    )
+    from src.db.pool import get_client
+    client = get_client()
     
     # 1. Get DSP History
     dsp_df = get_dsp_allocation_history(client)

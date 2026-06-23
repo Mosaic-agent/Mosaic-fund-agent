@@ -698,6 +698,58 @@ def read_deepdive_report(ticker: str) -> str:
         return f"Error reading report for {ticker_clean}: {exc}"
 
 
+# ── Workflow tools (LangGraph StateGraph — token-efficient) ───────────────────
+
+@tool
+def run_autonomous_research(question: str) -> str:
+    """
+    Deep multi-domain equity research via LangGraph StateGraph workflow.
+
+    Token-efficient alternative to AutonomousResearchAgent (80% fewer tokens).
+    Runs all data fetch in parallel Python threads; uses LLM only for
+    adversarial verification and final synthesis.
+    """
+    from src.workflows.autonomous_research import run
+    return run(question)
+
+
+@tool
+def run_india_equity_research_workflow(question: str) -> str:
+    """
+    Guaranteed 8-section NSE/BSE equity research note via StateGraph.
+
+    All 12 data-fetch tools run in parallel and are guaranteed to complete
+    before synthesis starts — no silent section skips.
+    """
+    from src.workflows.india_equity import run
+    return run(question)
+
+
+@tool
+def run_multi_fund_consensus_workflow(period: str = "mom") -> str:
+    """
+    Cross-fund MF consensus workflow: per-fund MoM/YoY analysis for 7 funds
+    in parallel, then aggregate consensus synthesis.
+
+    period: 'mom' (default) or 'yoy'
+    """
+    from src.workflows.multi_fund_consensus import run
+    return run(period)
+
+
+@tool
+def run_portfolio_workflow() -> str:
+    """
+    Portfolio analysis with adversarial verification.
+
+    Reads holdings from market_data.user_holdings FINAL, enriches each in
+    parallel, scores with LLM, adversarially verifies HIGH-conviction calls,
+    then synthesises with macro context.
+    """
+    from src.workflows.portfolio_analysis import run
+    return run()
+
+
 # ── Canonical tool list ────────────────────────────────────────────────────────
 # Single source of truth — all other lists are subsets of this.
 SKILLS_TOOLS = [
@@ -728,4 +780,9 @@ SKILLS_TOOLS = [
     run_premium_alerts,
     run_deepdive_analysis,
     read_deepdive_report,
+    # Workflow tools — LangGraph StateGraph (token-efficient, guaranteed coverage)
+    run_autonomous_research,
+    run_india_equity_research_workflow,
+    run_multi_fund_consensus_workflow,
+    run_portfolio_workflow,
 ]

@@ -3,7 +3,6 @@ import sys
 import warnings
 import pandas as pd
 import numpy as np
-import clickhouse_connect
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -41,13 +40,8 @@ PROXY_WEIGHTS = [
 def run_omni_fof_risk():
     console.print("[bold cyan]🛡️  Risk Governor: DSP Multi Asset Omni FoF (Proxy Model)[/bold cyan]")
     
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
     
     # 1. Fetch daily returns for all proxies
     symbols = list(set([p[2] for p in PROXY_WEIGHTS]))

@@ -2,7 +2,6 @@
 import os
 import sys
 import pandas as pd
-import clickhouse_connect
 from config.settings import settings
 from rich.console import Console
 from rich.table import Table
@@ -13,13 +12,8 @@ sys.path.append(os.getcwd())
 console = Console()
 
 def run_house_intelligence():
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=settings.clickhouse_database
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     # --- 1. Identify Nifty 50 ---
     # We use the Nifty 50 Index Fund as a proxy for the current list

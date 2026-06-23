@@ -15,7 +15,6 @@ from bs4 import BeautifulSoup
 sys.path.append(os.getcwd())
 
 from config.settings import settings
-import clickhouse_connect
 
 def fetch_and_insert():
     # Use a direct viewer that doesn't require login if possible
@@ -56,12 +55,8 @@ def fetch_and_insert():
             })
 
         if rows:
-            client = clickhouse_connect.get_client(
-                host=settings.clickhouse_host,
-                port=settings.clickhouse_port,
-                username=settings.clickhouse_user,
-                password=settings.clickhouse_password,
-            )
+            from src.db.pool import get_client
+            client = get_client()
             
             # Map to list of lists for insert
             data = [

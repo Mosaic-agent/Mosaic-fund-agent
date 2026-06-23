@@ -11,7 +11,6 @@ sys.path.append(os.getcwd())
 
 try:
     from config.settings import settings
-    import clickhouse_connect
 except ImportError as e:
     print(f"Error importing project modules: {e}")
     sys.exit(1)
@@ -19,13 +18,8 @@ except ImportError as e:
 console = Console()
 
 def run_comparison():
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-        database=settings.clickhouse_database
-    )
+    from src.db.pool import get_client
+    client = get_client()
     
     # Query for the latest month's allocation
     query = """

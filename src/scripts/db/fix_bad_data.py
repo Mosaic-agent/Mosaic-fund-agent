@@ -10,7 +10,6 @@ aligns watermarks, and runs sanity check validation.
 import os
 import sys
 from pathlib import Path
-import clickhouse_connect
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -32,13 +31,8 @@ def main():
     console.print(Panel("[bold green]🔧 Market Data Quality Repair & Maintenance[/bold green]", subtitle="Cleaning database and aligning watermarks"))
 
     try:
-        client = clickhouse_connect.get_client(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-            database=settings.clickhouse_database
-        )
+        from src.db.pool import get_client
+        client = get_client()
     except Exception as e:
         console.print(f"[red]Error connecting to ClickHouse: {e}[/red]")
         sys.exit(1)

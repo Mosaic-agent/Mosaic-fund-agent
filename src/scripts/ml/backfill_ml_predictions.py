@@ -50,7 +50,6 @@ import time
 import warnings
 from datetime import date, datetime, timedelta
 
-import clickhouse_connect
 import numpy as np
 import pandas as pd
 
@@ -212,13 +211,8 @@ def run_backfill(
     force: bool = False,
     verbose: bool = True,
 ) -> None:
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     # ── Ensure schema has prob_up + cv_auc_mean columns (idempotent) ──────────
     for col_ddl in [
@@ -274,13 +268,8 @@ def run_backfill(
     print()
 
     # ── Reconnect for inserts ─────────────────────────────────────────────────
-    client = clickhouse_connect.get_client(
-        host=settings.clickhouse_host,
-        port=settings.clickhouse_port,
-        database=settings.clickhouse_database,
-        username=settings.clickhouse_user,
-        password=settings.clickhouse_password,
-    )
+    from src.db.pool import get_client
+    client = get_client()
 
     saved = 0
     skipped = 0
