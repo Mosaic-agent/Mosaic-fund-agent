@@ -231,6 +231,22 @@
     .gallery-caption .gc-desc  { font-size: 12px; color: #94a3b8; line-height: 1.5; }
     .gallery-item.light .gallery-caption .gc-desc { color: var(--text-3); }
 
+    /* ── Anomaly pipeline stepper (animated) ────────────────────── */
+    .anomaly-pipeline { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; margin: 36px 0 4px; }
+    .anom-step {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #fff; border: 1.5px solid var(--border); border-radius: 24px;
+      padding: 9px 18px; font-size: 13.5px; font-weight: 600; color: var(--text-3);
+      box-shadow: var(--sh-xs); opacity: .45;
+      transition: opacity .4s ease, color .4s ease, border-color .4s ease, box-shadow .4s ease, transform .4s ease;
+    }
+    .anom-step .anom-check { color: var(--green); font-weight: 800; opacity: 0; transition: opacity .3s ease; }
+    .anom-step.done { opacity: 1; color: var(--text); border-color: var(--gold-bd); box-shadow: var(--sh-sm); transform: translateY(-1px); }
+    .anom-step.done .anom-check { opacity: 1; }
+    .anom-arrow { color: var(--gold-dk); font-size: 16px; opacity: .5; }
+    @media (max-width: 680px) { .anom-arrow { transform: rotate(90deg); } .anomaly-pipeline { flex-direction: column; } }
+    @media (prefers-reduced-motion: reduce) { .anom-step { opacity: 1; } .anom-step .anom-check { opacity: 1; } }
+
     /* ── "Who it's for" chooser ─────────────────────────────────── */
     .paths-section { background: var(--bg1); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
     .paths-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 40px; }
@@ -641,6 +657,35 @@
         <div class="gallery-caption">
           <div class="gc-title">🔬 Anomaly Detection — spot the unusual moves</div>
           <div class="gc-desc">GARCH(1,1) + Isolation Forest over 3,763 days of GOLD. Every flagged day colour-coded by regime: Crowded Long, Strong Trend, Volatile Breakout, Blow-off Top. Tune the threshold live.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Anomaly attribution: animated phase stepper + the two correlation charts -->
+    <div class="anomaly-pipeline" id="anomalyPipe">
+      <div class="anom-step" data-step="0"><span class="anom-ico">🔍</span> Detect anomalies <span class="anom-check">✓</span></div>
+      <div class="anom-arrow">→</div>
+      <div class="anom-step" data-step="1"><span class="anom-ico">🔗</span> Correlate events <span class="anom-check">✓</span></div>
+      <div class="anom-arrow">→</div>
+      <div class="anom-step" data-step="2"><span class="anom-ico">⏱️</span> Lead/lag analysis <span class="anom-check">✓</span></div>
+      <div class="anom-arrow">→</div>
+      <div class="anom-step" data-step="3"><span class="anom-ico">📊</span> Map to triggers <span class="anom-check">✓</span></div>
+    </div>
+
+    <div class="gallery-grid">
+      <div class="gallery-item reveal">
+        <img src="screenshots/correlation_timeline.png" alt="Event correlation timeline — anomalies mapped to triggers" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">🔗 Event Correlation Timeline — every shock mapped to a cause</div>
+          <div class="gc-desc">Each red dot is a flagged anomaly, lined up against the trigger that moved it: macro shocks, RBI/Fed policy events, and news announcements — overlaid on the price line.</div>
+        </div>
+      </div>
+
+      <div class="gallery-item reveal">
+        <img src="screenshots/lead_lag_grid.png" alt="Anomaly lead-lag feature grid" loading="lazy" />
+        <div class="gallery-caption">
+          <div class="gc-title">⏱️ Lead-Lag Grid — reaction or insider leak?</div>
+          <div class="gc-desc">Plots each anomaly by trading days from its trigger. Left of zero = the move happened <em>before</em> the news (potential leak); right = normal market reaction. The Fed-pause shock lagged 4 days; the duty hike hit same-day.</div>
         </div>
       </div>
     </div>
@@ -1508,6 +1553,24 @@ const QUERIES = {
     if (entries[0].isIntersecting) { run('anomaly'); heroObs.disconnect(); }
   }, { threshold: 0.3 });
   heroObs.observe(hero);
+})();
+
+/* ── Anomaly pipeline stepper animation ─────────────────────────── */
+(function () {
+  const pipe = document.getElementById('anomalyPipe');
+  if (!pipe) return;
+  const steps = [...pipe.querySelectorAll('.anom-step')];
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function play() {
+    if (reduce) { steps.forEach(s => s.classList.add('done')); return; }
+    steps.forEach((s, i) => setTimeout(() => s.classList.add('done'), 350 + i * 550));
+  }
+
+  const obs = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) { play(); obs.disconnect(); }
+  }, { threshold: 0.5 });
+  obs.observe(pipe);
 })();
 
 /* ── Copy-to-clipboard on code blocks ───────────────────────────── */
