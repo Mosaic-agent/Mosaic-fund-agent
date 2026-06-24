@@ -62,6 +62,9 @@ _MF_RE = re.compile(
     r"\b(?:mutual\s+fund|mf\s+holdings?|fund\s+holdings?|holding\s+pattern)"
     r"|\b(?:dsp|nippon|bajaj|quant|icici)\s+(?:multi[\s-]?asset|equity|small\s+cap|mid\s+cap|flexi|focused|value|tax\s+saver|elss|healthcare|business\s+cycle)"
     r"|\bmulti[\s-]?asset(?:\s+fund)?\b"
+    # AMC-specific import/refresh triggers → mf agent has the importers
+    r"|\b(?:import|refresh|sync|update)\s+(?:all\s+)?(?:dsp|nippon|icici(?:\s+pru(?:dential)?)?)\s*(?:holdings?|data|funds?|portfolio)?\b"
+    r"|\b(?:import|refresh|sync|update)\s+all\s+(?:multi[\s-]?asset\s+)?(?:fund\s+)?holdings?\b"
     r"|\bnav\s+return|monthly\s+return\s+of\s+(?:the\s+)?fund"
     r"|\bfund\s+(?:return|nav|cagr|performance|allocation|exposure)"
     r"|\bwhich\s+(?:funds?|amcs?)\s+(?:hold|own)"
@@ -83,7 +86,9 @@ _IMPORT_RE = re.compile(
     # those still reach the macro/news agents via the normal routing chain.
     r"|^(?:import|refresh|sync)\s+"
     r"(?!(?:duty|duties|tax|tariff|tariffs|ban|rule|rules|law|policy|regulation"
-    r"|the|a|an|my|all|latest|today|new|more|some|those|these|this|that)\b)"
+    r"|the|a|an|my|all|latest|today|new|more|some|those|these|this|that"
+    # AMC names → fall through to _MF_RE in _regex_route_intent
+    r"|dsp|nippon|icici|bajaj|quant)\b)"
     r"[a-zA-Z][a-zA-Z0-9\s]{1,30}$",
     re.I,
 )

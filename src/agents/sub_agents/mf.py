@@ -40,7 +40,10 @@ class MFSubAgent(_SubAgent):
         "| Top holdings bar chart for a fund         | `plot_fund_holdings_chart`                  |\n"
         "| Which funds hold a stock (reverse lookup) | `get_mf_holdings_for_stock`                 |\n"
         "| Ad-hoc holdings query                     | `query_clickhouse_db` on `mf_holdings FINAL`|\n"
-        "| Import latest DSP / Nippon holdings       | `run_dsp_multi_asset_importer` / `run_nippon_importer` |\n\n"
+        "| Import latest DSP holdings                | `run_dsp_multi_asset_importer`              |\n"
+        "| Import latest Nippon holdings             | `run_nippon_importer`                       |\n"
+        "| Import latest ICICI Pru holdings          | `run_icici_importer`                        |\n"
+        "| Import ALL multi-asset fund holdings      | `run_all_multi_asset_importers`             |\n\n"
         "## Routing rules\n"
         "- 'pattern across multi-asset funds', 'what are funds collectively buying', "
         "'smart money consensus' → `run_multi_asset_consensus`\n"
@@ -59,8 +62,10 @@ class MFSubAgent(_SubAgent):
         "- 'gold/silver/nuclear theme exposure across funds' → `run_whale_tracker`\n"
         "- 'list available funds', 'what funds have history' → "
         "`run_multi_asset_holdings_mom_yoy(list_funds=True)`\n"
+        "- 'import all multi asset funds', 'refresh all fund holdings', 'sync all AMC holdings' → `run_all_multi_asset_importers` (runs DSP + Nippon + ICICI)\n"
         "- 'import / refresh DSP holdings' → `run_dsp_multi_asset_importer`\n"
-        "- 'import / refresh Nippon holdings' → `run_nippon_importer`\n\n"
+        "- 'import / refresh Nippon holdings' → `run_nippon_importer`\n"
+        "- 'import / refresh ICICI holdings', 'import ICICI Pru' → `run_icici_importer`\n\n"
         "### Nippon fund canonical names\n"
         "Use these exact strings in `fund=` parameters:\n"
         "| Fund | Canonical name |\n"
@@ -111,6 +116,8 @@ class MFSubAgent(_SubAgent):
             run_fund_mom_returns,
             run_dsp_multi_asset_importer,
             run_nippon_importer,
+            run_icici_importer,
+            run_all_multi_asset_importers,
             query_clickhouse_db,
         )
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
@@ -124,6 +131,8 @@ class MFSubAgent(_SubAgent):
             run_fund_mom_returns,
             run_dsp_multi_asset_importer,
             run_nippon_importer,
+            run_icici_importer,
+            run_all_multi_asset_importers,
             get_mf_holdings_for_stock,
             plot_fund_holdings_chart,
             plot_price_chart,
@@ -144,6 +153,30 @@ class MFSubAgent(_SubAgent):
         """
         import re as _re
         q = question.lower()
+
+        # ── Import all multi-asset fund holdings ──────────────────────────────
+        if any(kw in q for kw in (
+            "import all", "refresh all", "sync all", "update all",
+            "all multi asset", "all fund holding", "all amc",
+        )):
+            logger.info("MFSubAgent._fallback: import all multi-asset funds")
+            from src.tools.skills_tools import run_all_multi_asset_importers
+            return run_all_multi_asset_importers.invoke({})
+
+        # ── Individual fund imports ───────────────────────────────────────────
+        if any(kw in q for kw in ("import", "refresh", "sync", "update")):
+            if "dsp" in q:
+                logger.info("MFSubAgent._fallback: import DSP")
+                from src.tools.skills_tools import run_dsp_multi_asset_importer
+                return run_dsp_multi_asset_importer.invoke({})
+            if any(kw in q for kw in ("nippon", "reliance mf")):
+                logger.info("MFSubAgent._fallback: import Nippon")
+                from src.tools.skills_tools import run_nippon_importer
+                return run_nippon_importer.invoke({})
+            if any(kw in q for kw in ("icici", "icici pru", "prudential")):
+                logger.info("MFSubAgent._fallback: import ICICI")
+                from src.tools.skills_tools import run_icici_importer
+                return run_icici_importer.invoke({})
 
         # ── Cross-fund consensus ──────────────────────────────────────────────
         if any(kw in q for kw in (

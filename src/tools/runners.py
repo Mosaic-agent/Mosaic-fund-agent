@@ -327,6 +327,46 @@ def run_market_indicators() -> str:
     return _run_cmd(["src/scripts/portfolio/market_indicators.py"])
 
 
+@tool
+def run_icici_importer(full: bool = False) -> str:
+    """
+    Import ICICI Prudential Mutual Fund portfolio holdings into ClickHouse.
+
+    Default (full=False): delta sync — imports the current live portfolio
+    snapshot from Morningstar (fast, run once a month). Use for "import ICICI
+    holdings", "refresh ICICI data", "import ICICI Pru holdings", etc.
+
+    Set full=True only when asked to "re-import all ICICI history".
+    """
+    args = ["src/scripts/fund_imports/run.py", "icici"]
+    if full:
+        args.append("--full")
+    return _run_cmd(args)
+
+
+@tool
+def run_all_multi_asset_importers() -> str:
+    """
+    Import holdings for ALL tracked multi-asset funds in one shot.
+
+    Runs DSP, Nippon, and ICICI Prudential importers sequentially (delta
+    sync — only new months not already in ClickHouse). Use when the user
+    says "import all multi asset funds", "refresh all fund holdings",
+    "update all AMC holdings", "sync all multi asset", etc.
+
+    Returns a combined status report for all three importers.
+    """
+    parts = []
+    for label, args in [
+        ("DSP",    ["src/scripts/dsp/import_latest_dsp.py"]),
+        ("Nippon", ["src/main.py", "import", "--category", "nippon"]),
+        ("ICICI",  ["src/scripts/fund_imports/run.py", "icici"]),
+    ]:
+        parts.append(f"=== {label} ===")
+        parts.append(_run_cmd(args))
+    return "\n".join(parts)
+
+
 RUNNER_TOOLS = [
     run_goldbees_pipeline,
     run_daily_signal_composite,
@@ -334,6 +374,8 @@ RUNNER_TOOLS = [
     run_etf_news_sentiment,
     run_dsp_multi_asset_importer,
     run_nippon_importer,
+    run_icici_importer,
+    run_all_multi_asset_importers,
     run_multi_asset_holdings_mom_yoy,
     run_multi_asset_consensus,
     run_data_engineering_importer,
