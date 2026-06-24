@@ -74,6 +74,8 @@ _TABLE_DATE_COL: dict[str, str] = {
     "import_watermarks": "last_date",
     "stock_valuation": "snapshot_date",
     "stock_earnings":  "earnings_date",
+    "stock_insider_trades": "transaction_date",
+    "corporate_actions": "ex_date",
     "deepdive_financials": "report_date",
     "deepdive_valuation":  "report_date",
     "deepdive_prices":     "trade_date",
@@ -136,6 +138,11 @@ _TABLE_IMPORT_CATEGORY: dict[str, str] = {
     "cot_gold":          "cot",
     "fx_rates":          "fx_rates",
     "news_articles":     "etfs",
+    "corporate_actions": "stocks",
+    "stock_earnings":    "stocks",
+    "stock_insider_trades": "stocks",
+    "stock_valuation":   "stocks",
+    "weight_checkpoints": "etfs",
 }
 
 STALE_THRESHOLD_DAYS = 2   # flag as stale if last import > this many days ago

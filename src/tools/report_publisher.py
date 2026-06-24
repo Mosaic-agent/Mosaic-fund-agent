@@ -344,8 +344,8 @@ def render_garch_vol_png(
                 "ORDER BY as_of ASC",
                 parameters={"sym": symbol.upper()},
             )
-            # If still empty, try computing it on the fly if df is provided
-            if df_vol.empty and df is not None and not df.empty:
+            # If empty or sparse, try computing it on the fly if df is provided
+            if (df_vol.empty or df_vol["trade_date"].nunique() < 10) and df is not None and not df.empty:
                 from src.ml.anomaly import run_composite_anomaly
                 df_res, _, _ = run_composite_anomaly(df)
                 df_vol = df_res[["trade_date", "garch_vol"]].dropna().copy()

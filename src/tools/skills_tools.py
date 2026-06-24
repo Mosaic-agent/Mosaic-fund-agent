@@ -285,7 +285,7 @@ def query_clickhouse_db(sql_query: str) -> str:
       - Always query tables using the 'FINAL' modifier to deduplicate rows (e.g. `market_data.mf_holdings FINAL`).
       - Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH queries are permitted.
       - The database is 'market_data'. Available tables include:
-        * Indian Markets: daily_prices, mf_nav, mf_holdings, fii_dii_flows, ml_predictions, signal_composite, inav_snapshots, fx_rates
+        * Indian Markets: daily_prices, mf_nav, mf_holdings, fii_dii_flows, fii_dii_fno_daily, signal_composite, ml_predictions, weight_checkpoints, inav_snapshots, cot_gold, fx_rates, macro_indicators, news_articles, import_watermarks, corporate_actions, stock_earnings, stock_insider_trades, stock_valuation
         * US Stocks Deep-Dive: deepdive_exec_comp, deepdive_filings, deepdive_financials, deepdive_headcount, deepdive_jobs, deepdive_prices, deepdive_reports, deepdive_segments, deepdive_valuation, deepdive_watermarks
     """
     clean_query = sql_query.strip()
