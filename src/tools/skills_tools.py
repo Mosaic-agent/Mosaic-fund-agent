@@ -143,6 +143,38 @@ def import_symbol_data_impl(
     else:
         yahoo_ticker, category = _lookup[sym]
 
+    # ── Watermark-aware delta sync ─────────────────────────────────────────
+    # When the caller didn't provide an explicit start_date, look up the last
+    # successful import watermark and start from the day after — so only the
+    # missing days are fetched instead of blindly re-fetching `days` history.
+    watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
+    if not start_date:
+        try:
+            from src.db.pool import query_df as _qdf
+            wm = _qdf(
+                f"SELECT last_date FROM market_data.import_watermarks FINAL "
+                f"WHERE source = '{watermark_source}' AND symbol = '{sym}' "
+                f"ORDER BY last_date DESC LIMIT 1"
+            )
+            if not wm.empty:
+                last_date = wm.iloc[0]["last_date"]
+                # Advance one trading day past the watermark
+                delta_from = last_date + timedelta(days=1)
+                if delta_from >= to_date:
+                    return (
+                        f"{sym} is already up to date. "
+                        f"Last import: {last_date} — nothing to fetch."
+                    )
+                days_desc = f"delta {delta_from} → {to_date} (last import: {last_date})"
+                from_date = delta_from
+                sys.stdout.write(
+                    f"  Watermark found: {last_date} → importing delta from {from_date}\n"
+                )
+                sys.stdout.flush()
+        except Exception as _wm_exc:
+            sys.stdout.write(f"  No watermark found ({_wm_exc}) — using {days_desc}\n")
+            sys.stdout.flush()
+
     sys.stdout.write(
         f"  Importing {sym} ({yahoo_ticker}) | {from_date} → {to_date} ({days_desc})\n"
     )
@@ -175,21 +207,13 @@ def import_symbol_data_impl(
     sys.stdout.flush()
 
     try:
-        from config.settings import settings
         from src.importer.clickhouse import ClickHouseImporter
 
-        ch = ClickHouseImporter(
-            host=settings.clickhouse_host,
-            port=settings.clickhouse_port,
-            database=settings.clickhouse_database,
-            username=settings.clickhouse_user,
-            password=settings.clickhouse_password,
-        )
+        ch = ClickHouseImporter()   # uses pool singleton — no explicit params needed
         try:
             ch.ensure_schema()
             n = ch.insert_prices(rows)
             max_date = max(r["trade_date"] for r in rows)
-            watermark_source = selected_source if category in ("stocks", "etfs") else "yfinance"
             ch.set_watermark(watermark_source, sym, max_date)
             sys.stdout.write(f"  ✓ {n} rows inserted. Last trade_date: {max_date}\n")
             sys.stdout.flush()
