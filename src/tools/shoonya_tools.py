@@ -82,6 +82,8 @@ def get_shoonya_quotes(symbol: str) -> str:
                 "status": "error",
                 "message": f"Error fetching quotes from Shoonya: {quote}"
             }, indent=2)
+        # Persist the quote to ClickHouse
+        _save_quote_to_clickhouse(quote)
         return json.dumps(quote, indent=2)
     except Exception as e:
         return json.dumps({
@@ -168,7 +170,6 @@ def get_shoonya_live_tick(symbol: str) -> str:
             "message": f"Error occurred during Shoonya WebSocket live tick capture: {e}"
         }, indent=2)
 
-
 @tool
 def initiate_shoonya_login(_: str = "") -> str:
     """
@@ -242,3 +243,74 @@ def complete_shoonya_login(code: str) -> str:
 
 
 SHOONYA_TOOLS = [get_shoonya_quotes, get_shoonya_live_tick, initiate_shoonya_login, complete_shoonya_login]
+
+
+def _save_quote_to_clickhouse(quote: dict[str, Any]) -> None:
+    """Parse Shoonya API quote response and save it to market_data.live_quotes in ClickHouse."""
+    try:
+        from datetime import datetime
+        from src.importer.clickhouse import ClickHouseImporter
+        
+        # Extract bid-ask arrays
+        bid_prices = []
+        bid_quantities = []
+        bid_orders = []
+        ask_prices = []
+        ask_quantities = []
+        ask_orders = []
+        
+        for i in range(1, 6):
+            bid_prices.append(float(quote.get(f"bp{i}", 0.0)))
+            bid_quantities.append(int(quote.get(f"bq{i}", 0)))
+            bid_orders.append(int(quote.get(f"bo{i}", 0)))
+            
+            ask_prices.append(float(quote.get(f"sp{i}", 0.0)))
+            ask_quantities.append(int(quote.get(f"sq{i}", 0)))
+            ask_orders.append(int(quote.get(f"so{i}", 0)))
+
+        # Parse trade date/time
+        try:
+            if quote.get("lut"):
+                last_trade_time = datetime.fromtimestamp(int(quote["lut"]))
+            elif quote.get("ltd") and quote.get("ltt"):
+                last_trade_time = datetime.strptime(f"{quote['ltd']} {quote['ltt']}", "%d-%m-%Y %H:%M:%S")
+            else:
+                last_trade_time = datetime.now()
+        except Exception:
+            last_trade_time = datetime.now()
+
+        parsed = {
+            "symbol": quote.get("symname", ""),
+            "exchange": quote.get("exch", ""),
+            "company_name": quote.get("cname", ""),
+            "isin": quote.get("isin", ""),
+            "last_trade_time": last_trade_time,
+            "last_price": float(quote.get("lp", 0.0)),
+            "prev_close": float(quote.get("c", 0.0)),
+            "open": float(quote.get("o", 0.0)),
+            "high": float(quote.get("h", 0.0)),
+            "low": float(quote.get("l", 0.0)),
+            "avg_price": float(quote.get("ap", 0.0)),
+            "volume": int(quote.get("v", 0)),
+            "last_traded_qty": int(quote.get("ltq", 0)),
+            
+            "upper_circuit": float(quote.get("uc", 0.0)),
+            "lower_circuit": float(quote.get("lc", 0.0)),
+            "week52_high": float(quote.get("wk52_h", 0.0)),
+            "week52_low": float(quote.get("wk52_l", 0.0)),
+            "issued_capital": float(quote.get("issuecap", 0.0)),
+            "total_buy_qty": int(quote.get("tbq", 0)),
+            "total_sell_qty": int(quote.get("tsq", 0)),
+            
+            "bid_prices": bid_prices,
+            "bid_quantities": bid_quantities,
+            "bid_orders": bid_orders,
+            "ask_prices": ask_prices,
+            "ask_quantities": ask_quantities,
+            "ask_orders": ask_orders,
+        }
+        
+        with ClickHouseImporter() as ch:
+            ch.insert_live_quotes([parsed])
+    except Exception as e:
+        logger.warning("Failed to save Shoonya quote to ClickHouse: %s", e)

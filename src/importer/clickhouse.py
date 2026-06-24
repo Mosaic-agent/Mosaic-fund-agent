@@ -586,6 +586,42 @@ ORDER BY (as_of_date, indicator_code)
 """
 
 
+_DDL_LIVE_QUOTES = """
+CREATE TABLE IF NOT EXISTS market_data.live_quotes (
+    symbol                String,
+    exchange              LowCardinality(String),
+    company_name          String,
+    isin                  String,
+    last_trade_time       DateTime,
+    last_price            Float64,
+    prev_close            Float64,
+    open                  Float64,
+    high                  Float64,
+    low                   Float64,
+    avg_price             Float64,
+    volume                UInt64,
+    last_traded_qty       UInt32,
+    upper_circuit         Float64,
+    lower_circuit         Float64,
+    week52_high           Float64,
+    week52_low            Float64,
+    issued_capital        Float64,
+    total_buy_qty         UInt64,
+    total_sell_qty        UInt64,
+    bid_prices            Array(Float64),
+    bid_quantities        Array(UInt64),
+    bid_orders            Array(UInt32),
+    ask_prices            Array(Float64),
+    ask_quantities        Array(UInt64),
+    ask_orders            Array(UInt32),
+    imported_at           DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+PARTITION BY toYYYYMM(last_trade_time)
+ORDER BY (symbol, last_trade_time)
+"""
+
+
 class ClickHouseImporter:
     """
     Thin wrapper around clickhouse_connect.Client for bulk data imports.
@@ -649,6 +685,7 @@ class ClickHouseImporter:
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
             _DDL_MACRO_INDICATORS, _DDL_TIJORI_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
             _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
+            _DDL_LIVE_QUOTES,
         ):
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)
@@ -1446,6 +1483,30 @@ class ClickHouseImporter:
             r.get("recommendation", ""), r.get("analyst_count", 0),
         ] for r in rows]
         self._client.insert("market_data.stock_valuation", data, column_names=cols)
+        return len(rows)
+
+    def insert_live_quotes(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        cols = [
+            "symbol", "exchange", "company_name", "isin", "last_trade_time",
+            "last_price", "prev_close", "open", "high", "low", "avg_price",
+            "volume", "last_traded_qty", "upper_circuit", "lower_circuit",
+            "week52_high", "week52_low", "issued_capital", "total_buy_qty",
+            "total_sell_qty", "bid_prices", "bid_quantities", "bid_orders",
+            "ask_prices", "ask_quantities", "ask_orders",
+        ]
+        data = [[
+            r["symbol"], r.get("exchange", ""), r.get("company_name", ""), r.get("isin", ""),
+            r["last_trade_time"], r.get("last_price", 0.0), r.get("prev_close", 0.0),
+            r.get("open", 0.0), r.get("high", 0.0), r.get("low", 0.0), r.get("avg_price", 0.0),
+            r.get("volume", 0), r.get("last_traded_qty", 0), r.get("upper_circuit", 0.0),
+            r.get("lower_circuit", 0.0), r.get("week52_high", 0.0), r.get("week52_low", 0.0),
+            r.get("issued_capital", 0.0), r.get("total_buy_qty", 0), r.get("total_sell_qty", 0),
+            r.get("bid_prices", []), r.get("bid_quantities", []), r.get("bid_orders", []),
+            r.get("ask_prices", []), r.get("ask_quantities", []), r.get("ask_orders", []),
+        ] for r in rows]
+        self._client.insert("market_data.live_quotes", data, column_names=cols)
         return len(rows)
 
     def close(self) -> None:
