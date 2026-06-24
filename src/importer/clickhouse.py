@@ -594,18 +594,24 @@ class ClickHouseImporter:
         *,
         client=None,
     ) -> None:
+        from config.settings import settings
+        self._host = host or settings.clickhouse_host
+        self._port = port or settings.clickhouse_port
+        self._database = database or settings.clickhouse_database
+        self._username = username or settings.clickhouse_user
+        self._password = password if password is not None else settings.clickhouse_password
+
         self._injected = client is not None
         if client is not None:
             # Caller-provided client (e.g. test injection)
             self._client = client
         elif any(p is not None for p in (host, port, database, username, password)):
             # Legacy callers passing explicit params — keep working but warn once
-            from config.settings import settings
             self._client = clickhouse_connect.get_client(
-                host=host or settings.clickhouse_host,
-                port=port or settings.clickhouse_port,
-                username=username or settings.clickhouse_user,
-                password=password if password is not None else settings.clickhouse_password,
+                host=self._host,
+                port=self._port,
+                username=self._username,
+                password=self._password,
                 connect_timeout=15,
                 compress="lz4",
             )
