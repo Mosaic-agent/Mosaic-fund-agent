@@ -409,6 +409,7 @@ ClickHouse schema (database = market_data, all tables use ReplacingMergeTree —
   stock_valuation     : symbol, snapshot_date(Date), trailing_pe, forward_pe, price_to_book, market_cap
   deepdive_financials : ticker, report_date(Date), revenue_usd_m, net_income_usd_m, free_cash_flow_usd_m
   deepdive_valuation  : ticker, report_date(Date), pe_trailing, ev_ebitda, fcf_yield_pct
+  live_quotes         : symbol, exchange, company_name, isin, last_trade_time(DateTime), last_price, prev_close, open, high, low, avg_price, volume, last_traded_qty, upper_circuit, lower_circuit, week52_high, week52_low, issued_capital, total_buy_qty, total_sell_qty, bid_prices(Array), bid_quantities(Array), bid_orders(Array), ask_prices(Array), ask_quantities(Array), ask_orders(Array)
 
 SQL rules (CRITICAL — never use placeholder values like YYYY-MM-DD):
   FINAL modifier : always add FINAL after table name

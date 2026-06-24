@@ -64,7 +64,8 @@ class DatabaseSubAgent(_SubAgent):
         "| stock_insider_trades | symbol, transaction_date, insider_name, relation, transaction_type, shares, value |\n"
         "| stock_valuation | symbol, snapshot_date, market_cap, trailing_pe, forward_pe, price_to_book, return_on_equity, profit_margin, free_cashflow |\n"
         "| deepdive_financials | ticker, report_date, revenue_usd_m, net_income_usd_m, free_cash_flow_usd_m |\n"
-        "| deepdive_valuation | ticker, report_date, pe_trailing, ev_ebitda, fcf_yield_pct |\n\n"
+        "| deepdive_valuation | ticker, report_date, pe_trailing, ev_ebitda, fcf_yield_pct |\n"
+        "| live_quotes | symbol, exchange, company_name, isin, last_trade_time, last_price, prev_close, open, high, low, avg_price, volume, last_traded_qty, upper_circuit, lower_circuit, week52_high, week52_low, issued_capital, total_buy_qty, total_sell_qty, bid_prices, bid_quantities, bid_orders, ask_prices, ask_quantities, ask_orders |\n\n"
 
         "## Common patterns\n"
         "```sql\n"

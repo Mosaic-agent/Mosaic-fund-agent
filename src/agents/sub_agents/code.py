@@ -42,7 +42,7 @@ class CodeSubAgent(_SubAgent):
         "fii_dii_fno_daily, signal_composite, ml_predictions, weight_checkpoints, "
         "inav_snapshots, cot_gold, fx_rates, macro_indicators, news_articles, "
         "import_watermarks, corporate_actions, stock_earnings, stock_insider_trades, "
-        "stock_valuation, deepdive_financials, deepdive_valuation.\n"
+        "stock_valuation, deepdive_financials, deepdive_valuation, live_quotes.\n"
         "- `query_df(sql)` returns a pandas DataFrame; use `.to_markdown(index=False)` to print.\n\n"
         "## Project conventions\n"
         "- New signal sources go in src/agents/signal_sources.py — subclass SignalSource ABC.\n"

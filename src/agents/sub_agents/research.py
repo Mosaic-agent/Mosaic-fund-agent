@@ -123,7 +123,7 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
 - MF holdings columns: `pct_of_nav`, `security_name` (NEVER `weight_pct` or `name`)
 - Available tables: `daily_prices`, `mf_holdings`, `mf_nav`, `fii_dii_flows`,
   `signal_composite`, `ml_predictions`, `macro_indicators`, `fx_rates`,
-  `inav_snapshots`, `news_articles`, `import_watermarks`
+  `inav_snapshots`, `news_articles`, `import_watermarks`, `live_quotes`
 - In `execute_python_snippet`: `query_df(sql)` → pandas DataFrame; use
   `.to_markdown(index=False)` to display
 
