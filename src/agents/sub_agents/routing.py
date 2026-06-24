@@ -76,7 +76,15 @@ _IMPORT_RE = re.compile(
     r"|\bimport\s+--(?:category|full)\b"
     r"|\bupdate\s+(?:nav|price|prices|data|etfs?|stocks?|mf|fii|dii|inav)\b"
     r"|\bbackfill\b"
-    r"|\brun\s+(?:the\s+)?(?:importer|import\s+pipeline)\b",
+    r"|\brun\s+(?:the\s+)?(?:importer|import\s+pipeline)\b"
+    # Symbol-level imports: "import GOLDBEES", "import gold bees", "refresh NIFTYBEES"
+    # Negative lookahead excludes common English words that indicate a macro/news
+    # query ("import duty on gold", "import tariff", "what is the import tax") so
+    # those still reach the macro/news agents via the normal routing chain.
+    r"|^(?:import|refresh|sync)\s+"
+    r"(?!(?:duty|duties|tax|tariff|tariffs|ban|rule|rules|law|policy|regulation"
+    r"|the|a|an|my|all|latest|today|new|more|some|those|these|this|that)\b)"
+    r"[a-zA-Z][a-zA-Z0-9\s]{1,30}$",
     re.I,
 )
 _DB_RE = re.compile(
