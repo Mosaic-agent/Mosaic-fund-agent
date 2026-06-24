@@ -57,6 +57,10 @@ class DatabaseSubAgent(_SubAgent):
         "| macro_indicators | ref_year, country_code, indicator_code, value |\n"
         "| news_articles | fetched_at, category, sentiment, impact_tier, title |\n"
         "| import_watermarks | source, symbol, last_date |\n"
+        "| corporate_actions | symbol, ex_date, action_type('split'/'bonus'/'dividend'/'demerger'/'rights'), ratio, purpose |\n"
+        "| stock_earnings | symbol, earnings_date, eps_estimate, eps_actual, surprise_pct |\n"
+        "| stock_insider_trades | symbol, transaction_date, insider_name, relation, transaction_type, shares, value |\n"
+        "| stock_valuation | symbol, snapshot_date, market_cap, trailing_pe, forward_pe, price_to_book, return_on_equity, profit_margin, free_cashflow |\n"
         "| deepdive_financials | ticker, report_date, revenue_usd_m, net_income_usd_m, free_cash_flow_usd_m |\n"
         "| deepdive_valuation | ticker, report_date, pe_trailing, ev_ebitda, fcf_yield_pct |\n\n"
 
