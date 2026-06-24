@@ -162,5 +162,34 @@ class TestQueryDateRangeParser(unittest.TestCase):
         self.assertEqual(start, "")
         self.assertEqual(end, "")
 
+class TestClickHouseImporterInit(unittest.TestCase):
+    @patch('src.importer.clickhouse.clickhouse_connect.get_client')
+    def test_importer_initialization(self, mock_get_client):
+        from src.importer.clickhouse import ClickHouseImporter
+        from config.settings import settings
+        
+        # Test 1: legacy parameter passing initializes properties correctly
+        ch = ClickHouseImporter(
+            host="test_host",
+            port=1234,
+            database="test_db",
+            username="test_user",
+            password="test_password"
+        )
+        self.assertEqual(ch._host, "test_host")
+        self.assertEqual(ch._port, 1234)
+        self.assertEqual(ch._database, "test_db")
+        self.assertEqual(ch._username, "test_user")
+        self.assertEqual(ch._password, "test_password")
+        
+        # Test 2: default pool initialization falls back to settings config
+        with patch('src.db.pool.get_client') as mock_pool_get_client:
+            ch_default = ClickHouseImporter()
+            self.assertEqual(ch_default._host, settings.clickhouse_host)
+            self.assertEqual(ch_default._port, settings.clickhouse_port)
+            self.assertEqual(ch_default._database, settings.clickhouse_database)
+            self.assertEqual(ch_default._username, settings.clickhouse_user)
+            self.assertEqual(ch_default._password, settings.clickhouse_password)
+
 if __name__ == '__main__':
     unittest.main()
