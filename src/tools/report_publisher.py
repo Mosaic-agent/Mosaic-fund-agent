@@ -1047,6 +1047,7 @@ def publish_consolidated_pdf_func(
         size_kb = len(md_text.encode()) // 1024
         return (
             f"✅ Markdown report saved: **{out_path.resolve()}**\n"
+            f"URL: http://localhost:8502/{out_path.name}\n"
             f"Symbols: {sym_desc}  |  Format: Markdown  |  "
             f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
         )
@@ -1071,6 +1072,7 @@ def publish_consolidated_pdf_func(
         size_kb = len(raw_html_bytes) // 1024
         return (
             f"✅ HTML report saved: **{out_path.resolve()}**\n"
+            f"URL: http://localhost:8502/{out_path.name}\n"
             f"Symbols: {sym_desc}  |  Format: Self-contained HTML  |  "
             f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
         )
@@ -1092,6 +1094,7 @@ def publish_consolidated_pdf_func(
     )
     return (
         f"✅ PDF report saved: **{out_path.resolve()}**\n"
+        f"URL: http://localhost:8502/{out_path.name}\n"
         f"Symbols: {sym_desc}  |  Charts: {chart_desc}  |  "
         f"Size: {size_kb} KB  |  Date: {datetime.now().strftime('%d %b %Y')}"
     )
