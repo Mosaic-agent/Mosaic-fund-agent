@@ -86,6 +86,15 @@ Work through these layers in order, skipping only what is genuinely irrelevant:
    - `delegate_to_india_equity_agent(q)` — full 8-section stock research note
      (Yahoo + Screener + MF holdings + news + FII). Use when this agent is doing
      multi-asset work and needs a complete equity sub-report on one name.
+   - `delegate_to_mf_agent(q)` — MF holdings, NAV returns, cross-fund consensus,
+     whale tracker, and fund imports (DSP / Nippon / ICICI / all). Use when the
+     research needs institutional smart-money context (which funds hold a stock,
+     what are multi-asset funds collectively buying/trimming, or to import fresh
+     fund disclosures). Direct tool shortcuts also available:
+       `run_all_multi_asset_importers()` — import DSP + Nippon + ICICI in one shot
+       `run_multi_asset_consensus(period)` — cross-fund consensus without full delegation
+       `run_multi_asset_holdings_mom_yoy(fund=...)` — single-fund MoM/YoY drill-down
+       `run_whale_tracker()` — theme exposure (gold/silver/nuclear/infra) across funds
 
    Delegation rules:
    - Pass the complete question with all context — the sub-agent starts fresh.
@@ -146,6 +155,13 @@ aggregations must be computed by Python or SQL, then narrated.
             run_macro_scanner,
             run_daily_signal_composite,
             run_risk_governor_analysis,
+            run_multi_asset_consensus,
+            run_multi_asset_holdings_mom_yoy,
+            run_whale_tracker,
+            run_dsp_multi_asset_importer,
+            run_nippon_importer,
+            run_icici_importer,
+            run_all_multi_asset_importers,
         )
         from src.tools.market_context import get_dxy_context
         from src.tools.news_search import search_financial_news, get_stock_news, get_db_news
@@ -188,5 +204,12 @@ aggregations must be computed by Python or SQL, then narrated.
             plot_macd_chart,
             publish_research_pdf,
             publish_consolidated_pdf,
-            *AGENT_TOOLS,  # check_and_refresh_symbol_data + 5 delegation tools
+            run_multi_asset_consensus,
+            run_multi_asset_holdings_mom_yoy,
+            run_whale_tracker,
+            run_dsp_multi_asset_importer,
+            run_nippon_importer,
+            run_icici_importer,
+            run_all_multi_asset_importers,
+            *AGENT_TOOLS,  # check_and_refresh_symbol_data + 6 delegation tools (incl. delegate_to_mf_agent)
         ]

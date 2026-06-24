@@ -354,6 +354,46 @@ def delegate_to_india_equity_agent(question: str) -> str:
         return f"India equity agent error: {exc}"
 
 
+@tool
+def delegate_to_mf_agent(question: str) -> str:
+    """
+    Delegate to the specialist Mutual Fund Sub-Agent for Indian MF holdings,
+    NAV returns, cross-fund consensus, and fund imports.
+
+    The MF agent covers:
+    - MoM / YoY position changes for any tracked multi-asset fund
+      (DSP, Nippon, Bajaj, Quant, ICICI — use canonical fund names)
+    - Cross-fund consensus: which securities 3+ funds are collectively adding or trimming
+    - Asset-class rotation signals (gold/equity/cash shifts across all 7 funds)
+    - NAV MoM returns for any Indian MF by scheme code or name
+    - Whale tracker: theme exposure across funds (gold, silver, nuclear, infra)
+    - Reverse lookup: which funds hold a specific stock
+    - Import / refresh fund holdings:
+        "import all multi asset funds"     → run_all_multi_asset_importers (DSP + Nippon + ICICI)
+        "import DSP holdings"              → run_dsp_multi_asset_importer
+        "import Nippon holdings"           → run_nippon_importer
+        "import ICICI holdings"            → run_icici_importer
+
+    Use when:
+    - The research needs institutional smart-money context (which active funds
+      hold or recently added a stock)
+    - The user asks about MF holdings, NAV returns, fund consensus, or whale tracking
+    - The user wants to import/refresh fund portfolio disclosures
+
+    Args:
+        question: Full question or task for the MF agent.
+                  Example: "What is DSP Multi Asset buying this month?"
+
+    Returns:
+        The MF agent's complete analysis as a Markdown string.
+    """
+    try:
+        from src.agents.sub_agents import run_subagent_for
+        return run_subagent_for("mf", question)
+    except Exception as exc:
+        return f"MF agent error: {exc}"
+
+
 # ── Export list ───────────────────────────────────────────────────────────────
 
 AGENT_TOOLS = [
@@ -363,4 +403,5 @@ AGENT_TOOLS = [
     delegate_to_intl_etf_agent,
     delegate_to_news_agent,
     delegate_to_india_equity_agent,
+    delegate_to_mf_agent,
 ]
