@@ -45,6 +45,11 @@ class DeepDiveSubAgent(_SubAgent):
         from src.tools.earnings_scraper import EARNINGS_TOOLS
         from src.tools.skills_tools import run_deepdive_analysis, query_clickhouse_db, read_deepdive_report
         from src.tools.company_resolver import resolve_company
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [resolve_company] + YAHOO_TOOLS + EARNINGS_TOOLS + [
-            run_deepdive_analysis, query_clickhouse_db, read_deepdive_report,
+            run_deepdive_analysis,
+            query_clickhouse_db,
+            read_deepdive_report,
+            publish_research_pdf,
+            publish_consolidated_pdf,
         ]

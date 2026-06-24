@@ -93,4 +93,11 @@ whether they are seeing live or cached data.
     def _get_tools(self) -> list:
         from src.tools.intl_etf_tools import INTL_ETF_TOOLS
         from src.tools.chart_tools import plot_intl_etf_performance, plot_intl_etf_premium, plot_price_chart
-        return INTL_ETF_TOOLS + [plot_intl_etf_performance, plot_intl_etf_premium, plot_price_chart]
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
+        return INTL_ETF_TOOLS + [
+            plot_intl_etf_performance,
+            plot_intl_etf_premium,
+            plot_price_chart,
+            publish_research_pdf,
+            publish_consolidated_pdf,
+        ]

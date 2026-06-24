@@ -60,6 +60,7 @@ class MacroSubAgent(_SubAgent):
         from src.tools.news_search import search_financial_news, get_db_news
         from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.chart_tools import plot_fii_dii_chart, plot_price_chart, plot_dxy_chart
+        from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
             run_macro_scanner,
             run_comex_analysis,
@@ -73,4 +74,6 @@ class MacroSubAgent(_SubAgent):
             plot_fii_dii_chart,
             plot_price_chart,
             plot_dxy_chart,
+            publish_research_pdf,
+            publish_consolidated_pdf,
         ]
