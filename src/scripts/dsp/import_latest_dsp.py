@@ -87,8 +87,7 @@ def discover_latest_zip() -> tuple[str, str] | None:
 def last_imported_date() -> date | None:
     """Return the latest as_of_month already stored for DSP_MULTI_ASSET."""
     try:
-        from config.from src.db.pool import get_client
-settings import settings
+        from src.db.pool import get_client
 
         client = get_client()
         rows = client.query(
