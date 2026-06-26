@@ -1190,7 +1190,7 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
         if q.tijori_eway_yoy is not None:
             t_parts.append(f"E-Way YoY {q.tijori_eway_yoy:+.1f}% ({q.tijori_eway_date})")
         if t_parts:
-            lines.append("  Tijori Macro " + "  ".join(t_parts))
+            lines.append("  India Macro  " + "  ".join(t_parts))
 
         if lines:
             console.print(Panel(
