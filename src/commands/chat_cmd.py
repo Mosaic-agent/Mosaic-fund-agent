@@ -614,6 +614,11 @@ _RAG_PLAN_TEMPLATES = [
         "deepdive",
         ["Resolve ticker for '{symbol}'", "Fetch SEC 10-K / 10-Q from EDGAR", "Parse XBRL financials & Peer comparison", "Generate deep-dive report"]
     ),
+    (
+        "import GOLDBEES / refresh stock data",
+        "main",
+        ["import_symbol_data(symbol='{symbol}', days={days})"]
+    ),
 ]
 
 _rag_plan_tfidf = None
