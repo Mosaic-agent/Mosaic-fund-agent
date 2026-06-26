@@ -90,28 +90,60 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
         """Stream reasoning tokens live as the model thinks."""
         if not settings.llm_think:
             return
-        # Extract the reasoning delta from the streaming chunk
+
+        # 1. Try to extract native reasoning tokens from metadata/attributes
         reasoning_token = ""
         if chunk is not None:
             msg = getattr(chunk, "message", chunk)
-            ak  = getattr(msg, "additional_kwargs", {}) or {}
-            reasoning_token = ak.get("reasoning", "")
+            reasoning_token = getattr(msg, "reasoning_content", "") or ""
+            if not reasoning_token:
+                reasoning_token = getattr(chunk, "reasoning_content", "") or ""
+            if not reasoning_token:
+                ak = getattr(msg, "additional_kwargs", {}) or {}
+                reasoning_token = (
+                    ak.get("reasoning")
+                    or ak.get("thinking")
+                    or ak.get("reasoning_content")
+                    or ""
+                )
 
         if reasoning_token:
             if not self._reasoning_started:
                 self._reasoning_started = True
-                # Print the header then stream inline
                 self.console.print("\n[bold magenta]💭 Reasoning[/bold magenta]")
                 self.console.print("[magenta]─[/magenta]" * 60)
-            # Write the token directly — bypass Rich markup so box-chars render cleanly
             self.console.file.write(reasoning_token)
             self.console.file.flush()
+            return
 
-        elif token and self._reasoning_started and not self._reasoning_ended:
-            # First content token after reasoning — close the block
-            self._reasoning_ended = True
-            self.console.file.write("\n")
-            self.console.print("[magenta]─[/magenta]" * 60 + "\n")
+        # 2. Fall back to inline <think>...</think> tag parsing in the normal text stream
+        if token:
+            # Check for start of reasoning block
+            if "<think>" in token and not self._reasoning_started:
+                self._reasoning_started = True
+                self.console.print("\n[bold magenta]💭 Reasoning[/bold magenta]")
+                self.console.print("[magenta]─[/magenta]" * 60)
+                # Print any portion of the token that comes after <think>
+                parts = token.split("<think>", 1)
+                text_to_print = parts[1]
+            else:
+                text_to_print = token
+
+            # Check for end of reasoning block
+            if "</think>" in text_to_print and self._reasoning_started and not self._reasoning_ended:
+                self._reasoning_ended = True
+                parts = text_to_print.split("</think>", 1)
+                # Print only the portion before </think>
+                if parts[0]:
+                    self.console.file.write(parts[0])
+                self.console.file.write("\n")
+                self.console.print("[magenta]─[/magenta]" * 60 + "\n")
+                return
+
+            # If we are currently inside the reasoning block, print the token
+            if self._reasoning_started and not self._reasoning_ended:
+                self.console.file.write(text_to_print)
+                self.console.file.flush()
 
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         try:
