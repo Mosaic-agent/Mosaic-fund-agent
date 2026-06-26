@@ -200,7 +200,12 @@ _VALID_AGENTS = frozenset(
     ["signal", "macro", "news", "equity", "database", "code", "deepdive", "research", "main"]
 )
 
-_PLANNER_PROMPT = """\
+try:
+    from pathlib import Path
+    _PLANNER_PROMPT = Path("src/prompts/planner_prompt.txt").read_text(encoding="utf-8")
+except Exception:
+    logger.warning("Could not load planner_prompt.txt — using static fallback")
+    _PLANNER_PROMPT = """\
 You are the Mosaic routing planner for an Indian equity & commodity intelligence platform.
 Analyse the user query and reply in EXACTLY this format — no other text:
 
@@ -1999,6 +2004,10 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                     _is_followup = True
                 elif _CONFIRMATION_RE.match(raw.strip()) and len(raw.split()) <= 4:
                     _is_followup = True
+                elif _is_numeric_choice_prompt(_prev_answer):
+                    _cleaned_input = raw.strip().lower()
+                    if _cleaned_input.isdigit() or _cleaned_input in ("shoonya", "nse", "yfinance"):
+                        _is_followup = True
                 elif _prev_intent in ("deepdive", "research", "india_equity"):
                     if _REPORT_FOLLOWUP_RE.search(raw.strip()):
                         _is_followup = True
@@ -2115,7 +2124,10 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
 
             # ── Contextual follow-up suggestions
             if _is_numeric_choice_prompt(answer):
-                _last_suggestions = []
+                if any(w in answer.lower() for w in ("shoonya", "yfinance", "nse")):
+                    _last_suggestions = ["Shoonya", "NSE", "yfinance"]
+                else:
+                    _last_suggestions = ["1", "2", "3"]
             else:
                 _last_suggestions = _get_suggestions(raw, answer, _intent)
             if _last_suggestions:

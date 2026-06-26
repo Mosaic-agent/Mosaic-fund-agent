@@ -46,7 +46,12 @@ VALID_INTENTS = frozenset({
 
 # ── Router system prompt ──────────────────────────────────────────────────────
 
-_ROUTER_SYSTEM_PROMPT = """\
+try:
+    from pathlib import Path
+    _ROUTER_SYSTEM_PROMPT = Path("src/prompts/router_system_prompt.txt").read_text(encoding="utf-8")
+except Exception:
+    logger.warning("Could not load router_system_prompt.txt — using static fallback")
+    _ROUTER_SYSTEM_PROMPT = """\
 You are an intent classifier for a financial intelligence platform focused on \
 Indian equity and commodity markets. Classify the user's question into exactly \
 one of the following intents:
