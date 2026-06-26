@@ -396,7 +396,7 @@ def _embedding_similarity(question: str) -> tuple[str, float]:
     global _golden_vectors
     try:
         from src.ml.correlation.news_rag import embed_text
-        from tests.test_intent_router import GOLDEN_PAIRS
+        from src.agents.golden_pairs import GOLDEN_PAIRS
         import numpy as np
 
         q_vec = embed_text(question)
@@ -441,9 +441,9 @@ def route_intent_rag(question: str) -> str | None:
     """
     global _tfidf_matcher
     try:
-        from tests.test_intent_router import GOLDEN_PAIRS
+        from src.agents.golden_pairs import GOLDEN_PAIRS
     except ImportError:
-        logger.warning("Could not load GOLDEN_PAIRS from test_intent_router — RAG router disabled")
+        logger.warning("Could not load GOLDEN_PAIRS from src.agents.golden_pairs — RAG router disabled")
         return None
 
     # 1. Try Local Ollama Embedding similarity
