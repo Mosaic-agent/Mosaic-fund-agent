@@ -209,6 +209,7 @@ _TABLE_SCHEMA: dict[str, list[str]] = {
     "cot_gold":           ["report_date", "mm_long", "mm_short", "mm_net", "comm_long", "comm_short", "comm_net", "open_interest", "source"],
     "fx_rates":           ["trade_date", "symbol", "open", "high", "low", "close", "source", "imported_at"],
     "macro_indicators":   ["ref_year", "country_code", "indicator_code", "indicator_name", "value", "source", "is_forecast", "imported_at"],
+    "tijori_macro_indicators": ["as_of_date", "indicator_code", "indicator_name", "parent_code", "value", "unit", "imported_at"],
     "etf_aum":            ["trade_date", "symbol", "aum_usd", "price", "implied_tonnes", "source"],
     "cb_gold_reserves":   ["ref_period", "country_code", "country_name", "reserves_tonnes", "source"],
     "stock_valuation":    ["symbol", "snapshot_date", "market_cap", "trailing_pe", "forward_pe", "price_to_book", "debt_to_equity", "return_on_equity", "profit_margin", "recommendation", "imported_at"],

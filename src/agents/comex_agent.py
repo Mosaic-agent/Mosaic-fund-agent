@@ -206,32 +206,16 @@ class ComexAgent:
     """
     COMEX commodity pre-market signal agent.
 
-    Local model  → _run_direct() immediately (no LangGraph, no loop risk).
-    Cloud model  → LangGraph deep-agent with recursion_limit + call-counter guard.
+    Direct mode  → Calls get_comex_signals() directly for 100% LLM token savings.
     """
 
     def __init__(self) -> None:
-        self._is_local = settings.is_local_model
-        if self._is_local:
-            # Skip LLM + agent construction entirely for local models.
-            # The deep-agent loop cannot be reliably prevented on small GGUFs,
-            # so we bypass LangGraph and call get_comex_signals() directly.
-            logger.info(
-                "ComexAgent — LOCAL DIRECT mode | model: %s @ %s "
-                "(LangGraph skipped to prevent tool-call loop)",
-                settings.llm_model,
-                settings.llm_base_url,
-            )
-            self._llm = None
-            self._agent = None
-        else:
-            logger.info(
-                "ComexAgent — CLOUD REACT mode | provider: %s | model: %s",
-                settings.llm_provider,
-                settings.llm_model,
-            )
-            self._llm = self._build_llm()
-            self._agent = self._build_react_agent()
+        logger.info(
+            "ComexAgent — DIRECT mode (LLM bypassed)"
+        )
+        self._is_local = True
+        self._llm = None
+        self._agent = None
 
     # ── LLM builder ───────────────────────────────────────────────────────────
 
@@ -309,84 +293,16 @@ class ComexAgent:
 
     def run(self) -> dict[str, Any]:
         """
-        Run COMEX pre-market signal analysis.
+        Run COMEX pre-market signal analysis directly.
 
-        Local model  → calls get_comex_signals() directly, zero LLM tokens used.
-        Cloud model  → LangGraph react-agent with recursion_limit + call-counter guard.
+        Bypasses LangGraph and calls get_comex_signals() directly for 100% LLM token savings.
 
         Returns:
             Full COMEX signals dict from get_comex_signals().
         """
-        # ── LOCAL: bypass LangGraph entirely ──────────────────────────────────────
-        # Small GGUF models (14B and below) cannot reliably stop after one
-        # tool call.  Sending the data through an agent loop wastes ~30 minutes
-        # and returns no additional value over calling the fetcher directly.
-        if self._is_local:
-            logger.info(
-                "ComexAgent.run() — local model, fetching COMEX directly "
-                "(no LLM tokens consumed)"
-            )
-            return self._run_direct()
-
-        # ── CLOUD: LangGraph deep-agent with loop guard ───────────────────────
-        if self._agent is None:
-            logger.info("ComexAgent react agent unavailable — running direct.")
-            return self._run_direct()
-
-        # Reset the per-invocation loop guard before each run
-        _reset_call_counter()
-        logger.debug("ComexAgent.run() started — call counter reset.")
-
-        user_message = (
-            "Call fetch_all_comex_signals once and return the full JSON result. "
-            "Do not call any tool more than once."
+        logger.info(
+            "ComexAgent.run() — fetching COMEX directly (zero LLM tokens consumed)"
         )
-
-        try:
-            result = self._agent.invoke(
-                {"messages": [{"role": "user", "content": user_message}]},
-                config={"recursion_limit": 6},   # hard cap: 6 LangGraph steps max
-            )
-            msgs = result.get("messages", [])
-            logger.debug(
-                "ComexAgent.run() agent returned %d messages; "
-                "tool was called %d time(s).",
-                len(msgs),
-                getattr(_invoke_state, "call_count", 0),
-            )
-            last_content = msgs[-1].content if msgs else ""
-
-            # Extract JSON block from the agent's final message
-            import re
-            json_match = re.search(r"\{.*\}", last_content, re.DOTALL)
-            if json_match:
-                try:
-                    parsed = json.loads(json_match.group())
-                    if parsed.get("loop_detected"):
-                        logger.warning(
-                            "ComexAgent loop_detected in parsed result — "
-                            "falling back to direct mode."
-                        )
-                        return self._run_direct()
-                    if "commodities" in parsed or "overall_signal" in parsed:
-                        logger.debug("ComexAgent returned valid COMEX JSON.")
-                        return parsed
-                except (json.JSONDecodeError, ValueError):
-                    pass
-
-            logger.info(
-                "ComexAgent response did not contain parseable JSON "
-                "(tool calls=%d) — falling back.",
-                getattr(_invoke_state, "call_count", 0),
-            )
-        except Exception as exc:
-            logger.warning(
-                "ComexAgent invocation failed after %d tool call(s): %s — "
-                "using direct mode.",
-                getattr(_invoke_state, "call_count", 0),
-                exc,
-            )
-
         return self._run_direct()
 
     def _run_direct(self) -> dict[str, Any]:

@@ -571,6 +571,20 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (ref_year, country_code, indicator_code, source)
 """
 
+_DDL_TIJORI_MACRO_INDICATORS = """
+CREATE TABLE IF NOT EXISTS market_data.tijori_macro_indicators (
+    as_of_date      Date,
+    indicator_code  String,
+    indicator_name  String,
+    parent_code     String,
+    value           Float64,
+    unit            String,
+    imported_at     DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (as_of_date, indicator_code)
+"""
+
 
 class ClickHouseImporter:
     """
@@ -633,7 +647,7 @@ class ClickHouseImporter:
             _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
-            _DDL_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
+            _DDL_MACRO_INDICATORS, _DDL_TIJORI_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
             _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
         ):
             self._client.command(ddl)
@@ -1153,6 +1167,48 @@ class ClickHouseImporter:
             ],
         )
         logger.info("Inserted %d macro indicator rows", len(rows))
+        return len(rows)
+
+    # ── Bulk insert: tijori_macro_indicators ──────────────────────────────────
+
+    def insert_tijori_macro_indicators(self, rows: list[dict[str, Any]]) -> int:
+        """
+        Insert Tijori macro indicator rows into market_data.tijori_macro_indicators.
+
+        Each dict must have keys:
+            as_of_date (date or str), indicator_code, indicator_name, parent_code,
+            value (float), unit
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        
+        parsed_rows = []
+        for r in rows:
+            as_of_date = r["as_of_date"]
+            if isinstance(as_of_date, str):
+                as_of_date = datetime.strptime(as_of_date, "%Y-%m-%d").date()
+                
+            parsed_rows.append([
+                as_of_date,
+                r["indicator_code"],
+                r["indicator_name"],
+                r["parent_code"],
+                float(r["value"]) if r["value"] is not None else None,
+                r["unit"],
+            ])
+            
+        self._client.insert(
+            "market_data.tijori_macro_indicators",
+            parsed_rows,
+            column_names=[
+                "as_of_date", "indicator_code", "indicator_name", "parent_code",
+                "value", "unit"
+            ],
+            settings={"max_partitions_per_insert_block": 300},
+        )
+        logger.info("Inserted %d Tijori macro indicator rows", len(rows))
         return len(rows)
 
     # ── Bulk insert: etf_aum ─────────────────────────────────────────────────

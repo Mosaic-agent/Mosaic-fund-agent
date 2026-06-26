@@ -284,7 +284,7 @@ ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + [
     "mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings",
     "fii_dii", "earnings", "insider", "valuation",
     # Macro fundamentals (annual, free public APIs — no auth required)
-    "world_bank", "imf_weo",
+    "world_bank", "imf_weo", "tijori_macro",
     # AMC fund-holdings importers (factory pattern in src/scripts/fund_imports/)
     "icici", "nippon", "icici-index", "dsp",
 ]

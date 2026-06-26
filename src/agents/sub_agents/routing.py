@@ -75,9 +75,8 @@ _MF_RE = re.compile(
     re.I,
 )
 _IMPORT_RE = re.compile(
-    r"\b(?:import|refresh|sync)\s+(?:nav|price|prices|data|etfs?|stocks?|mf|fii|dii|cot|fx|inav|holdings?|flows?)\b"
+    r"\b(?:import|refresh|sync|update)\s+(?:[a-zA-Z-]+\s+){0,3}(?:nav|price|prices|data|etfs?|stocks?|mf|fii|dii|cot|fx_rates|fx|inav|holdings?|flows?)\b"
     r"|\bimport\s+--(?:category|full)\b"
-    r"|\bupdate\s+(?:nav|price|prices|data|etfs?|stocks?|mf|fii|dii|inav)\b"
     r"|\bbackfill\b"
     r"|\brun\s+(?:the\s+)?(?:importer|import\s+pipeline)\b"
     # Symbol-level imports: "import GOLDBEES", "import gold bees", "refresh NIFTYBEES"

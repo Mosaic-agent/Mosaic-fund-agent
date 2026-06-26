@@ -213,9 +213,11 @@ def test_post_macro_shock_decay_filtering():
     assert len(findings) == 0
 
 
-def test_correlation_clustering_deduplication():
+def test_correlation_clustering_deduplication(monkeypatch):
     from unittest.mock import MagicMock
     import src.ml.correlation as correlation_mod
+
+    monkeypatch.setattr("src.ml.correlation.news_rag.score_event_relevance", lambda text, sym: 0.5)
 
     service = CorrelationService()
 
@@ -322,7 +324,9 @@ def test_car_benchmark_calculation():
     assert "cumulative abnormal return of +0.00%" in findings[0].explanation
 
 
-def test_news_quality_and_hierarchy_weights():
+def test_news_quality_and_hierarchy_weights(monkeypatch):
+    monkeypatch.setattr("src.ml.correlation.news_rag.score_news_quality", lambda headline: 1.0)
+    monkeypatch.setattr("src.ml.correlation.news_rag.score_event_relevance", lambda text, sym: 0.5)
     service = CorrelationService()
 
     # 1. Company earnings news (expected quality=1.0, hierarchy=1.0 -> multiplier = 1.0)
@@ -349,8 +353,8 @@ def test_news_quality_and_hierarchy_weights():
 
     # 3. Macro policy event (expected quality=1.0, hierarchy=0.5 -> multiplier = 0.50)
     f_macro = CorrelationFinding(
-        anomaly_date=date(2026, 6, 2),
-        event=CandidateEvent(date(2026, 6, 2), EventType.MACRO_RATE_DECISION, "US Fed Rate Cut", "Fed cut rates"),
+        anomaly_date=date(2026, 6, 10),
+        event=CandidateEvent(date(2026, 6, 10), EventType.MACRO_RATE_DECISION, "US Fed Rate Cut", "Fed cut rates"),
         strategy_name="Post-Macro Shock Trigger",
         correlation_score=80.0,
         lead_lag_days=0,
@@ -385,12 +389,12 @@ def test_news_quality_and_hierarchy_weights():
 
     try:
         df_ohlcv = pd.DataFrame({
-            "trade_date": pd.date_range("2026-06-01", periods=5, freq="D"),
-            "open": [100.0] * 5,
-            "high": [100.0] * 5,
-            "low": [100.0] * 5,
-            "close": [100.0] * 5,
-            "volume": [1000.0] * 5
+            "trade_date": pd.date_range("2026-06-01", periods=15, freq="D"),
+            "open": [100.0] * 15,
+            "high": [100.0] * 15,
+            "low": [100.0] * 15,
+            "close": [100.0] * 15,
+            "volume": [1000.0] * 15
         })
         findings = service.find_correlations("MOCK", df_ohlcv)
 
@@ -434,9 +438,9 @@ def test_cross_asset_direction_mismatch_penalises_score():
     fx_event = CandidateEvent(
         trade_date=dates[3].date(),
         event_type=EventType.MACRO_COMMODITY_SHOCK,
-        label="USDINR Depreciation (+1.00%)",
+        label="USDINR Depreciation (+1.50%)",
         description="FX shock",
-        metadata={"fx_pct_change": 0.01},
+        metadata={"fx_pct_change": 0.015},
     )
     strategy = CrossAssetCoMovementStrategy()
     findings = strategy.analyze(df_ohlcv, df_anomaly, None, [fx_event])
@@ -468,9 +472,9 @@ def test_cross_asset_direction_consistent_score_unchanged():
     fx_event = CandidateEvent(
         trade_date=dates[3].date(),
         event_type=EventType.MACRO_COMMODITY_SHOCK,
-        label="USDINR Depreciation (+1.00%)",
+        label="USDINR Depreciation (+1.50%)",
         description="FX shock",
-        metadata={"fx_pct_change": 0.01},
+        metadata={"fx_pct_change": 0.015},
     )
     strategy = CrossAssetCoMovementStrategy()
     findings = strategy.analyze(df_ohlcv, df_anomaly, None, [fx_event])
@@ -636,8 +640,10 @@ def test_fx_validation_linregress_and_rolling_betas():
     import pandas as pd
     import numpy as np
 
+    dates = pd.date_range(end=pd.Timestamp.now().normalize(), periods=100, freq="D")
+
     mock_prices = pd.DataFrame({
-        "trade_date": pd.date_range("2026-01-01", periods=100, freq="D"),
+        "trade_date": dates,
         "open": np.linspace(100, 150, 100),
         "high": np.linspace(101, 151, 100),
         "low": np.linspace(99, 149, 100),
@@ -647,7 +653,7 @@ def test_fx_validation_linregress_and_rolling_betas():
 
     mock_fx = pd.DataFrame({
         "symbol": ["USDINR"] * 100,
-        "trade_date": pd.date_range("2026-01-01", periods=100, freq="D"),
+        "trade_date": dates,
         "close": np.linspace(84, 80, 100),
     })
 
@@ -656,7 +662,7 @@ def test_fx_validation_linregress_and_rolling_betas():
             return mock_fx.copy()
         elif "NIFTYBEES" in sql:
             return pd.DataFrame({
-                "trade_date": pd.date_range("2026-01-01", periods=100, freq="D"),
+                "trade_date": dates,
                 "close": [10.0] * 100
             })
         else:

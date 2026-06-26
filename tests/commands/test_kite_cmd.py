@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 from src.commands.kite_cmd import KiteToolCommand
 from src.commands.base import CommandRunner
 
-@pytest.mark.asyncio
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+@pytest.mark.anyio
 async def test_kite_cmd_executes_tool_async():
     client = MagicMock()
     client._call_tool = AsyncMock(return_value={"holdings": []})
@@ -15,7 +19,7 @@ async def test_kite_cmd_executes_tool_async():
     assert result == {"holdings": []}
     client._call_tool.assert_awaited_once_with("get_holdings", {"param": 1})
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_kite_cmd_retry_on_failure():
     client = MagicMock()
     client._call_tool = AsyncMock(side_effect=[ValueError("fail"), {"holdings": []}])
@@ -30,7 +34,7 @@ async def test_kite_cmd_retry_on_failure():
     assert len(runner.history) == 1
     assert runner.history[0].success is True
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_kite_cmd_failure_after_max_retries():
     client = MagicMock()
     client._call_tool = AsyncMock(side_effect=ValueError("constant failure"))

@@ -398,6 +398,19 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] NSE regular session close time (IST, 24h HH:MM)
     market_close: str = Field(default="15:30", description="NSE market close time IST")
 
+    # ── News Filter LLM Settings ──────────────────────────────────────────────
+    # [NON-SENSITIVE] Enable semantic news filter using a local/cloud LLM
+    news_filter_llm_enabled: bool = Field(default=False, description="Enable semantic news filter via LLM")
+
+    # [NON-SENSITIVE] Custom base URL for the news filter LLM (e.g. Ollama)
+    news_filter_llm_base_url: str = Field(default="http://localhost:11434/v1", description="News filter LLM base URL")
+
+    # [NON-SENSITIVE] Model name for the news filter LLM
+    news_filter_llm_model: str = Field(default="mistral:7b-instruct", description="News filter LLM model name")
+
+    # [NON-SENSITIVE] Timeout in seconds for the news filter LLM requests
+    news_filter_llm_timeout: int = Field(default=10, description="News filter LLM timeout (s)")
+
     def __init__(self, **values):
         super().__init__(**values)
         if "$$" in self.shoonya_password:

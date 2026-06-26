@@ -835,7 +835,7 @@ def import_data(
             "stocks, etfs, commodities, indices, mf, inav, nse_eod, "
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, "
             "earnings, insider, valuation, "
-            "world_bank, imf_weo, "
+            "world_bank, imf_weo, tijori_macro, "
             "icici, nippon, icici-index, dsp, all. "
             "Default: all."
         ),

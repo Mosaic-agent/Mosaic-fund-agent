@@ -11,7 +11,7 @@ from src.scripts.market.whale_tracker import run_whale_tracker
 
 class TestWhaleTracker(unittest.TestCase):
 
-    @patch("src.scripts.market.whale_tracker.clickhouse_connect.get_client")
+    @patch("src.db.pool.get_client")
     def test_run_whale_tracker_calculations(self, mock_get_client):
         # Setup mock ClickHouse client
         mock_client = MagicMock()

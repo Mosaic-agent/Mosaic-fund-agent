@@ -619,6 +619,37 @@ def run_import(
             summary_rows.append(("imf_weo", "imf_weo", inserted,
                                   str(imf_from_year), str(imf_to_year)))
 
+    # ── Tijori Macro Indicators ───────────────────────────────────────────────
+    if "tijori_macro" in categories:
+        from src.importer.fetchers.tijori_macro_fetcher import TijoriMacroFetcher
+
+        console.print("\n[bold cyan]▶ Tijori Finance — Macro Indicators[/bold cyan]")
+        console.print("  [dim]Scrapes industry and macro indicators from Tijori Finance[/dim]")
+
+        fetcher = TijoriMacroFetcher()
+        from_date = _resolve_from_date(
+            ch, fetcher.source_name, fetcher.symbol_key,
+            lookback_days=lookback_days, full_reimport=full_reimport,
+            dry_run=dry_run, today=today,
+        )
+
+        console.print(f"  [dim]Fetching {from_date} → {today}…[/dim]")
+        rows = fetcher.fetch_with_retry(from_date, today)
+
+        if not rows:
+            console.print("  [yellow]⚠ No Tijori macro data returned.[/yellow]")
+        else:
+            inserted = fetcher.insert(rows, ch) if not dry_run else len(rows)
+            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'stored'}")
+            if not dry_run:
+                try:
+                    max_dt = fetcher.max_date(rows)
+                    ch.set_watermark(fetcher.source_name, fetcher.symbol_key, max_dt)
+                except Exception as e:
+                    logger.warning("Failed to update watermark for tijori_macro: %s", e)
+            summary_rows.append(("tijori_macro", "tijori", inserted,
+                                  from_date.isoformat(), today.isoformat()))
+
     if "fii_dii" in categories:
         from src.importer.fetchers.fii_dii_fetcher import (
             fetch_fii_dii,

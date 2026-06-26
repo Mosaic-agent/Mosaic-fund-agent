@@ -402,6 +402,7 @@ ClickHouse schema (database = market_data, all tables use ReplacingMergeTree —
   cot_gold            : report_date(Date), mm_long, mm_short, mm_net, open_interest
   fx_rates            : trade_date(Date), symbol, close(Float64)
   macro_indicators    : ref_year, country_code, indicator_code, indicator_name, value
+  tijori_macro_indicators : as_of_date(Date), indicator_code, indicator_name, parent_code, value(Float64), unit
   news_articles       : fetched_at(DateTime), category, sentiment, impact_tier, title, source
   import_watermarks   : source, symbol, last_date(Date), updated_at
   stock_valuation     : symbol, snapshot_date(Date), trailing_pe, forward_pe, price_to_book, market_cap
@@ -627,6 +628,21 @@ _RAG_PLAN_TEMPLATES = [
         "import GOLDBEES / refresh stock data",
         "main",
         ["import_symbol_data(symbol='{symbol}', days={days})"]
+    ),
+    (
+        "import fresh FII and DII data",
+        "main",
+        ["run_data_engineering_importer(category='fii_dii')"]
+    ),
+    (
+        "refresh ETF prices / import indices",
+        "main",
+        ["run_data_engineering_importer(category='etfs,indices')"]
+    ),
+    (
+        "sync mutual fund holdings",
+        "main",
+        ["run_data_engineering_importer(category='mf_holdings')"]
     ),
 ]
 
