@@ -1737,6 +1737,9 @@ def extract_company_subject(question: str, intent: str) -> str | None:
     
     clean = question.strip().rstrip("?.")
     
+    # Strip common command verbs from the start of the query
+    clean = re.sub(r"^(import|refresh|sync|update|backfill)\s+", "", clean, flags=re.I)
+    
     # If it is news intent, strip news-related prefixes/suffixes
     if intent == "news":
         clean = re.sub(r"\b(latest\s+)?news(\s+(for|on|about|of))?\b", "", clean, flags=re.I)
@@ -1749,15 +1752,17 @@ def extract_company_subject(question: str, intent: str) -> str | None:
         # Strip leading prepositions (e.g. "on HDFC Bank" -> "HDFC Bank")
         subj = re.sub(r"^(on|about|for|of|to)\s+", "", subj, flags=re.I)
         if len(subj.split()) <= 4:
-            return subj
+            if not subj.startswith("-") and subj.lower() not in ("etfs", "stocks", "mf", "fii_dii", "cot", "fx_rates", "inav"):
+                return subj
             
     # For short queries, check if it's a potential company name
     if len(clean.split()) <= 3:
         # Avoid resolving generic commands or common non-company queries
         if clean.lower() not in ("quit", "exit", "bye", "q", "help", "/help", "/prompts", "/goal", "/schedule", "/grill-me"):
-            # Skip numbers or dates
-            if not clean.isdigit():
-                return clean
+            # Skip numbers, dates, flags and generic category names
+            if not clean.isdigit() and not clean.startswith("-"):
+                if clean.lower() not in ("etfs", "stocks", "mf", "fii_dii", "cot", "fx_rates", "inav"):
+                    return clean
             
     return None
 
@@ -1918,7 +1923,7 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
             # BEFORE the AI planner generates its plan, ensuring the visual plan
             # panel contains the correct symbol/company.
             _subject = extract_company_subject(raw, _intent)
-            if _subject and _intent in ("india_equity", "research", "deepdive", "news"):
+            if _subject and _intent in ("india_equity", "research", "deepdive", "news", "signal", "main", "intl_etf"):
                 try:
                     from src.tools.company_resolver import resolve_company_info
                     _info = resolve_company_info(_subject, auto_import=True)
