@@ -144,6 +144,7 @@ _INTENT_STEPS: dict[str, list] = {
             "Fetch COMEX gold / silver / copper pre-market",
             "Query FII/DII institutional flows  [7 days]",
             "Fetch DXY (US Dollar Index) trend  [get_dxy_context(30)]",
+            "Query India macro indicators from ClickHouse  [macro_indicators, tijori_macro_indicators]",
         ], "all fire in parallel"),
         "Plot FII/DII flow trend → plot_fii_dii_chart(30)",
         "Plot DXY trend chart → plot_dxy_chart(days)  [use days=365 for 1-year]",
