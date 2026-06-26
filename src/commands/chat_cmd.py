@@ -460,12 +460,16 @@ def _get_plan_llm() -> "Any":
             )
         elif settings.llm_base_url:
             from langchain_openai import ChatOpenAI
+            extra_body = {"options": {"num_ctx": settings.llm_context_window}}
+            if settings.llm_think:
+                extra_body["think"] = True
             _plan_llm = ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 request_timeout=120,  # Prevent permanent hangs on local endpoint
                 timeout=120,
+                extra_body=extra_body,
                 **kw,
             )
         elif settings.llm_provider == "anthropic":
