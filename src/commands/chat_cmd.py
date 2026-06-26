@@ -553,6 +553,167 @@ def parse_query_date_range(query: str) -> tuple[str, str]:
     return "", ""
 
 
+_RAG_PLAN_TEMPLATES = [
+    (
+        "GOLDBEES signal today / ML prediction",
+        "signal",
+        ["run_goldbees_pipeline() — report prob_up, expected_return_pct, blended_50, and regime_signal"]
+    ),
+    (
+        "composite scores all ETFs today",
+        "signal",
+        ["run_daily_signal_composite()", "plot_signal_scores()"]
+    ),
+    (
+        "position size / risk governor for GOLDBEES",
+        "signal",
+        ["run_risk_governor_analysis()", "plot_garch_volatility_chart('{symbol}')"]
+    ),
+    (
+        "premium alerts 90 days",
+        "signal",
+        ["run_premium_alerts(lookback={days}, lookback_unit='days')"]
+    ),
+    (
+        "what is iNAV of GOLDBEES",
+        "signal",
+        ["get_live_inav('{symbol}')"]
+    ),
+    (
+        "explain GOLDBEES price anomalies last 30 days",
+        "signal",
+        ["explain_price_anomalies(symbol='{symbol}', days={days})"]
+    ),
+    (
+        "comex gold signal",
+        "macro",
+        ["run_comex_analysis()"]
+    ),
+    (
+        "iran sanctions crude oil impact",
+        "macro",
+        ["run_macro_scanner()", "search_financial_news('Iran sanctions crude oil impact')"]
+    ),
+    (
+        "FII DII flows this week",
+        "macro",
+        ["Query FII/DII institutional flows from market_data.fii_dii_flows", "plot_fii_dii_chart(30)"]
+    ),
+    (
+        "what is USD-INR doing / DXY context",
+        "macro",
+        ["get_dxy_context(30)", "plot_dxy_chart(365)"]
+    ),
+    (
+        "latest news on RELIANCE",
+        "news",
+        ["Resolve symbol for '{symbol}'", "Fetch news from GNews & NewsAPI", "Query saved news from ClickHouse news_articles", "Deduplicate and compute sentiment summary"]
+    ),
+    (
+        "deep dive Apple / annual report EDGAR",
+        "deepdive",
+        ["Resolve ticker for '{symbol}'", "Fetch SEC 10-K / 10-Q from EDGAR", "Parse XBRL financials & Peer comparison", "Generate deep-dive report"]
+    ),
+]
+
+_rag_plan_tfidf = None
+_rag_plan_embeddings = None
+
+
+def _build_rag_plan(question: str) -> tuple[str | None, str | None]:
+    """
+    Build a plan dynamically using local RAG (Embeddings + TF-IDF) over query templates.
+    """
+    global _rag_plan_tfidf, _rag_plan_embeddings
+    import re
+    
+    # 1. Prepare candidate list
+    candidates = [(tmpl[0], str(idx)) for idx, tmpl in enumerate(_RAG_PLAN_TEMPLATES)]
+    
+    best_idx = None
+    best_score = 0.0
+    
+    # A. Try Ollama Embedding similarity
+    try:
+        from src.ml.correlation.news_rag import embed_text
+        import numpy as np
+        
+        q_vec = embed_text(question)
+        if any(q_vec):
+            # Compute embeddings for templates (lazy load & cache in memory)
+            if _rag_plan_embeddings is None:
+                _rag_plan_embeddings = []
+                for tmpl in _RAG_PLAN_TEMPLATES:
+                    _rag_plan_embeddings.append(embed_text(tmpl[0]))
+                    
+            q_norm = np.linalg.norm(q_vec)
+            if q_norm > 0:
+                for idx, tmpl_vec in enumerate(_rag_plan_embeddings):
+                    t_norm = np.linalg.norm(tmpl_vec)
+                    if t_norm > 0:
+                        sim = np.dot(q_vec, tmpl_vec) / (q_norm * t_norm)
+                        if sim > best_score:
+                            best_score = sim
+                            best_idx = idx
+    except Exception as exc:
+        logger.debug("_build_rag_plan: Embedding match failed: %s", exc)
+        
+    # B. Try TF-IDF fallback if embedding score is low
+    if best_score < 0.82:
+        try:
+            from src.agents.intent_router import SimpleTFIDF
+            if _rag_plan_tfidf is None:
+                _rag_plan_tfidf = SimpleTFIDF(candidates)
+            matched_idx_str, tfidf_score = _rag_plan_tfidf.similarity(question)
+            if tfidf_score >= 0.45:
+                best_idx = int(matched_idx_str)
+                best_score = tfidf_score
+                logger.info("RAG Planner (TF-IDF): matched template %r (score=%.3f)", _RAG_PLAN_TEMPLATES[best_idx][0], best_score)
+        except Exception as exc:
+            logger.debug("_build_rag_plan: TF-IDF match failed: %s", exc)
+            
+    if best_idx is None or best_score < 0.45:
+        return None, None
+        
+    matched_template = _RAG_PLAN_TEMPLATES[best_idx]
+    intent = matched_template[1]
+    steps_template = matched_template[2]
+    
+    # 2. Extract parameters (symbol, days)
+    symbol = "GOLDBEES"  # default
+    try:
+        from src.tools.company_resolver import _local_indian_lookup
+        words = [w.strip("?,.!") for w in question.split()]
+        for w in words:
+            if w.isupper() and len(w) >= 3:
+                symbol = w
+                break
+            sym_lookup = _local_indian_lookup(w)
+            if sym_lookup:
+                symbol = sym_lookup
+                break
+    except Exception:
+        pass
+        
+    days = 90  # default
+    match = re.search(r"\b(\d+)\s*(?:day|days|month|months|year|years|d|m|y)\b", question, re.I)
+    if match:
+        days = int(match.group(1))
+    else:
+        match_num = re.search(r"\b(\d+)\b", question)
+        if match_num:
+            days = int(match_num.group(1))
+            
+    # 3. Format plan steps
+    formatted_steps = []
+    for step in steps_template:
+        formatted_steps.append(step.replace("{symbol}", symbol).replace("{days}", str(days)))
+        
+    plan_text = _render_plan_steps(formatted_steps, symbol)
+    logger.info("RAG Planner: generated plan for %s / %s", symbol, intent)
+    return intent, plan_text
+
+
 def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tuple[str, str, str | None]:
     """
     Ask the LLM to produce a specific execution plan for *question*.
@@ -635,6 +796,14 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
 
         except Exception as exc:
             logger.debug("_build_ai_plan: LLM call failed (%s) — using fallback", exc)
+
+    # ── RAG-based plan search ──────────────────────────────────────────────
+    try:
+        rag_intent, rag_plan_text = _build_rag_plan(question)
+        if rag_plan_text:
+            return rag_intent or regex_intent, rag_plan_text, None
+    except Exception as exc:
+        logger.debug("_build_ai_plan: RAG plan lookup failed (%s)", exc)
 
     # ── Deterministic fallback ─────────────────────────────────────────────
     return regex_intent, _build_fallback_plan(question, regex_intent), None
