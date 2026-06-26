@@ -69,7 +69,7 @@ class TestDeepDiveHeuristic(unittest.TestCase):
         # Mock os.path.exists and open to simulate report.md generation
         with patch("os.path.exists", return_value=True), \
              patch("builtins.open", unittest.mock.mock_open(read_data="Full Apple Report")), \
-             patch("src.tools.report_publisher.publish_consolidated_pdf", return_value="✅ PDF saved to /aapl.pdf") as mock_publish_pdf:
+             patch("src.tools.report_publisher.publish_consolidated_pdf_func", return_value="✅ PDF saved to /aapl.pdf") as mock_publish_pdf:
              
             # Test ask() method
             res_ask = agent.ask("deep dive aapl save as pdf")

@@ -394,7 +394,7 @@ class MosaicFundAgent:
                 max_tokens=settings.llm_token_budget,
                 extra_body=extra_body,
                 timeout=settings.llm_request_timeout,
-                streaming=False,
+                streaming=settings.llm_think,
             )
 
         # ── OpenRouter cloud ───────────────────────────────────────────────────
