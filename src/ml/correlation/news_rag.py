@@ -28,7 +28,24 @@ log = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-_OLLAMA_BASE = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+def _get_ollama_base() -> str:
+    """Resolve Ollama base host dynamically."""
+    env_host = os.environ.get("OLLAMA_HOST")
+    if env_host:
+        return env_host.rstrip("/")
+
+    try:
+        from config.settings import settings
+        if settings.llm_base_url:
+            base = settings.llm_base_url.strip().rstrip("/")
+            if base.endswith("/v1"):
+                base = base[:-3]
+            return base
+    except Exception:
+        pass
+
+    return "http://localhost:11434"
+
 _EMBED_MODEL = "nomic-embed-text"
 _EMBED_DIM = 768
 _CACHE_DIR = Path("data/.cache/embeddings")
@@ -68,7 +85,7 @@ def embed_text(text: str) -> list[float]:
                 pass
 
     # Call Ollama
-    url = f"{_OLLAMA_BASE}/api/embed"
+    url = f"{_get_ollama_base()}/api/embed"
     payload = {"model": _EMBED_MODEL, "input": text}
     try:
         resp = requests.post(url, json=payload, timeout=30)
@@ -101,7 +118,7 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
         return []
 
     cleaned = [t.strip()[:512] if t else "" for t in texts]
-    url = f"{_OLLAMA_BASE}/api/embed"
+    url = f"{_get_ollama_base()}/api/embed"
     payload = {"model": _EMBED_MODEL, "input": cleaned}
     try:
         resp = requests.post(url, json=payload, timeout=120)

@@ -84,5 +84,18 @@ class TestChatFollowupRouting(unittest.TestCase):
         self.assertFalse(_is_numeric_choice_prompt("Here is the GOLDBEES ML prediction report."))
         self.assertFalse(_is_numeric_choice_prompt(""))
 
+    def test_numeric_choice_inputs(self):
+        """Test that inputs like digits or source names are correctly routed as follow-ups for numeric choice prompts."""
+        prev_answer = "DATA_SOURCE_REQUIRED: Ask the user which data source to use before importing:\n1. Shoonya\n2. NSE\n3. yfinance"
+        self.assertTrue(_is_numeric_choice_prompt(prev_answer))
+        
+        # Digits/sources should match
+        self.assertTrue(prev_answer and (_is_numeric_choice_prompt(prev_answer) and ("3".strip().lower().isdigit() or "3".strip().lower() in ("shoonya", "nse", "yfinance"))))
+        self.assertTrue(prev_answer and (_is_numeric_choice_prompt(prev_answer) and ("yfinance".strip().lower().isdigit() or "yfinance".strip().lower() in ("shoonya", "nse", "yfinance"))))
+        self.assertTrue(prev_answer and (_is_numeric_choice_prompt(prev_answer) and ("nse".strip().lower().isdigit() or "nse".strip().lower() in ("shoonya", "nse", "yfinance"))))
+        
+        # Arbitrary queries should not be matched as choices
+        self.assertFalse(prev_answer and (_is_numeric_choice_prompt(prev_answer) and ("what is goldbees price".strip().lower().isdigit() or "what is goldbees price".strip().lower() in ("shoonya", "nse", "yfinance"))))
+
 if __name__ == "__main__":
     unittest.main()

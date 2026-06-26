@@ -89,7 +89,7 @@ _IMPORT_RE = re.compile(
     r"|the|a|an|my|all|latest|today|new|more|some|those|these|this|that"
     # AMC names → fall through to _MF_RE in _regex_route_intent
     r"|dsp|nippon|icici|bajaj|quant)\b)"
-    r"[a-zA-Z][a-zA-Z0-9\s]{1,30}$",
+    r"[a-zA-Z][a-zA-Z0-9\s,\-_]{1,50}$",
     re.I,
 )
 _DB_RE = re.compile(
