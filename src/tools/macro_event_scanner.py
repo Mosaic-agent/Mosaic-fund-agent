@@ -397,6 +397,14 @@ class QuantOverlay:
     nifty500_pct_above_50dma: float | None = None
     nifty500_pct_above_200dma: float | None = None
     nifty500_ad_ratio: float | None = None
+    tijori_cpi: float | None = None
+    tijori_cpi_date: str | None = None
+    tijori_wpi: float | None = None
+    tijori_wpi_date: str | None = None
+    tijori_gst_cr: float | None = None
+    tijori_gst_date: str | None = None
+    tijori_eway_yoy: float | None = None
+    tijori_eway_date: str | None = None
 
 
 @dataclass
@@ -663,17 +671,36 @@ def _fetch_quant_overlay() -> QuantOverlay:
                 log.warning(f"Failed to query index indicators: {e}")
                 return None
 
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        def _tijori_macro():
+            try:
+                with _pool.acquire() as cl:
+                    return cl.query_df("""
+                        SELECT indicator_code, value, as_of_date
+                        FROM (
+                            SELECT indicator_code, value, as_of_date,
+                                   row_number() OVER (PARTITION BY indicator_code ORDER BY as_of_date DESC) as rn
+                            FROM market_data.tijori_macro_indicators FINAL
+                            WHERE indicator_code IN ('CPI', 'GSTCollection', 'E-WayBillsGenerated-YoYGrowth', 'WPI')
+                        )
+                        WHERE rn = 1
+                    """)
+            except Exception as e:
+                log.warning(f"Failed to query Tijori macro indicators: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
             f_fii    = ex.submit(_fii)
             f_prices = ex.submit(_prices)
             f_garch  = ex.submit(_garch)
             f_macro  = ex.submit(_fetch_macro_fundamentals)
             f_index  = ex.submit(_index_indicators)
+            f_tijori = ex.submit(_tijori_macro)
             fii_df        = f_fii.result()
             price_df      = f_prices.result()
             garch_vol_raw = f_garch.result()
             macro_funds   = f_macro.result()
             index_df      = f_index.result()
+            tijori_df     = f_tijori.result()
 
         fii_net = float(fii_df["fii_net_5d"].iloc[0]) if not fii_df.empty else None
         dii_net = float(fii_df["dii_net_5d"].iloc[0]) if not fii_df.empty else None
@@ -712,6 +739,25 @@ def _fetch_quant_overlay() -> QuantOverlay:
                     n500_above200 = float(r["pct_above_200dma"])
                     n500_ad = float(r["ad_ratio"])
 
+        t_cpi = t_cpi_dt = t_wpi = t_wpi_dt = t_gst = t_gst_dt = t_eway = t_eway_dt = None
+        if tijori_df is not None and not tijori_df.empty:
+            for _, r in tijori_df.iterrows():
+                code = r["indicator_code"]
+                val = float(r["value"])
+                dt = str(r["as_of_date"])[:7] if hasattr(r["as_of_date"], "strftime") else str(r["as_of_date"])[:7]
+                if code == "CPI":
+                    t_cpi = val
+                    t_cpi_dt = dt
+                elif code == "WPI":
+                    t_wpi = val
+                    t_wpi_dt = dt
+                elif code == "GSTCollection":
+                    t_gst = val
+                    t_gst_dt = dt
+                elif code == "E-WayBillsGenerated-YoYGrowth":
+                    t_eway = val
+                    t_eway_dt = dt
+
         return QuantOverlay(
             fii_net_5d_cr          = round(fii_net, 1) if fii_net is not None else None,
             dii_net_5d_cr          = round(dii_net, 1) if dii_net is not None else None,
@@ -731,6 +777,14 @@ def _fetch_quant_overlay() -> QuantOverlay:
             nifty500_pct_above_50dma  = n500_above50,
             nifty500_pct_above_200dma = n500_above200,
             nifty500_ad_ratio      = n500_ad,
+            tijori_cpi             = t_cpi,
+            tijori_cpi_date        = t_cpi_dt,
+            tijori_wpi             = t_wpi,
+            tijori_wpi_date        = t_wpi_dt,
+            tijori_gst_cr          = t_gst,
+            tijori_gst_date        = t_gst_dt,
+            tijori_eway_yoy        = t_eway,
+            tijori_eway_date       = t_eway_dt,
         )
     except Exception as exc:
         log.debug("Quant overlay unavailable: %s", exc)
@@ -1123,6 +1177,20 @@ def print_macro_report(report: MacroReport, max_per_theme: int = 4) -> None:
                 lines.append(
                     f"  IMF {mf.forecast_year} forecast  " + "  ".join(fcast_parts)
                 )
+
+        # ── Tijori High-Frequency Macro Indicators ────────────────────────────
+        t_parts: list[str] = []
+        if q.tijori_cpi is not None:
+            t_cpi_col = "green" if q.tijori_cpi <= 5.0 else "yellow"
+            t_parts.append(f"CPI [{t_cpi_col}]{q.tijori_cpi:.1f}% ({q.tijori_cpi_date})[/{t_cpi_col}]")
+        if q.tijori_wpi is not None:
+            t_parts.append(f"WPI {q.tijori_wpi:.1f}% ({q.tijori_wpi_date})")
+        if q.tijori_gst_cr is not None:
+            t_parts.append(f"GST ₹{q.tijori_gst_cr:,.0f} Cr ({q.tijori_gst_date})")
+        if q.tijori_eway_yoy is not None:
+            t_parts.append(f"E-Way YoY {q.tijori_eway_yoy:+.1f}% ({q.tijori_eway_date})")
+        if t_parts:
+            lines.append("  Tijori Macro " + "  ".join(t_parts))
 
         if lines:
             console.print(Panel(
