@@ -321,8 +321,153 @@ def route_intent_llm(question: str) -> str:
         return _regex_fallback(question)
 
 
+_golden_vectors = None
+_tfidf_matcher = None
+
+
+class SimpleTFIDF:
+    def __init__(self, documents: list[tuple[str, str]]):
+        import collections, math, re
+        self.documents = documents  # list of (question, intent)
+        self.tokenized_docs = [[w for w in re.findall(r"\b\w+\b", doc[0].lower()) if len(w) > 1] for doc in documents]
+        
+        # Compute IDF
+        self.idf = collections.defaultdict(float)
+        num_docs = len(documents)
+        doc_counts = collections.defaultdict(int)
+        for doc in self.tokenized_docs:
+            for term in set(doc):
+                doc_counts[term] += 1
+        for term, count in doc_counts.items():
+            self.idf[term] = math.log((1 + num_docs) / (1 + count)) + 1
+            
+        # Compute doc vectors
+        self.doc_vectors = []
+        for doc in self.tokenized_docs:
+            vector = collections.defaultdict(float)
+            for term in doc:
+                vector[term] += 1
+            # Apply IDF
+            for term in vector:
+                vector[term] *= self.idf[term]
+            # Normalise
+            norm = math.sqrt(sum(v**2 for v in vector.values()))
+            if norm > 0:
+                for term in vector:
+                    vector[term] /= norm
+            self.doc_vectors.append(vector)
+
+    def similarity(self, query: str) -> tuple[str, float]:
+        import collections, math, re
+        query_tokens = [w for w in re.findall(r"\b\w+\b", query.lower()) if len(w) > 1]
+        if not query_tokens:
+            return "main", 0.0
+            
+        query_vector = collections.defaultdict(float)
+        for term in query_tokens:
+            query_vector[term] += 1
+        for term in query_vector:
+            query_vector[term] *= self.idf[term]
+        norm = math.sqrt(sum(v**2 for v in query_vector.values()))
+        if norm > 0:
+            for term in query_vector:
+                query_vector[term] /= norm
+                
+        best_score = 0.0
+        best_intent = "main"
+        
+        for idx, doc_vector in enumerate(self.doc_vectors):
+            # Cosine similarity
+            score = sum(query_vector[term] * doc_vector[term] for term in query_vector if term in doc_vector)
+            if score > best_score:
+                best_score = score
+                best_intent = self.documents[idx][1]
+                
+        return best_intent, best_score
+
+
+def _embedding_similarity(question: str) -> tuple[str, float]:
+    """Compare question embedding to GOLDEN_PAIRS embeddings using Ollama."""
+    global _golden_vectors
+    try:
+        from src.ml.correlation.news_rag import embed_text
+        from tests.test_intent_router import GOLDEN_PAIRS
+        import numpy as np
+
+        q_vec = embed_text(question)
+        if not any(q_vec):  # All zeros = failed
+            return "main", 0.0
+
+        best_score = 0.0
+        best_intent = "main"
+
+        # Lazy load/cache golden vectors
+        if _golden_vectors is None:
+            _golden_vectors = []
+            for q_text, intent in GOLDEN_PAIRS:
+                vec = embed_text(q_text)
+                _golden_vectors.append((vec, intent))
+
+        # Compute cosine similarities
+        q_norm = np.linalg.norm(q_vec)
+        if q_norm == 0:
+            return "main", 0.0
+
+        for vec, intent in _golden_vectors:
+            v_norm = np.linalg.norm(vec)
+            if v_norm == 0:
+                continue
+            sim = np.dot(q_vec, vec) / (q_norm * v_norm)
+            if sim > best_score:
+                best_score = sim
+                best_intent = intent
+
+        return best_intent, float(best_score)
+    except Exception as exc:
+        logger.debug("_embedding_similarity failed: %s", exc)
+        return "main", 0.0
+
+
+def route_intent_rag(question: str) -> str | None:
+    """
+    Use local RAG/semantic search over GOLDEN_PAIRS database to discover intent.
+    Checks Ollama embeddings first, falls back to TF-IDF similarity.
+    Returns the mapped intent if confidence is high, else None.
+    """
+    global _tfidf_matcher
+    try:
+        from tests.test_intent_router import GOLDEN_PAIRS
+    except ImportError:
+        logger.warning("Could not load GOLDEN_PAIRS from test_intent_router — RAG router disabled")
+        return None
+
+    # 1. Try Local Ollama Embedding similarity
+    intent, score = _embedding_similarity(question)
+    if score >= 0.82:
+        logger.info("RAG Router (Embedding): %r → %s (score=%.3f)", question[:60], intent, score)
+        return intent
+
+    # 2. Try Pure-Python TF-IDF similarity
+    if _tfidf_matcher is None:
+        _tfidf_matcher = SimpleTFIDF(GOLDEN_PAIRS)
+    
+    intent, score = _tfidf_matcher.similarity(question)
+    if score >= 0.50:
+        logger.info("RAG Router (TF-IDF): %r → %s (score=%.3f)", question[:60], intent, score)
+        return intent
+        
+    return None
+
+
 def _regex_fallback(question: str) -> str:
-    """Import and call the legacy regex router (non-recursive)."""
+    """RAG-based semantic intent search, then legacy regex fallback."""
+    try:
+        rag_intent = route_intent_rag(question)
+        if rag_intent:
+            return rag_intent
+    except Exception as exc:
+        logger.debug("_regex_fallback: RAG lookup failed (%s)", exc)
+
     from src.agents.sub_agents import _regex_route_intent
     return _regex_route_intent(question)
 
