@@ -615,6 +615,16 @@ _RAG_PLAN_TEMPLATES = [
         ["get_dxy_context(30)", "plot_dxy_chart(365)"]
     ),
     (
+        "run macro scanner today / what are active macro themes",
+        "macro",
+        ["run_macro_scanner(max_themes=3)"]
+    ),
+    (
+        "check latest India macro indicators / monthly CPI, WPI, and GST from ClickHouse",
+        "macro",
+        ["Query recent monthly indicators from market_data.tijori_macro_indicators FINAL"]
+    ),
+    (
         "latest news on RELIANCE",
         "news",
         ["Resolve symbol for '{symbol}'", "Fetch news from GNews & NewsAPI", "Query saved news from ClickHouse news_articles", "Deduplicate and compute sentiment summary"]
@@ -643,6 +653,11 @@ _RAG_PLAN_TEMPLATES = [
         "sync mutual fund holdings",
         "main",
         ["run_data_engineering_importer(category='mf_holdings')"]
+    ),
+    (
+        "import India macro indicators / refresh Tijori macro data",
+        "main",
+        ["run_data_engineering_importer(category='tijori_macro')"]
     ),
 ]
 

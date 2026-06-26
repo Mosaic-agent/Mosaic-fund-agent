@@ -1136,6 +1136,31 @@ And some final conclusions.
     print("  ✓ PDF generation and publishing test passed")
 
 
+def test_rag_planner_templates():
+    print("\n" + "="*60)
+    print("TEST 23: RAG Planner Template Matching for Macro Capabilities")
+    print("="*60)
+
+    from src.commands.chat_cmd import _build_rag_plan
+
+    # 1. Test macro scanner matching
+    intent, plan = _build_rag_plan("run macro scanner today")
+    assert intent == "macro"
+    assert "run_macro_scanner" in plan
+
+    # 2. Test monthly macro indicators matching
+    intent, plan = _build_rag_plan("check latest India macro indicators")
+    assert intent == "macro"
+    assert "tijori_macro_indicators" in plan
+
+    # 3. Test macro importer matching
+    intent, plan = _build_rag_plan("refresh Tijori macro data")
+    assert intent == "main"
+    assert "tijori_macro" in plan
+
+    print("  ✓ RAG Planner template matching checks passed")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -1160,6 +1185,7 @@ if __name__ == "__main__":
         test_multi_price_chart_fallback,
         test_explain_price_anomalies,
         test_report_publisher,
+        test_rag_planner_templates,
     ]
     passed = 0
     failed = 0
