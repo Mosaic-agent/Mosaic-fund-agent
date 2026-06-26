@@ -191,7 +191,7 @@ def _get_router_llm() -> Any | None:
         try:
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(
-                model="google/gemma-3-12b-it:free",
+                model="google/gemma-3-12b-it",
                 api_key=settings.openrouter_api_key,
                 base_url="https://openrouter.ai/api/v1",
                 temperature=0,

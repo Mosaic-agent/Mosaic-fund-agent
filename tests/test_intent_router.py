@@ -28,6 +28,9 @@ GOLDEN_PAIRS: list[tuple[str, str]] = [
     ("sync all data", "main"),
     ("backfill etf prices", "main"),
     ("import --category stocks", "main"),
+    ("import dxy, comex", "main"),
+    ("import dxy", "main"),
+    ("refresh GOLDBEES, NIFTYBEES", "main"),
 
     # ── signal ────────────────────────────────────────────────────────────────
     ("what is the composite signal for GOLDBEES?", "signal"),
