@@ -17,6 +17,13 @@ from src.agents.sub_agents import route_intent
 from src.agents.golden_pairs import GOLDEN_PAIRS
 
 
+@pytest.fixture(autouse=True)
+def mock_router_llm(mocker):
+    """Prevent tests from making actual network calls to OpenRouter/OpenAI."""
+    mocker.patch("src.agents.intent_router._get_router_llm", return_value=None)
+
+
+
 class TestRegexRouter:
     """Test the deterministic regex-based intent router."""
 
@@ -26,6 +33,20 @@ class TestRegexRouter:
         assert result == expected, (
             f"route_intent({question!r}) = {result!r}, expected {expected!r}"
         )
+
+    @pytest.mark.parametrize("greeting", [
+        "hi",
+        "hello",
+        "hey",
+        "how are you",
+        "good morning",
+        "whats up?",
+        "hi there!"
+    ])
+    def test_greetings_route_to_main(self, greeting: str) -> None:
+        result = route_intent(greeting)
+        assert result == "main", f"route_intent({greeting!r}) = {result!r}, expected 'main'"
+
 
 
 class TestLLMRouter:

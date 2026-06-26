@@ -328,13 +328,24 @@ def route_intent_llm(question: str) -> str:
 
 _golden_vectors = None
 _tfidf_matcher = None
+_STOPWORDS = frozenset({
+    "what", "how", "are", "you", "the", "is", "for", "to", "of", "in", "on", "at", 
+    "with", "this", "that", "these", "those", "have", "do", "does", "did", "can", 
+    "could", "will", "would", "should", "me", "my", "your", "them", "their", 
+    "they", "we", "our", "us", "about", "there", "here", "all", "any", "both", 
+    "each", "few", "more", "most", "other", "some", "such", "than", "too", "very", 
+    "who", "whom", "which", "where", "when", "why", "a", "an", "and", "or", "but"
+})
 
 
 class SimpleTFIDF:
     def __init__(self, documents: list[tuple[str, str]]):
         import collections, math, re
         self.documents = documents  # list of (question, intent)
-        self.tokenized_docs = [[w for w in re.findall(r"\b\w+\b", doc[0].lower()) if len(w) > 1] for doc in documents]
+        self.tokenized_docs = [
+            [w for w in re.findall(r"\b\w+\b", doc[0].lower()) if len(w) > 1 and w not in _STOPWORDS]
+            for doc in documents
+        ]
         
         # Compute IDF
         self.idf = collections.defaultdict(float)
@@ -364,7 +375,7 @@ class SimpleTFIDF:
 
     def similarity(self, query: str) -> tuple[str, float]:
         import collections, math, re
-        query_tokens = [w for w in re.findall(r"\b\w+\b", query.lower()) if len(w) > 1]
+        query_tokens = [w for w in re.findall(r"\b\w+\b", query.lower()) if len(w) > 1 and w not in _STOPWORDS]
         if not query_tokens:
             return "main", 0.0
             
@@ -389,6 +400,7 @@ class SimpleTFIDF:
                 best_intent = self.documents[idx][1]
                 
         return best_intent, best_score
+
 
 
 def _embedding_similarity(question: str) -> tuple[str, float]:
