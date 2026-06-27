@@ -606,6 +606,21 @@ def _fetch_quant_overlay() -> QuantOverlay:
         from src.db.pool import get_pool as _get_ch_pool
         _pool = _get_ch_pool()
 
+        # Ensure all tables exist before querying (e.g. on new setup or new migration tables)
+        try:
+            from src.importer.clickhouse import ClickHouseImporter
+            from config.settings import settings
+            ch = ClickHouseImporter(
+                host     = settings.clickhouse_host,
+                port     = settings.clickhouse_port,
+                database = settings.clickhouse_database,
+                username = settings.clickhouse_user,
+                password = settings.clickhouse_password,
+            )
+            ch.ensure_schema()
+        except Exception as e:
+            log.warning(f"Failed to ensure schema in macro scanner quant overlay: {e}")
+
         def _fii():
             with _pool.acquire() as cl:
                 return cl.query_df("""
