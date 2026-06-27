@@ -1,6 +1,93 @@
 # Anomaly Detection — How It Works
 
-The **🔬 Anomaly Detection** tab runs a four-step composite pipeline on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection.
+The **🔬 Anomaly Detection** tab runs a five-step composite pipeline on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Corporate Action suppression.
+
+## Architectural Pipeline & Data Flow
+
+The following data flow diagram illustrates how raw market inputs flow through the 5-step anomaly detection pipeline, map to a volatility/trend regime, integrate into the multi-pillar Signal Composite, and finally determine position sizing in the Risk Governor:
+
+```mermaid
+graph TD
+    %% Input Layer
+    subgraph Input ["1. Data Inputs"]
+        OHLCV["OHLCV Price & Volume"]
+        COT["COT Net Positions / OI (Gold-only)"]
+        FX["USDINR FX Rates & Vol"]
+        CA["NSE Corporate Actions (Splits/Bonuses)"]
+    end
+
+    %% Pipeline Steps
+    subgraph Steps ["2. Anomaly Detection Pipeline (Steps 1-5)"]
+        S1["Step 1: Robust Z-Score (MAD)<br/>(Rolling median-centered return & range Z)"]
+        S2["Step 2: GARCH(1,1) Volatility<br/>(Standardised Residuals = return / conditional vol)"]
+        S3["Step 3: Isolation Forest<br/>(Multivariate confidence anomaly multiplier)"]
+        S4["Step 4: PELT Change-Point Detection<br/>(Structural break detection & Z-score boost)"]
+        S5["Step 5: Corporate Action Suppression<br/>(Filter splits, bonuses, rights, demergers)"]
+    end
+
+    %% Regime Classification
+    subgraph Regime ["3. Regime Classification"]
+        RC["Regime Mapper & Score Allocator<br/>(Normal, Trend, Volatile, Flash Crash, etc.)"]
+        RS["Regime Score (0 - 100)"]
+    end
+
+    %% Signal Composite
+    subgraph Composite ["4. Signal Composite Integration"]
+        P_Macro["Macro Theme (20%)"]
+        P_Sentiment["News Sentiment (15%)"]
+        P_Valuation["iNAV Premium (25%)"]
+        P_Flow["Institutional Flows (10%)"]
+        P_ML["LightGBM Prediction (20%)"]
+        P_Anomaly["Anomaly Regime Score (10%)"]
+        CS["Composite Signal Score (0 - 100)"]
+    end
+
+    %% Risk Governor
+    subgraph Governor ["5. Risk Governor Sizing"]
+        RG_Vol["GARCH Vol Sizing<br/>(vol_target / garch_vol)"]
+        RG_Trend["Trend EMA Filter<br/>(0.75x if < 50-day EMA)"]
+        RG_Gate["Composite Score Gate<br/>(0.50x if score < 35)"]
+        RG_Weight["Final Position Weight<br/>(blended_50 / blended_30)"]
+    end
+
+    %% Connections
+    OHLCV --> S1
+    OHLCV --> S2
+    OHLCV --> S3
+    COT --> S3
+    FX --> S3
+    
+    S1 --> S3
+    S2 --> S3
+    
+    OHLCV --> S4
+    S3 --> S4
+    
+    CA --> S5
+    S4 --> S5
+    
+    S5 --> RC
+    RC --> RS
+    
+    RS --> P_Anomaly
+    
+    P_Macro --> CS
+    P_Sentiment --> CS
+    P_Valuation --> CS
+    P_Flow --> CS
+    P_ML --> CS
+    P_Anomaly --> CS
+    
+    S2 --> RG_Vol
+    CS --> RG_Gate
+    OHLCV --> RG_Trend
+    
+    RG_Vol --> RG_Weight
+    RG_Trend --> RG_Weight
+    RG_Gate --> RG_Weight
+```
+
+---
 
 ## Step 1 — Robust Z-Score (MAD)
 
