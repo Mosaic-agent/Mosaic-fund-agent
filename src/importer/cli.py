@@ -151,6 +151,18 @@ def run_import(
     if "all" in categories:
         categories = ALL_CATEGORIES
 
+    # Normalize category list to map aliases (e.g. tijori_macro_indicators -> tijori_macro)
+    normalized_categories = []
+    for cat in categories:
+        c_clean = cat.strip().lower()
+        if c_clean == "tijori_macro_indicators":
+            if "tijori_macro" not in normalized_categories:
+                normalized_categories.append("tijori_macro")
+        elif c_clean:
+            if c_clean not in normalized_categories:
+                normalized_categories.append(c_clean)
+    categories = normalized_categories
+
     today = date.today()
 
     # ── Connect + ensure schema ────────────────────────────────────────────

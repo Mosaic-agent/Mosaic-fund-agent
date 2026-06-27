@@ -1161,6 +1161,17 @@ def test_rag_planner_templates():
     print("  ✓ RAG Planner template matching checks passed")
 
 
+def test_category_normalization():
+    print("\n" + "="*60)
+    print("TEST 24: Importer Category Normalization")
+    print("="*60)
+
+    from src.importer.registry import ALL_CATEGORIES
+    assert "tijori_macro_indicators" in ALL_CATEGORIES
+
+    print("  ✓ Category normalization checks passed")
+
+
 if __name__ == "__main__":
     tests = [
         test_symbol_mapper,
@@ -1186,6 +1197,7 @@ if __name__ == "__main__":
         test_explain_price_anomalies,
         test_report_publisher,
         test_rag_planner_templates,
+        test_category_normalization,
     ]
     passed = 0
     failed = 0
