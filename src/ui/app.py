@@ -3588,6 +3588,112 @@ with tab_etf_scan:
         st.info("Click **📡 Scan Premiums** to compute Z-scores and render charts.")
 
 
+    st.write("")
+    st.write("")
+    st.divider()
+    st.subheader("⚙️ ETF Volume-Volatility Setups & Trends")
+    st.caption("Identify Squeezes, Breakouts, and Trend Postures across all 28 tracked ETFs.")
+    
+    sub_tab_setups, sub_tab_trends = st.tabs(["⚡ Setup Scanner", "📈 Trend Lookbacks"])
+    with sub_tab_setups:
+        col_setups_ctrl, col_setups_run = st.columns([3, 1])
+        with col_setups_ctrl:
+            lookback_vol = st.slider("Setup Lookback window (days)", 20, 180, 90, key="volscan_lookback")
+        with col_setups_run:
+            st.write("")
+            st.write("")
+            run_setups = st.button("▶ Run Setup Scan", use_container_width=True, key="volscan_run")
+            
+        if run_setups:
+            from src.tools.etf_setup_scanner import run_etf_setup_scan
+            with st.spinner("Scanning volume-volatility configurations…"):
+                setup_results = run_etf_setup_scan(lookback_days=lookback_vol)
+                
+            if not setup_results:
+                st.warning("No setup scan results found.")
+            else:
+                import pandas as pd
+                import plotly.express as px
+                
+                df_setups = pd.DataFrame(setup_results)
+                
+                df_plot = df_setups.copy()
+                df_plot["return_ratio"] = df_plot["daily_return"] / df_plot["volatility_20d"]
+                
+                fig_setups = px.scatter(
+                    df_plot,
+                    x="volume_vs_ma",
+                    y="return_ratio",
+                    text="symbol",
+                    color="pattern",
+                    color_discrete_map={
+                        "🚀 Volatile Breakout": "#ff3366",
+                        "⚠️ Volume Exhaustion": "#00ffcc",
+                        "📦 Volatility Squeeze": "#9933ff",
+                        "Normal": "#94a3b8"
+                    },
+                    labels={
+                        "volume_vs_ma": "Volume Ratio (vs 20d MA)",
+                        "return_ratio": "Return Ratio (Return / 20d Vol)",
+                        "pattern": "Setup Classification"
+                    },
+                    title="ETF Volume-Volatility Space Map"
+                )
+                fig_setups.update_traces(textposition="top center", marker=dict(size=12))
+                fig_setups.add_vline(x=1.5, line_dash="dash", line_color="#ff3366", opacity=0.5)
+                fig_setups.add_vline(x=0.7, line_dash="dash", line_color="#00ffcc", opacity=0.5)
+                fig_setups.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    height=450
+                )
+                st.plotly_chart(fig_setups, use_container_width=True)
+                
+                st.dataframe(
+                    df_setups[["symbol", "close", "daily_return", "volatility_20d", "volume_vs_ma", "pattern", "details"]],
+                    column_config={
+                        "symbol": "ETF",
+                        "close": "Close (₹)",
+                        "daily_return": st.column_config.NumberColumn("Daily Return", format="%+.2f%%"),
+                        "volatility_20d": st.column_config.NumberColumn("20d Volatility", format="%.2f%%"),
+                        "volume_vs_ma": st.column_config.NumberColumn("Volume vs 20d MA", format="%.2fx"),
+                        "pattern": "Setup Classification",
+                        "details": "Details"
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+    with sub_tab_trends:
+        st.write("")
+        run_trends = st.button("▶ Run Trend Scan", use_container_width=True, key="trendscan_run")
+        
+        if run_trends:
+            from src.tools.etf_setup_scanner import run_etf_trend_scan
+            with st.spinner("Calculating trend lookbacks…"):
+                trend_results = run_etf_trend_scan()
+                
+            if not trend_results:
+                st.warning("No trend scan results found.")
+            else:
+                import pandas as pd
+                df_trends = pd.DataFrame(trend_results)
+                
+                st.dataframe(
+                    df_trends[["symbol", "close", "return_5d", "return_20d", "return_60d", "status"]],
+                    column_config={
+                        "symbol": "ETF",
+                        "close": "Close (₹)",
+                        "return_5d": st.column_config.NumberColumn("5d Return", format="%+.2f%%"),
+                        "return_20d": st.column_config.NumberColumn("20d Return", format="%+.2f%%"),
+                        "return_60d": st.column_config.NumberColumn("60d Return", format="%+.2f%%"),
+                        "status": "Trend Status"
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 8 — MARKET NEWS
 # ══════════════════════════════════════════════════════════════════════════════
