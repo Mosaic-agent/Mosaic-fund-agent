@@ -3701,6 +3701,72 @@ with tab_etf_scan:
                 )
                 st.plotly_chart(fig_setups, use_container_width=True)
                 
+                # ── Categorized Cards Grid (prevents overlap) ─────────────────────
+                st.write("")
+                st.subheader("🎯 Active Opportunities Grouped by Pattern")
+                
+                g_c1, g_c2, g_c3, g_c4 = st.columns(4)
+                
+                # Helper to format cards
+                def make_card_html(row_data, border_color):
+                    ret_val = row_data["daily_return"]
+                    ret_color = "#22c55e" if ret_val >= 0 else "#ef4444"
+                    return f"""
+                    <div style="background-color: #1e1e24; border-left: 4px solid {border_color}; padding: 12px; border-radius: 6px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">
+                        <div style="font-size: 15px; font-weight: bold; color: #ffffff;">{row_data['symbol']}</div>
+                        <div style="font-size: 13px; color: #888888; margin-top: 4px;">
+                            Price: <span style="color: #ffffff;">₹{row_data['close']:.2f}</span>
+                        </div>
+                        <div style="font-size: 13px; color: #888888;">
+                            Return: <span style="color: {ret_color}; font-weight: bold;">{ret_val:+.2f}%</span>
+                        </div>
+                        <div style="font-size: 12px; color: #aaaaaa; margin-top: 4px;">
+                            Volume Ratio: <span style="font-weight: bold; color: #ffffff;">{row_data['volume_vs_ma']:.2f}x</span>
+                        </div>
+                    </div>
+                    """
+                
+                with g_c1:
+                    st.markdown("<h4 style='color: #ff3366; margin-bottom: 10px;'>🚀 Breakouts</h4>", unsafe_allow_html=True)
+                    bo_list = df_setups[df_setups["pattern"] == "🚀 Volatile Breakout"]
+                    if bo_list.empty:
+                        st.caption("No active breakouts")
+                    else:
+                        for _, r_data in bo_list.iterrows():
+                            st.markdown(make_card_html(r_data, "#ff3366"), unsafe_allow_html=True)
+                            
+                with g_c2:
+                    st.markdown("<h4 style='color: #00ffcc; margin-bottom: 10px;'>⚠️ Exhaustions</h4>", unsafe_allow_html=True)
+                    ex_list = df_setups[df_setups["pattern"] == "⚠️ Volume Exhaustion"]
+                    if ex_list.empty:
+                        st.caption("No active exhaustions")
+                    else:
+                        for _, r_data in ex_list.iterrows():
+                            st.markdown(make_card_html(r_data, "#00ffcc"), unsafe_allow_html=True)
+                            
+                with g_c3:
+                    st.markdown("<h4 style='color: #9933ff; margin-bottom: 10px;'>📦 Squeezes</h4>", unsafe_allow_html=True)
+                    sq_list = df_setups[df_setups["pattern"] == "📦 Volatility Squeeze"]
+                    if sq_list.empty:
+                        st.caption("No active squeezes")
+                    else:
+                        for _, r_data in sq_list.iterrows():
+                            st.markdown(make_card_html(r_data, "#9933ff"), unsafe_allow_html=True)
+                            
+                with g_c4:
+                    st.markdown("<h4 style='color: #94a3b8; margin-bottom: 10px;'>⚪ Consolidation</h4>", unsafe_allow_html=True)
+                    co_list = df_setups[df_setups["pattern"] == "Normal"]
+                    if co_list.empty:
+                        st.caption("No active consolidations")
+                    else:
+                        # Only show top 4 normal ones to save space, sorted by volume ratio
+                        for _, r_data in co_list.head(4).iterrows():
+                            st.markdown(make_card_html(r_data, "#94a3b8"), unsafe_allow_html=True)
+                        if len(co_list) > 4:
+                            st.caption(f"+ {len(co_list) - 4} more in table below")
+                
+                st.write("")
+                st.subheader("📋 Full Signal Table")
                 st.dataframe(
                     df_setups[["symbol", "close", "daily_return", "volatility_20d", "volume_vs_ma", "pattern", "details"]],
                     column_config={
