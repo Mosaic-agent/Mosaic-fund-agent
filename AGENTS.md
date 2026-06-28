@@ -20,6 +20,8 @@ python src/main.py macro --max 3            # macro theme scanner
 python src/main.py comex                    # COMEX pre-market gold/silver/copper
 python src/main.py etf-news --max 3 --save  # ETF news sentiment
 python src/main.py premium-alerts           # iNAV premium/discount alerts
+python src/main.py crossover --symbol GOLDBEES # MA crossover backtester
+python src/main.py scan-setups              # ETF volume-volatility setups scanner
 python src/main.py ui                       # Streamlit at localhost:8501
 python src/main.py config                   # show masked config
 ```
@@ -322,7 +324,9 @@ request:
 | `/data-engineering-importer` | Manage ClickHouse schema, imports, backfills, and repairs. |
 | `/dsp-multi-asset-importer` | Backfill and validate DSP Multi Asset holdings. |
 | `/etf-news` | Fetch and tag ETF-category news with sentiment. |
+| `/etf-setups` | Scan all 18 tracked ETFs for volume-volatility breakouts, exhaustion, or squeezes. |
 | `/goldbees-pipeline` | Run or inspect the GOLDBEES ML and risk pipeline. |
+| `/ma-crossover` | Backtest SMA/EMA crossovers and plot equity curve performance. |
 | `/macro-scanner` | Scan current macro events and map ETF impacts. |
 | `/macro-strategy` | Analyze macro positioning and asset allocation. |
 | `/risk-governor` | Compute GARCH-based position sizing. |

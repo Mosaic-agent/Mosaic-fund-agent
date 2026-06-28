@@ -32,6 +32,8 @@ python src/main.py macro --max 3             # macro theme scanner
 python src/main.py comex                     # COMEX pre-market gold/silver/copper
 python src/main.py etf-news --max 3 --save  # ETF news sentiment
 python src/main.py premium-alerts           # iNAV premium/discount alerts
+python src/main.py crossover --symbol GOLDBEES # MA crossover backtester
+python src/main.py scan-setups              # ETF volume-volatility setups scanner
 python src/main.py ui                      # Streamlit at localhost:8501
 python src/main.py config                  # show masked config
 ```
