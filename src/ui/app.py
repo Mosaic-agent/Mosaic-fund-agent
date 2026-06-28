@@ -3640,12 +3640,64 @@ with tab_etf_scan:
                     title="ETF Volume-Volatility Space Map"
                 )
                 fig_setups.update_traces(textposition="top center", marker=dict(size=12))
-                fig_setups.add_vline(x=1.5, line_dash="dash", line_color="#ff3366", opacity=0.5)
-                fig_setups.add_vline(x=0.7, line_dash="dash", line_color="#00ffcc", opacity=0.5)
+                fig_setups.add_vline(x=1.5, line_dash="dash", line_color="#ff3366", opacity=0.3)
+                fig_setups.add_vline(x=0.7, line_dash="dash", line_color="#00ffcc", opacity=0.3)
+                fig_setups.add_hline(y=1.5, line_dash="dot", line_color="#ffcc00", opacity=0.2)
+                fig_setups.add_hline(y=-1.5, line_dash="dot", line_color="#ffcc00", opacity=0.2)
+                
+                # Add background quadrant shapes & labels for intuitive human reading
                 fig_setups.update_layout(
+                    shapes=[
+                        # Bullish Breakout (Top-Right)
+                        dict(
+                            type="rect", xref="x", yref="y",
+                            x0=1.5, y0=1.5, x1=3.5, y1=3.5,
+                            fillcolor="rgba(34, 197, 94, 0.05)", line_width=0, layer="below"
+                        ),
+                        # Bearish Liquidation (Bottom-Right)
+                        dict(
+                            type="rect", xref="x", yref="y",
+                            x0=1.5, y0=-3.5, x1=3.5, y1=-1.5,
+                            fillcolor="rgba(239, 68, 68, 0.05)", line_width=0, layer="below"
+                        ),
+                        # Liquidity Vacuum Drop (Bottom-Left)
+                        dict(
+                            type="rect", xref="x", yref="y",
+                            x0=0.0, y0=-3.5, x1=0.7, y1=-1.5,
+                            fillcolor="rgba(6, 182, 212, 0.05)", line_width=0, layer="below"
+                        ),
+                        # Volatility Squeeze (Center-Left)
+                        dict(
+                            type="rect", xref="x", yref="y",
+                            x0=0.0, y0=-1.0, x1=0.8, y1=1.0,
+                            fillcolor="rgba(147, 51, 234, 0.05)", line_width=0, layer="below"
+                        )
+                    ],
+                    annotations=[
+                        dict(
+                            x=2.5, y=2.5, xref="x", yref="y",
+                            text="🟢 BULLISH MOMENTUM", showarrow=False,
+                            font=dict(color="rgba(34, 197, 94, 0.5)", size=12, family="Courier New")
+                        ),
+                        dict(
+                            x=2.5, y=-2.5, xref="x", yref="y",
+                            text="🔴 PANIC / LIQUIDATION", showarrow=False,
+                            font=dict(color="rgba(239, 68, 68, 0.5)", size=12, family="Courier New")
+                        ),
+                        dict(
+                            x=0.35, y=-2.5, xref="x", yref="y",
+                            text="⚠️ LIQUIDITY VACUUM", showarrow=False,
+                            font=dict(color="rgba(6, 182, 212, 0.5)", size=10, family="Courier New")
+                        ),
+                        dict(
+                            x=0.4, y=0.0, xref="x", yref="y",
+                            text="📦 VOLATILITY SQUEEZE", showarrow=False,
+                            font=dict(color="rgba(147, 51, 234, 0.5)", size=10, family="Courier New")
+                        )
+                    ],
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
-                    height=450
+                    height=500
                 )
                 st.plotly_chart(fig_setups, use_container_width=True)
                 
