@@ -61,6 +61,27 @@ def apply_quality_weights(
             if words & sector_keywords:
                 h_weight = 0.8
         elif et in (EventType.MACRO_RATE_DECISION, EventType.MACRO_GEOPOLITICAL, EventType.MACRO_COMMODITY_SHOCK):
+            # Check for commodity-specific keyword mismatch (e.g. Gold event on Reliance)
+            if symbol:
+                try:
+                    from src.utils.symbol_mapper import get_company_name
+                    company = get_company_name(symbol)
+                except Exception:
+                    company = ""
+                
+                event_text_lower = f"{f.event.label} {f.event.description}".lower()
+                symbol_context_lower = f"{symbol} {company}".lower()
+                commodity_keywords = {"gold", "silver", "bullion", "platinum", "palladium"}
+                has_commodity_kw = any(cw in event_text_lower for cw in commodity_keywords)
+                symbol_has_commodity = any(cw in symbol_context_lower for cw in commodity_keywords)
+                
+                if has_commodity_kw and not symbol_has_commodity:
+                    log.debug(
+                        "Dropping commodity-specific macro event '%s' for non-commodity symbol %s",
+                        f.event.label, symbol
+                    )
+                    continue
+
             # Semantic relevance: how directly does this event relate to the symbol?
             # "Gold import duty" → GOLDBEES → high similarity → h_weight ~0.85
             # "Fed rate cut"     → GOLDBEES → low similarity  → h_weight ~0.40
@@ -90,6 +111,27 @@ def apply_quality_weights(
         # 2. News Quality Weight (NEWS_ANNOUNCEMENT only)
         nq_weight = 1.0
         if et == EventType.NEWS_ANNOUNCEMENT:
+            # Check for commodity-specific keyword mismatch (e.g. Gold news on Reliance)
+            if symbol:
+                try:
+                    from src.utils.symbol_mapper import get_company_name
+                    company = get_company_name(symbol)
+                except Exception:
+                    company = ""
+                
+                event_text_lower = f"{f.event.label} {f.event.description}".lower()
+                symbol_context_lower = f"{symbol} {company}".lower()
+                commodity_keywords = {"gold", "silver", "bullion", "platinum", "palladium"}
+                has_commodity_kw = any(cw in event_text_lower for cw in commodity_keywords)
+                symbol_has_commodity = any(cw in symbol_context_lower for cw in commodity_keywords)
+                
+                if has_commodity_kw and not symbol_has_commodity:
+                    log.debug(
+                        "Dropping commodity-specific news '%s' for non-commodity symbol %s",
+                        f.event.label, symbol
+                    )
+                    continue
+
             text = (f.event.label + " " + f.event.description).lower()
             source = str(f.event.metadata.get("source", "")).lower()
             url = str(f.event.metadata.get("url", "")).lower()

@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -25,6 +26,131 @@ import numpy as np
 import requests
 
 log = logging.getLogger(__name__)
+
+# Qdrant client dynamic/lazy import setup
+_qdrant_available = True
+try:
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, Range, MatchValue, PayloadSchemaType
+except ImportError:
+    _qdrant_available = False
+
+_qdrant_client: Optional[QdrantClient] = None
+_qdrant_collection_verified = False
+
+def get_qdrant_client() -> Optional[QdrantClient]:
+    """Lazy initialize Qdrant client."""
+    global _qdrant_client
+    if not _qdrant_available:
+        return None
+    if _qdrant_client is None:
+        try:
+            from config.settings import settings
+            host = os.environ.get("QDRANT_HOST") or getattr(settings, "qdrant_host", "localhost")
+            port = int(os.environ.get("QDRANT_PORT") or getattr(settings, "qdrant_port", 6333))
+            _qdrant_client = QdrantClient(url=f"http://{host}:{port}", timeout=10.0)
+        except Exception as e:
+            log.debug("Failed to initialize QdrantClient: %s", e)
+            _qdrant_client = None
+    return _qdrant_client
+
+def ensure_collection(client: QdrantClient, collection_name: str, dim: int = 768) -> bool:
+    """Ensure the Qdrant collection exists."""
+    global _qdrant_collection_verified
+    if _qdrant_collection_verified:
+        return True
+    try:
+        collections = client.get_collections().collections
+        exists = any(c.name == collection_name for c in collections)
+        if not exists:
+            client.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+            )
+            log.info("Created Qdrant collection: %s", collection_name)
+            try:
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="published_timestamp",
+                    field_schema=PayloadSchemaType.FLOAT,
+                )
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="category",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                log.info("Created Qdrant payload indexes for published_timestamp and category")
+            except Exception as e:
+                log.warning("Failed to create payload indexes in Qdrant: %s", e)
+        _qdrant_collection_verified = True
+        return True
+    except Exception as e:
+        log.warning("Qdrant collection check failed: %s", e)
+        return False
+
+def generate_point_id(url: str, title: str) -> str:
+    """Generate a deterministic UUID v5 from URL or Title for Qdrant point ID."""
+    key = url.strip() if url and url.strip() else title.strip()
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+
+def upsert_to_qdrant(articles: list[dict], vectors: list[list[float]]):
+    """Upsert articles and their embeddings to Qdrant.
+    
+    Each article dict must have: title, source, url, published_at, category, sentiment.
+    """
+    client = get_qdrant_client()
+    if not client or not articles or not vectors:
+        return
+
+    dim = len(vectors[0])
+    if not ensure_collection(client, "news_articles", dim):
+        return
+
+    points = []
+    from dateutil import parser as date_parser
+    for i, art in enumerate(articles):
+        title = art.get("title", "")
+        url = art.get("url", "")
+        if not title and not url:
+            continue
+            
+        point_id = generate_point_id(url, title)
+        
+        # Parse published_at for clean range filtering
+        pub_str = art.get("published_at", "")
+        pub_ts = 0.0
+        try:
+            pub_dt = date_parser.parse(pub_str)
+            pub_date_str = pub_dt.strftime("%Y-%m-%d")
+            pub_ts = float(pub_dt.timestamp())
+        except Exception:
+            try:
+                # Try fetched_at
+                pub_dt = date_parser.parse(str(art.get("fetched_at", "")))
+                pub_date_str = pub_dt.strftime("%Y-%m-%d")
+                pub_ts = float(pub_dt.timestamp())
+            except Exception:
+                pub_date_str = date.today().strftime("%Y-%m-%d")
+                import datetime
+                pub_ts = float(datetime.datetime.combine(date.today(), datetime.time.min).timestamp())
+
+        payload = {
+            "title": title,
+            "source": art.get("source", ""),
+            "url": url,
+            "published_at": pub_str,
+            "published_date": pub_date_str,
+            "published_timestamp": pub_ts,
+            "category": art.get("category", ""),
+            "sentiment": art.get("sentiment", "NEUTRAL"),
+        }
+        points.append(PointStruct(id=point_id, vector=vectors[i], payload=payload))
+
+    try:
+        client.upsert(collection_name="news_articles", points=points)
+        log.info("Successfully upserted %d points to Qdrant", len(points))
+    except Exception as e:
+        log.error("Failed to upsert to Qdrant: %s", e)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -304,20 +430,71 @@ def retrieve_articles(
 ) -> list[dict]:
     """Retrieve top-k semantically relevant news articles within a date window.
 
-    Queries news_articles table for rows with non-empty embeddings within
-    [around_date - days, around_date + days], ranks by cosine similarity.
+    Queries Qdrant vector database if available, otherwise queries news_articles
+    table in ClickHouse for rows with embeddings and ranks by cosine similarity.
 
     Returns list of dicts with keys: title, source, url, published_at,
     category, sentiment, similarity.
     """
-    from src.db.pool import query_df
-
     query_vec = embed_text(query)
     if all(v == 0.0 for v in query_vec):
         return []
 
+    import datetime
     start_date = around_date - timedelta(days=days)
     end_date = around_date + timedelta(days=days)
+    
+    start_ts = float(datetime.datetime.combine(start_date, datetime.time.min).timestamp())
+    end_ts = float(datetime.datetime.combine(end_date, datetime.time.max).timestamp())
+
+    # 1. Try Qdrant retrieval first
+    client = get_qdrant_client()
+    if client and _qdrant_available:
+        try:
+            if ensure_collection(client, "news_articles", len(query_vec)):
+                # Build filter conditions
+                must_conditions = [
+                    FieldCondition(
+                        key="published_timestamp",
+                        range=Range(gte=start_ts, lte=end_ts)
+                    )
+                ]
+                if category_filter:
+                    must_conditions.append(
+                        FieldCondition(
+                            key="category",
+                            match=MatchValue(value=category_filter)
+                        )
+                    )
+
+                search_result = client.query_points(
+                    collection_name="news_articles",
+                    query=query_vec,
+                    query_filter=Filter(must=must_conditions),
+                    limit=k,
+                    with_payload=True,
+                )
+
+                qdrant_results = []
+                for hit in search_result.points:
+                    payload = hit.payload or {}
+                    qdrant_results.append({
+                        "title": payload.get("title", ""),
+                        "source": payload.get("source", ""),
+                        "url": payload.get("url", ""),
+                        "published_at": payload.get("published_at", ""),
+                        "category": payload.get("category", ""),
+                        "sentiment": payload.get("sentiment", "NEUTRAL"),
+                        "similarity": float(hit.score),
+                    })
+                log.info("Retrieved %d articles from Qdrant", len(qdrant_results))
+                return qdrant_results
+        except Exception as q_err:
+            log.warning("Qdrant search failed: %s — falling back to ClickHouse in-memory RAG", q_err)
+
+    # 2. ClickHouse Fallback (In-memory Python Cosine Similarity)
+    log.debug("Using ClickHouse fallback for retrieve_articles")
+    from src.db.pool import query_df
 
     # Build SQL — fetch articles with embeddings in the date window.
     # Use BOTH fetched_at and published_at for matching: an article about a duty
@@ -343,7 +520,7 @@ def retrieve_articles(
     try:
         df = query_df(sql, parameters=params)
     except Exception as e:
-        log.warning("retrieve_articles query failed: %s", e)
+        log.warning("retrieve_articles ClickHouse query failed: %s", e)
         return []
 
     if df.empty:

@@ -381,6 +381,14 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Seconds to block waiting for a free pool slot
     clickhouse_pool_timeout: float = Field(default=10.0, description="CH pool checkout timeout")
 
+    # ── Qdrant (vector database) ─────────────────────────────────────────────
+
+    # [NON-SENSITIVE] Qdrant server host
+    qdrant_host: str = Field(default="localhost", description="Qdrant host")
+
+    # [NON-SENSITIVE] Qdrant port (default 6333)
+    qdrant_port: int = Field(default=6333, description="Qdrant port")
+
     # ── Indian Market Constants ───────────────────────────────────────────────
 
     # [NON-SENSITIVE] Yahoo Finance suffix for NSE-listed stocks

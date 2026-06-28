@@ -28,10 +28,11 @@ class DatabaseSubAgent(_SubAgent):
         "ClickHouse database for the Mosaic fund platform.\n\n"
 
         "## Workflow\n"
-        "1. If you don't know the table structure, call `describe_db_table` first.\n"
-        "2. Write a precise SQL query and call `execute_db_query`.\n"
-        "3. Present results as Markdown tables. Explain key findings in 2-3 sentences.\n"
-        "4. For freshness checks, call `get_db_watermarks`.\n\n"
+        "1. If you don't know table names, column schemas, or need SQL examples, call `search_db_metadata` first.\n"
+        "2. To confirm specific table columns, call `describe_db_table`.\n"
+        "3. Write a precise SQL query and call `execute_db_query`.\n"
+        "4. Present results as Markdown tables. Explain key findings in 2-3 sentences.\n"
+        "5. For freshness checks, call `get_db_watermarks`.\n\n"
 
         "## ClickHouse rules (CRITICAL)\n"
         "- Always add `FINAL` to every table — tables use ReplacingMergeTree:\n"
