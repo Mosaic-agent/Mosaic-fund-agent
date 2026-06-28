@@ -1,6 +1,6 @@
 # Anomaly Detection — How It Works
 
-The **🔬 Anomaly Detection** tab runs a five-step composite pipeline on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Corporate Action suppression.
+The **🔬 Anomaly Detection** tab runs a five-step composite pipeline on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Company Event classification.
 
 ## Architectural Pipeline & Data Flow
 
@@ -22,7 +22,7 @@ graph TD
         S2["Step 2: GARCH(1,1) Volatility<br/>(Standardised Residuals = return / conditional vol)"]
         S3["Step 3: Isolation Forest<br/>(Multivariate confidence anomaly multiplier)"]
         S4["Step 4: PELT Change-Point Detection<br/>(Structural break detection & Z-score boost)"]
-        S5["Step 5: Corporate Action Suppression<br/>(Filter splits, bonuses, rights, demergers)"]
+        S5["Step 5: Company Event Classification<br/>(Identify splits, bonuses, rights, demergers)"]
     end
 
     %% Regime Classification
@@ -159,16 +159,16 @@ $$Z_{final} \leftarrow Z_{final} \times \text{cp\_boost} \quad (\text{default } 
 
 and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z threshold still gates which dates are flagged; CPD only sharpens confidence and labelling.
 
-## Step 5 — Corporate Action Suppression (mechanical shock filtering)
+## Step 5 — Company Event Classification (mechanical shock identification)
 
-Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. To prevent these from skewing GARCH/PELT predictions or generating false positive anomaly flags:
+Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. To ensure these are recognized correctly:
 
 1. The fetcher [nse_corporate_actions_fetcher.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/fetchers/nse_corporate_actions_fetcher.py) scrapes corporate events from the NSE website.
 2. The ex-dates are matched against the price history.
-3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [anomaly.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py#L464).
-4. These rows are excluded from the `df_flagged` anomalies and their regime is relabelled to `"🏦 Corporate Action"`.
-5. On the price chart, these ex-dates are overlayed as gold `🏦` markers, separating them from genuine red `🔴` anomalies.
-6. Regular dividends, buybacks, and AGM events are labelled as corporate actions but are **not** suppressed, as they do not mechanically dilute or double stock prices.
+3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [anomaly.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py).
+4. These rows are **not** filtered out from `df_flagged` anomalies; instead, they are preserved and their regime is classified as `🏢 Price Driven by Company Event`.
+5. On the price chart, these ex-dates are overlayed as gold `🏢` markers, highlighting them as company-event driven anomalies.
+6. Regular dividends, buybacks, and AGM events are labelled as corporate actions but are not flagged under this regime as they do not mechanically dilute or double stock prices.
 
 **Graceful degradation:** if `ruptures` is not installed or there are too few rows, `is_changepoint`/`cp_confirmed` are all False and the pipeline behaves exactly as the GARCH+IF version did. If no corporate actions are found in the database, the pipeline runs normally without suppression.
 
@@ -188,7 +188,7 @@ Each regime label is also mapped to a **numeric score (0–100)** that participa
 | 🧨 Blow-off Top (Weak) | High z_robust + Low volume + Positive return | 30 | Thin-volume rally |
 | 📈 Strong Trend (HODL) | High z_robust + Low z_resid | 70 | Predictable uptrend — hold position |
 | 🔀 Regime Shift (Change Point) | Flagged date confirmed by a PELT break (±3 rows) | 35 | Structural vol-regime change — re-assess sizing |
-| 🏦 Corporate Action | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) | 50 | No action (suppressed from anomalies, plotted as gold `🏦` marker) |
+| 🏢 Price Driven by Company Event | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) | 50 | Plotted as gold `🏢` marker (included in anomalies, not suppressed) |
 | 😱 Panic | Extreme drawdown across multiple indicators | 20 | Severe stress — maximum defensive |
 | ✅ Normal | All other | 50 | No action |
 

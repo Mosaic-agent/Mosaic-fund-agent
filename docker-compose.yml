@@ -82,6 +82,7 @@ services:
     env_file: .env
     environment:
       CLICKHOUSE_HOST: clickhouse
+      QDRANT_HOST: qdrant
     volumes:
       - ./src:/app/src
       - ./config:/app/config
@@ -92,6 +93,8 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+      qdrant:
+        condition: service_started
 
   mosaic:
     build: .
@@ -109,6 +112,7 @@ services:
       OUTPUT_DIR: /app/output
       # Connect to the ClickHouse service defined above
       CLICKHOUSE_HOST: clickhouse
+      QDRANT_HOST: qdrant
 
     volumes:
       # Named volume — all output (reports, ML cache, LLM cache) lives inside
@@ -123,6 +127,8 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+      qdrant:
+        condition: service_started
 
     # ENTRYPOINT is fixed to `python src/main.py` in the Dockerfile.
     # Override the default CMD per call:
@@ -170,8 +176,19 @@ services:
       - mosaic-output:/app/output
     restart: unless-stopped
 
+  # ── Qdrant Vector Database ──────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"   # HTTP REST API
+      - "6334:6334"   # gRPC API
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
 volumes:
   clickhouse-data:
   clickhouse-backups:
   mosaic-output:    # reports, ML model cache, LLM response cache
   ollama-models:    # gemma4 weights — persists across restarts (~5-8 GB)
+  qdrant-data:      # qdrant vector data store

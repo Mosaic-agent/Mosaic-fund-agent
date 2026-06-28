@@ -697,10 +697,10 @@ class CompositeAnomalyPipeline:
             df["trade_date"]  = pd.to_datetime(df["trade_date"]).dt.normalize()
             df["is_corporate_action"]  = df["trade_date"].isin(all_ca_dates)
             df["suppress_corp_action"] = df["trade_date"].isin(suppress_dates)
-            df.loc[df["suppress_corp_action"], "regime"] = "🏦 Corporate Action"
+            df.loc[df["suppress_corp_action"], "regime"] = "🏢 Price Driven by Company Event"
 
         # Populate is_anomaly flag
-        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
+        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold)
 
         df_flagged = df[df["is_anomaly"]].copy()
         return df, df_flagged

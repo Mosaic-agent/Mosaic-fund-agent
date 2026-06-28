@@ -61,6 +61,8 @@ python tests/_backtest_anomaly.py
   - `./mosaic.sh comex`
   - `./mosaic.sh ask "what is my riskiest holding?"`
   - `./mosaic.sh src/scripts/goldbees_report.py`
+  - `./mosaic.sh src/scripts/db_metadata_init.py`
+  - `./mosaic.sh src/scripts/news_rag_backfill.py --migrate-qdrant`
 
 
 ## Architecture
@@ -129,6 +131,12 @@ New pattern (Adapter + Repository):
 
 ### ClickHouse Schema
 Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`, `macro_indicators` (World Bank / IMF WEO annual data), `corporate_actions` (NSE split/bonus/demerger/rights/dividend history — keyed by `(symbol, ex_date, action_type)`). All use `ReplacingMergeTree` — idempotent inserts are safe.
+
+### Qdrant Vector DB
+Database: `Qdrant` (served on port `6333` with built-in dashboard at `/dashboard`). Primary collections:
+- `news_articles` (768 dimensions): Stores embedded financial news articles for RAG-based semantic anomaly mapping and sentiment analysis.
+- `clickhouse_metadata` (768 dimensions): Stores table schemas and pre-baked SQL templates to prevent LLM schema hallucinations during portfolio Q&A.
+
 
 ## User Context
 

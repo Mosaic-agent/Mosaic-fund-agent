@@ -49,7 +49,7 @@ ANOMALY_REGIME_SCORES: dict[str, float] = {
     "Flash Crash (Contrarian BUY)":  25.0,
     "Blow-off Top":                  30.0,
     "Panic":                         20.0,
-    "🏦 Corporate Action":            50.0,   # mechanical — neutral
+    "🏢 Price Driven by Company Event": 50.0,   # mechanical — neutral
 }
 
 

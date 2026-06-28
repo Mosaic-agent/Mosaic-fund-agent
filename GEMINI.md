@@ -38,6 +38,8 @@ python src/scripts/goldbees_report.py                              # GOLDBEES si
 python src/scripts/market/whale_tracker.py                         # all 7 multi-asset funds
 python src/scripts/market/metals_quant_scorecard.py                # Gold/Silver/Copper 4-pillar scorecard
 python src/ml/trend_predictor.py                                   # LightGBM forecast
+python src/scripts/db_metadata_init.py                              # seed table schemas & SQL templates to Qdrant
+python src/scripts/news_rag_backfill.py --migrate-qdrant           # migrate ClickHouse embeddings to Qdrant news collection
 ```
 
 ### Setup & Docker

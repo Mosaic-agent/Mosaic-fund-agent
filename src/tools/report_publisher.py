@@ -464,7 +464,7 @@ def render_anomaly_clusters_png(
             '⚡ Flash Crash / Black Swan (EXIT)': '#cc66ff',
             '📈 Strong Trend (HODL)': '#44ff44',
             '🧨 Blow-off Top (Weak)': '#ffaa44',
-            '🏦 Corporate Action': '#ffd700',
+            '🏢 Price Driven by Company Event': '#ffd700',
             '🔀 Regime Shift (Change Point)': '#00ffff'
         }
 

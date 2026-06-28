@@ -47,6 +47,7 @@ python-dotenv>=1.0.0             # Load .env into environment
 
 # ── ClickHouse (historical data importer) ─────────────────────────────────────
 clickhouse-connect>=0.7.0        # Official ClickHouse Python client (HTTP)
+qdrant-client>=1.9.0             # Official Qdrant Vector Database client
 tenacity>=8.2.0                  # Exponential-backoff retry wrapper for fetchers
 
 # ── Web UI ────────────────────────────────────────────────────────────────────

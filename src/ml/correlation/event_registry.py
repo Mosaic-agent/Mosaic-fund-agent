@@ -195,15 +195,151 @@ class EventRegistry:
                     )
                 )
         except Exception as e:
-            log.warning("RAG retrieval failed for %s: %s — falling back to live GNews", symbol, e)
+            log.warning("RAG retrieval failed for %s: %s", symbol, e)
 
-        # Fallback: live GNews if retrieval returned <5 results
-        if len(events) < 5:
-            live_events = self._fetch_live_gnews(symbol, lookback_days)
-            self._persist_live_news(live_events, symbol)
-            events.extend(live_events)
+        # Check how many retrieved articles actually mention the symbol or company name
+        # to distinguish between genuine stock news and general market near-neighbors.
+        stock_specific_count = 0
+        symbol_lower = symbol.lower()
+        company_clean = company_name.lower()
+        for noise in ["ltd", "limited", "industries", "group", "india", "corp", "corporation"]:
+            company_clean = company_clean.replace(noise, "")
+        company_words = {w.strip() for w in company_clean.split() if len(w.strip()) > 3}
 
-        return events
+        # Specific overrides for common English words
+        symbol_overrides = {
+            "reliance": ["reliance industries", "ril", "jio", "ambani", "reliance retail", "reliance power", "reliance infra", "reliance share", "reliance stock", "reliance group", "reliance digital"],
+            "titan": ["titan company", "titan share", "titan stock", "titan watch", "titan jewellery", "titan eye", "tanishq"],
+        }
+
+        import re
+        def is_relevant_article(t_lower: str, d_lower: str) -> bool:
+            if symbol_lower in symbol_overrides:
+                for term in symbol_overrides[symbol_lower]:
+                    if len(term) < 5:
+                        pattern = rf"\b{re.escape(term)}\b"
+                        if re.search(pattern, t_lower) or re.search(pattern, d_lower):
+                            return True
+                    else:
+                        if term in t_lower or term in d_lower:
+                            return True
+                return False
+            else:
+                if len(symbol_lower) < 5:
+                    pattern = rf"\b{re.escape(symbol_lower)}\b"
+                    has_match = bool(re.search(pattern, t_lower) or re.search(pattern, d_lower))
+                else:
+                    has_match = (symbol_lower in t_lower) or (symbol_lower in d_lower)
+                
+                if not has_match and company_words:
+                    for w in company_words:
+                        if len(w) < 5:
+                            pattern = rf"\b{re.escape(w)}\b"
+                            if re.search(pattern, t_lower) or re.search(pattern, d_lower):
+                                return True
+                        else:
+                            if w in t_lower or w in d_lower:
+                                return True
+                return has_match
+
+        # Keep ONLY articles that are genuinely relevant to the stock
+        filtered_events = []
+        for ev in events:
+            if is_relevant_article(ev.label.lower(), ev.description.lower()):
+                stock_specific_count += 1
+                filtered_events.append(ev)
+
+        # Fallback: live news if RAG returned < 3 stock-specific articles
+        if stock_specific_count < 3:
+            log.info("RAG contains only %d stock-specific articles for %s — triggering live fetch", stock_specific_count, symbol)
+            live_events = []
+            # 1. Fetch from NewsAPI first (if API key available, up to 30 days)
+            live_events.extend(self._fetch_live_newsapi(symbol, lookback_days))
+            # 2. Fetch from GNews to cover the entire historical lookback window
+            gnews_events = self._fetch_live_gnews(symbol, lookback_days)
+            existing_titles = {e.label.lower().strip() for e in live_events}
+            for ge in gnews_events:
+                if ge.label.lower().strip() not in existing_titles:
+                    live_events.append(ge)
+            
+            # Embed and index/persist in Qdrant (RAG) & ClickHouse
+            self._persist_and_index_live_news(live_events, symbol)
+            
+            for le in live_events:
+                if is_relevant_article(le.label.lower(), le.description.lower()):
+                    filtered_events.append(le)
+
+        return filtered_events
+
+    @staticmethod
+    def _fetch_live_newsapi(symbol: str, lookback_days: int) -> List[CandidateEvent]:
+        """Fetch news from NewsAPI.org for the given lookback period (max 30 days for free tier)."""
+        from config.settings import settings
+        from datetime import timedelta
+        if not settings.newsapi_key or "your_" in settings.newsapi_key:
+            return []
+        
+        try:
+            from newsapi import NewsApiClient
+            from dateutil import parser as date_parser
+            from src.utils.symbol_mapper import get_company_name
+            import pytz
+
+            client = NewsApiClient(api_key=settings.newsapi_key)
+            company_name = get_company_name(symbol)
+            query = f'"{company_name}" OR "{symbol} share" OR "{symbol} stock"' if company_name else f'"{symbol} share" OR "{symbol} stock"'
+            
+            # NewsAPI free tier allows maximum 30 days lookback
+            api_lookback = min(lookback_days, 30)
+            from_date = (date.today() - timedelta(days=api_lookback)).strftime("%Y-%m-%d")
+            to_date = date.today().strftime("%Y-%m-%d")
+
+            response = client.get_everything(
+                q=query,
+                domains="economictimes.indiatimes.com,business-standard.com,livemint.com,moneycontrol.com,profit.ndtv.com,financialexpress.com,thehindu.com",
+                from_param=from_date,
+                to=to_date,
+                language="en",
+                sort_by="publishedAt",
+                page_size=30,
+            )
+            
+            events: List[CandidateEvent] = []
+            tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+            for a in response.get("articles", []):
+                pub_date_str = a.get("publishedAt", "")
+                if not pub_date_str:
+                    continue
+                try:
+                    pub_date = date_parser.parse(pub_date_str)
+                    if pub_date.tzinfo is not None:
+                        pub_date = pub_date.astimezone(tz)
+                    pub_dt = pub_date.date()
+                except Exception:
+                    continue
+
+                title = a.get("title") or ""
+                desc = a.get("description") or ""
+                source = a.get("source", {}).get("name", "") if isinstance(a.get("source"), dict) else str(a.get("source", ""))
+
+                events.append(
+                    CandidateEvent(
+                        trade_date=pub_dt,
+                        event_type=EventType.NEWS_ANNOUNCEMENT,
+                        label=title,
+                        description=desc,
+                        metadata={
+                            "source": source,
+                            "url": a.get("url") or "",
+                            "published_at": pub_date_str,
+                        },
+                    )
+                )
+            log.info("Fetched %d live NewsAPI articles for %s", len(events), symbol)
+            return events
+        except Exception as e:
+            log.warning("Live NewsAPI fetch failed for %s: %s", symbol, e)
+            return []
 
     @staticmethod
     def _fetch_live_gnews(symbol: str, lookback_days: int) -> List[CandidateEvent]:
@@ -218,7 +354,7 @@ class EventRegistry:
             client = GNews(
                 language="en",
                 country="IN",
-                max_results=20,
+                max_results=100,
                 period=f"{lookback_days}d",
             )
             company_name = get_company_name(symbol)
@@ -261,10 +397,12 @@ class EventRegistry:
             return []
 
     @staticmethod
-    def _persist_live_news(events: List[CandidateEvent], symbol: str) -> None:
-        """Persist live-fetched news back to ClickHouse for cache warming."""
+    def _persist_and_index_live_news(events: List[CandidateEvent], symbol: str) -> None:
+        """Persist live-fetched news back to ClickHouse and index in Qdrant (RAG) for future retrieval."""
         if not events:
             return
+        
+        # 1. Persist to ClickHouse
         try:
             from src.importer.clickhouse import ClickHouseImporter
             importer = ClickHouseImporter()
@@ -272,11 +410,13 @@ class EventRegistry:
             for ev in events:
                 if ev.event_type != EventType.NEWS_ANNOUNCEMENT:
                     continue
+                url = ev.metadata.get("url", "")
+                is_gnews = "news.google.com" in url if url else False
                 rows.append({
                     "fetched_at": datetime.now(),
                     "published_at": str(ev.trade_date),
                     "source_type": "correlation_live",
-                    "fetch_source": "gnews",
+                    "fetch_source": "gnews" if is_gnews else "newsapi",
                     "category": symbol,
                     "etfs_impacted": symbol,
                     "sentiment": "NEUTRAL",
@@ -284,10 +424,39 @@ class EventRegistry:
                     "title": ev.label,
                     "description": ev.description,
                     "source": ev.metadata.get("source", ""),
-                    "url": ev.metadata.get("url", ""),
+                    "url": url,
                 })
             if rows:
                 importer.insert_news_articles(rows)
-                log.info("Persisted %d live news articles for %s", len(rows), symbol)
+                log.info("Persisted %d live news articles to ClickHouse for %s", len(rows), symbol)
         except Exception as e:
-            log.debug("Could not persist live news for %s: %s", symbol, e)
+            log.debug("Could not persist live news to ClickHouse for %s: %s", symbol, e)
+
+        # 2. Embed and Index in Qdrant (RAG)
+        try:
+            from .news_rag import embed_batch, upsert_to_qdrant
+            articles_to_index = []
+            texts_to_embed = []
+            for ev in events:
+                if ev.event_type != EventType.NEWS_ANNOUNCEMENT:
+                    continue
+                
+                pub_at = ev.metadata.get("published_at") or ev.trade_date.strftime("%Y-%m-%d")
+                
+                articles_to_index.append({
+                    "title": ev.label,
+                    "source": ev.metadata.get("source", ""),
+                    "url": ev.metadata.get("url", ""),
+                    "published_at": pub_at,
+                    "category": symbol,
+                    "sentiment": "NEUTRAL",
+                })
+                texts_to_embed.append(f"{ev.label} {ev.description}")
+            
+            if articles_to_index:
+                vectors = embed_batch(texts_to_embed)
+                if vectors:
+                    upsert_to_qdrant(articles_to_index, vectors)
+                    log.info("Indexed %d live news articles in Qdrant RAG for %s", len(articles_to_index), symbol)
+        except Exception as e:
+            log.warning("Could not index live news in Qdrant RAG for %s: %s", symbol, e)

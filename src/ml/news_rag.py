@@ -12,4 +12,5 @@ from src.ml.correlation.news_rag import (  # noqa: F401
     retrieve_articles,
     score_event_relevance,
     score_news_quality,
+    upsert_to_qdrant,
 )

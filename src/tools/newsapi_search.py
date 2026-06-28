@@ -127,7 +127,7 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "", target_date: str
         return []
 
     # Company name in quotes gives best relevance for Indian financials
-    query = f'"{company_name}" OR "{symbol}"' if company_name else symbol
+    query = f'"{company_name}" OR "{symbol} share" OR "{symbol} stock"' if company_name else f'"{symbol} share" OR "{symbol} stock"'
 
     try:
         response = client.get_everything(

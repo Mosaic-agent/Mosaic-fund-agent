@@ -23,12 +23,70 @@ def main():
     parser = argparse.ArgumentParser(description="Backfill news article embeddings")
     parser.add_argument("--batch-size", type=int, default=32, help="Articles per embed batch")
     parser.add_argument("--dry-run", action="store_true", help="Count only, don't embed")
+    parser.add_argument("--migrate-qdrant", action="store_true", help="Migrate all existing embedded articles from ClickHouse to Qdrant")
     args = parser.parse_args()
 
     from src.db.pool import query_df, get_pool
-    from src.ml.news_rag import embed_batch
+    from src.ml.news_rag import embed_batch, upsert_to_qdrant
 
-    # Count unembedded rows
+    # 1. Handle Qdrant Migration
+    if args.migrate_qdrant:
+        log.info("Migrating all articles with embeddings from ClickHouse to Qdrant...")
+        df_count = query_df(
+            "SELECT count() AS cnt FROM market_data.news_articles FINAL "
+            "WHERE length(embedding) > 0"
+        )
+        total = int(df_count.iloc[0]["cnt"]) if not df_count.empty else 0
+        log.info("Found %d articles with embeddings to migrate", total)
+        
+        if total == 0:
+            print("No embedded articles found in ClickHouse to migrate.")
+            return
+
+        batch_size = args.batch_size
+        offset = 0
+        while offset < total:
+            df = query_df(
+                "SELECT fetched_at, published_at, source_type, fetch_source, category, "
+                "       etfs_impacted, sentiment, impact_tier, title, source, url, embedding "
+                "FROM market_data.news_articles FINAL "
+                "WHERE length(embedding) > 0 "
+                f"LIMIT {batch_size} OFFSET {offset}"
+            )
+            if df.empty:
+                break
+                
+            articles = []
+            vectors = []
+            for _, row in df.iterrows():
+                articles.append({
+                    "fetched_at": row["fetched_at"],
+                    "published_at": row["published_at"],
+                    "source_type": row["source_type"],
+                    "fetch_source": row["fetch_source"],
+                    "category": row["category"],
+                    "etfs_impacted": row["etfs_impacted"],
+                    "sentiment": row["sentiment"],
+                    "impact_tier": row["impact_tier"],
+                    "title": row["title"],
+                    "source": row["source"],
+                    "url": row["url"],
+                })
+                vectors.append(list(row["embedding"]))
+                
+            try:
+                upsert_to_qdrant(articles, vectors)
+            except Exception as e:
+                log.error("Migration batch failed at offset %d: %s", offset, e)
+                break
+                
+            offset += len(df)
+            log.info("Migrated: %d/%d", offset, total)
+            
+        print("✅ Qdrant migration complete.")
+        return
+
+    # 2. Standard Backfill for Unembedded Articles
     df_count = query_df(
         "SELECT count() AS cnt FROM market_data.news_articles FINAL "
         "WHERE length(embedding) = 0"
@@ -52,9 +110,9 @@ def main():
     while processed < total:
         # Fetch a batch of unembedded articles
         df = query_df(
-            "SELECT fetched_at, title, source, url, published_at, "
-            "       source_type, fetch_source, category, etfs_impacted, "
-            "       sentiment, impact_tier "
+            "SELECT fetched_at, published_at, source_type, fetch_source, "
+            "       category, etfs_impacted, sentiment, impact_tier, "
+            "       title, source, url "
             "FROM market_data.news_articles FINAL "
             "WHERE length(embedding) = 0 "
             f"LIMIT {batch_size}"
@@ -75,7 +133,7 @@ def main():
             log.error("Embedding batch failed: %s", e)
             break
 
-        # Write back via INSERT (ReplacingMergeTree will deduplicate)
+        # Write back to ClickHouse via INSERT (ReplacingMergeTree will deduplicate)
         with get_pool().acquire() as client:
             data = []
             for i, (_, row) in enumerate(df.iterrows()):
@@ -102,6 +160,27 @@ def main():
                     "title", "source", "url", "embedding",
                 ],
             )
+
+        # Upsert to Qdrant
+        try:
+            articles = []
+            for _, row in df.iterrows():
+                articles.append({
+                    "fetched_at": row["fetched_at"],
+                    "published_at": row["published_at"],
+                    "source_type": row["source_type"],
+                    "fetch_source": row["fetch_source"],
+                    "category": row["category"],
+                    "etfs_impacted": row["etfs_impacted"],
+                    "sentiment": row["sentiment"],
+                    "impact_tier": row["impact_tier"],
+                    "title": row["title"],
+                    "source": row["source"],
+                    "url": row["url"],
+                })
+            upsert_to_qdrant(articles, vectors)
+        except Exception as q_err:
+            log.warning("Failed to upsert backfilled batch to Qdrant: %s", q_err)
 
         processed += len(df)
         elapsed = time.time() - start_time

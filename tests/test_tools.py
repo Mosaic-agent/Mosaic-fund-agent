@@ -915,7 +915,7 @@ def test_explain_price_anomalies():
 
     # Full OHLCV mock — 65 rows so len(df) >= 60 check passes; spike at index 63
     # (within the 30-day window when dates end 2026-06-03)
-    dates = pd.date_range(end="2026-06-03", periods=65, freq="D")
+    dates = pd.date_range(end=pd.Timestamp.now().normalize(), periods=65, freq="D")
     prices = [100.0] * 63 + [106.5] + [106.5]  # spike at index 63
     volumes = [10000.0] * 65
     mock_df = pd.DataFrame({

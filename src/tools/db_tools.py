@@ -422,10 +422,50 @@ def execute_db_query(sql: str) -> str:
     return result
 
 
+@tool
+def search_db_metadata(query: str, type_filter: str = "") -> str:
+    """
+    Search semantically for relevant ClickHouse table schemas, column names, 
+    and pre-baked, validated SQL query templates.
+    
+    Use this tool before writing SQL to verify:
+      - The correct table name and column names
+      - Common SQL patterns (like how to filter by date or perform joins)
+      - Standard query templates for complex tables (like mf_holdings, inav_snapshots, signal_composite)
+      
+    Args:
+      query: The search term or question (e.g. "mutual fund holdings table schema" or "how to join daily prices and fx rates")
+      type_filter: Optional filter. Specify 'table_schema' to search only table structures, or 'sql_template' to search only SQL templates.
+    """
+    from src.db.db_metadata_rag import retrieve_db_metadata
+    
+    t_filter = type_filter.strip().lower() if type_filter else None
+    if t_filter not in (None, "", "table_schema", "sql_template"):
+        t_filter = None
+        
+    results = retrieve_db_metadata(query, k=4, type_filter=t_filter)
+    if not results:
+        return "No matching metadata found in Qdrant."
+        
+    md = []
+    md.append("### 🗃️ ClickHouse Metadata Results\n")
+    for r in results:
+        t_label = "📋 TABLE SCHEMA" if r["type"] == "table_schema" else "💡 SQL TEMPLATE"
+        md.append(f"#### {t_label}: {r['name']}")
+        md.append(f"**Description:** {r['description']}")
+        if r["type"] == "table_schema":
+            md.append(f"**Schema:** `{r['content']}`")
+        else:
+            md.append(f"**Code:**\n```sql\n{r['content']}\n```")
+        md.append("")
+    return "\n".join(md)
+
+
 DB_TOOLS = [
     list_db_tables,
     describe_db_table,
     sample_db_table,
     get_db_watermarks,
     execute_db_query,
+    search_db_metadata,
 ]

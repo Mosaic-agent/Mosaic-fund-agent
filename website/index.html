@@ -891,7 +891,7 @@
           <div class="engine e4">
             <div class="e-ico">🔬</div>
             <h4>Anomaly</h4>
-            <p>MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point · 8 regime labels · corporate action suppression</p>
+            <p>MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point · 8 regime labels · company event tracking</p>
           </div>
         </div>
       </div>
@@ -968,13 +968,13 @@
       <div class="feature-card">
         <span class="feat-tag teal">Anomaly</span>
         <h3>4-Step Composite Anomaly Pipeline</h3>
-        <p>Fires on ~8% of days vs. 21% for a naive Random Forest. Four independent methods vote; corporate action ex-dates are automatically suppressed so splits and bonuses never pollute your signal.</p>
+        <p>Fires on ~8% of days vs. 21% for a naive Random Forest. Four independent methods vote; corporate actions and company events are classified as Price Driven by Company Events so they do not pollute regular market signals.</p>
         <ul class="feat-bullets">
           <li><strong>Step 1 — MAD Robust Z-score:</strong> rolling median + MAD resists outlier inflation that standard Z misses during trends</li>
           <li><strong>Step 2 — GARCH(1,1) Student-t:</strong> models conditional volatility σ_t so only moves extreme <em>relative to current regime</em> are flagged</li>
           <li><strong>Step 3 — Isolation Forest:</strong> cross-asset enrichment with USDINR FX + CFTC COT speculator crowding; boosts days suspicious to both algorithms</li>
           <li><strong>Step 4 — PELT change-point:</strong> detects structural vol-regime shifts (calm → turbulent), not just point shocks; confirmed breaks get a 1.15× Final-Z boost</li>
-          <li><strong>8 regime labels:</strong> Flash Crash · Volatile Breakout · Crowded Long · Blow-off Top · Strong Trend · Regime Shift · Corporate Action · Normal</li>
+          <li><strong>8 regime labels:</strong> Flash Crash · Volatile Breakout · Crowded Long · Blow-off Top · Strong Trend · Regime Shift · Price Driven by Company Event · Normal</li>
           <li><strong>Explanation layer:</strong> each flagged date correlated with news, COMEX futures, and point-in-time ML prediction — no future leakage</li>
         </ul>
       </div>
@@ -1260,7 +1260,7 @@ http://localhost:8501
         <span class="doc-icon">🔬</span>
         <div>
           <div class="doc-link-title">Anomaly Detection</div>
-          <div class="doc-link-desc">4-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT · 8 regimes · corporate action suppression</div>
+          <div class="doc-link-desc">4-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT · 8 regimes · company event tracking</div>
         </div>
       </a>
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md" class="doc-link">
