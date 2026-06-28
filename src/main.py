@@ -1479,6 +1479,20 @@ def scan_setups() -> None:
     _console.print(Markdown(report))
 
 
+@app.command(name="scan-trends")
+def scan_trends() -> None:
+    """Scan all 18 tracked ETFs for short, medium, and long term trend status."""
+    _setup_logging()
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from src.tools.etf_setup_scanner import scan_etf_trends
+    
+    _console = Console()
+    report = scan_etf_trends.func()
+    _console.print(Markdown(report))
+
+
 if __name__ == "__main__":
     app()
+
 

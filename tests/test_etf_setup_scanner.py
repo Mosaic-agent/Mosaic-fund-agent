@@ -7,7 +7,7 @@ Unit tests for the ETF volume-volatility setups scanner.
 from unittest.mock import patch
 import pandas as pd
 import numpy as np
-from src.tools.etf_setup_scanner import run_etf_setup_scan, scan_etf_setups
+from src.tools.etf_setup_scanner import run_etf_setup_scan, scan_etf_setups, run_etf_trend_scan, scan_etf_trends
 
 def test_run_etf_setup_scan_empty():
     with patch("src.db.pool.query_df", return_value=pd.DataFrame()):
@@ -77,3 +77,45 @@ def test_scan_etf_setups_tool():
         assert "ETF Volume-Volatility Setup Scan" in report
         assert "NIFTYBEES" in report
         assert "Normal" in report
+
+
+def test_run_etf_trend_scan():
+    # Construct 65 periods of mock data
+    dates = pd.date_range(end="2026-06-25", periods=65, freq="D")
+    
+    # Setup strongly bearish: close decreases consistently
+    # prices: 100, 95, 90 ...
+    prices = [100.0 - i * 0.5 for i in range(65)]
+    
+    mock_df = pd.DataFrame({
+        "symbol": ["GOLDBEES"] * 65,
+        "trade_date": dates,
+        "close": prices
+    })
+    
+    with patch("src.db.pool.query_df", return_value=mock_df):
+        res = run_etf_trend_scan()
+        assert len(res) == 1
+        gold = res[0]
+        assert gold["symbol"] == "GOLDBEES"
+        assert gold["status"] == "🔴 Strongly Bearish"
+        assert gold["return_5d"] < 0
+        assert gold["return_20d"] < 0
+        assert gold["return_60d"] < 0
+
+
+def test_scan_etf_trends_tool():
+    dates = pd.date_range(end="2026-06-25", periods=65, freq="D")
+    prices = [100.0] * 65
+    mock_df = pd.DataFrame({
+        "symbol": ["NIFTYBEES"] * 65,
+        "trade_date": dates,
+        "close": prices
+    })
+    
+    with patch("src.db.pool.query_df", return_value=mock_df):
+        report = scan_etf_trends.invoke({})
+        assert "ETF Trend Status Scan" in report
+        assert "NIFTYBEES" in report
+        assert "🟢 Bullish" in report
+
