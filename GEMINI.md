@@ -19,6 +19,8 @@ python src/main.py macro --max 3            # macro theme scanner
 python src/main.py comex                    # COMEX pre-market gold/silver/copper
 python src/main.py etf-news --max 3 --save  # ETF news sentiment
 python src/main.py premium-alerts           # iNAV premium/discount alerts
+python src/main.py crossover --symbol GOLDBEES # MA crossover backtester
+python src/main.py scan-setups              # ETF volume-volatility setups scanner
 python src/main.py ui                       # Streamlit at localhost:8501
 python src/main.py config                   # show masked config
 ```
@@ -321,7 +323,9 @@ When working with Antigravity (`agy`) or Claude Code (`claude`), the following s
 | `/data-engineering-importer` | "import all", "database repair" | Trigger the historical ClickHouse data engineering pipeline. |
 | `/dsp-multi-asset-importer` | "import dsp data", "backfill dsp" | Backfill and validate DSP Multi Asset allocation fund holdings. |
 | `/etf-news` | "etf news", "sentiment analysis" | Fetch and tag latest news articles by ETF category with sentiment. |
+| `/etf-setups` | "etf setups", "volume volatility scan" | Scan all 18 tracked ETFs for volume-volatility breakouts, exhaustion, or squeezes. |
 | `/goldbees-pipeline` | "run goldbees pipeline", "today's signal" | Run the full GOLDBEES ML prediction, Kelly sizing, and Risk Governor blend. |
+| `/ma-crossover` | "run crossover backtest", "golden cross" | Backtest SMA/EMA crossovers and plot equity curve performance. |
 | `/macro-scanner` | "macro trends today", "geopolitical events" | Scan live macro events and map their directional impact to ETFs. |
 | `/macro-strategy` | "macro strategy", "positioning" | Deep dive into the 2026 macro supercycle, real assets, and domestic alpha. |
 | `/risk-governor` | "position size", "garch vol" | Calculate GARCH-based position sizing and volatility targeting. |

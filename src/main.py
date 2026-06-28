@@ -1451,6 +1451,34 @@ def portfolio_wf() -> None:
     report = run()
     _console.print(Markdown(report))
 
+@app.command(name="crossover")
+def crossover(
+    symbol: str = typer.Option("GOLDBEES", "--symbol", "-s", help="Symbol to backtest"),
+    fast: int = typer.Option(50, "--fast", "-f", help="Fast MA period"),
+    slow: int = typer.Option(200, "--slow", "-l", help="Slow MA period"),
+    ma_type: str = typer.Option("sma", "--type", "-t", help="MA type (sma, ema)"),
+    plot: bool = typer.Option(True, "--plot", "-p", help="Generate and save chart"),
+) -> None:
+    """Run a Moving Average Crossover backtest for a stock or ETF."""
+    _setup_logging()
+    from src.scripts.market.ma_crossover_backtest import run_crossover_backtest, print_cli_report
+    metrics = run_crossover_backtest(symbol, fast, slow, ma_type, plot)
+    print_cli_report(metrics)
+
+
+@app.command(name="scan-setups")
+def scan_setups() -> None:
+    """Scan all 18 tracked ETFs for volume-volatility setups."""
+    _setup_logging()
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from src.tools.etf_setup_scanner import scan_etf_setups
+    
+    _console = Console()
+    report = scan_etf_setups.func()
+    _console.print(Markdown(report))
+
 
 if __name__ == "__main__":
     app()
+
