@@ -3593,9 +3593,15 @@ with tab_etf_scan:
     st.divider()
     st.subheader("⚙️ ETF Volume-Volatility Setups & Trends")
     st.caption("Identify Squeezes, Breakouts, and Trend Postures across all 28 tracked ETFs.")
-    
     sub_tab_setups, sub_tab_trends = st.tabs(["⚡ Setup Scanner", "📈 Trend Lookbacks"])
     with sub_tab_setups:
+        with st.expander("ℹ️ Understanding Setup Patterns (Breakouts, Exhaustions & Squeezes)"):
+            st.markdown("""
+            * **🚀 Volatile Breakout**: Price makes a large move accompanied by **heavy volume expansion** (>1.5x 20d MA). This indicates strong institutional momentum and a continuation of the trend.
+            * **⚠️ Volume Exhaustion**: Price drops or rises sharply on **very dry volume** (<0.7x 20d MA). This indicates a liquidity vacuum rather than actual selling pressure—sellers have exhausted their supply, setting up a high-probability **contrarian mean-reversion bounce**.
+            * **📦 Volatility Squeeze**: Volatility contracts to extreme historical lows (bottom 25% of its 60-day range) with low volume. The market is coiling like a spring; a **massive, explosive breakout is imminent**. Watch for a volume surge to trade the breakout direction.
+            """)
+
         col_setups_ctrl, col_setups_run = st.columns([3, 1])
         with col_setups_ctrl:
             lookback_vol = st.slider("Setup Lookback window (days)", 20, 180, 90, key="volscan_lookback")
