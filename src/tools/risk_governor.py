@@ -112,7 +112,7 @@ _REGIME_MULT: dict[str, float] = {
     "📈 Strong Trend (HODL)":             1.00,
     "✅ Normal":                          1.00,
     "🔀 Regime Shift (Change Point)":     0.80,  # structural break — proceed cautiously
-    "🏦 Corporate Action":               1.00,  # mechanical price jump — no risk adjustment
+    "🏢 Price Driven by Company Event":  1.00,  # mechanical price jump — no risk adjustment
 }
 
 # Readable tier labels for the recommended weight
