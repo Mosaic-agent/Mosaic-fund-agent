@@ -3801,7 +3801,48 @@ with tab_etf_scan:
                 st.warning("No trend scan results found.")
             else:
                 import pandas as pd
+                import plotly.express as px
+                
                 df_trends = pd.DataFrame(trend_results)
+                
+                # Grouped bar chart to visualize returns across horizons
+                df_melted = df_trends.melt(
+                    id_vars=["symbol"],
+                    value_vars=["return_5d", "return_20d", "return_60d"],
+                    var_name="Horizon",
+                    value_name="Return"
+                )
+                df_melted["Horizon"] = df_melted["Horizon"].map({
+                    "return_5d": "5d Short Term",
+                    "return_20d": "20d Medium Term",
+                    "return_60d": "60d Long Term"
+                })
+                
+                fig_trends = px.bar(
+                    df_melted,
+                    x="symbol",
+                    y="Return",
+                    color="Horizon",
+                    barmode="group",
+                    color_discrete_map={
+                        "5d Short Term": "#38bdf8",   # Sky blue
+                        "20d Medium Term": "#fbbf24", # Amber
+                        "60d Long Term": "#f87171"   # Coral
+                    },
+                    labels={
+                        "symbol": "ETF",
+                        "Return": "Return (%)",
+                        "Horizon": "Lookback Horizon"
+                    },
+                    title="ETF Performance Across Horizons"
+                )
+                fig_trends.update_layout(
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    height=400,
+                    margin=dict(t=50, b=20)
+                )
+                st.plotly_chart(fig_trends, use_container_width=True)
                 
                 st.dataframe(
                     df_trends[["symbol", "close", "return_5d", "return_20d", "return_60d", "status"]],
