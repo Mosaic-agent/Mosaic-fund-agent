@@ -1492,6 +1492,37 @@ def scan_trends() -> None:
     _console.print(Markdown(report))
 
 
+@app.command(name="studio")
+def studio(
+    port: int = typer.Option(8502, "--port", "-p", help="Port to serve the Mosaic Studio UI on."),
+    host: str = typer.Option("localhost", "--host", help="Address to bind to."),
+) -> None:
+    """
+    Launch the Mosaic Studio Agent Workspace UI (Bloomberg/Cursor-style).
+
+    Opens a browser at http://<host>:<port> with a premium visual workspace
+    designed for quantitative research and live agent pipeline visualization.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    server_path = str(Path(__file__).resolve().parent / "ui" / "agent_server.py")
+    cmd = [
+        sys.executable, server_path,
+        f"--port={port}",
+        f"--host={host}",
+    ]
+    console.print(
+        Panel(
+            f"[bold]⚡ Mosaic Fund Agent Studio[/bold]\n"
+            f"[dim]Opening workspace at [link=http://{host}:{port}]http://{host}:{port}[/link][/dim]",
+            border_style="magenta",
+        )
+    )
+    subprocess.run(cmd)
+
+
 if __name__ == "__main__":
     app()
 

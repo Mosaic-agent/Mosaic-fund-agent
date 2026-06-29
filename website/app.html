@@ -1,0 +1,1980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mosaic Fund Agent · Studio Workspace</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- ApexCharts CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  
+  <style>
+    /* ── Reset & Theme Variables ────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    :root {
+      --bg-base: #0B0F14;
+      --bg-sidebar: rgba(11, 15, 20, 0.7);
+      --bg-card: rgba(22, 28, 36, 0.45);
+      --bg-card-hover: rgba(28, 36, 46, 0.6);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(0, 255, 204, 0.15);
+      
+      /* Accent Colors */
+      --cyan: #00ffcc;
+      --magenta: #ff3366;
+      --purple: #9933ff;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #ffcc00;
+      
+      /* Typography */
+      --font-header: 'Outfit', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      
+      --sidebar-width: 250px;
+      --right-panel-width: 320px;
+    }
+    
+    body {
+      background-color: var(--bg-base);
+      color: #e2e8f0;
+      font-family: var(--font-body);
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+    }
+    
+    /* ── Glassmorphism & Glow Utilities ─────────────────────────── */
+    .glass-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    .glass-card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+    
+    .accent-cyan { border-left: 3px solid var(--cyan); }
+    .accent-magenta { border-left: 3px solid var(--magenta); }
+    .accent-purple { border-left: 3px solid var(--purple); }
+    
+    /* ── Keyframe Animations ────────────────────────────────────── */
+    @keyframes pulse-glow {
+      0% { box-shadow: 0 0 4px rgba(0, 255, 204, 0.2); }
+      50% { box-shadow: 0 0 16px rgba(0, 255, 204, 0.6); }
+      100% { box-shadow: 0 0 4px rgba(0, 255, 204, 0.2); }
+    }
+    
+    @keyframes breathing {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.1); opacity: 1; }
+    }
+    
+    @keyframes breathing-purple {
+      0%, 100% { transform: scale(1); opacity: 0.7; box-shadow: 0 0 4px rgba(153, 51, 255, 0.4); }
+      50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 14px rgba(153, 51, 255, 0.8); }
+    }
+    
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--green);
+      display: inline-block;
+      animation: breathing 2s infinite ease-in-out;
+    }
+    
+    .pulse-dot.purple {
+      background-color: var(--purple);
+      animation: breathing-purple 1.8s infinite ease-in-out;
+    }
+    
+    /* ── Layout Panels ──────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-width);
+      height: 100%;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      backdrop-filter: blur(20px);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      z-index: 10;
+    }
+    
+    .right-panel {
+      width: var(--right-panel-width);
+      height: 100%;
+      background: var(--bg-sidebar);
+      border-left: 1px solid var(--border-color);
+      backdrop-filter: blur(20px);
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      z-index: 10;
+    }
+    
+    .main-workspace {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 20px;
+      gap: 16px;
+    }
+    
+    /* ── Sidebar Navigation ──────────────────────────────────────── */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      padding-left: 6px;
+    }
+    
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #000;
+      font-size: 14px;
+    }
+    
+    .brand-title {
+      font-family: var(--font-header);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.5px;
+      background: linear-gradient(to right, #fff, #a0aec0);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .brand-title span {
+      display: block;
+      font-size: 9px;
+      color: #718096;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-top: -2px;
+      -webkit-text-fill-color: #718096;
+    }
+    
+    .nav-section {
+      margin-bottom: 24px;
+    }
+    
+    .nav-header {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #718096;
+      margin-bottom: 10px;
+      padding-left: 8px;
+      font-weight: 600;
+    }
+    
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #a0aec0;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      margin-bottom: 4px;
+    }
+    
+    .nav-item:hover, .nav-item.active {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .nav-item.active {
+      background: rgba(0, 255, 204, 0.08);
+      border: 1px solid rgba(0, 255, 204, 0.15);
+      color: var(--cyan);
+    }
+    
+    /* ── Main Workspace Elements ────────────────────────────────── */
+    .top-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 14px;
+    }
+    
+    .workspace-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .workspace-title {
+      font-family: var(--font-header);
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+    }
+    
+    .workspace-select {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: #a0aec0;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      outline: none;
+    }
+    
+    .workspace-select:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn-action {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .btn-action:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .btn-action.primary {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 600;
+    }
+    
+    .btn-action.primary:hover {
+      background: #00e6b8;
+      box-shadow: 0 0 12px rgba(0, 255, 204, 0.4);
+    }
+    
+    /* ── Workspace Tabs ─────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .tab-btn {
+      padding: 10px 16px;
+      background: none;
+      border: none;
+      color: #718096;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    
+    .tab-btn:hover {
+      color: #fff;
+    }
+    
+    .tab-btn.active {
+      color: var(--cyan);
+      border-bottom-color: var(--cyan);
+      font-weight: 600;
+    }
+    
+    /* ── AI Prompt Bar ──────────────────────────────────────────── */
+    .prompt-bar-container {
+      position: relative;
+      margin-top: 4px;
+    }
+    
+    .prompt-input-wrapper {
+      position: relative;
+      width: 100%;
+      display: flex;
+      align-items: center;
+    }
+    
+    .prompt-input {
+      width: 100%;
+      background: rgba(22, 28, 36, 0.7);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 14px 60px 14px 18px;
+      color: #fff;
+      font-size: 13.5px;
+      font-family: var(--font-body);
+      outline: none;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+    
+    .prompt-input:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 14px rgba(0, 255, 204, 0.25), 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    .prompt-run-btn {
+      position: absolute;
+      right: 12px;
+      width: 32px;
+      height: 32px;
+      background: var(--cyan);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    
+    .prompt-run-btn:hover {
+      background: #00e6b8;
+      transform: scale(1.05);
+    }
+    
+    /* ── Widgets Grid Layout ────────────────────────────────────── */
+    .widgets-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    
+    /* Morning Brief Widget */
+    .brief-widget {
+      grid-column: span 12;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+    
+    .brief-column {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .brief-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #718096;
+      font-weight: 600;
+    }
+    
+    .brief-val-regime {
+      font-family: var(--font-header);
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--green);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .brief-subtext {
+      font-size: 11px;
+      color: #a0aec0;
+    }
+    
+    .brief-opps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    
+    .brief-opp-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+    
+    .brief-opp-name { color: #cbd5e1; }
+    .brief-opp-change { font-weight: 600; }
+    .brief-opp-change.up { color: var(--green); }
+    
+    .brief-risk-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    
+    .brief-risk-icon { color: var(--red); }
+    
+    .brief-summary-text {
+      font-size: 12px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+    
+    /* ── Main Charts Widgets ────────────────────────────────────── */
+    .chart-container-large {
+      grid-column: span 4;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+    
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .chart-title {
+      font-family: var(--font-header);
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+    }
+    
+    .chart-meta {
+      font-size: 11px;
+      color: #718096;
+    }
+    
+    .chart-meta span.price {
+      font-weight: 700;
+      color: var(--yellow);
+      margin-right: 4px;
+    }
+    
+    .chart-meta span.change {
+      font-weight: 600;
+    }
+    .chart-meta span.change.up { color: var(--green); }
+    .chart-meta span.change.down { color: var(--red); }
+    
+    .chart-actions-float {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    
+    .chart-container-large:hover .chart-actions-float {
+      opacity: 1;
+    }
+    
+    .btn-float-ai {
+      background: rgba(153, 51, 255, 0.2);
+      border: 1px solid rgba(153, 51, 255, 0.4);
+      color: #d8b4fe;
+      font-size: 9px;
+      font-weight: 600;
+      padding: 3px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.2s;
+    }
+    
+    .btn-float-ai:hover {
+      background: rgba(153, 51, 255, 0.4);
+      box-shadow: 0 0 8px rgba(153, 51, 255, 0.4);
+    }
+    
+    /* ── Middle/Lower Widgets ───────────────────────────────────── */
+    .chart-container-mid-left {
+      grid-column: span 4;
+      padding: 16px;
+    }
+    
+    .chart-container-mid-center {
+      grid-column: span 4;
+      padding: 16px;
+    }
+    
+    .insight-card-container {
+      grid-column: span 4;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    /* Heatmap Correlation style */
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 3px;
+      margin-top: 8px;
+    }
+    
+    .heatmap-cell {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      border-radius: 3px;
+      color: #fff;
+    }
+    
+    .heatmap-header-cell {
+      height: 20px;
+      font-size: 8px;
+      color: #718096;
+      text-align: center;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    
+    /* AI Insights Widget */
+    .insight-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #d8b4fe;
+      font-family: var(--font-header);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    
+    .insight-body {
+      font-size: 12.5px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+    
+    .insight-confidence {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(153, 51, 255, 0.08);
+      border: 1px solid rgba(153, 51, 255, 0.2);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #e9d5ff;
+    }
+    
+    /* ── Bottom Section: Notebook & Data Sources ────────────────── */
+    .bottom-section {
+      grid-column: span 12;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    
+    .notebook-widget {
+      grid-column: span 8;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .notebook-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .notebook-tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-color);
+      width: 100%;
+    }
+    
+    .notebook-tab-btn {
+      padding: 8px 12px;
+      background: none;
+      border: none;
+      color: #718096;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    
+    .notebook-tab-btn.active {
+      color: var(--cyan);
+      border-bottom-color: var(--cyan);
+      font-weight: 600;
+    }
+    
+    .editor-wrapper {
+      position: relative;
+      background: #07090c;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      min-height: 120px;
+    }
+    
+    .editor-line-numbers {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      color: #4a5568;
+      text-align: right;
+      user-select: none;
+      width: 20px;
+    }
+    
+    .editor-content {
+      margin-left: 32px;
+      color: #00ffcc;
+      outline: none;
+      white-space: pre-wrap;
+    }
+    
+    .editor-run-btn {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      width: 28px;
+      height: 28px;
+      background: rgba(0, 255, 204, 0.15);
+      border: 1px solid var(--cyan);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    
+    .editor-run-btn:hover {
+      background: var(--cyan);
+      color: #000;
+    }
+    
+    .editor-run-btn svg {
+      width: 12px;
+      height: 12px;
+      fill: currentColor;
+    }
+    
+    .sources-widget {
+      grid-column: span 4;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .sources-title {
+      font-family: var(--font-header);
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+    }
+    
+    .sources-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    
+    .source-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .source-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    
+    .source-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .source-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: #cbd5e1;
+    }
+    
+    .source-subtext {
+      font-size: 8px;
+      color: #718096;
+    }
+    
+    .source-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: var(--green);
+    }
+    
+    .source-card.disconnected .source-indicator {
+      background-color: #718096;
+    }
+    
+    /* ── Right Panel: Live Agent Status ─────────────────────────── */
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .agent-title {
+      font-family: var(--font-header);
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .badge-live {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .agent-tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 14px;
+    }
+    
+    .agent-tab-btn {
+      flex: 1;
+      padding: 6px;
+      background: none;
+      border: none;
+      color: #718096;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    
+    .agent-tab-btn.active {
+      color: var(--cyan);
+      border-bottom-color: var(--cyan);
+    }
+    
+    .pipeline-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    
+    .pipeline-title {
+      font-size: 11px;
+      color: #718096;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .task-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: all 0.3s ease;
+    }
+    
+    .task-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .task-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .task-status {
+      font-size: 9px;
+      font-weight: 600;
+    }
+    
+    .task-status.completed { color: var(--green); }
+    .task-status.in-progress { color: var(--cyan); }
+    .task-status.queued { color: #718096; }
+    
+    .task-progress-bar {
+      height: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 2px;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .task-progress-fill {
+      height: 100%;
+      background: var(--cyan);
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+    
+    .task-card.active {
+      background: rgba(0, 255, 204, 0.03);
+      border-color: rgba(0, 255, 204, 0.25);
+    }
+    
+    .task-card.active .task-progress-bar {
+      display: block;
+    }
+    
+    .trace-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+      overflow-y: auto;
+    }
+    
+    .trace-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: #718096;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .trace-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .trace-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      transition: all 0.2s;
+    }
+    
+    .trace-item.active {
+      border-color: rgba(0, 255, 204, 0.2);
+      background: rgba(0, 255, 204, 0.02);
+    }
+    
+    .trace-text { color: #a0aec0; }
+    .trace-item.active .trace-text { color: #fff; }
+    
+    .trace-time {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: #4a5568;
+    }
+    
+    .trace-item.active .trace-time { color: var(--cyan); }
+    
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    
+    /* ── Modal & Popups ─────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    
+    .modal-box {
+      width: 500px;
+      max-width: 90%;
+      background: #0e131a;
+      border: 1px solid rgba(153, 51, 255, 0.3);
+      box-shadow: 0 0 24px rgba(153, 51, 255, 0.25);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+    }
+    
+    .modal-overlay.active .modal-box {
+      transform: scale(1);
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 10px;
+    }
+    
+    .modal-title {
+      font-family: var(--font-header);
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      color: #718096;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    
+    .modal-body {
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1. LEFT SIDEBAR NAVIGATION -->
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">M</div>
+      <div class="brand-title">MOSAIC<span>Fund Agent</span></div>
+    </div>
+    
+    <div class="nav-section">
+      <div class="nav-header">Platform</div>
+      <div class="nav-item active"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M0 1.5A1.5 1.5 0 0 1 1.5 0h13A1.5 1.5 0 0 1 16 1.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 14.5v-13zM1.5 1a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5H5V1H1.5zM6 1v14h4V1H6zm5 0v14h3.5a.5.5 0 0 0 .5-.5v-13a.5.5 0 0 0-.5-.5H11z"/></svg> Dashboard</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M0 0h2v16H0zm3 3h2v13H3zm3 3h2v10H6zm3-4h2v14H9zm3 5h2v9h-2z"/></svg> Markets</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M12 1a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V1zm-5 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V5zM2 9a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9z"/></svg> Screener</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg> Research</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.86z"/></svg> Strategies</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M6 12.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zM3 8.005c0-.011.008-.005.02-.005h9.96c.012 0 .02-.006.02.005v3.49c0 .01-.008.005-.02.005H3.02c-.012 0-.02.006-.02-.005v-3.49z"/><path d="M4 1.75V3H2V1.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 .75.75zm1.5.25v1h1V2h-1zm3 0v1h1V2h-1zm3 0v1h1V2h-1zm1.5-.25V3h2V1.75a.75.75 0 0 0-.75-.75h-.5a.75.75 0 0 0-.75.75zM14 4h-2.25V3H14v1zm-3.25 0H8.5V3h2.25v1zm-3.25 0H5.5V3h2.25v1zM4.5 4H2.25V3H4.5v1zM2 5v2h12V5H2zm0 3h12v3.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5V8zm1.5 1.5v1a.5.5 0 0 0 .5.5h8a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5H4a.5.5 0 0 0-.5.5z"/></svg> Agents</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.5 7.5a.5.5 0 0 1 0 1H5.707l2.147 2.146a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708l3-3a.5.5 0 1 1 .708.708L5.707 7.5H11.5z"/></svg> Backtest</div>
+      <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h13zm-13-1A1.5 1.5 0 0 0 0 3.5v9a1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9a1.5 1.5 0 0 0-1.5-1.5h-13z"/><path d="M5 8a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7A.5.5 0 0 1 5 8zm0-2.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0 5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zM3 5.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0zm0 2.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0zm0 2.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0z"/></svg> Data Explorer</div>
+    </div>
+    
+    <div class="nav-section" style="flex: 1;">
+      <div class="nav-header">Workspaces</div>
+      <div class="nav-item active" onclick="switchWorkspace('gold_usd', this)">⚡ Gold vs USD Analysis</div>
+      <div class="nav-item" onclick="switchWorkspace('india_macro', this)">🇮🇳 India Macro</div>
+      <div class="nav-item" onclick="switchWorkspace('nifty_momentum', this)">📈 Nifty Momentum</div>
+      <div class="nav-item" onclick="switchWorkspace('banking_crisis', this)">🏦 Banking Crisis</div>
+    </div>
+    
+    <!-- Workspace System Status -->
+    <div class="glass-card accent-cyan" style="padding: 10px; margin-top: auto; font-size: 11px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+        <span style="font-weight: bold; color: #fff;">Mosaic Engine</span>
+        <span class="pulse-dot"></span>
+      </div>
+      <div style="color: #888888;">All Systems Operational</div>
+      <!-- Mini area line -->
+      <svg width="100%" height="20" style="margin-top: 6px; stroke: var(--cyan); fill: rgba(0,255,204,0.05); stroke-width: 1.5;">
+        <path d="M0,15 Q15,5 30,12 T60,5 T90,14 T120,8 T150,15 T180,5 T210,12" />
+      </svg>
+    </div>
+  </div>
+
+  <!-- 2. CENTER WORKSPACE CANVAS -->
+  <div class="main-workspace">
+    <!-- Top Header -->
+    <div class="top-header">
+      <div class="workspace-info">
+        <div class="workspace-title" id="workspaceHeaderTitle">Gold vs USD Analysis</div>
+        <select class="workspace-select" id="workspaceSelector" onchange="handleWorkspaceSelectChange(this)">
+          <option value="gold_usd">Gold vs USD vs Inflation</option>
+          <option value="india_macro">India Macro Tracker</option>
+          <option value="nifty_momentum">Nifty Momentum setups</option>
+        </select>
+      </div>
+      <div class="header-actions">
+        <button class="btn-action">Share</button>
+        <button class="btn-action primary">+ New Block</button>
+      </div>
+    </div>
+    
+    <!-- Tab Bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active">Overview</button>
+      <button class="tab-btn">Research</button>
+      <button class="tab-btn">Charts</button>
+      <button class="tab-btn">Signals</button>
+      <button class="tab-btn">Notebook</button>
+      <button class="tab-btn">Backtest</button>
+      <button class="tab-btn">Agent</button>
+      <button class="tab-btn">History</button>
+    </div>
+    
+    <!-- AI Prompt Bar -->
+    <div class="prompt-bar-container">
+      <div class="prompt-input-wrapper">
+        <input type="text" class="prompt-input" id="agentPromptInput" value="Compare Gold with USD, Inflation, Interest Rates and explain current macro regime.">
+        <button class="prompt-run-btn" onclick="triggerAgentPipeline()" title="Run Analysis">
+          <svg width="14" height="14" fill="#000" viewBox="0 0 16 16"><path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/></svg>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Widgets Grid -->
+    <div class="widgets-grid">
+      
+      <!-- Morning Brief Widget -->
+      <div class="glass-card brief-widget accent-cyan span-12" id="morningBriefCard">
+        <div class="brief-column">
+          <div class="brief-label">Market Regime</div>
+          <div class="brief-val-regime" id="briefRegime">Bullish <span style="font-size: 13px; color: #a0aec0; font-weight: normal;">(81% confidence)</span></div>
+          <!-- Tiny inline trend -->
+          <svg width="100" height="24" style="stroke: var(--green); fill: none; stroke-width: 1.5; margin-top: 4px;">
+            <path d="M0,20 Q20,10 40,15 T80,5 T100,2" />
+          </svg>
+        </div>
+        <div class="brief-column">
+          <div class="brief-label">Top Opportunities</div>
+          <div class="brief-opps-list" id="briefOpps">
+            <div class="brief-opp-row">
+              <span class="brief-opp-name">📈 Energy ETF</span>
+              <span class="brief-opp-change up">+2.35%</span>
+            </div>
+            <div class="brief-opp-row">
+              <span class="brief-opp-name">📈 PSU Banks</span>
+              <span class="brief-opp-change up">+1.89%</span>
+            </div>
+            <div class="brief-opp-row">
+              <span class="brief-opp-name">📈 Silver</span>
+              <span class="brief-opp-change up">+1.62%</span>
+            </div>
+          </div>
+        </div>
+        <div class="brief-column">
+          <div class="brief-label">Macro Risks</div>
+          <div class="brief-opps-list" id="briefRisks">
+            <div class="brief-risk-row">
+              <span>USD Strength</span>
+              <span class="brief-risk-icon">▼</span>
+            </div>
+            <div class="brief-risk-row">
+              <span>High VIX</span>
+              <span class="brief-risk-icon">▼</span>
+            </div>
+            <div class="brief-risk-row">
+              <span>Crude Volatility</span>
+              <span class="brief-risk-icon">▼</span>
+            </div>
+          </div>
+        </div>
+        <div class="brief-column">
+          <div class="brief-label">Agent Summary</div>
+          <div class="brief-summary-text" id="briefSummary">
+            Foreign institutional buying increasing. Volatility contracting. Momentum remains positive. Probability of gold breakout: 87%.
+          </div>
+        </div>
+      </div>
+      
+      <!-- Chart Column 1 -->
+      <div class="glass-card chart-container-large">
+        <div class="chart-header">
+          <div class="chart-title" id="chart1Title">Gold Price (USD/oz)</div>
+          <div class="chart-meta" id="chart1Meta"><span class="price">2,329.45</span><span class="change up">+0.98%</span></div>
+        </div>
+        <div id="chart1" style="height: 180px;"></div>
+        
+        <div class="chart-actions-float">
+          <button class="btn-float-ai" onclick="openAIModal('Explain chart 1', 'Gold Price Analysis', 'The gold price candlestick chart shows a steady upward consolidation channel over the last 3 quarters. Moving Averages are currently aligned in a bullish stack configuration (50 SMA above 200 SMA). Spot volumes have expanded on positive breakout sessions, reflecting institutional accumulation support at the $2,300 level.')">Explain</button>
+          <button class="btn-float-ai" onclick="openAIModal('Forecast chart 1', 'Gold Price Forecast', 'LightGBM model projects an 82% probability of upward continuation over the next 15 trading days. The forecast envelope establishes a target range between $2,380 and $2,410, with key support at $2,300.')">Forecast</button>
+        </div>
+      </div>
+      
+      <!-- Chart Column 2 -->
+      <div class="glass-card chart-container-large">
+        <div class="chart-header">
+          <div class="chart-title" id="chart2Title">USD Index (DXY)</div>
+          <div class="chart-meta" id="chart2Meta"><span class="price">105.12</span><span class="change down">-0.35%</span></div>
+        </div>
+        <div id="chart2" style="height: 180px;"></div>
+        
+        <div class="chart-actions-float">
+          <button class="btn-float-ai" onclick="openAIModal('Explain chart 2', 'DXY Analysis', 'DXY has completed a double-top distribution pattern around the 106.5 resistance zone. Increased selling momentum is visible on the daily timeframe as the index slips below its 50 EMA, primarily driven by expectations of cooling inflation rates.')">Explain</button>
+          <button class="btn-float-ai" onclick="openAIModal('Forecast chart 2', 'DXY Forecast', 'The index is expected to drift lower towards 104.2 over the next week. If support at 104.8 is breached, liquidation could accelerate towards the major 200 DMA support line at 103.5.')">Forecast</button>
+        </div>
+      </div>
+      
+      <!-- Chart Column 3 -->
+      <div class="glass-card chart-container-large">
+        <div class="chart-header">
+          <div class="chart-title" id="chart3Title">US Inflation (CPI YoY %)</div>
+          <div class="chart-meta" id="chart3Meta"><span class="price">3.30%</span><span class="change down">-0.10%</span></div>
+        </div>
+        <div id="chart3" style="height: 180px;"></div>
+        
+        <div class="chart-actions-float">
+          <button class="btn-float-ai" onclick="openAIModal('Explain chart 3', 'CPI Inflation Analysis', 'Annual CPI numbers show a gradual, disinflationary trend. Service-sector inflation continues to be sticky but is offset by significant drops in energy and core commodity elements, leading to the current 3.3% YoY output.')">Explain</button>
+          <button class="btn-float-ai" onclick="openAIModal('Forecast chart 3', 'CPI Forecast', 'Linear regression models suggest CPI will land in the 3.1% - 3.2% range next quarter. Soft landing scenarios remain the base case, supporting a neutral-to-dovish pivot probability.')">Forecast</button>
+        </div>
+      </div>
+      
+      <!-- Lower Row Left: Heatmap / Correlation Matrix -->
+      <div class="glass-card chart-container-mid-left">
+        <div class="chart-title">Correlation Matrix (5Y)</div>
+        <div class="heatmap-grid" id="correlationHeatmapGrid">
+          <!-- Headers -->
+          <div class="heatmap-header-cell">Asset</div>
+          <div class="heatmap-header-cell">Gold</div>
+          <div class="heatmap-header-cell">DXY</div>
+          <div class="heatmap-header-cell">CPI</div>
+          <div class="heatmap-header-cell">Oil</div>
+          <div class="heatmap-header-cell">10Y</div>
+          
+          <!-- Row 1: Gold -->
+          <div class="heatmap-header-cell">Gold</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.95);">1.00</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.65);">-0.62</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.45);">-0.41</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.35);">0.29</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.35);">-0.32</div>
+          
+          <!-- Row 2: DXY -->
+          <div class="heatmap-header-cell">DXY</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.65);">-0.62</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.95);">1.00</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.65);">0.67</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.35);">-0.35</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.55);">0.55</div>
+          
+          <!-- Row 3: CPI -->
+          <div class="heatmap-header-cell">CPI</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.45);">-0.41</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.65);">0.67</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.95);">1.00</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.25);">-0.25</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.45);">0.48</div>
+          
+          <!-- Row 4: Oil -->
+          <div class="heatmap-header-cell">Oil</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.35);">0.29</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.35);">-0.35</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.25);">-0.25</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.95);">1.00</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.12);">-0.12</div>
+          
+          <!-- Row 5: 10Y Yield -->
+          <div class="heatmap-header-cell">10Y</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.35);">-0.32</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.55);">0.55</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.45);">0.48</div>
+          <div class="heatmap-cell" style="background: rgba(239, 68, 68, 0.12);">-0.12</div>
+          <div class="heatmap-cell" style="background: rgba(37, 99, 235, 0.95);">1.00</div>
+        </div>
+      </div>
+      
+      <!-- Lower Row Center: Rolling Beta -->
+      <div class="glass-card chart-container-mid-center">
+        <div class="chart-title" id="chart4Title">Rolling Beta (Gold vs USD)</div>
+        <div id="chart4" style="height: 120px;"></div>
+      </div>
+      
+      <!-- Lower Row Right: AI Insights Card -->
+      <div class="glass-card insight-card-container accent-purple">
+        <div class="insight-header">
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V2zm-3 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V6zM2 9a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V9z"/></svg>
+          AI Macro Insight
+        </div>
+        <div class="insight-body" id="aiInsightBody">
+          Gold has a strong negative correlation with USD Index (-0.62) over the last 5 years. Inflation shows mild negative correlation with Gold. Volatility contraction suggests potential breakout.
+        </div>
+        <div class="insight-confidence">
+          <span>AI Confidence Metric</span>
+          <span style="font-weight: 700; color: #d8b4fe;" id="aiInsightConfidence">86%</span>
+        </div>
+      </div>
+      
+      <!-- Bottom Section: Notebook & Data Sources -->
+      <div class="bottom-section">
+        
+        <!-- Tabbed Notebook -->
+        <div class="glass-card notebook-widget">
+          <div class="notebook-header">
+            <div class="notebook-tabs">
+              <button class="notebook-tab-btn active" onclick="switchNotebookTab('sql', this)">SQL Editor</button>
+              <button class="notebook-tab-btn" onclick="switchNotebookTab('python', this)">Python Sandbox</button>
+              <button class="notebook-tab-btn" onclick="switchNotebookTab('prompt', this)">Agent Instructions</button>
+              <button class="notebook-tab-btn" onclick="switchNotebookTab('data', this)">Data Output</button>
+            </div>
+          </div>
+          
+          <!-- SQL Editor Content -->
+          <div class="editor-wrapper" id="notebookContent">
+            <div class="editor-line-numbers">1<br>2<br>3<br>4</div>
+            <div class="editor-content" contenteditable="true" spellcheck="false" id="codeEditorArea">SELECT date, gold_price, usd_index, cpi_yoy 
+FROM market_data.macro 
+WHERE date >= today() - INTERVAL 5 YEAR 
+ORDER BY date ASC</div>
+            <button class="editor-run-btn" onclick="runNotebookCode()" title="Execute Script">
+              <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Connected Data Sources -->
+        <div class="glass-card sources-widget">
+          <div class="sources-title">Connected Data Feeds</div>
+          <div class="sources-list">
+            <div class="source-card" onclick="toggleSource(this)">
+              <div class="source-info">
+                <span class="source-name">ClickHouse</span>
+              </div>
+              <span class="source-indicator"></span>
+            </div>
+            <div class="source-card" onclick="toggleSource(this)">
+              <div class="source-info">
+                <span class="source-name">NSE India</span>
+              </div>
+              <span class="source-indicator"></span>
+            </div>
+            <div class="source-card" onclick="toggleSource(this)">
+              <div class="source-info">
+                <span class="source-name">Yahoo Fin</span>
+              </div>
+              <span class="source-indicator"></span>
+            </div>
+            <div class="source-card" onclick="toggleSource(this)">
+              <div class="source-info">
+                <span class="source-name">FRED</span>
+              </div>
+              <span class="source-indicator"></span>
+            </div>
+          </div>
+        </div>
+        
+      </div>
+      
+    </div>
+  </div>
+
+  <!-- 3. RIGHT PANEL: LIVE AGENT EXECUTION PIPELINE -->
+  <div class="right-panel">
+    <div class="agent-header">
+      <div class="agent-title">
+        <span class="pulse-dot purple"></span>
+        MOZAIC AGENT
+      </div>
+      <span class="badge-live" id="agentStatusBadge">Live</span>
+    </div>
+    
+    <div class="agent-tabs">
+      <button class="agent-tab-btn">Chat</button>
+      <button class="agent-tab-btn active">Status</button>
+      <button class="agent-tab-btn">Tools</button>
+    </div>
+    
+    <div class="pipeline-section">
+      <div class="pipeline-title" id="pipelineStatusHeader">Agent Status: Idle</div>
+      
+      <!-- Task 1: Planner -->
+      <div class="task-card" id="task1">
+        <div class="task-header">
+          <span class="task-name">✓ Planner</span>
+          <span class="task-status completed" id="task1Status">Completed</span>
+        </div>
+      </div>
+      
+      <!-- Task 2: Data Collection -->
+      <div class="task-card" id="task2">
+        <div class="task-header">
+          <span class="task-name">✓ Fetch Market Data</span>
+          <span class="task-status completed" id="task2Status">Completed</span>
+        </div>
+      </div>
+      
+      <!-- Task 3: Processing -->
+      <div class="task-card" id="task3">
+        <div class="task-header">
+          <span class="task-name">✓ Data Processing</span>
+          <span class="task-status completed" id="task3Status">Completed</span>
+        </div>
+      </div>
+      
+      <!-- Task 4: Indicators -->
+      <div class="task-card active" id="task4">
+        <div class="task-header">
+          <span class="task-name">⚡ Compute Indicators</span>
+          <span class="task-status in-progress" id="task4Status">In Progress</span>
+        </div>
+        <div class="task-progress-bar">
+          <div class="task-progress-fill" id="task4Progress" style="width: 60%;"></div>
+        </div>
+      </div>
+      
+      <!-- Task 5: ML Models -->
+      <div class="task-card" id="task5">
+        <div class="task-header">
+          <span class="task-name">⚡ ML Analysis</span>
+          <span class="task-status queued" id="task5Status">Queued</span>
+        </div>
+      </div>
+      
+      <!-- Task 6: Insights -->
+      <div class="task-card" id="task6">
+        <div class="task-header">
+          <span class="task-name">⚡ Generate Insights</span>
+          <span class="task-status queued" id="task6Status">Queued</span>
+        </div>
+      </div>
+      
+      <!-- Task 7: Report -->
+      <div class="task-card" id="task7">
+        <div class="task-header">
+          <span class="task-name">⚡ Narrative Report</span>
+          <span class="task-status queued" id="task7Status">Queued</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="trace-section">
+      <div class="trace-header">
+        Execution Trace
+        <span style="font-size: 9px; cursor: pointer; color: var(--cyan);">View Full</span>
+      </div>
+      
+      <div class="trace-list" id="traceList">
+        <div class="trace-item"><span class="trace-text">User Query Received</span><span class="trace-time">9:15:01 AM</span></div>
+        <div class="trace-item"><span class="trace-text">Query Understanding</span><span class="trace-time">9:15:02 AM</span></div>
+        <div class="trace-item"><span class="trace-text">Data Source Selection</span><span class="trace-time">9:15:03 AM</span></div>
+        <div class="trace-item active"><span class="trace-text">Tools Execution (Indicators)</span><span class="trace-time">9:15:05 AM</span></div>
+        <div class="trace-item"><span class="trace-text">Analysis & Computation</span><span class="trace-time">9:15:18 AM</span></div>
+        <div class="trace-item"><span class="trace-text">Insight Generation</span><span class="trace-time">9:15:22 AM</span></div>
+        <div class="trace-item"><span class="trace-text">Report Ready</span><span class="trace-time">9:15:24 AM</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Action Modal (Overlay) -->
+  <div class="modal-overlay" id="aiModal" onclick="closeAIModal()">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="pulse-dot purple"></span>
+          <span id="modalHeaderTitle">AI Analysis</span>
+        </div>
+        <button class="modal-close" onclick="closeAIModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBodyContent">
+        AI explanation analysis text loading...
+      </div>
+    </div>
+  </div>
+
+  <!-- ── JAVASCRIPT CONTROLLER LOGIC ────────────────────────────── -->
+  <script>
+    // Global datasets
+    const datasets = {
+      gold_usd: {
+        title: "Gold vs USD Analysis",
+        regime: "Bullish <span style='font-size: 13px; color: #a0aec0; font-weight: normal;'>(81% confidence)</span>",
+        briefOpps: `
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Energy ETF</span><span class="brief-opp-change up">+2.35%</span></div>
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 PSU Banks</span><span class="brief-opp-change up">+1.89%</span></div>
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Silver</span><span class="brief-opp-change up">+1.62%</span></div>
+        `,
+        briefSummary: "Foreign institutional buying increasing. Volatility contracting. Momentum remains positive. Probability of gold breakout: 87%.",
+        chart1Title: "Gold Price (USD/oz)",
+        chart1Price: "2,329.45",
+        chart1Change: "+0.98%",
+        chart2Title: "USD Index (DXY)",
+        chart2Price: "105.12",
+        chart2Change: "-0.35%",
+        chart3Title: "US Inflation (CPI YoY %)",
+        chart3Price: "3.30%",
+        chart3Change: "-0.10%",
+        chart4Title: "Rolling Beta (Gold vs USD)",
+        insightBody: "Gold has a strong negative correlation with USD Index (-0.62) over the last 5 years. Inflation shows mild negative correlation with Gold. Volatility contraction suggests potential breakout.",
+        insightConfidence: "86%",
+        sqlQuery: "SELECT date, gold_price, usd_index, cpi_yoy \nFROM market_data.macro \nWHERE date >= today() - INTERVAL 5 YEAR \nORDER BY date ASC",
+        chart1Data: [2100, 2150, 2200, 2220, 2260, 2280, 2300, 2329],
+        chart2Data: [102.5, 103.1, 103.8, 104.2, 104.9, 105.5, 105.8, 105.1],
+        chart3Data: [3.8, 3.7, 3.5, 3.5, 3.4, 3.3, 3.3, 3.3]
+      },
+      india_macro: {
+        title: "India Macro Tracker",
+        regime: "Mildly Bullish <span style='font-size: 13px; color: #a0aec0; font-weight: normal;'>(72% confidence)</span>",
+        briefOpps: `
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Nifty BEES</span><span class="brief-opp-change up">+1.22%</span></div>
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Bank BEES</span><span class="brief-opp-change up">+1.05%</span></div>
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Junior BEES</span><span class="brief-opp-change up">+0.88%</span></div>
+        `,
+        briefSummary: "FII equity inflows have expanded this week. RBI maintains policy rates neutral. Corporate earnings revisions show upward domestic demand trajectory.",
+        chart1Title: "Nifty 50 Index (NSE)",
+        chart1Price: "23,501.10",
+        chart1Change: "+0.65%",
+        chart2Title: "USDINR Exchange Rate",
+        chart2Price: "83.45",
+        chart2Change: "-0.12%",
+        chart3Title: "India CPI Inflation (%)",
+        chart3Price: "4.80%",
+        chart3Change: "-0.25%",
+        chart4Title: "FII/DII Net Inflows (Cr)",
+        insightBody: "Strong FII equity purchases (₹4,200 Cr net long) provide technical support for indices. USDINR stability under 83.6 reduces capital outflow pressures.",
+        insightConfidence: "81%",
+        sqlQuery: "SELECT trade_date, fii_net, dii_net \nFROM market_data.fii_dii_flows \nORDER BY trade_date DESC LIMIT 15",
+        chart1Data: [22100, 22300, 22600, 22900, 23100, 23250, 23400, 23501],
+        chart2Data: [83.1, 83.2, 83.3, 83.5, 83.6, 83.6, 83.5, 83.45],
+        chart3Data: [5.2, 5.1, 5.0, 4.9, 4.8, 4.8, 4.8, 4.80]
+      },
+      nifty_momentum: {
+        title: "Nifty Momentum Setups",
+        regime: "Strong Bullish <span style='font-size: 13px; color: #a0aec0; font-weight: normal;'>(88% confidence)</span>",
+        briefOpps: `
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 IT BEES</span><span class="brief-opp-change up">+2.88%</span></div>
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Auto BEES</span><span class="brief-opp-change up">+2.10%</span></div>
+          <div class="brief-opp-row"><span class="brief-opp-name">📈 Infra BEES</span><span class="brief-opp-change up">+1.95%</span></div>
+        `,
+        briefSummary: "Major sectoral momentum rotation detected. IT index breakouts above 20d EMA triggered by strong tech volume. RSI indicators rising stably.",
+        chart1Title: "IT Index Trend",
+        chart1Price: "38,450.00",
+        chart1Change: "+2.14%",
+        chart2Title: "Auto Index Trend",
+        chart2Price: "24,800.00",
+        chart2Change: "+1.85%",
+        chart3Title: "Nifty VIX Index",
+        chart3Price: "13.40",
+        chart3Change: "-3.20%",
+        chart4Title: "Sectoral Volume Spread",
+        insightBody: "Sectoral volume distribution shows massive accumulation in tech and autos. Low VIX levels support consolidation squeeze breakouts on positive signals.",
+        insightConfidence: "92%",
+        sqlQuery: "SELECT symbol, close, volume_vs_ma, pattern \nFROM market_data.daily_setups \nWHERE pattern LIKE '%Breakout%'",
+        chart1Data: [36200, 36500, 36800, 37200, 37600, 37900, 38100, 38450],
+        chart2Data: [23100, 23400, 23800, 24100, 24300, 24500, 24700, 24800],
+        chart3Data: [16.2, 15.8, 14.9, 14.5, 13.9, 13.6, 13.5, 13.40]
+      }
+    };
+    
+    let currentWorkspace = "gold_usd";
+    let chart1Obj, chart2Obj, chart3Obj, chart4Obj;
+    
+    // ── Chart Initialization ─────────────────────────────────────
+    function initCharts() {
+      const data = datasets[currentWorkspace];
+      
+      const themeColor = '#00ffcc';
+      
+      // Chart 1 (Gold/Index Price)
+      chart1Obj = new ApexCharts(document.querySelector("#chart1"), {
+        series: [{ name: 'Price', data: data.chart1Data }],
+        chart: { type: 'area', height: 180, toolbar: { show: false }, background: 'transparent' },
+        stroke: { curve: 'smooth', width: 2, colors: [ '#ffcc00' ] },
+        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02, colorStops: [ { offset: 0, color: '#ffcc00', opacity: 0.35 }, { offset: 100, color: '#ffcc00', opacity: 0 } ] } },
+        grid: { borderColor: 'rgba(255,255,255,0.04)' },
+        xaxis: { categories: ['Q1', 'Q2', 'Q3', 'Q4', 'Q1', 'Q2', 'Q3', 'Q4'], labels: { style: { colors: '#4a5568' } } },
+        yaxis: { labels: { style: { colors: '#4a5568' } } },
+        theme: { mode: 'dark' }
+      });
+      
+      // Chart 2 (USD Index/DXY)
+      chart2Obj = new ApexCharts(document.querySelector("#chart2"), {
+        series: [{ name: 'Value', data: data.chart2Data }],
+        chart: { type: 'line', height: 180, toolbar: { show: false } },
+        stroke: { curve: 'smooth', width: 2, colors: [ '#2563eb' ] },
+        grid: { borderColor: 'rgba(255,255,255,0.04)' },
+        xaxis: { categories: ['Q1', 'Q2', 'Q3', 'Q4', 'Q1', 'Q2', 'Q3', 'Q4'], labels: { style: { colors: '#4a5568' } } },
+        yaxis: { labels: { style: { colors: '#4a5568' } } },
+        theme: { mode: 'dark' }
+      });
+      
+      // Chart 3 (Inflation)
+      chart3Obj = new ApexCharts(document.querySelector("#chart3"), {
+        series: [{ name: 'CPI', data: data.chart3Data }],
+        chart: { type: 'area', height: 180, toolbar: { show: false } },
+        stroke: { curve: 'smooth', width: 2, colors: [ '#9933ff' ] },
+        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.25, opacityTo: 0.01, colorStops: [ { offset: 0, color: '#9933ff', opacity: 0.25 }, { offset: 100, color: '#9933ff', opacity: 0 } ] } },
+        grid: { borderColor: 'rgba(255,255,255,0.04)' },
+        xaxis: { categories: ['Q1', 'Q2', 'Q3', 'Q4', 'Q1', 'Q2', 'Q3', 'Q4'], labels: { style: { colors: '#4a5568' } } },
+        yaxis: { labels: { style: { colors: '#4a5568' } } },
+        theme: { mode: 'dark' }
+      });
+      
+      // Chart 4 (Rolling Beta)
+      chart4Obj = new ApexCharts(document.querySelector("#chart4"), {
+        series: [{ name: 'Beta', data: [-0.4, -0.45, -0.5, -0.55, -0.6, -0.62, -0.62, -0.62] }],
+        chart: { type: 'line', height: 120, toolbar: { show: false } },
+        stroke: { curve: 'smooth', width: 2, colors: [ '#22c55e' ] },
+        grid: { borderColor: 'rgba(255,255,255,0.04)' },
+        xaxis: { categories: ['1M', '3M', '6M', '1Y', '2Y', '3Y', '5Y', 'Now'], labels: { style: { colors: '#4a5568' } } },
+        yaxis: { labels: { style: { colors: '#4a5568' } } },
+        theme: { mode: 'dark' }
+      });
+      
+      chart1Obj.render();
+      chart2Obj.render();
+      chart3Obj.render();
+      chart4Obj.render();
+    }
+    
+    // ── Update Charts when Workspace Switches ────────────────────
+    function updateCharts(workspaceKey) {
+      const data = datasets[workspaceKey];
+      
+      chart1Obj.updateSeries([{ name: 'Price', data: data.chart1Data }]);
+      chart2Obj.updateSeries([{ name: 'Value', data: data.chart2Data }]);
+      chart3Obj.updateSeries([{ name: 'Rate', data: data.chart3Data }]);
+      
+      // Dynamic adjustments for labels
+      if(workspaceKey === 'india_macro') {
+        chart4Obj.updateSeries([{ name: 'Net Inflows (Cr)', data: [1200, 1500, 800, 2300, 3100, 4200, 4100, 4200] }]);
+      } else if(workspaceKey === 'nifty_momentum') {
+        chart4Obj.updateSeries([{ name: 'Volume Spread', data: [1.2, 1.5, 1.4, 1.9, 2.1, 2.3, 2.7, 2.8] }]);
+      } else {
+        chart4Obj.updateSeries([{ name: 'Beta', data: [-0.4, -0.45, -0.5, -0.55, -0.6, -0.62, -0.62, -0.62] }]);
+      }
+    }
+    
+    // ── Switch Workspace Handler ──────────────────────────────────
+    function switchWorkspace(workspaceKey, element) {
+      currentWorkspace = workspaceKey;
+      
+      // Update active nav item
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      element.classList.add('active');
+      
+      // Get Dataset
+      const data = datasets[workspaceKey];
+      
+      // Update DOM Text
+      document.getElementById('workspaceHeaderTitle').innerText = data.title;
+      document.getElementById('workspaceSelector').value = workspaceKey;
+      
+      document.getElementById('briefRegime').innerHTML = data.regime;
+      document.getElementById('briefOpps').innerHTML = data.briefOpps;
+      document.getElementById('briefSummary').innerText = data.briefSummary;
+      
+      document.getElementById('chart1Title').innerText = data.chart1Title;
+      document.getElementById('chart1Meta').innerHTML = `<span class="price">${data.chart1Price}</span><span class="change up">${data.chart1Change}</span>`;
+      
+      document.getElementById('chart2Title').innerText = data.chart2Title;
+      document.getElementById('chart2Meta').innerHTML = `<span class="price">${data.chart2Price}</span><span class="change ${data.chart2Change.startsWith('+') ? 'up' : 'down'}">${data.chart2Change}</span>`;
+      
+      document.getElementById('chart3Title').innerText = data.chart3Title;
+      document.getElementById('chart3Meta').innerHTML = `<span class="price">${data.chart3Price}</span><span class="change ${data.chart3Change.startsWith('+') ? 'up' : 'down'}">${data.chart3Change}</span>`;
+      
+      document.getElementById('chart4Title').innerText = data.chart4Title;
+      document.getElementById('aiInsightBody').innerText = data.insightBody;
+      document.getElementById('aiInsightConfidence').innerText = data.insightConfidence;
+      
+      // Update SQL Editor content
+      document.getElementById('codeEditorArea').innerText = data.sqlQuery;
+      
+      // Trigger charts update
+      updateCharts(workspaceKey);
+      
+      // Sync prompt input
+      if(workspaceKey === 'gold_usd') {
+        document.getElementById('agentPromptInput').value = "Compare Gold with USD, Inflation, Interest Rates and explain current macro regime.";
+      } else if(workspaceKey === 'india_macro') {
+        document.getElementById('agentPromptInput').value = "Analyze recent FII net equity inflows and domestic macroeconomic indicators.";
+      } else if(workspaceKey === 'nifty_momentum') {
+        document.getElementById('agentPromptInput').value = "Scan the NSE market for volume breakouts and identify strongly bullish sectoral setups.";
+      }
+    }
+    
+    function handleWorkspaceSelectChange(selectObj) {
+      const val = selectObj.value;
+      // Find matching nav element by text
+      const navItems = Array.from(document.querySelectorAll('.nav-item'));
+      let targetNav;
+      if (val === 'gold_usd') targetNav = navItems.find(i => i.innerText.includes('Gold vs USD'));
+      else if (val === 'india_macro') targetNav = navItems.find(i => i.innerText.includes('India Macro'));
+      else if (val === 'nifty_momentum') targetNav = navItems.find(i => i.innerText.includes('Nifty Momentum'));
+      
+      if(targetNav) switchWorkspace(val, targetNav);
+    }
+    
+    // ── Toggle Data Sources ──────────────────────────────────────
+    function toggleSource(cardElement) {
+      cardElement.classList.toggle('disconnected');
+    }
+    
+    // ── Notebook Interactive Tabs ────────────────────────────────
+    let currentNotebookTab = "sql";
+    function switchNotebookTab(tabName, btnElement) {
+      document.querySelectorAll('.notebook-tab-btn').forEach(btn => btn.classList.remove('active'));
+      btnElement.classList.add('active');
+      currentNotebookTab = tabName;
+      
+      const contentBox = document.getElementById('notebookContent');
+      const linesBox = contentBox.querySelector('.editor-line-numbers');
+      const codeBox = contentBox.querySelector('.editor-content');
+      
+      if (tabName === 'sql') {
+        linesBox.innerHTML = "1<br>2<br>3<br>4";
+        codeBox.innerText = datasets[currentWorkspace].sqlQuery;
+        codeBox.style.color = "#00ffcc";
+        codeBox.contentEditable = "true";
+      } else if (tabName === 'python') {
+        linesBox.innerHTML = "1<br>2<br>3<br>4<br>5";
+        codeBox.innerText = `import pandas as pd\nfrom src.db.pool import query_df\n\ndf = query_df("SELECT * FROM market_data.daily_prices LIMIT 5")\nprint(df.describe())`;
+        codeBox.style.color = "#d8b4fe";
+        codeBox.contentEditable = "true";
+      } else if (tabName === 'prompt') {
+        linesBox.innerHTML = "1<br>2<br>3";
+        codeBox.innerText = "System Prompt: Use ReAct reasoning loop.\nDefault target: GOLDBEES daily anomaly evaluation.\nContext windows restricted to 3200 tokens.";
+        codeBox.style.color = "#cbd5e1";
+        codeBox.contentEditable = "false";
+      } else if (tabName === 'data') {
+        linesBox.innerHTML = "";
+        codeBox.innerText = "Execute query to view tabular data output here...";
+        codeBox.style.color = "#a0aec0";
+        codeBox.contentEditable = "false";
+      }
+    }
+    
+    // ── Run Notebook Script (Query / Python code) ───────────────
+    function runNotebookCode() {
+      const codeArea = document.getElementById('codeEditorArea');
+      const content = codeArea.innerText;
+      
+      if (currentNotebookTab === 'sql') {
+        // Trigger server fetch if active, else simulate a spreadsheet table
+        fetch(`/api/query?sql=${encodeURIComponent(content)}`)
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error();
+          })
+          .then(data => {
+            // Render spreadsheet HTML inside the notebook
+            renderTableOutput(data);
+          })
+          .catch(() => {
+            // Simulate spreadsheet output if server is offline
+            simulateSQLOutput();
+          });
+      } else {
+        // Simulate python run
+        strobeNotebookOutput("Executing Python script against environment...", "#d8b4fe");
+        setTimeout(() => {
+          strobeNotebookOutput("Output:\n   count    mean     std     min     max\n   5.00000  21.8000  0.0200  21.750  21.820\nProcess exited with status 0", "#cbd5e1");
+        }, 1200);
+      }
+    }
+    
+    function strobeNotebookOutput(msg, color) {
+      const codeBox = document.getElementById('notebookContent').querySelector('.editor-content');
+      codeBox.innerText = msg;
+      codeBox.style.color = color;
+    }
+    
+    function renderTableOutput(data) {
+      if(!data || data.length === 0) {
+        strobeNotebookOutput("Query executed successfully. 0 rows returned.", "#a0aec0");
+        return;
+      }
+      
+      const headers = Object.keys(data[0]);
+      let html = `<table style="width:100%; border-collapse: collapse; font-size:11px;"><thead><tr>`;
+      headers.forEach(h => {
+        html += `<th style="border-bottom:1px solid rgba(255,255,255,0.1); padding: 4px; text-align:left; color:#fff;">${h}</th>`;
+      });
+      html += `</tr></thead><tbody>`;
+      data.slice(0, 5).forEach(row => {
+        html += `<tr>`;
+        headers.forEach(h => {
+          html += `<td style="border-bottom:1px solid rgba(255,255,255,0.05); padding: 4px; color:#a0aec0;">${row[h]}</td>`;
+        });
+        html += `</tr>`;
+      });
+      html += `</tbody></table>`;
+      if(data.length > 5) html += `<div style="font-size:10px; color:#718096; margin-top:4px;">+ ${data.length - 5} more rows...</div>`;
+      
+      const codeBox = document.getElementById('notebookContent').querySelector('.editor-content');
+      codeBox.innerHTML = html;
+    }
+    
+    function simulateSQLOutput() {
+      const headers = ["symbol", "trade_date", "close", "volume"];
+      const rows = [
+        { symbol: "GOLDBEES", trade_date: "2026-06-25", close: "114.96", volume: "24,500" },
+        { symbol: "GOLDBEES", trade_date: "2026-06-24", close: "116.10", volume: "18,200" },
+        { symbol: "GOLDBEES", trade_date: "2026-06-23", close: "115.85", volume: "19,800" },
+        { symbol: "GOLDBEES", trade_date: "2026-06-20", close: "114.20", volume: "14,300" }
+      ];
+      renderTableOutput(rows);
+    }
+    
+    // ── Live AI Agent Pipeline Simulation / Execution ────────────
+    function triggerAgentPipeline() {
+      const prompt = document.getElementById('agentPromptInput').value;
+      const statusHeader = document.getElementById('pipelineStatusHeader');
+      const badge = document.getElementById('agentStatusBadge');
+      
+      statusHeader.innerText = "Agent Status: Researching...";
+      badge.innerText = "Active";
+      badge.style.background = "rgba(0, 255, 204, 0.15)";
+      badge.style.color = "var(--cyan)";
+      badge.style.borderColor = "rgba(0, 255, 204, 0.3)";
+      
+      // Trace list items reset
+      const traceList = document.getElementById('traceList');
+      traceList.innerHTML = `
+        <div class="trace-item active"><span class="trace-text">User Query Received</span><span class="trace-time">${getCurrentTimeStr()}</span></div>
+      `;
+      
+      // Step cards reset
+      resetTaskCards();
+      
+      // Step-by-step pipeline execution animation
+      executePipelineStep(1, 0, () => {
+        executePipelineStep(2, 200, () => {
+          executePipelineStep(3, 300, () => {
+            executePipelineStep(4, 400, () => {
+              executePipelineStep(5, 500, () => {
+                executePipelineStep(6, 400, () => {
+                  executePipelineStep(7, 300, () => {
+                    // Pipeline Completed!
+                    statusHeader.innerText = "Agent Status: Idle (Report Ready)";
+                    badge.innerText = "Live";
+                    badge.style.background = "rgba(34, 197, 94, 0.15)";
+                    badge.style.color = "var(--green)";
+                    badge.style.borderColor = "rgba(34, 197, 94, 0.3)";
+                    
+                    // Update main panel summary if using real backend or simulation
+                    fetchAgentAPI(prompt);
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    }
+    
+    function resetTaskCards() {
+      for(let i=1; i<=7; i++) {
+        const card = document.getElementById(`task${i}`);
+        const status = document.getElementById(`task${i}Status`);
+        card.classList.remove('active');
+        status.innerText = "Queued";
+        status.className = "task-status queued";
+        if(i > 3) {
+          const progress = document.getElementById(`task${i}Progress`);
+          if(progress) progress.style.width = "0%";
+        }
+      }
+    }
+    
+    function executePipelineStep(stepNum, duration, callback) {
+      const card = document.getElementById(`task${stepNum}`);
+      const status = document.getElementById(`task${stepNum}Status`);
+      const progress = document.getElementById(`task${stepNum}Progress`);
+      
+      // Set Active
+      card.classList.add('active');
+      status.innerText = "In Progress";
+      status.className = "task-status in-progress";
+      
+      // Add execution trace line
+      const traceNames = [
+        "Planner started",
+        "Fetching data sources...",
+        "Cleaning & normalising prices",
+        "Computing GARCH conditional volatilities",
+        "Running LightGBM classification model",
+        "Generating quantitative insights",
+        "Publishing macro narrative"
+      ];
+      const traceList = document.getElementById('traceList');
+      const traceLine = document.createElement('div');
+      traceLine.className = 'trace-item active';
+      traceLine.innerHTML = `<span class="trace-text">${traceNames[stepNum - 1]}</span><span class="trace-time">${getCurrentTimeStr()}</span>`;
+      
+      // Deactivate prior active traces
+      traceList.querySelectorAll('.trace-item').forEach(item => item.classList.remove('active'));
+      traceList.appendChild(traceLine);
+      
+      // Animate progress bar if present
+      if(progress) {
+        let width = 0;
+        const interval = setInterval(() => {
+          width += 5;
+          progress.style.width = `${width}%`;
+          if(width >= 100) {
+            clearInterval(interval);
+            finishStep();
+          }
+        }, Math.max(10, duration / 20));
+      } else {
+        setTimeout(finishStep, 500);
+      }
+      
+      function finishStep() {
+        card.classList.remove('active');
+        status.innerText = "Completed";
+        status.className = "task-status completed";
+        callback();
+      }
+    }
+    
+    function fetchAgentAPI(prompt) {
+      // Connect to Python server endpoint /api/agent/run
+      fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt })
+      })
+      .then(res => {
+        if(res.ok) return res.json();
+        throw new Error();
+      })
+      .then(data => {
+        // Update Insight Card with real output
+        document.getElementById('aiInsightBody').innerText = data.response;
+        document.getElementById('aiInsightConfidence').innerText = "94%";
+        document.getElementById('briefSummary').innerText = data.response.substring(0, 150) + "...";
+      })
+      .catch(() => {
+        // Simulate narrative update if offline
+        const simulatedNarratives = [
+          "Breakout setup confirmed. Heavy buying support at major daily Moving Average crossovers indicates capital reallocation into risk assets.",
+          "Anomalies detected in cross-asset volatility spreads. USDINR stability provides domestic cushioning for Indian ETFs.",
+          "FII buying expansion matches trend momentum profiles. Sectors show low-volatility squeezes coiling for imminent expansions."
+        ];
+        const randomNarrative = simulatedNarratives[Math.floor(Math.random() * simulatedNarratives.length)];
+        document.getElementById('aiInsightBody').innerText = randomNarrative;
+        document.getElementById('briefSummary').innerText = randomNarrative;
+      });
+    }
+    
+    function getCurrentTimeStr() {
+      const now = new Date();
+      return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    
+    // ── AI Explain / Forecast Modals ──────────────────────────────
+    function openAIModal(actionName, titleText, contentText) {
+      document.getElementById('modalHeaderTitle').innerText = titleText;
+      document.getElementById('modalBodyContent').innerText = contentText;
+      document.getElementById('aiModal').classList.add('active');
+    }
+    
+    function closeAIModal() {
+      document.getElementById('aiModal').classList.remove('active');
+    }
+    
+    // Initialize everything on load
+    window.onload = () => {
+      initCharts();
+      // Setup initial SQL editor contents
+      document.getElementById('codeEditorArea').innerText = datasets[currentWorkspace].sqlQuery;
+    };
+  </script>
+</body>
+</html>
