@@ -410,3 +410,11 @@ python src/scripts/portfolio/fund_mom_returns.py --scheme 152056 --months 24
 | DSP Healthcare | 145454 |
 
 The script fetches live NAV from mfapi.in and computes MoM returns. It does NOT read from ClickHouse — it pulls fresh data each run.
+
+## System Architecture Pattern: Modular Monolith with API Gateway
+
+To prevent unnecessary microservice complexity and dependency bloat, Mosaic enforces a **Modular Monolith with API Gateway** pattern:
+- **Unified Repository**: Keep all core modules (ml, tools, analyzers, importer) in the single Python project workspace to share repo access pools (`MarketDataRepository`, `CHPool`), config files, and Pydantic models.
+- **API Gateway Service (`src/ui/agent_server.py`)**: Use a single multithreaded backend web server to host static assets (`website/app.html`) and expose structured JSON REST API endpoints (`/api/query`, `/api/import/run`, `/api/import/status`, `/api/anomaly/scan`, `/api/dilution/check`).
+- **Asynchronous Offloading**: Offload heavy blocking operations (like data ingestion pipelines or massive backtests) to background threads or subprocesses (`subprocess.Popen`), writing to standard logs (`output/import_run.log`) which the UI polls for real-time console streaming.
+- **Direct Database Interface**: Run all client data fetching requests through the server-backed `/api/query` ClickHouse interface rather than spinning up multiple independent database microservices.
