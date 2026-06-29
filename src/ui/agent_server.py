@@ -2,6 +2,8 @@ import os
 import sys
 import json
 import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingTCPServer
@@ -220,7 +222,6 @@ class StudioRequestHandler(SimpleHTTPRequestHandler):
                     if promoter_delta < 0:
                         analysis += "🔴 **Promoter % Drop Detected.** Running dilution audit checklist:\n\n"
                         # Perform automated check for QIP or Preferential allotment news
-                        import urllib.request
                         query = urllib.parse.quote(f"{symbol} QIP preferential allotment debt reduction share capital")
                         url = f"https://news.google.com/rss/search?q={query}"
                         
@@ -229,7 +230,6 @@ class StudioRequestHandler(SimpleHTTPRequestHandler):
                             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                             with urllib.request.urlopen(req, timeout=5) as response:
                                 html = response.read().decode('utf-8')
-                                import xml.etree.ElementTree as ET
                                 root = ET.fromstring(html)
                                 for item in root.findall('.//item')[:5]:
                                     title = item.find('title').text
