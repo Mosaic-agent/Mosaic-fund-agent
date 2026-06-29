@@ -1043,6 +1043,133 @@
       color: #cbd5e1;
       line-height: 1.6;
     }
+    
+    /* ── Data Desk Integrations ─────────────────────────────────── */
+    .ingest-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 16px;
+    }
+    .desk-card {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .desk-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .check-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .check-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #cbd5e1;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .check-item input[type="checkbox"] {
+      accent-color: var(--cyan);
+      width: 15px;
+      height: 15px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #cbd5e1;
+      font-size: 13px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .text-input-field {
+      background: rgba(22, 28, 36, 0.7);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .text-input-field:focus {
+      border-color: var(--cyan);
+    }
+    .trigger-btn {
+      background: rgba(0, 255, 204, 0.15);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--cyan);
+    }
+    .trigger-btn:hover {
+      background: var(--cyan);
+      color: #000;
+      box-shadow: 0 0 12px rgba(0,255,204,0.4);
+    }
+    .terminal-log {
+      background: #06090c;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #00ffcc;
+      height: 280px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      box-shadow: inset 0 2px 8px rgba(0,0,0,0.8);
+      margin-top: 10px;
+    }
+    .desk-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+    .desk-table th {
+      color: #718096;
+      font-weight: 600;
+      padding: 10px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .desk-table td {
+      padding: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      color: #cbd5e1;
+    }
+    .desk-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+    .result-box-md {
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      color: #e2e8f0;
+      font-size: 13px;
+      line-height: 1.6;
+      height: 350px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
@@ -1066,12 +1193,20 @@
       <div class="nav-item"><svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 2px;"><path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h13zm-13-1A1.5 1.5 0 0 0 0 3.5v9a1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9a1.5 1.5 0 0 0-1.5-1.5h-13z"/><path d="M5 8a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7A.5.5 0 0 1 5 8zm0-2.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm0 5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zM3 5.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0zm0 2.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0zm0 2.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0z"/></svg> Data Explorer</div>
     </div>
     
-    <div class="nav-section" style="flex: 1;">
+    <div class="nav-section">
       <div class="nav-header">Workspaces</div>
       <div class="nav-item active" onclick="switchWorkspace('gold_usd', this)">⚡ Gold vs USD Analysis</div>
       <div class="nav-item" onclick="switchWorkspace('india_macro', this)">🇮🇳 India Macro</div>
       <div class="nav-item" onclick="switchWorkspace('nifty_momentum', this)">📈 Nifty Momentum</div>
       <div class="nav-item" onclick="switchWorkspace('banking_crisis', this)">🏦 Banking Crisis</div>
+    </div>
+    
+    <div class="nav-section" style="flex: 1;">
+      <div class="nav-header">System Desk</div>
+      <div class="nav-item" onclick="switchWorkspace('data_ingest', this)">📥 Data Ingest</div>
+      <div class="nav-item" onclick="switchWorkspace('whale_tracker', this)">📦 Whale Tracker</div>
+      <div class="nav-item" onclick="switchWorkspace('anomaly_scan', this)">🔬 Anomaly Scan</div>
+      <div class="nav-item" onclick="switchWorkspace('dilution_check', this)">🕵️ Insider Sales</div>
     </div>
     
     <!-- Workspace System Status -->
@@ -1106,6 +1241,7 @@
       </div>
     </div>
     
+    <div id="financialWorkspaceContainer">
     <!-- Tab Bar -->
     <div class="tab-bar">
       <button class="tab-btn active">Overview</button>
@@ -1356,11 +1492,129 @@ ORDER BY date ASC</div>
               <span class="source-indicator"></span>
             </div>
           </div>
-        </div>
-        
       </div>
       
     </div>
+    </div> <!-- end of financialWorkspaceContainer -->
+
+    <!-- Ingestion Workspace -->
+    <div id="ingestWorkspaceContainer" style="display: none; width: 100%;">
+      <div class="ingest-grid">
+        <!-- Left Config Card -->
+        <div class="glass-card desk-card">
+          <div class="desk-title">📥 Ingestion Categories</div>
+          <div class="check-list">
+            <label class="check-item"><input type="checkbox" id="ingest_etfs" checked> ETFs</label>
+            <label class="check-item"><input type="checkbox" id="ingest_stocks" checked> Stocks</label>
+            <label class="check-item"><input type="checkbox" id="ingest_mf" checked> Mutual Funds</label>
+            <label class="check-item"><input type="checkbox" id="ingest_fii_dii" checked> FII/DII Flows</label>
+            <label class="check-item"><input type="checkbox" id="ingest_cot" checked> CFTC COT (Gold)</label>
+            <label class="check-item"><input type="checkbox" id="ingest_fx" checked> FX Rates</label>
+          </div>
+        </div>
+        
+        <!-- Right Settings Card -->
+        <div class="glass-card desk-card">
+          <div class="desk-title">⚙️ Execution Settings</div>
+          <div class="toggle-row">
+            <span>Full Backfill (ignore watermarks)</span>
+            <input type="checkbox" id="ingest_full" style="accent-color: var(--cyan); width: 16px; height: 16px;">
+          </div>
+          <div class="toggle-row">
+            <span>Dry Run (inspect, do not commit)</span>
+            <input type="checkbox" id="ingest_dry" style="accent-color: var(--cyan); width: 16px; height: 16px;">
+          </div>
+          <div style="margin-top: 10px;">
+            <button class="trigger-btn" id="btnTriggerIngest" onclick="triggerIngestPipeline()" style="width: 100%;">
+              🚀 Trigger Ingestion Pipeline
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Ingestion Progress / Log Terminal -->
+      <div class="glass-card" style="padding: 20px; margin-top: 20px;">
+        <div class="desk-title" style="display: flex; align-items: center; justify-content: space-between;">
+          <span>📝 Ingestion Progress Logs</span>
+          <span id="ingestStatusBadge" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); color: #a0aec0;">Idle</span>
+        </div>
+        <div class="terminal-log" id="ingestTerminalLog">Logs will appear here once ingestion is triggered...</div>
+      </div>
+    </div>
+
+    <!-- Whale Tracker Workspace -->
+    <div id="whaleWorkspaceContainer" style="display: none; width: 100%;">
+      <div class="glass-card desk-card">
+        <div class="desk-title">🐋 Track Institutional Mutual Fund Holdings</div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <select class="text-input-field" id="whaleFundSelector" style="flex: 1;">
+            <option value="DSP_MULTI_ASSET">DSP Multi Asset Allocation Fund</option>
+            <option value="DSP_SMALL_CAP">DSP Small Cap Fund (Conviction)</option>
+            <option value="DSP_MID_CAP">DSP Mid Cap Fund</option>
+            <option value="DSP_FLEXI_CAP">DSP Flexi Cap Fund</option>
+          </select>
+          <button class="trigger-btn" onclick="fetchWhaleHoldings()">🔍 Fetch Holdings</button>
+        </div>
+        
+        <!-- Table output -->
+        <div style="margin-top: 20px; overflow-x: auto; max-height: 400px;">
+          <table class="desk-table">
+            <thead>
+              <tr>
+                <th>Security Name</th>
+                <th>Asset Type</th>
+                <th>Market Value (Cr)</th>
+                <th>% of NAV</th>
+                <th>Reporting Month</th>
+              </tr>
+            </thead>
+            <tbody id="whaleHoldingsTableBody">
+              <tr>
+                <td colspan="5" style="text-align: center; color: #718096; padding: 40px;">Select a fund and click Fetch Holdings...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Anomaly Scanner Workspace -->
+    <div id="anomalyWorkspaceContainer" style="display: none; width: 100%;">
+      <div class="glass-card desk-card">
+        <div class="desk-title">🔬 Run Volatility Anomaly Scanner</div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <input type="text" class="text-input-field" id="anomalySymbolInput" placeholder="Symbol (e.g. GOLDBEES, RELIANCE)" style="width: 250px;">
+          <select class="text-input-field" id="anomalyDaysSelector">
+            <option value="90">90 Days Lookback</option>
+            <option value="180">180 Days Lookback</option>
+            <option value="365">365 Days Lookback</option>
+          </select>
+          <button class="trigger-btn" id="btnAnomalyScan" onclick="runAnomalyScan()">🔬 Scan Ticker</button>
+        </div>
+        
+        <div style="margin-top: 20px;">
+          <div class="desk-title">📋 Shock Attribution Report</div>
+          <div class="result-box-md" id="anomalyScanResult">Enter a symbol and click scan. The system will detect price shocks using GARCH conditional volatility + Isolation Forest + PELT and search for news explanations on the shocked dates.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Promoter Dilution Workspace -->
+    <div id="dilutionWorkspaceContainer" style="display: none; width: 100%;">
+      <div class="glass-card desk-card">
+        <div class="desk-title">🕵️ Promoter Shareholding & Dilution Auditor</div>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <input type="text" class="text-input-field" id="dilutionSymbolInput" placeholder="NSE Symbol (e.g. TECHNO, RELIANCE)" style="width: 250px;">
+          <button class="trigger-btn" id="btnDilutionCheck" onclick="runDilutionCheck()">🕵️ Run Audit</button>
+        </div>
+        
+        <div style="margin-top: 20px;">
+          <div class="desk-title">📊 Auditor Analysis Summary</div>
+          <div class="result-box-md" id="dilutionCheckResult">Enter an NSE symbol and click run. The auditor will scrape Screener.in's quarterly shareholding pattern, detect promoter drops, check total shares outstanding for dilution markers (QIP, preferential allotment, rights), and output the final verdict.</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- 3. RIGHT PANEL: LIVE AGENT EXECUTION PIPELINE -->
@@ -1647,8 +1901,45 @@ ORDER BY date ASC</div>
       document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
       element.classList.add('active');
       
+      // Hide all workspace containers
+      document.getElementById('financialWorkspaceContainer').style.display = 'none';
+      document.getElementById('ingestWorkspaceContainer').style.display = 'none';
+      document.getElementById('whaleWorkspaceContainer').style.display = 'none';
+      document.getElementById('anomalyWorkspaceContainer').style.display = 'none';
+      document.getElementById('dilutionWorkspaceContainer').style.display = 'none';
+      
+      if (workspaceKey === 'data_ingest') {
+        document.getElementById('ingestWorkspaceContainer').style.display = 'block';
+        document.getElementById('workspaceHeaderTitle').innerText = "Data Ingestion Pipeline";
+        document.getElementById('workspaceSelector').style.display = 'none';
+        return;
+      }
+      if (workspaceKey === 'whale_tracker') {
+        document.getElementById('whaleWorkspaceContainer').style.display = 'block';
+        document.getElementById('workspaceHeaderTitle').innerText = "Whale Tracker Dashboard";
+        document.getElementById('workspaceSelector').style.display = 'none';
+        return;
+      }
+      if (workspaceKey === 'anomaly_scan') {
+        document.getElementById('anomalyWorkspaceContainer').style.display = 'block';
+        document.getElementById('workspaceHeaderTitle').innerText = "Volatility Anomaly Scanner";
+        document.getElementById('workspaceSelector').style.display = 'none';
+        return;
+      }
+      if (workspaceKey === 'dilution_check') {
+        document.getElementById('dilutionWorkspaceContainer').style.display = 'block';
+        document.getElementById('workspaceHeaderTitle').innerText = "Promoter Dilution Audit";
+        document.getElementById('workspaceSelector').style.display = 'none';
+        return;
+      }
+      
+      // Financial workspaces
+      document.getElementById('financialWorkspaceContainer').style.display = 'block';
+      document.getElementById('workspaceSelector').style.display = 'inline-block';
+      
       // Get Dataset
       const data = datasets[workspaceKey];
+      if (!data) return;
       
       // Update DOM Text
       document.getElementById('workspaceHeaderTitle').innerText = data.title;
@@ -1969,6 +2260,212 @@ ORDER BY date ASC</div>
       document.getElementById('aiModal').classList.remove('active');
     }
     
+    // ── Data Desk Capability API integrations ──────────────────
+    let importPollInterval = null;
+
+    function triggerIngestPipeline() {
+      const categories = [];
+      if (document.getElementById('ingest_etfs').checked) categories.push('etfs');
+      if (document.getElementById('ingest_stocks').checked) categories.push('stocks');
+      if (document.getElementById('ingest_mf').checked) categories.push('mf');
+      if (document.getElementById('ingest_fii_dii').checked) categories.push('fii_dii');
+      if (document.getElementById('ingest_cot').checked) categories.push('cot');
+      if (document.getElementById('ingest_fx').checked) categories.push('fx_rates');
+
+      const full = document.getElementById('ingest_full').checked;
+      const dry = document.getElementById('ingest_dry').checked;
+      
+      const btn = document.getElementById('btnTriggerIngest');
+      const badge = document.getElementById('ingestStatusBadge');
+      const logBox = document.getElementById('ingestTerminalLog');
+      
+      btn.disabled = true;
+      btn.innerText = "⏳ Ingestion running...";
+      badge.innerText = "Running";
+      badge.style.background = "rgba(0, 255, 204, 0.15)";
+      badge.style.color = "var(--cyan)";
+      
+      logBox.innerText = `[${getCurrentTimeStr()}] Launching ingestion task inside container for categories: ${categories.join(', ')}...\n`;
+
+      fetch('/api/import/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          categories: categories.join(','),
+          full: full,
+          dry_run: dry
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        logBox.innerText += `[${getCurrentTimeStr()}] Task started successfully:\n$ ${data.command}\n\n`;
+        // Start polling status
+        if (importPollInterval) clearInterval(importPollInterval);
+        importPollInterval = setInterval(pollImportLogs, 2000);
+      })
+      .catch(err => {
+        logBox.innerText += `\n[ERROR] Failed to connect to server: ${err.message}\n`;
+        btn.disabled = false;
+        btn.innerText = "🚀 Trigger Ingestion Pipeline";
+        badge.innerText = "Error";
+        badge.style.background = "rgba(255, 0, 102, 0.15)";
+        badge.style.color = "var(--magenta)";
+      });
+    }
+
+    function pollImportLogs() {
+      const badge = document.getElementById('ingestStatusBadge');
+      const logBox = document.getElementById('ingestTerminalLog');
+      const btn = document.getElementById('btnTriggerIngest');
+
+      fetch('/api/import/status')
+      .then(res => res.json())
+      .then(data => {
+        logBox.innerText = data.logs || "No logs captured yet...";
+        logBox.scrollTop = logBox.scrollHeight;
+        
+        if (!data.running) {
+          clearInterval(importPollInterval);
+          importPollInterval = null;
+          btn.disabled = false;
+          btn.innerText = "🚀 Trigger Ingestion Pipeline";
+          badge.innerText = "Completed";
+          badge.style.background = "rgba(0, 255, 204, 0.05)";
+          badge.style.color = "#a0aec0";
+          logBox.innerText += `\n[${getCurrentTimeStr()}] Ingestion process terminated.`;
+        }
+      })
+      .catch(() => {
+        clearInterval(importPollInterval);
+        importPollInterval = null;
+        btn.disabled = false;
+        btn.innerText = "🚀 Trigger Ingestion Pipeline";
+      });
+    }
+
+    function fetchWhaleHoldings() {
+      const fund_name = document.getElementById('whaleFundSelector').value;
+      const tableBody = document.getElementById('whaleHoldingsTableBody');
+      
+      tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--cyan); padding: 40px;">⏳ Querying ClickHouse database...</td></tr>`;
+
+      // Build specific query for fund holdings
+      const sql = `SELECT security_name, asset_type, market_value_cr, pct_of_nav, as_of_month FROM market_data.mf_holdings FINAL WHERE fund_name = '${fund_name}' AND as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings FINAL WHERE fund_name = '${fund_name}') ORDER BY pct_of_nav DESC LIMIT 50;`;
+      
+      fetch(`/api/query?sql=${encodeURIComponent(sql)}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.length === 0 || (data.length === 1 && data[0].error)) {
+          tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--magenta); padding: 40px;">⚠️ Query returned no holdings data: ${data[0] ? data[0].error : 'No records found'}</td></tr>`;
+          return;
+        }
+        
+        let html = "";
+        data.forEach(row => {
+          html += `<tr>
+            <td style="font-weight: 600; color: #fff;">${row.security_name}</td>
+            <td><span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05);">${row.asset_type || 'Equity'}</span></td>
+            <td style="color: var(--cyan); font-weight: bold;">${parseFloat(row.market_value_cr).toFixed(2)} Cr</td>
+            <td style="color: var(--green); font-weight: bold;">${parseFloat(row.pct_of_nav).toFixed(2)}%</td>
+            <td style="color: #718096;">${row.as_of_month}</td>
+          </tr>`;
+        });
+        tableBody.innerHTML = html;
+      })
+      .catch(err => {
+        tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--magenta); padding: 40px;">⚠️ Failed to execute fetch: ${err.message}</td></tr>`;
+      });
+    }
+
+    function runAnomalyScan() {
+      const symbol = document.getElementById('anomalySymbolInput').value.trim();
+      const days = document.getElementById('anomalyDaysSelector').value;
+      const btn = document.getElementById('btnAnomalyScan');
+      const resultBox = document.getElementById('anomalyScanResult');
+      
+      if (!symbol) {
+        alert("Please enter a valid stock symbol.");
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.innerText = "⏳ Scanning...";
+      resultBox.innerHTML = `⏳ Spawning anomaly model pipeline for ${symbol} over last ${days} days...\n(GARCH Conditional Volatility + Isolation Forest + PELT Change-point detection)`;
+
+      fetch('/api/anomaly/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: symbol, days: days })
+      })
+      .then(res => res.json())
+      .then(data => {
+        btn.disabled = false;
+        btn.innerText = "🔬 Scan Ticker";
+        
+        if (data.status === 'success') {
+          // Format markdown headings/bold nicely for preview
+          let report = data.report;
+          // Simple client side Markdown to HTML conversions
+          report = report.replace(/### (.*)/g, '<h3 style="color:#00ffcc; margin-top:16px;">$1</h3>');
+          report = report.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>');
+          report = report.replace(/- (.*)/g, '<li style="margin-left:14px; margin-bottom:6px;">$1</li>');
+          report = report.replace(/> (.*)/g, '<blockquote style="border-left:3px solid var(--purple); padding-left:10px; margin: 10px 0; color: #a0aec0;">$1</blockquote>');
+          resultBox.innerHTML = report;
+        } else {
+          resultBox.innerHTML = `<span style="color: var(--magenta);">⚠️ Error running scan: ${data.error}</span>`;
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.innerText = "🔬 Scan Ticker";
+        resultBox.innerHTML = `<span style="color: var(--magenta);">⚠️ Connection failed: ${err.message}</span>`;
+      });
+    }
+
+    // Dilution Audit Checklist (Screener shp promoter drop check + total shares denominator verify)
+    function runDilutionCheck() {
+      const symbol = document.getElementById('dilutionSymbolInput').value.trim();
+      const btn = document.getElementById('btnDilutionCheck');
+      const resultBox = document.getElementById('dilutionCheckResult');
+      
+      if (!symbol) {
+        alert("Please enter a valid stock symbol.");
+        return;
+      }
+      
+      btn.disabled = true;
+      btn.innerText = "⏳ Auditing...";
+      resultBox.innerHTML = `⏳ Scraping shareholding pattern for ${symbol} and evaluating dilution variables...`;
+
+      fetch('/api/dilution/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: symbol })
+      })
+      .then(res => res.json())
+      .then(data => {
+        btn.disabled = false;
+        btn.innerText = "🕵️ Run Audit";
+        
+        if (data.status === 'success') {
+          let report = data.report;
+          // Simple client side Markdown to HTML conversions
+          report = report.replace(/### (.*)/g, '<h3 style="color:#00ffcc; margin-top:16px;">$1</h3>');
+          report = report.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#fff;">$1</strong>');
+          report = report.replace(/- (.*)/g, '<li style="margin-left:14px; margin-bottom:6px;">$1</li>');
+          report = report.replace(/> (.*)/g, '<blockquote style="border-left:3px solid var(--cyan); padding-left:10px; margin: 10px 0; color: #a0aec0;">$1</blockquote>');
+          resultBox.innerHTML = report;
+        } else {
+          resultBox.innerHTML = `<span style="color: var(--magenta);">⚠️ Error running audit: ${data.error}</span>`;
+        }
+      })
+      .catch(err => {
+        btn.disabled = false;
+        btn.innerText = "🕵️ Run Audit";
+        resultBox.innerHTML = `<span style="color: var(--magenta);">⚠️ Connection failed: ${err.message}</span>`;
+      });
+    }
+
     // Initialize everything on load
     window.onload = () => {
       initCharts();
