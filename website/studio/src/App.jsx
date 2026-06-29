@@ -607,7 +607,7 @@ export default function App() {
       {/* ── LEFT SIDEBAR (NAVIGATION) ─────────────────────────── */}
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-logo">M</div>
+          <img src="https://mosaic-agent.github.io/Mosaic-fund-agent/logo.png" alt="Mosaic Logo" style={{ width: '24px', height: '24px', borderRadius: '6px', objectFit: 'contain' }} />
           <div className="brand-title">MOSAIC<span>Studio</span></div>
         </div>
 
