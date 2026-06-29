@@ -24,15 +24,15 @@ PROMPT_HISTORY = [
 
 class StudioRequestHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path):
-        # Override translate_path to serve files from the website/ directory
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "website"))
+        # Override translate_path to serve files from the website/studio/dist directory (React compiled Vite app)
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "website", "studio", "dist"))
         
         # Strip query parameters for local file resolution
         parsed_url = urllib.parse.urlparse(path)
         clean_path = parsed_url.path
         
         if clean_path == "/" or clean_path == "":
-            clean_path = "/app.html"
+            clean_path = "/index.html"
             
         return os.path.join(root, clean_path.lstrip("/"))
 
@@ -256,6 +256,55 @@ class StudioRequestHandler(SimpleHTTPRequestHandler):
                     "status": "success",
                     "report": analysis,
                     "raw_data": shp
+                }).encode("utf-8"))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "error": str(e)
+                }).encode("utf-8"))
+            return
+
+        # ── API Route: /api/backtest/run ──────────────────────────────────────
+        if path == "/api/backtest/run":
+            content_length = int(self.headers["Content-Length"])
+            post_data = self.rfile.read(content_length)
+            
+            try:
+                body = json.loads(post_data.decode("utf-8"))
+                symbol = body.get("symbol", "GOLDBEES").strip().upper()
+                fast = int(body.get("fast", 50))
+                slow = int(body.get("slow", 200))
+                ma_type = body.get("ma_type", "sma").lower()
+                
+                # Import backtest function
+                from src.scripts.market.ma_crossover_backtest import run_crossover_backtest
+                metrics = run_crossover_backtest(symbol, fast, slow, ma_type, plot=False)
+                
+                # Format CLI text output report
+                report = (
+                    f"### MA Crossover Strategy Performance: {symbol}\n\n"
+                    f"Parameters: {ma_type.upper()}({fast}, {slow})\n"
+                    f"-----------------------------------------\n"
+                    f"Total Returns:            {metrics.get('total_return_pct', 0.0):.2f}%\n"
+                    f"Benchmark Returns:        {metrics.get('bench_return_pct', 0.0):.2f}%\n"
+                    f"Max Drawdown:             {metrics.get('max_drawdown_pct', 0.0):.2f}%\n"
+                    f"Win Rate:                 {metrics.get('win_rate_pct', 0.0):.2f}%\n"
+                    f"Profit Factor:            {metrics.get('profit_factor', 1.0):.2f}\n"
+                    f"Sharpe Ratio:             {metrics.get('sharpe_ratio', 0.0):.2f}\n"
+                    f"Total Trades:             {metrics.get('total_trades', 0)}\n"
+                    f"-----------------------------------------\n"
+                    f"Verdict: Strategy {'OUTPERFORMED' if metrics.get('total_return_pct', 0.0) > metrics.get('bench_return_pct', 0.0) else 'UNDERPERFORMED'} benchmark."
+                )
+                
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success",
+                    "report": report
                 }).encode("utf-8"))
             except Exception as e:
                 self.send_response(500)
