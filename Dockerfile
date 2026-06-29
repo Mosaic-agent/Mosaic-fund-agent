@@ -35,6 +35,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source
 COPY config/ config/
 COPY src/ src/
+COPY website/ website/
 
 # Pre-create the output directory (reports + cache both land here).
 # At runtime this is replaced by the host-mounted volume, but the directory

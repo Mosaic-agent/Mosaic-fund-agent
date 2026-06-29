@@ -39,7 +39,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 4. Wait for Streamlit UI to be healthy
+# 4. Wait for Streamlit UI and Studio UI to be healthy
 echo "Waiting for dashboard to start at http://localhost:8501..."
 until curl -s -I http://localhost:8501 | grep -q "200 OK"; do
     printf "."
@@ -48,19 +48,31 @@ done
 echo ""
 echo " Dashboard is live!"
 
+echo "Waiting for Studio Workspace to start at http://localhost:8502..."
+until curl -s -I http://localhost:8502 | grep -q "200 OK"; do
+    printf "."
+    sleep 1
+done
+echo ""
+echo " Studio Workspace is live!"
+
 # 5. Open browser automatically
-URL="http://localhost:8501"
-echo "Opening browser at $URL..."
+URL1="http://localhost:8501"
+URL2="http://localhost:8502"
+echo "Opening browser at $URL2 (Studio) and $URL1 (Data Hub)..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    open "$URL"
+    open "$URL2"
+    open "$URL1"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     if command -v xdg-open > /dev/null; then
-        xdg-open "$URL"
-    else
-        echo "Please open $URL manually in your browser."
-    fi
+        xdg-open "$URL2"
+        xdg-open "$URL1"
+      else
+        echo "Please open $URL2 and $URL1 manually in your browser."
+      fi
 elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    start "$URL"
+    start "$URL2"
+    start "$URL1"
 else
-    echo "Please open $URL manually in your browser."
+    echo "Please open $URL2 and $URL1 manually in your browser."
 fi
