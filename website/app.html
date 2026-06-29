@@ -1875,22 +1875,69 @@ ORDER BY date ASC</div>
       chart4Obj.render();
     }
     
-    // ── Update Charts when Workspace Switches ────────────────────
+    function fetchAndPopulateChart(sql, chartObj, seriesName, fallbackData, metaId) {
+      fetch(`/api/query?sql=${encodeURIComponent(sql)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.length > 0 && !data[0].error) {
+            // Sort data ascending by date
+            data.sort((a, b) => new Date(a.date) - new Date(b.date));
+            const prices = data.map(row => parseFloat(row.val || row.close || 0));
+            chartObj.updateSeries([{ name: seriesName, data: prices }]);
+            
+            if (metaId && prices.length > 0) {
+              const latestVal = prices[prices.length - 1];
+              const prevVal = prices.length > 1 ? prices[prices.length - 2] : latestVal;
+              const diffPct = prevVal !== 0 ? ((latestVal - prevVal) / prevVal * 100).toFixed(2) : "0.00";
+              const classStr = parseFloat(diffPct) >= 0 ? "up" : "down";
+              const signStr = parseFloat(diffPct) >= 0 ? "+" : "";
+              
+              document.getElementById(metaId).innerHTML = `<span class="price">${latestVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span><span class="change ${classStr}">${signStr}${diffPct}%</span>`;
+            }
+          } else {
+            chartObj.updateSeries([{ name: seriesName, data: fallbackData }]);
+          }
+        })
+        .catch(() => {
+          chartObj.updateSeries([{ name: seriesName, data: fallbackData }]);
+        });
+    }
+
+    // ── Update Charts dynamically from ClickHouse database ────────
     function updateCharts(workspaceKey) {
       const data = datasets[workspaceKey];
+      if (!data) return;
       
-      chart1Obj.updateSeries([{ name: 'Price', data: data.chart1Data }]);
-      chart2Obj.updateSeries([{ name: 'Value', data: data.chart2Data }]);
-      chart3Obj.updateSeries([{ name: 'Rate', data: data.chart3Data }]);
-      
-      // Dynamic adjustments for labels
-      if(workspaceKey === 'india_macro') {
-        chart4Obj.updateSeries([{ name: 'Net Inflows (Cr)', data: [1200, 1500, 800, 2300, 3100, 4200, 4100, 4200] }]);
-      } else if(workspaceKey === 'nifty_momentum') {
-        chart4Obj.updateSeries([{ name: 'Volume Spread', data: [1.2, 1.5, 1.4, 1.9, 2.1, 2.3, 2.7, 2.8] }]);
-      } else {
-        chart4Obj.updateSeries([{ name: 'Beta', data: [-0.4, -0.45, -0.5, -0.55, -0.6, -0.62, -0.62, -0.62] }]);
+      let q1, q2, q3, q4;
+      let name4 = "Beta";
+      let fallback4 = data.chart4Data || [-0.4, -0.45, -0.5, -0.55, -0.6, -0.62, -0.62, -0.62];
+
+      if (workspaceKey === 'gold_usd') {
+        q1 = "SELECT trade_date as date, close as val FROM market_data.daily_prices WHERE symbol = 'GOLDBEES' ORDER BY trade_date DESC LIMIT 30";
+        q2 = "SELECT trade_date as date, close as val FROM market_data.fx_rates WHERE symbol = 'USDINR' ORDER BY trade_date DESC LIMIT 30";
+        q3 = "SELECT trade_date as date, close as val FROM market_data.daily_prices WHERE symbol = 'US10Y' ORDER BY trade_date DESC LIMIT 30";
+        q4 = "SELECT as_of as date, expected_return_pct as val FROM market_data.ml_predictions ORDER BY as_of DESC LIMIT 30";
+        name4 = "Expected Return";
+      } else if (workspaceKey === 'india_macro') {
+        q1 = "SELECT trade_date as date, close as val FROM market_data.daily_prices WHERE symbol = 'BANKBEES' ORDER BY trade_date DESC LIMIT 30";
+        q2 = "SELECT trade_date as date, fii_net_cr as val FROM market_data.fii_dii_flows ORDER BY trade_date DESC LIMIT 30";
+        q3 = "SELECT trade_date as date, dii_net_cr as val FROM market_data.fii_dii_flows ORDER BY trade_date DESC LIMIT 30";
+        q4 = "SELECT as_of as date, composite_score as val FROM market_data.signal_composite WHERE etf_symbol = 'GOLDBEES' ORDER BY as_of DESC LIMIT 30";
+        name4 = "Composite Signal";
+        fallback4 = [1200, 1500, 800, 2300, 3100, 4200, 4100, 4200];
+      } else if (workspaceKey === 'nifty_momentum') {
+        q1 = "SELECT trade_date as date, close as val FROM market_data.daily_prices WHERE symbol = 'BANKBEES' ORDER BY trade_date DESC LIMIT 30";
+        q2 = "SELECT trade_date as date, volume as val FROM market_data.daily_prices WHERE symbol = 'BANKBEES' ORDER BY trade_date DESC LIMIT 30";
+        q3 = "SELECT trade_date as date, close as val FROM market_data.daily_prices WHERE symbol = 'GOLDBEES' ORDER BY trade_date DESC LIMIT 30";
+        q4 = "SELECT as_of as date, composite_score as val FROM market_data.signal_composite WHERE etf_symbol = 'BANKBEES' ORDER BY as_of DESC LIMIT 30";
+        name4 = "Volume Spread";
+        fallback4 = [1.2, 1.5, 1.4, 1.9, 2.1, 2.3, 2.7, 2.8];
       }
+
+      fetchAndPopulateChart(q1, chart1Obj, "Price", data.chart1Data, "chart1Meta");
+      fetchAndPopulateChart(q2, chart2Obj, "Value", data.chart2Data, "chart2Meta");
+      fetchAndPopulateChart(q3, chart3Obj, "Rate", data.chart3Data, "chart3Meta");
+      fetchAndPopulateChart(q4, chart4Obj, name4, fallback4, null);
     }
     
     // ── Switch Workspace Handler ──────────────────────────────────
@@ -2466,9 +2513,62 @@ ORDER BY date ASC</div>
       });
     }
 
+    function updateMorningBrief() {
+      // 1. Fetch Latest ML Prediction Regime
+      const qRegime = "SELECT regime_signal, prob_up FROM market_data.ml_predictions ORDER BY as_of DESC LIMIT 1";
+      fetch(`/api/query?sql=${encodeURIComponent(qRegime)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.length > 0 && !data[0].error) {
+            const row = data[0];
+            const probPct = (parseFloat(row.prob_up) * 100).toFixed(0);
+            document.getElementById('briefRegime').innerHTML = `${row.regime_signal} <span style="font-size: 13px; color: #a0aec0; font-weight: normal;">(${probPct}% probability)</span>`;
+          }
+        })
+        .catch(() => {});
+
+      // 2. Fetch Top 3 Opportunities (Highest Composite Scores)
+      const qOpps = "SELECT etf_symbol, composite_score FROM market_data.signal_composite ORDER BY as_of DESC, composite_score DESC LIMIT 3";
+      fetch(`/api/query?sql=${encodeURIComponent(qOpps)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.length > 0 && !data[0].error) {
+            let html = "";
+            data.forEach(row => {
+              html += `<div class="brief-opp-row">
+                <span class="brief-opp-name">📈 ${row.etf_symbol}</span>
+                <span class="brief-opp-change up">Score: ${parseInt(row.composite_score)}</span>
+              </div>`;
+            });
+            document.getElementById('briefOpps').innerHTML = html;
+          }
+        })
+        .catch(() => {});
+
+      // 3. Fetch Top 3 Macro Risks (Lowest Composite Scores)
+      const qRisks = "SELECT etf_symbol, composite_score FROM market_data.signal_composite ORDER BY as_of DESC, composite_score ASC LIMIT 3";
+      fetch(`/api/query?sql=${encodeURIComponent(qRisks)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.length > 0 && !data[0].error) {
+            let html = "";
+            data.forEach(row => {
+              html += `<div class="brief-risk-row" style="display:flex; justify-content:space-between; width:100%; color:#f87171; font-size:12px; margin-bottom:4px;">
+                <span>📉 ${row.etf_symbol}</span>
+                <span style="font-weight:bold;">Score: ${parseInt(row.composite_score)}</span>
+              </div>`;
+            });
+            document.getElementById('briefRisks').innerHTML = html;
+          }
+        })
+        .catch(() => {});
+    }
+
     // Initialize everything on load
     window.onload = () => {
       initCharts();
+      updateCharts(currentWorkspace);
+      updateMorningBrief();
       // Setup initial SQL editor contents
       document.getElementById('codeEditorArea').innerText = datasets[currentWorkspace].sqlQuery;
     };
