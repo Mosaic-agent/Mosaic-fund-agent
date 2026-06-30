@@ -8,7 +8,7 @@
 
 Signals · Smart-money tracking · Live portfolio intelligence — on your own machine.
 
-![Free & Open Source](https://img.shields.io/badge/free%20%26%20open%20source-Apache%202.0-lightgrey) ![Runs Locally](https://img.shields.io/badge/runs%20locally-no%20cloud%20required-green) ![Zerodha](https://img.shields.io/badge/broker-Zerodha%20connected-blue) ![Python](https://img.shields.io/badge/python-3.11+-blue)
+![Free & Open Source](https://img.shields.io/badge/free%20%26%20open%20source-Apache%202.0-lightgrey) ![Runs Locally](https://img.shields.io/badge/runs%20locally-no%20cloud%20required-green) ![Zerodha](https://img.shields.io/badge/broker-Zerodha%20connected-blue) ![Python](https://img.shields.io/badge/python-3.11+-blue) ![Qdrant](https://img.shields.io/badge/vector_DB-Qdrant-dc244c)
 
 </div>
 
@@ -36,6 +36,15 @@ DSP Multi Asset — MoM changes (Jun 2026)
   📉 TRIMMED Coal India        −0.33%
   ❌ EXITED  Mankind Pharma
 Cross-fund consensus: Gold allocation up across all 7 funds
+
+> mosaic ask "Which funds hold HDFC Bank?"
+
+Funds holding HDFC Bank Ltd (equity) — Qdrant similarity search
+  DSP_AGGRESSIVE_HYBRID    12.80% NAV  ₹2,341Cr  2026-05  sim=0.97
+  DSP_BSE_SENSEX_ETF       12.80% NAV  ₹ 441Cr   2026-05  sim=0.97
+  ICICI_BLUECHIP            8.20% NAV  ₹6,820Cr  2026-05  sim=0.95
+  ICICI_MULTI_ASSET         5.20% NAV  ₹1,230Cr  2026-05  sim=0.92
+  + 6 more funds
 ```
 
 ```
@@ -78,6 +87,9 @@ mosaic ask "Show me FII/DII flows this week"
 mosaic ask "What's the macro picture for gold right now?"
 mosaic ask "Deep dive on HDFC Bank — earnings, holdings, risks"
 mosaic ask "Am I over-concentrated in financials?"
+mosaic ask "Which funds have gold or commodity exposure?"
+mosaic ask "Find multi-asset funds similar to DSP_MULTI_ASSET"
+mosaic ask "What historical crashes looked like this GOLDBEES anomaly?"
 mosaic research "Comprehensive research on Zomato"
 ```
 
@@ -168,6 +180,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 - **7 multi-asset MFs** — DSP, Nippon, Bajaj, Quant, ICICI with 24+ months of holdings history
 - **13 data sources** — Yahoo Finance, NSE, CFTC COT, AMFI NAVs, FII/DII flows, COMEX metals, IMF/World Bank macro, and more
 - **Corporate actions** — splits, bonuses, demergers automatically detected
+- **Qdrant vector memory** — 5 collections: anomaly history (`market_anomalies`), MF holding similarity (`mf_holdings`, `mf_fund_profiles`), news RAG (`news_articles`), DB schema (`clickhouse_metadata`); enables semantic search across 22k+ fund positions and all flagged anomaly dates
 
 ---
 
@@ -179,6 +192,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 | [Configuration](docs/configuration.md) | All `.env` settings explained |
 | [Architecture](docs/architecture.md) | How it works under the hood |
 | [Agent Architecture](docs/agent-architecture.md) | AI routing and workflow design |
+| [Anomaly Detection](docs/anomaly-detection.md) | 5-step pipeline, Correlation Engine, Qdrant integration |
 
 ---
 

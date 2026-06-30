@@ -564,8 +564,8 @@
         <div class="stat-label">ETFs scored daily</div>
       </div>
       <div class="stat">
-        <div class="stat-num">26</div>
-        <div class="stat-label">ClickHouse tables</div>
+        <div class="stat-num">5</div>
+        <div class="stat-label">Qdrant collections</div>
       </div>
       <div class="stat">
         <div class="stat-num">10</div>
@@ -579,6 +579,8 @@
       <button class="chip active" data-q="anomaly"><span class="chip-ico">🔍</span>Explain GOLDBEES anomalies</button>
       <button class="chip" data-q="signal"><span class="chip-ico">🪙</span>Today's GOLDBEES signal</button>
       <button class="chip" data-q="dsp"><span class="chip-ico">🏦</span>What is DSP buying?</button>
+      <button class="chip" data-q="mfholding"><span class="chip-ico">🏦</span>Which funds hold HDFC Bank?</button>
+      <button class="chip" data-q="similar"><span class="chip-ico">🧬</span>Similar anomaly history</button>
       <button class="chip" data-q="macro"><span class="chip-ico">🌍</span>Show macro</button>
       <button class="chip" data-q="premium"><span class="chip-ico">💰</span>ETF premium alerts</button>
       <button class="chip" data-q="prompts"><span class="chip-ico">📖</span>/prompts</button>
@@ -976,6 +978,7 @@
           <li><strong>Step 4 — PELT change-point:</strong> detects structural vol-regime shifts (calm → turbulent), not just point shocks; confirmed breaks get a 1.15× Final-Z boost</li>
           <li><strong>8 regime labels:</strong> Flash Crash · Volatile Breakout · Crowded Long · Blow-off Top · Strong Trend · Regime Shift · Price Driven by Company Event · Normal</li>
           <li><strong>Explanation layer:</strong> each flagged date correlated with news, COMEX futures, and point-in-time ML prediction — no future leakage</li>
+          <li><strong>Qdrant memory:</strong> flagged dates auto-stored in <code>market_anomalies</code> collection; <code>find_similar_anomaly_events</code> retrieves top-k historical precedents by cosine similarity</li>
         </ul>
       </div>
 
@@ -1051,6 +1054,20 @@
           <li>GOLDBEES signal report with Kelly sizing and confidence band</li>
           <li>Equity deep-dive: earnings, promoter trends, MF cross-ownership</li>
           <li>Saved to <code style="background:var(--bg2);padding:1px 6px;border-radius:4px">output/reports/</code> — ready to share or archive</li>
+        </ul>
+      </div>
+
+      <div class="feature-card blue">
+        <span class="feat-tag blue">Vector</span>
+        <h3>Qdrant Semantic Memory</h3>
+        <p>Five vector collections keep a persistent semantic memory of every anomaly, fund holding, and news article — enabling cross-asset and cross-time similarity search that SQL cannot do.</p>
+        <ul class="feat-bullets">
+          <li><strong>market_anomalies:</strong> every flagged regime date embedded as text — ask "what historical events looked like this flash crash?"</li>
+          <li><strong>mf_holdings:</strong> 22k+ fund positions (809 funds, latest month) — "which funds hold HDFC Bank or gold ETFs?"</li>
+          <li><strong>mf_fund_profiles:</strong> per-fund equity/gold/bond/cash fingerprint — "find multi-asset funds similar to DSP_MULTI_ASSET"</li>
+          <li><strong>news_articles:</strong> semantic news retrieval powering the Correlation Engine's PostMacroShockStrategy</li>
+          <li><strong>Tenant-indexed:</strong> <code>is_tenant=True</code> on symbol/isin/fund_name — O(1) per-tenant reads at any scale</li>
+          <li><strong>Auto-populated:</strong> every import and anomaly pipeline run writes to Qdrant in a background thread — zero overhead</li>
         </ul>
       </div>
 
@@ -1260,7 +1277,7 @@ http://localhost:8501
         <span class="doc-icon">🔬</span>
         <div>
           <div class="doc-link-title">Anomaly Detection</div>
-          <div class="doc-link-desc">4-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT · 8 regimes · company event tracking</div>
+          <div class="doc-link-desc">5-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT → Company Events · Correlation Engine · Qdrant historical precedents</div>
         </div>
       </a>
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md" class="doc-link">
