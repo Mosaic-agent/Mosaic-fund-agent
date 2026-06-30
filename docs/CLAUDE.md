@@ -135,9 +135,14 @@ New pattern (Adapter + Repository):
 Database: `market_data`. Tables are auto-created on first import (DDL in `src/importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`, `macro_indicators` (World Bank / IMF WEO annual data), `corporate_actions` (NSE split/bonus/demerger/rights/dividend history — keyed by `(symbol, ex_date, action_type)`). All use `ReplacingMergeTree` — idempotent inserts are safe.
 
 ### Qdrant Vector DB
-Database: `Qdrant` (served on port `6333` with built-in dashboard at `/dashboard`). Primary collections:
-- `news_articles` (768 dimensions): Stores embedded financial news articles for RAG-based semantic anomaly mapping and sentiment analysis.
-- `clickhouse_metadata` (768 dimensions): Stores table schemas and pre-baked SQL templates to prevent LLM schema hallucinations during portfolio Q&A.
+Database: `Qdrant` (served on port `6333` with built-in dashboard at `/dashboard`). Five collections (all 768-dim nomic-embed-text, COSINE distance):
+- `news_articles`: Embedded financial news articles for RAG-based semantic anomaly mapping and sentiment analysis.
+- `clickhouse_metadata`: Table schemas and pre-baked SQL templates to prevent LLM schema hallucinations during portfolio Q&A.
+- `market_anomalies` (NEW): One point per flagged anomaly date per symbol. Auto-populated by `run_composite_anomaly(symbol=...)`. Queried by `find_similar_anomaly_events` to surface historical precedents. Tenant index: `symbol`.
+- `mf_holdings` (NEW): One point per (fund × security × month). 22k+ holdings from 809 funds (latest month). Queried by `find_funds_holding`. Tenant index: `isin`.
+- `mf_fund_profiles` (NEW): One aggregated portfolio fingerprint per (fund × month) — equity/gold/bond/cash breakdown + top-5 holdings. Queried by `find_similar_funds` and `search_mf_exposure`. Tenant index: `fund_name`.
+
+Backfill: `python -m src.scripts.backfill_mf_qdrant` — vectorizes all 809 funds' latest holdings into `mf_holdings` + `mf_fund_profiles`. Run once after first import.
 
 
 ## User Context

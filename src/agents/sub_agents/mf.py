@@ -39,6 +39,9 @@ class MFSubAgent(_SubAgent):
         "| DSP cross-fund weighted comparison        | `run_dsp_multi_asset_comparison`            |\n"
         "| Top holdings bar chart for a fund         | `plot_fund_holdings_chart`                  |\n"
         "| Which funds hold a stock (reverse lookup) | `get_mf_holdings_for_stock`                 |\n"
+        "| Semantic: which funds hold a security/ISIN | `find_funds_holding`                       |\n"
+        "| Find funds with similar portfolio mix     | `find_similar_funds`                        |\n"
+        "| Find funds by asset category exposure     | `search_mf_exposure`                        |\n"
         "| Ad-hoc holdings query                     | `query_clickhouse_db` on `mf_holdings FINAL`|\n"
         "| Import latest DSP holdings                | `run_dsp_multi_asset_importer`              |\n"
         "| Import latest Nippon holdings             | `run_nippon_importer`                       |\n"
@@ -59,6 +62,9 @@ class MFSubAgent(_SubAgent):
         "  - 'Quant multi asset' → `fund='QUANT_MULTI_ASSET'`\n"
         "- 'NAV return of <fund>', 'how has <fund> performed' → `run_fund_mom_returns`\n"
         "- 'which funds hold <stock>' → `get_mf_holdings_for_stock`\n"
+        "- 'which funds hold <stock/ISIN>' (Qdrant semantic) → `find_funds_holding(query=<stock>)`\n"
+        "- 'which funds have gold/commodity/equity exposure' → `search_mf_exposure(category=<type>)`\n"
+        "- 'find funds similar to <fund>' → `find_similar_funds(fund_name=<fund>)`\n"
         "- 'gold/silver/nuclear theme exposure across funds' → `run_whale_tracker`\n"
         "- 'list available funds', 'what funds have history' → "
         "`run_multi_asset_holdings_mom_yoy(list_funds=True)`\n"
@@ -122,6 +128,7 @@ class MFSubAgent(_SubAgent):
         )
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
         from src.tools.chart_tools import plot_fund_holdings_chart, plot_price_chart
+        from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure
         from src.tools.report_publisher import publish_consolidated_pdf
         return [
             run_multi_asset_holdings_mom_yoy,
@@ -134,6 +141,9 @@ class MFSubAgent(_SubAgent):
             run_icici_importer,
             run_all_multi_asset_importers,
             get_mf_holdings_for_stock,
+            find_funds_holding,
+            find_similar_funds,
+            search_mf_exposure,
             plot_fund_holdings_chart,
             plot_price_chart,
             query_clickhouse_db,
@@ -201,6 +211,31 @@ class MFSubAgent(_SubAgent):
             target = (m.group(1).strip() if m else question.strip())
             logger.info("MFSubAgent._fallback: reverse lookup → %r", target)
             return get_mf_holdings_for_stock.invoke({"company_name_or_symbol": target})
+
+        # ── Qdrant: similar fund profiles ─────────────────────────────────────
+        if any(kw in q for kw in (
+            "similar fund", "fund similar", "find fund like", "funds like",
+            "similar portfolio", "similar allocation",
+        )):
+            from src.tools.market.mf_tools import find_similar_funds
+            m = _re.search(r"(dsp|nippon|bajaj|quant|icici)[\w_]*", q)
+            fund = m.group(0).upper().replace(" ", "_") if m else ""
+            logger.info("MFSubAgent._fallback: find_similar_funds → %r", fund)
+            return find_similar_funds.invoke({"fund_name": fund or question.strip()})
+
+        # ── Qdrant: category exposure search ─────────────────────────────────
+        if any(kw in q for kw in (
+            "gold exposure", "commodity exposure", "equity exposure",
+            "bond exposure", "gold allocation", "commodity allocation",
+        )):
+            from src.tools.market.mf_tools import search_mf_exposure
+            cat = (
+                "gold" if any(k in q for k in ("gold", "commodity", "precious", "silver"))
+                else "equity" if "equity" in q
+                else "bond"
+            )
+            logger.info("MFSubAgent._fallback: search_mf_exposure → %r", cat)
+            return search_mf_exposure.invoke({"category": cat})
 
         # ── Whale-tracker theme ───────────────────────────────────────────────
         if any(kw in q for kw in ("whale", "theme", "thematic", "rotation theme")):

@@ -164,6 +164,8 @@ For `stocks` and `us_stocks` categories, the import manager redirects standard s
 | `imf_reserves_fetcher` | WGC Goldhub (primary) + World Bank WDI REST API (fallback) | `cb_gold_reserves` | Monthly |
 | `etf_aum_fetcher` | Yahoo Finance | `etf_aum` | Daily |
 | `mf_holdings_fetcher` | Morningstar (mstarpy) | `mf_holdings` | Monthly |
+| `fund_imports/` (DSP/ICICI/Nippon) | AMC Websites | `mf_holdings` → Qdrant `mf_holdings` + `mf_fund_profiles` | Monthly (auto-vectorizes) |
+| `backfill_mf_qdrant.py` | ClickHouse → Qdrant | `mf_holdings`, `mf_fund_profiles` | One-time + monthly |
 | `fx_rates_fetcher` | Yahoo Finance | `fx_rates` | Daily |
 | `worldbank_macro_fetcher` | World Bank WDI API | `macro_indicators` | Annual |
 | `imf_weo_fetcher` | IMF DataMapper API | `macro_indicators` | Semi-annual |
@@ -211,6 +213,18 @@ Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-i
 | `signal_composite` | as_of, etf_symbol, macro_score, sentiment_score, valuation_score, flow_score, ml_score, composite_score, action | Multi-pillar ETF scores 0–100 with BUY/HOLD/SELL action |
 | `news_articles` | fetched_at, title, source, sentiment, etfs_impacted, category, impact_tier | ETF-tagged news + macro events |
 | `import_watermarks` | source, symbol, last_date | Delta-sync state tracking |
+
+## Qdrant Collections
+
+Five vector collections (all 768-dim, nomic-embed-text, COSINE, hosted at `localhost:6333`). All use `is_tenant=True` on the primary filter field per the Qdrant tenant-scaling skill.
+
+| Collection | Dim | Tenant index | Points | Populated by | Queried by |
+|---|---|---|---|---|---|
+| `news_articles` | 768 | — | ~10k+ | `news_rag_backfill.py`, news importers | `retrieve_articles()`, Correlation Engine |
+| `clickhouse_metadata` | 768 | — | ~50 | `db_metadata_init.py` | `db_metadata_rag.py` (schema RAG) |
+| `market_anomalies` | 768 | `symbol` | grows with use | `run_composite_anomaly(symbol=...)` auto-stores flagged dates | `find_similar_anomaly_events` |
+| `mf_holdings` | 768 | `isin` | 22k+ (809 funds) | `insert_mf_holdings()` + `BaseFundImporter.run()` hooks + `backfill_mf_qdrant.py` | `find_funds_holding` |
+| `mf_fund_profiles` | 768 | `fund_name` | 809+ | same as above | `find_similar_funds`, `search_mf_exposure` |
 | `weight_checkpoints` | as_of, symbol, method, recommended_weight, regime | Position-sizing decisions (Kelly / Risk Governor) |
 | `stock_earnings` | symbol, earnings_date, eps_actual, surprise_pct | US stock quarterly earnings |
 | `stock_insider_trades` | symbol, insider_name, transaction_date, shares | US stock insider buying/selling |

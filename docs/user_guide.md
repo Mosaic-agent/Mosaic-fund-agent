@@ -174,6 +174,31 @@ All quantitative datasets are centralized in **ClickHouse** inside the `market_d
 *   `fii_dii_flows` — Daily FII/DII net cash flow records.
 *   `inav_snapshots` — Intra-day iNAV data used for premium/discount Z-scores.
 
+### Qdrant Vector Collections
+
+Three market-data collections complement ClickHouse with semantic similarity search:
+
+| Collection | What's stored | Example query |
+|---|---|---|
+| `mf_holdings` | One vector per fund×security×month (22k+ from 809 funds) | "Which funds hold HDFC Bank?" |
+| `mf_fund_profiles` | One portfolio fingerprint per fund×month (equity/gold/bond/cash %) | "Find funds similar to DSP_MULTI_ASSET" |
+| `market_anomalies` | One vector per flagged anomaly date per symbol | "What historical crashes looked like this?" |
+
+```bash
+# Semantic search queries (routed to MF or signal sub-agent automatically)
+python src/main.py ask "Which funds hold HDFC Bank?"
+python src/main.py ask "Which multi-asset funds have gold ETF exposure?"
+python src/main.py ask "Find funds similar to DSP_MULTI_ASSET"
+python src/main.py ask "Which funds have heavy commodity allocation?"
+python src/main.py ask "What historical crashes looked like this GOLDBEES flash crash?"
+python src/main.py ask "Find past anomalies similar to today's RELIANCE volatile breakout"
+```
+
+Populate Qdrant from existing ClickHouse data (one-time):
+```bash
+python -m src.scripts.backfill_mf_qdrant
+```
+
 ### Data Freshness Gate
 Because macro signals rely on cross-asset correlations, you must sync database states before running models:
 ```bash

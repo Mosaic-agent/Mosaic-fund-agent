@@ -16,7 +16,7 @@ Run imports via CLI: `python src/main.py import --category <name>`
 | `cb_reserves` | IMF IFS REST API (free) | Monthly gold reserves for 9 central banks | `cb_gold_reserves` |
 | `etf_aum` | Yahoo Finance (free) | Daily AUM snapshot for GLD, IAU, SGOL, PHYS | `etf_aum` |
 | `fx_rates` | Yahoo Finance (free) | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD | `fx_rates` |
-| `mf_holdings` | Morningstar via mstarpy | Current portfolio snapshot for DSP, Quant, ICICI multi-asset funds | `mf_holdings` |
+| `mf_holdings` | Morningstar via mstarpy | Current portfolio snapshot for DSP, Quant, ICICI multi-asset funds. Auto-vectorizes into Qdrant `mf_holdings` + `mf_fund_profiles` on each insert. | `mf_holdings` |
 | `fii_dii` | Sensibull oxide API | Daily + monthly FII/DII institutional cash flows + F&O OI | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily` |
 | `user_data` | Zerodha Kite MCP | Personal portfolio, margins, profile, positions, and orders | `user_*` tables |
 
@@ -170,3 +170,25 @@ OPTIMIZE TABLE market_data.daily_prices FINAL;
 30 8  * * 1-5  cd /path/to/project && .venv/bin/python src/main.py etf-news --save
 0  16 * * 1-5  cd /path/to/project && .venv/bin/python src/main.py etf-news --save
 ```
+
+---
+
+## Qdrant Backfill
+
+After the first `import --category mf_holdings` run, populate Qdrant with the full existing holdings history:
+
+```bash
+python -m src.scripts.backfill_mf_qdrant           # all 809 funds (~22k rows, latest month each)
+python -m src.scripts.backfill_mf_qdrant --limit 5  # first 5 funds (quick test)
+python -m src.scripts.backfill_mf_qdrant --dry-run  # preview what would be vectorized
+```
+
+This is a one-time operation. Subsequent imports auto-vectorize via hooks in `insert_mf_holdings()` and `BaseFundImporter.run()`.
+
+**Collections populated:**
+
+| Collection | Points | Tenant index | Tools using it |
+|---|---|---|---|
+| `mf_holdings` | 1 per fund×security×month | `isin` | `find_funds_holding` |
+| `mf_fund_profiles` | 1 per fund×month | `fund_name` | `find_similar_funds`, `search_mf_exposure` |
+| `market_anomalies` | 1 per anomaly date×symbol | `symbol` | `find_similar_anomaly_events` |
