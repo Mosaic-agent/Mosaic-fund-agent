@@ -23,6 +23,7 @@ class SignalSubAgent(_SubAgent):
         "Use `run_etf_news_sentiment` for ETF category news sentiment. "
         "Use `explain_price_anomalies` to scan price history for return outliers (magnitude >= 2%) and query news on those dates to find their causes. Whenever you call this tool to explain anomalies, you MUST also call `plot_price_chart` in parallel to visually display the price trend.\n"
         "Use `search_anomaly_events(symbol)` for equity/stock anomaly investigation — it suppresses corporate actions and runs parallel Google News searches per flagged date.\n"
+        "Use `find_similar_anomaly_events(symbol, regime)` to retrieve historical anomaly events similar to a current regime from Qdrant `market_anomalies` — answer 'what historical crashes looked like this?' or 'find past GOLDBEES flash crashes'.\n"
         "PDF EXPORT: Only call `publish_consolidated_pdf(report_markdown=<full_output>)` when the user explicitly asks to save, export, or publish as PDF.\n"
         "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
@@ -60,7 +61,7 @@ class SignalSubAgent(_SubAgent):
             plot_garch_volatility_chart, plot_macd_chart,
         )
         from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
-        from src.tools.market.equity import search_anomaly_events
+        from src.tools.market.equity import search_anomaly_events, find_similar_anomaly_events
         from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return [
@@ -73,6 +74,7 @@ class SignalSubAgent(_SubAgent):
             query_clickhouse_db,
             explain_price_anomalies,
             search_anomaly_events,
+            find_similar_anomaly_events,
             find_anomaly_correlations,
             plot_price_chart,
             plot_signal_scores,

@@ -19,8 +19,8 @@ When: ETF composite scores, GOLDBEES ML pipeline, Kelly / blended position weigh
       explaining price anomalies / chart spikes / daily return shocks.
 Key tools: run_goldbees_pipeline · run_daily_signal_composite · run_risk_governor_analysis ·
            get_live_inav(symbol) · run_etf_news_sentiment · run_premium_alerts ·
-           explain_price_anomalies(symbol, days) · plot_signal_scores ·
-           plot_signal_breakdown · plot_weight_recommendations · plot_garch_volatility_chart
+           explain_price_anomalies(symbol, days) · find_similar_anomaly_events(symbol, regime) ·
+           plot_signal_scores · plot_signal_breakdown · plot_weight_recommendations · plot_garch_volatility_chart
 Examples:
   "GOLDBEES signal today"        → 1. run_goldbees_pipeline() — report prob_up, regime_signal, blended_50
   "composite scores all ETFs"    → 1. run_daily_signal_composite()  2. plot_signal_scores()
@@ -34,6 +34,8 @@ Examples:
   "is HNGSNGBEES at premium"     → 1. get_live_inav("HNGSNGBEES")
   "ETF news sentiment"           → 1. run_etf_news_sentiment()
   "explain GOLDBEES price anomalies last 30 days" → 1. explain_price_anomalies(symbol="GOLDBEES", days=30)
+  "what historical crashes looked like this GOLDBEES flash crash" → 1. find_similar_anomaly_events(symbol="GOLDBEES", regime="⚡ Flash Crash / Black Swan (EXIT)")
+  "similar anomaly history for RELIANCE"  → 1. find_similar_anomaly_events(symbol="RELIANCE", k=5)
 
 ── macro ────────────────────────────────────────
 When: ANY geopolitical event (Iran, Russia, China, Ukraine, Israel, Gaza, Pakistan, OPEC),
@@ -176,6 +178,8 @@ DISAMBIGUATION RULES — apply when in doubt
 • MAFANG / HNGSNGBEES / MON100 / MASPTOP50 / MAHKTECH / MONQ50 analysis → intl_etf  (not equity)
 • US ticker (AAPL, MSFT, NVDA, TSLA…) → deepdive  (not equity)
 • "SELECT … FROM" or "query the db" → database  (not code)
+• "which funds hold", "find similar funds", "funds with gold/commodity/equity exposure" → mf  (Qdrant similarity search, not SQL)
+• "similar anomaly", "historical anomaly precedents", "past crashes like this" → signal  (not database)
 • Write/run/debug Python code → code  (not database)
 • Single-domain question → use the specialist agent, not research
 • Multi-domain or "why is X" or "full analysis" → research
