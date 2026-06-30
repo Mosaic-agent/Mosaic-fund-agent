@@ -751,8 +751,15 @@ class CompositeAnomalyPipeline:
             df["suppress_corp_action"] = df["trade_date"].isin(self._ca_suppress_dates)
             df.loc[df["suppress_corp_action"], "regime"] = "🏢 Price Driven by Company Event"
 
-        # Populate is_anomaly flag — suppress mechanical corporate-action price jumps
-        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
+        # Suppress mechanical corporate-action price moves from anomaly flags only for ETFs.
+        # ETF corporate actions (NAV resets, bonus units) are pure admin events with no
+        # market-signal content. Stock corporate actions (mergers, demergers, splits) are
+        # real price events worth analysing even when mechanically triggered.
+        is_etf = self.category.lower() in ("etfs", "etf")
+        if is_etf:
+            df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
+        else:
+            df["is_anomaly"] = df["final_z_abs"] > self.z_threshold
 
         df_flagged = df[df["is_anomaly"]].copy()
 

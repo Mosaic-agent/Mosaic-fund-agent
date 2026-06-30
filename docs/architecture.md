@@ -317,7 +317,7 @@ Four-step composite pipeline — public API: `run_composite_anomaly(df, df_cot=N
 3. **Isolation Forest** — cross-asset feature confirmation (USDINR, COT crowding); `Final_Z = Z_robust × (1 + IF_confidence)`
 4. **PELT change-point detection** (`ruptures`, `model="rbf"`, auto penalty = `2·log n`) — detects structural variance-regime breaks; acts as confirmation booster (`Final_Z ×1.15`) for pre-flagged dates near a break; relabels those dates `🔀 Regime Shift (Change Point)`
 
-**Corporate action suppression:** pass `df_corp_actions` (from `market_data.corporate_actions`) to exclude split/bonus/demerger/rights ex-dates from `df_flagged`. Those rows are relabelled `🏦 Corporate Action` and carry `suppress_corp_action=True`.
+**Corporate action suppression (ETF-only):** pass `df_corp_actions` (from `market_data.corporate_actions`); for ETFs (`category="etfs"`) split/bonus/demerger/rights ex-dates are excluded from `df_flagged` — ETF corporate actions (NAV resets, bonus units) are pure admin events with no market-signal content. For stocks, commodities, and indices, those rows remain in `df_flagged` and are stored in Qdrant (labelled `🏢 Price Driven by Company Event`) since corporate events on stocks (mergers, demergers, splits) are real analysable price movements. Note: the `suppress_corp_action` flag excludes rows from `df_flagged` only when `category='etfs'`; stock/commodity corporate actions are included in flagged output.
 
 Requires ≥60 rows. Returns `(df_result, df_flagged, garch_loglik)` where `df_result` carries per-date `regime`, `final_z`, `garch_vol`, `is_changepoint`, `cp_confirmed`, `is_corporate_action`, `suppress_corp_action`.
 

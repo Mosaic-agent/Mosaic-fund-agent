@@ -184,6 +184,8 @@ Three market-data collections complement ClickHouse with semantic similarity sea
 | `mf_fund_profiles` | One portfolio fingerprint per fund×month (equity/gold/bond/cash %) | "Find funds similar to DSP_MULTI_ASSET" |
 | `market_anomalies` | One vector per flagged anomaly date per symbol | "What historical crashes looked like this?" |
 
+**Corporate action handling:** ETF anomalies on corporate-action ex-dates (bonus units, NAV resets) are suppressed from `df_flagged` since they carry no market signal. Stock anomalies on corporate-action dates (mergers, demergers, splits) are kept in `df_flagged` and stored in Qdrant — these are real price events worth investigating. Both categories receive the `🏢 Price Driven by Company Event` regime label for chart display.
+
 ```bash
 # Semantic search queries (routed to MF or signal sub-agent automatically)
 python src/main.py ask "Which funds hold HDFC Bank?"
