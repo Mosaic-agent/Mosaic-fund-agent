@@ -99,7 +99,7 @@ CLI (src/main.py)
 | Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks, `run_fetcher()` loop, event publish. Point-in-time variants: `ml_prediction_asof(date)`, `signal_composite_asof(symbol, date)` |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
-| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly`). `run_composite_anomaly(df, df_cot, df_fx, df_corp_actions)` → 4-step pipeline: MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point; returns `regime`, `final_z`, `garch_vol`, `is_changepoint`, `cp_confirmed`, `is_corporate_action`; requires ≥60 rows |
+| ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly`). `run_composite_anomaly(df, df_cot, df_fx, df_corp_actions, symbol, category)` → 5-step pipeline: MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point → Company Event classification. Suppresses corporate actions from `is_anomaly` for ETFs only; requires ≥60 rows |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
