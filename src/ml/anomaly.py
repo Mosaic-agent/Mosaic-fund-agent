@@ -79,9 +79,15 @@ Public API
 from __future__ import annotations
 
 import logging
+import time
 import warnings
 from abc import ABC, abstractmethod
 from typing import Any
+
+try:
+    from src.db.anomaly_vector import store_anomalies as _store_anomalies
+except ImportError:
+    _store_anomalies = None  # type: ignore[assignment]
 
 import numpy as np
 import pandas as pd
@@ -118,7 +124,10 @@ def retrieve_similar_anomalies(
 ) -> list[dict]:
     """Retrieve past anomaly events semantically similar to the given regime+context.
 
-    Delegates to src.db.anomaly_vector.retrieve_similar_anomalies.
+    Thin shim over src.db.anomaly_vector.retrieve_similar_anomalies — keeps the
+    public import path stable at `from src.ml.anomaly import retrieve_similar_anomalies`
+    while the implementation lives alongside the other Qdrant modules. If the
+    anomaly_vector signature changes, update both this shim and the delegate.
     Returns [] gracefully if Qdrant is unavailable or collection is empty.
     """
     try:
@@ -131,8 +140,13 @@ def retrieve_similar_anomalies(
             category=category,
             same_asset_only=same_asset_only,
         )
+    except (ImportError, ConnectionError, OSError) as e:
+        # Qdrant unavailable — expected in offline or non-vectorised environments
+        log.debug("retrieve_similar_anomalies: Qdrant unavailable: %s", e)
+        return []
     except Exception as e:
-        log.debug("retrieve_similar_anomalies unavailable: %s", e)
+        # Programming error — log at WARNING so it surfaces during development
+        log.warning("retrieve_similar_anomalies: unexpected error: %s", e)
         return []
 
 # Module-level cache: keyed by (n_rows, contamination, feat_cols_tuple)
@@ -426,12 +440,11 @@ def fit_change_points(
         valid_pos_run = valid_pos
         valid_mask_run = valid_mask
 
-    # Dynamically scale jump size to prevent O(N^3) RBF kernel complexity slowdowns
+    # Dynamically scale jump size — n_val is at most 750 (capped above), so only
+    # the > 500 and > 250 branches are reachable; the > 1000 branch was dead.
     if jump == 1:
         n_val = valid_pos_run.size
-        if n_val > 1000:
-            jump = 10
-        elif n_val > 500:
+        if n_val > 500:
             jump = 5
         elif n_val > 250:
             jump = 2
@@ -664,14 +677,25 @@ class CompositeAnomalyPipeline:
         symbol: str = "",
         category: str = "",
     ):
-        self.z_threshold     = z_threshold
-        self.cp_boost        = cp_boost
-        self.df_cot          = df_cot
-        self.df_fx           = df_fx
-        self.df_corp_actions = df_corp_actions
-        self.symbol          = symbol
-        self.category        = category
+        self.z_threshold  = z_threshold
+        self.cp_boost     = cp_boost
+        self.df_cot       = df_cot
+        self.df_fx        = df_fx
+        self.symbol       = symbol
+        self.category     = category
         self.garch_loglik: float = 0.0
+
+        # Pre-compute date sets so the full df_corp_actions DataFrame is not retained
+        self._ca_all_dates: frozenset = frozenset()
+        self._ca_suppress_dates: frozenset = frozenset()
+        if df_corp_actions is not None and not df_corp_actions.empty:
+            from src.importer.fetchers.nse_corporate_actions_fetcher import PRICE_IMPACTING_TYPES
+            ca = df_corp_actions.copy()
+            ca["ex_date"] = pd.to_datetime(ca["ex_date"]).dt.normalize()
+            self._ca_all_dates = frozenset(ca["ex_date"])
+            self._ca_suppress_dates = frozenset(
+                ca.loc[ca["action_type"].isin(PRICE_IMPACTING_TYPES), "ex_date"]
+            )
 
     def run(
         self,
@@ -698,7 +722,6 @@ class CompositeAnomalyPipeline:
         for strategy in strategies:
             strat_name = strategy.__class__.__name__
             log.info(f"Running strategy: {strat_name}...")
-            import time
             t0 = time.time()
             df = strategy.fit_predict(df)
             log.info(f"Finished strategy {strat_name} in {time.time() - t0:.4f}s")
@@ -720,30 +743,24 @@ class CompositeAnomalyPipeline:
                 df.loc[relabel, "regime"] = "🔀 Regime Shift (Change Point)"
 
         # ── Corporate action suppression ─────────────────────────────────────
-        df["is_corporate_action"]    = False
-        df["suppress_corp_action"]   = False
-        if self.df_corp_actions is not None and not self.df_corp_actions.empty:
-            from src.importer.fetchers.nse_corporate_actions_fetcher import PRICE_IMPACTING_TYPES
-            ca = self.df_corp_actions.copy()
-            ca["ex_date"] = pd.to_datetime(ca["ex_date"]).dt.normalize()
-            all_ca_dates      = set(ca["ex_date"])
-            suppress_dates    = set(ca.loc[ca["action_type"].isin(PRICE_IMPACTING_TYPES), "ex_date"])
-            df["trade_date"]  = pd.to_datetime(df["trade_date"]).dt.normalize()
-            df["is_corporate_action"]  = df["trade_date"].isin(all_ca_dates)
-            df["suppress_corp_action"] = df["trade_date"].isin(suppress_dates)
+        df["is_corporate_action"]  = False
+        df["suppress_corp_action"] = False
+        if self._ca_all_dates:
+            df["trade_date"] = pd.to_datetime(df["trade_date"]).dt.normalize()
+            df["is_corporate_action"]  = df["trade_date"].isin(self._ca_all_dates)
+            df["suppress_corp_action"] = df["trade_date"].isin(self._ca_suppress_dates)
             df.loc[df["suppress_corp_action"], "regime"] = "🏢 Price Driven by Company Event"
 
-        # Populate is_anomaly flag
-        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold)
+        # Populate is_anomaly flag — suppress mechanical corporate-action price jumps
+        df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
 
         df_flagged = df[df["is_anomaly"]].copy()
 
-        if self.symbol and not df_flagged.empty:
+        if self.symbol and not df_flagged.empty and _store_anomalies is not None:
             try:
-                from src.db.anomaly_vector import store_anomalies
-                store_anomalies(df_flagged, self.symbol, self.category)
-            except Exception:
-                pass
+                _store_anomalies(df_flagged, self.symbol, self.category)
+            except Exception as e:
+                log.warning("AnomalyVector: store failed for %s: %s", self.symbol, e)
 
         return df, df_flagged
 
