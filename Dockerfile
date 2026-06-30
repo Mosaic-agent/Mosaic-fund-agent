@@ -1,11 +1,31 @@
 # ── Mosaic Fund Agent — Dockerfile ───────────────────────────────────────────
 #
+# Multi-stage build:
+#   Stage 1 (studio-builder): Node 20 compiles the React Studio app → dist/
+#   Stage 2 (runtime):        Python 3.11 runs the agent + serves the built dist
+#
 # Build:   docker compose build
 # Run:     docker compose run mosaic analyze --demo
 #          docker compose run mosaic ask "what is my riskiest holding?"
 #          docker compose run mosaic comex
 #
 
+# ── Stage 1: Build Mosaic Studio (React + Vite) — Node 22 matches local env ──
+FROM node:22-alpine AS studio-builder
+
+WORKDIR /build
+
+# Copy package manifests first — layer is cached unless deps change
+COPY website/studio/package.json website/studio/package-lock.json ./
+RUN npm ci --prefer-offline
+
+# Copy source and build
+COPY website/studio/ ./
+RUN npm run build
+# Produces /build/dist/
+
+
+# ── Stage 2: Python Runtime ───────────────────────────────────────────────────
 FROM python:3.11-slim
 
 # lxml (BeautifulSoup backend) needs gcc + libxml2/libxslt headers at build time.
@@ -35,7 +55,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source
 COPY config/ config/
 COPY src/ src/
-COPY website/ website/
+
+# Copy the compiled Studio assets from stage 1 — no Node.js needed at runtime
+COPY --from=studio-builder /build/dist/ /app/website/studio/dist/
 
 # Pre-create the output directory (reports + cache both land here).
 # At runtime this is replaced by the host-mounted volume, but the directory
