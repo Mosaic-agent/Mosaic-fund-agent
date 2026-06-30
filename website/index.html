@@ -489,6 +489,50 @@
       .dash-metrics { grid-template-columns: repeat(2, 1fr); }
       .dash-tab:nth-child(n+6) { display: none; }
     }
+    /* ── Qdrant RAG section ─────────────────────────────────────── */
+    .rag-section { background: #0d1117; padding: 96px 0; }
+    .rag-section .section-label { color: #dc244c; }
+    .rag-section .section-title { color: #f1f5f9; }
+    .rag-section .section-body  { color: #94a3b8; }
+    .rag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 48px; }
+    @media (max-width: 900px) { .rag-grid { grid-template-columns: 1fr; } }
+    .rag-card { background: #0d1117; border: 1px solid #30363d; border-radius: 12px; overflow: hidden; }
+    .rag-card-head { padding: 18px 22px 14px; border-bottom: 1px solid #30363d; }
+    .rag-card-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; border-radius: 4px; padding: 3px 9px; margin-bottom: 10px; }
+    .rag-card-tag.news  { background: rgba(245,158,11,.15); color: #f59e0b; }
+    .rag-card-tag.mf    { background: rgba(13,148,136,.15); color: #2dd4bf; }
+    .rag-card-tag.anom  { background: rgba(220,36,76,.15);  color: #fb7185; }
+    .rag-card-head h3 { font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+    .rag-card-head p  { font-size: 12.5px; color: #8b99a8; line-height: 1.5; }
+    .rag-flow { padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; }
+    .rag-q, .rag-r { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; }
+    .rag-q { color: #e2e8f0; }
+    .rag-q .rq-label { font-size: 10px; color: #6b7888; text-transform: uppercase; letter-spacing: .8px; display: block; margin-bottom: 4px; }
+    .rag-q .rq-text  { color: #f59e0b; }
+    .rag-arrow { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7888; padding: 0 4px; }
+    .rag-arrow span { flex: 1; height: 1px; background: linear-gradient(90deg, #30363d, #dc244c, #30363d); }
+    .rag-badge { background: rgba(220,36,76,.12); border: 1px solid rgba(220,36,76,.3); border-radius: 6px; padding: 2px 9px; font-size: 10px; color: #fb7185; white-space: nowrap; }
+    .rag-r .rr-label { font-size: 10px; color: #6b7888; text-transform: uppercase; letter-spacing: .8px; display: block; margin-bottom: 6px; }
+    .rag-r .rr-row   { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; color: #94a3b8; }
+    .rag-r .rr-row .rr-name { color: #e2e8f0; font-weight: 600; }
+    .rag-r .rr-row .rr-sim  { color: #4caf7d; }
+    .rag-r .rr-row .rr-pct  { color: #f59e0b; }
+    .rag-collections { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 48px; justify-content: center; }
+    .rag-coll { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+    .rag-coll-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .rag-coll-name { font-size: 13px; font-weight: 600; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; }
+    .rag-coll-dim  { font-size: 11px; color: #6b7888; }
+    .rag-coll-badge { background: #161b22; border: 1px solid rgba(139,92,246,.4); border-radius: 8px; padding: 10px 16px; display: flex; align-items: center; gap: 8px; }
+    .rag-coll-badge .badge-icon { font-size: 14px; }
+    .rag-coll-badge .badge-text { font-size: 11px; font-weight: 600; color: #a78bfa; font-family: 'JetBrains Mono', monospace; }
+    /* engine grid: auto-fit so 5 cards fit without overflow */
+    .flow-engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+    /* qdrant store node */
+    .flow-store.qdrant { background: #0d1117; border-color: rgba(220,36,76,.4); }
+    .flow-store.qdrant .store-title { color: #fb7185; }
+    .flow-store.qdrant .store-tables { color: #94a3b8; }
+    .flow-dual-stores { display: flex; flex-direction: column; gap: 10px; flex: 1.4; min-width: 240px; }
+
     @media (max-width: 760px) {
       .flow-engines { grid-template-columns: repeat(2, 1fr); }
       .flow-lake { flex-direction: column; align-items: stretch; }
@@ -834,9 +878,9 @@
     <div class="section-label">Architecture</div>
     <h2 class="section-title">How it works</h2>
     <p class="section-body">
-      Data lands in a local lake, fans out to four quant engines, converges in a
-      multi-agent orchestrator backed by a SQLite LLM cache so repeat questions
-      are free and surfaces wherever you work.
+      Data lands in a dual local lake (ClickHouse + Qdrant), fans out to five quant engines,
+      converges in a multi-agent orchestrator backed by a SQLite LLM cache so repeat questions
+      are free, and surfaces wherever you work.
     </p>
 
     <div class="flow">
@@ -854,21 +898,32 @@
             </div>
           </div>
           <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
-          <div class="flow-store">
-            <div class="store-title">🗄️ Local ClickHouse Lake · 26 tables</div>
-            <div class="store-tables">
-              daily_prices · mf_holdings · fii_dii<br/>
-              cot_gold · fx_rates · ml_predictions<br/>
-              signal_composite · inav_snapshots
+          <div class="flow-dual-stores">
+            <div class="flow-store">
+              <div class="store-title">🗄️ Local ClickHouse Lake · 26 tables</div>
+              <div class="store-tables">
+                daily_prices · mf_holdings · fii_dii<br/>
+                cot_gold · fx_rates · ml_predictions<br/>
+                signal_composite · inav_snapshots
+              </div>
+              <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
             </div>
-            <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
+            <div class="flow-store qdrant">
+              <div class="store-title">🧬 Qdrant Vector DB · 5 collections</div>
+              <div class="store-tables">
+                market_anomalies · mf_holdings<br/>
+                mf_fund_profiles · news_articles<br/>
+                clickhouse_metadata
+              </div>
+              <div class="store-meta" style="color:#6b7888">768-dim nomic-embed-text · COSINE · is_tenant indexes</div>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="flow-conn">
         <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-        <div class="conn-label">fan-out · read through one typed repository</div>
+        <div class="conn-label">fan-out · read through one typed repository · embeddings written to Qdrant in background threads</div>
       </div>
 
       <!-- Layer 2 engine fan-out -->
@@ -893,7 +948,12 @@
           <div class="engine e4">
             <div class="e-ico">🔬</div>
             <h4>Anomaly</h4>
-            <p>MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point · 8 regime labels · company event tracking</p>
+            <p>MAD-Z → GARCH(1,1) → Isolation Forest → PELT · 8 regime labels · auto-stores flagged dates in Qdrant</p>
+          </div>
+          <div class="engine" style="border-top-color:#dc244c">
+            <div class="e-ico">🧬</div>
+            <h4>Vector RAG</h4>
+            <p>nomic-embed-text 768-dim · semantic similarity across anomalies, fund holdings, and news · 5 Qdrant collections</p>
           </div>
         </div>
       </div>
@@ -941,6 +1001,146 @@
       <div class="stack-pill"><span class="dot" style="background:var(--blue)"></span>Streamlit</div>
       <div class="stack-pill"><span class="dot" style="background:var(--gold)"></span>Ollama / Gemma 4</div>
       <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>OpenAI / Anthropic</div>
+      <div class="stack-pill"><span class="dot" style="background:#dc244c"></span>Qdrant</div>
+      <div class="stack-pill"><span class="dot" style="background:#8b5cf6"></span>nomic-embed-text</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── QDRANT RAG ─────────────────────────────────────────────────── -->
+<section class="rag-section" id="rag">
+  <div class="container">
+    <div class="section-label">Vector Intelligence</div>
+    <h2 class="section-title">Qdrant RAG — semantic memory, not just SQL</h2>
+    <p class="section-body">
+      Five 768-dimensional collections store embedded representations of every anomaly, fund holding,
+      news article, and portfolio fingerprint. Vector similarity finds cross-asset correlations
+      and historical precedents that SQL <em>can't</em> express.
+    </p>
+
+    <div class="rag-grid">
+
+      <!-- Card 1: News → Anomaly Correlation -->
+      <div class="rag-card">
+        <div class="rag-card-head">
+          <div class="rag-card-tag news">News RAG · macro correlation</div>
+          <h3>Macro event → price shock correlation</h3>
+          <p>When an anomaly fires, PostMacroShockStrategy embeds the event text and queries <code style="color:#f59e0b;background:rgba(245,158,11,.1);padding:1px 5px;border-radius:3px">news_articles</code> for semantically related headlines in the ±7-day window — no date exact-match required.</p>
+        </div>
+        <div class="rag-flow">
+          <div class="rag-q">
+            <span class="rq-label">Anomaly detected</span>
+            <span class="rq-text">GOLDBEES −5.7% on 2026-05-19 · ⚡ Flash Crash (Z=−4.2)</span>
+          </div>
+          <div class="rag-arrow">
+            <span></span>
+            <div class="rag-badge">embed → query news_articles</div>
+            <span></span>
+          </div>
+          <div class="rag-r">
+            <span class="rr-label">Correlated news (cosine similarity)</span>
+            <div class="rr-row"><span class="rr-name">RBI surprise rate hold</span><span class="rr-sim">0.91</span></div>
+            <div class="rr-row"><span class="rr-name">India import duty hike gold</span><span class="rr-sim">0.87</span></div>
+            <div class="rr-row"><span class="rr-name">USDINR breaks 84.5 resistance</span><span class="rr-sim">0.82</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: MF Fund Similarity -->
+      <div class="rag-card">
+        <div class="rag-card-head">
+          <div class="rag-card-tag mf">Fund RAG · holdings &amp; allocation</div>
+          <h3>Cross-fund holdings &amp; allocation similarity</h3>
+          <p>22k+ fund positions (809 funds) embedded as text. Fund-level profiles capture equity/gold/bond/cash fingerprints. Two query modes: find which funds share a stock, or find funds with similar multi-asset allocation.</p>
+        </div>
+        <div class="rag-flow">
+          <div class="rag-q">
+            <span class="rq-label">Query</span>
+            <span class="rq-text">find_similar_funds("DSP_MULTI_ASSET")</span>
+          </div>
+          <div class="rag-arrow">
+            <span></span>
+            <div class="rag-badge">cosine → mf_fund_profiles</div>
+            <span></span>
+          </div>
+          <div class="rag-r">
+            <span class="rr-label">Similar portfolio composition</span>
+            <div class="rr-row"><span class="rr-name">ICICI_MULTI_ASSET</span><span style="color:#94a3b8;font-size:11px">eq 52% · gold 15% · bond 22%</span><span class="rr-sim">0.94</span></div>
+            <div class="rr-row"><span class="rr-name">QUANT_MULTI_ASSET</span><span style="color:#94a3b8;font-size:11px">eq 61% · gold 20% · bond 14%</span><span class="rr-sim">0.88</span></div>
+            <div class="rr-row"><span class="rr-name">BAJAJ_MULTI_ASSET</span><span style="color:#94a3b8;font-size:11px">eq 67% · gold 16% · bond 4%</span><span class="rr-sim">0.83</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Historical Anomaly Precedents -->
+      <div class="rag-card">
+        <div class="rag-card-head">
+          <div class="rag-card-tag anom">Anomaly RAG · historical precedents</div>
+          <h3>Historical precedent lookup for any regime</h3>
+          <p>Every flagged anomaly date is auto-stored on pipeline run. Ask what past events looked like today's shock — ranked by embedding similarity, excluding a ±30-day self-match window.</p>
+        </div>
+        <div class="rag-flow">
+          <div class="rag-q">
+            <span class="rq-label">Query</span>
+            <span class="rq-text">find_similar_anomaly_events(<br/>&nbsp;&nbsp;"GOLDBEES", "Flash Crash"<br/>)</span>
+          </div>
+          <div class="rag-arrow">
+            <span></span>
+            <div class="rag-badge">cosine → market_anomalies</div>
+            <span></span>
+          </div>
+          <div class="rag-r">
+            <span class="rr-label">Historical precedents</span>
+            <div class="rr-row"><span class="rr-name">2024-01-15</span><span style="color:#94a3b8;font-size:11px">Flash Crash Z=−4.2</span><span class="rr-sim">0.96</span></div>
+            <div class="rr-row"><span class="rr-name">2023-08-03</span><span style="color:#94a3b8;font-size:11px">Flash Crash Z=−3.8</span><span class="rr-sim">0.91</span></div>
+            <div class="rr-row"><span class="rr-name">2022-11-09</span><span style="color:#94a3b8;font-size:11px">Volatile Breakout</span><span class="rr-sim">0.79</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Collections inventory -->
+    <div class="rag-collections">
+      <div class="rag-coll">
+        <div class="rag-coll-dot" style="background:#f59e0b"></div>
+        <div>
+          <div class="rag-coll-name">news_articles</div>
+          <div class="rag-coll-dim">news RAG · tenant: category</div>
+        </div>
+      </div>
+      <div class="rag-coll">
+        <div class="rag-coll-dot" style="background:#2563eb"></div>
+        <div>
+          <div class="rag-coll-name">clickhouse_metadata</div>
+          <div class="rag-coll-dim">schema RAG · prevents hallucination</div>
+        </div>
+      </div>
+      <div class="rag-coll">
+        <div class="rag-coll-dot" style="background:#fb7185"></div>
+        <div>
+          <div class="rag-coll-name">market_anomalies</div>
+          <div class="rag-coll-dim">anomaly history · tenant: symbol</div>
+        </div>
+      </div>
+      <div class="rag-coll">
+        <div class="rag-coll-dot" style="background:#2dd4bf"></div>
+        <div>
+          <div class="rag-coll-name">mf_holdings</div>
+          <div class="rag-coll-dim">22k fund positions · tenant: isin</div>
+        </div>
+      </div>
+      <div class="rag-coll">
+        <div class="rag-coll-dot" style="background:#a78bfa"></div>
+        <div>
+          <div class="rag-coll-name">mf_fund_profiles</div>
+          <div class="rag-coll-dim">portfolio fingerprints · tenant: fund_name</div>
+        </div>
+      </div>
+      <div class="rag-coll-badge">
+        <div class="badge-icon">⚡</div>
+        <div class="badge-text">768-dim · nomic-embed-text · COSINE</div>
+      </div>
     </div>
   </div>
 </section>
