@@ -199,6 +199,13 @@ class BaseFundImporter(ABC):
         client.insert(self.table_name(), insert_tuples, column_names=cols)
         console.print(f"[bold green]✓ Inserted {len(insert_tuples):,} rows.[/bold green]")
 
+        if self.table_name() == "market_data.mf_holdings":
+            try:
+                from src.db.mf_vector import vectorize_holdings
+                vectorize_holdings(all_rows)
+            except Exception:
+                pass
+
         wm = self.watermark_rows(all_rows)
         if wm:
             client.insert(

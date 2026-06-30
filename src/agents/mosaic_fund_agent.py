@@ -43,6 +43,8 @@ from src.tools.newsapi_search import get_newsapi_stock_news
 from src.tools.chart_tools import CHART_TOOLS
 from src.tools.shoonya_tools import SHOONYA_TOOLS
 from src.tools.market.correlation_tools import find_anomaly_correlations
+from src.tools.market.equity import find_similar_anomaly_events
+from src.tools.market.mf_tools import MF_QDRANT_TOOLS
 from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
 from src.tools.etf_setup_scanner import scan_etf_setups, scan_etf_trends
 from langchain_core.callbacks import BaseCallbackHandler
@@ -53,7 +55,7 @@ from rich.markdown import Markdown
 logger = logging.getLogger(__name__)
 
 # All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS + SHOONYA_TOOLS + [find_anomaly_correlations, publish_research_pdf, publish_consolidated_pdf, scan_etf_setups, scan_etf_trends]
+ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS + SHOONYA_TOOLS + [find_anomaly_correlations, find_similar_anomaly_events, publish_research_pdf, publish_consolidated_pdf, scan_etf_setups, scan_etf_trends] + MF_QDRANT_TOOLS
 
 
 

@@ -360,7 +360,7 @@ class GARCHAnomalySource(AnomalySource):
             for col in ["open", "high", "low", "close", "volume"]:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
             from src.ml.anomaly import run_composite_anomaly
-            _, df_flagged, _ = run_composite_anomaly(df, z_threshold=2.0)
+            _, df_flagged, _ = run_composite_anomaly(df, z_threshold=2.0, symbol="GOLDBEES", category="etfs")
             if not df_flagged.empty:
                 flags["GOLDBEES"] = str(df_flagged.iloc[-1].get("regime", "Normal"))
             log.info("Anomaly: GOLDBEES regime=%s, %d flagged days",
