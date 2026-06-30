@@ -266,6 +266,8 @@ def search_anomaly_events(
             contamination=contamination,
             z_threshold=z_threshold,
             df_corp_actions=df_corp,
+            symbol=symbol_upper,
+            category=category,
         )
     except Exception as exc:
         return f"Anomaly pipeline failed for {symbol_upper}: {exc}"
@@ -373,6 +375,38 @@ def search_anomaly_events(
             lines.append(news_block)
         lines.append("")
 
+    # ── 7. Historical precedents from Qdrant ─────────────────────────────────
+    if recent.shape[0] > 0:
+        try:
+            from src.ml.anomaly import retrieve_similar_anomalies
+            top_row = recent.iloc[0]
+            top_regime = str(top_row.get("regime", ""))
+            top_date = top_row["trade_date"]
+            similar = retrieve_similar_anomalies(
+                symbol=symbol_upper,
+                regime=top_regime,
+                trade_date=top_date,
+                k=5,
+                category=category,
+            )
+            if similar:
+                lines.append("---\n")
+                lines.append("### 🕰️ Historical Precedents (Qdrant Similarity Search)\n")
+                lines.append(
+                    f"Past anomalies most similar to **{top_regime}** on {symbol_upper}:\n"
+                )
+                lines.append("| Date | Symbol | Regime | Final Z | Return | Similarity |")
+                lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+                for s in similar:
+                    lines.append(
+                        f"| {s['trade_date']} | {s['symbol']} | {s['regime']} "
+                        f"| {s['final_z']:+.2f} | {s['daily_return']:+.2f}% "
+                        f"| {s['similarity']:.3f} |"
+                    )
+                lines.append("")
+        except Exception as _qdrant_err:
+            log.debug("Qdrant historical precedents unavailable: %s", _qdrant_err)
+
     return "\n".join(lines)
 
 
@@ -439,4 +473,87 @@ def get_corporate_actions(symbol: str) -> str:
     return "\n".join(lines)
 
 
-EQUITY_ANOMALY_TOOLS = [search_anomaly_events, get_corporate_actions]
+@tool
+def find_similar_anomaly_events(
+    symbol: str,
+    regime: str = "",
+    trade_date: str = "",
+    k: int = 5,
+    category: str = "",
+    same_asset_only: bool = False,
+) -> str:
+    """
+    Search Qdrant for historical anomaly events semantically similar to the
+    given symbol and regime. Uses the market_anomalies vector collection built
+    from all previous anomaly pipeline runs.
+
+    Use when the user asks:
+      - "What historical events looked like this flash crash on GOLDBEES?"
+      - "Has RELIANCE had similar anomalies in the past?"
+      - "Find historical precedents for this volatile breakout"
+      - "What happened last time HDFCBANK had a high GARCH residual?"
+
+    Args:
+        symbol:          NSE symbol to search for (e.g. GOLDBEES, RELIANCE).
+        regime:          Anomaly regime label to match (e.g. "⚡ Flash Crash / Black Swan (EXIT)").
+                         Leave blank to match any regime for this symbol.
+        trade_date:      ISO date string (YYYY-MM-DD) of the reference anomaly.
+                         Leave blank to use today's date.
+        k:               Number of similar events to return (default 5).
+        category:        Asset category (etfs / stocks / indices). Leave blank for any.
+        same_asset_only: If True, restrict results to the same symbol.
+    """
+    from datetime import date as _date
+    from src.ml.anomaly import retrieve_similar_anomalies
+
+    symbol_upper = symbol.strip().upper()
+
+    ref_date: _date
+    if trade_date:
+        try:
+            from datetime import datetime as _dt
+            ref_date = _dt.strptime(trade_date.strip(), "%Y-%m-%d").date()
+        except ValueError:
+            return f"Invalid trade_date format '{trade_date}'. Use YYYY-MM-DD."
+    else:
+        ref_date = _date.today()
+
+    regime_query = regime.strip() or f"{symbol_upper} anomaly"
+
+    similar = retrieve_similar_anomalies(
+        symbol=symbol_upper,
+        regime=regime_query,
+        trade_date=ref_date,
+        k=k,
+        category=category,
+        same_asset_only=same_asset_only,
+    )
+
+    if not similar:
+        return (
+            f"No historical anomaly precedents found for **{symbol_upper}** "
+            f"(regime: {regime_query or 'any'}). "
+            "The Qdrant market_anomalies collection may be empty — "
+            "run `search_anomaly_events` first to populate it."
+        )
+
+    lines = [
+        f"## 🕰️ Historical Anomaly Precedents: {symbol_upper}",
+        f"Regime query: **{regime_query}** | Top {len(similar)} matches\n",
+        "| Date | Symbol | Category | Regime | Final Z | Return | Similarity |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    for s in similar:
+        lines.append(
+            f"| {s['trade_date']} | {s['symbol']} | {s['category']} | {s['regime']} "
+            f"| {s['final_z']:+.2f} | {s['daily_return']:+.2f}% | {s['similarity']:.3f} |"
+        )
+    lines.append("")
+    lines.append("**Context descriptions used for similarity:**")
+    for s in similar:
+        lines.append(f"- {s['text']}")
+
+    return "\n".join(lines)
+
+
+EQUITY_ANOMALY_TOOLS = [search_anomaly_events, get_corporate_actions, find_similar_anomaly_events]

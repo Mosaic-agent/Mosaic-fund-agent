@@ -262,6 +262,7 @@ to narrate results that already exist in the tool/script output.
 ### Commit and PR Workflow
 - Committing directly to `main` locally is fine — PRs always use **squash-and-merge**, so history stays clean.
 - Never add a `Co-Authored-By:` trailer to git commit messages. Write clean, single-author commit messages only.
+- **NEVER stage or commit code automatically.** You must always wait for the user to explicitly prompt or approve a commit (e.g. "commit changes", "/commit", "please commit this"). Do not run git commit commands proactively unless directly requested.
 
 ### Verify Dilution Before Flagging Promoter Sale
 A drop in promoter % is **not** the same as a promoter sale. Before concluding

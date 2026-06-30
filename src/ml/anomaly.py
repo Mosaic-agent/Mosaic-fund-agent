@@ -81,6 +81,7 @@ from __future__ import annotations
 import logging
 import warnings
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -97,6 +98,7 @@ __all__ = [
     "fit_change_points",
     "classify_regime",
     "run_composite_anomaly",
+    "retrieve_similar_anomalies",
     "AnomalyDetectorStrategy",
     "RobustZScoreStrategy",
     "GarchResidualStrategy",
@@ -104,6 +106,34 @@ __all__ = [
     "PeltChangePointStrategy",
     "CompositeAnomalyPipeline",
 ]
+
+
+def retrieve_similar_anomalies(
+    symbol: str,
+    regime: str,
+    trade_date: Any,
+    k: int = 5,
+    category: str = "",
+    same_asset_only: bool = False,
+) -> list[dict]:
+    """Retrieve past anomaly events semantically similar to the given regime+context.
+
+    Delegates to src.db.anomaly_vector.retrieve_similar_anomalies.
+    Returns [] gracefully if Qdrant is unavailable or collection is empty.
+    """
+    try:
+        from src.db.anomaly_vector import retrieve_similar_anomalies as _retrieve
+        return _retrieve(
+            symbol=symbol,
+            regime=regime,
+            trade_date=trade_date,
+            k=k,
+            category=category,
+            same_asset_only=same_asset_only,
+        )
+    except Exception as e:
+        log.debug("retrieve_similar_anomalies unavailable: %s", e)
+        return []
 
 # Module-level cache: keyed by (n_rows, contamination, feat_cols_tuple)
 # Avoids refitting IsolationForest when the same data + params are reused
@@ -631,12 +661,16 @@ class CompositeAnomalyPipeline:
         df_cot: pd.DataFrame | None = None,
         df_fx: pd.DataFrame | None = None,
         df_corp_actions: pd.DataFrame | None = None,
+        symbol: str = "",
+        category: str = "",
     ):
         self.z_threshold     = z_threshold
         self.cp_boost        = cp_boost
         self.df_cot          = df_cot
         self.df_fx           = df_fx
         self.df_corp_actions = df_corp_actions
+        self.symbol          = symbol
+        self.category        = category
         self.garch_loglik: float = 0.0
 
     def run(
@@ -703,6 +737,14 @@ class CompositeAnomalyPipeline:
         df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold)
 
         df_flagged = df[df["is_anomaly"]].copy()
+
+        if self.symbol and not df_flagged.empty:
+            try:
+                from src.db.anomaly_vector import store_anomalies
+                store_anomalies(df_flagged, self.symbol, self.category)
+            except Exception:
+                pass
+
         return df, df_flagged
 
 
@@ -721,10 +763,15 @@ def run_composite_anomaly(
     cp_proximity_days: int = 3,
     cp_boost: float = 1.15,
     df_corp_actions: pd.DataFrame | None = None,
+    symbol: str = "",
+    category: str = "",
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
     Defers execution to the OOP CompositeAnomalyPipeline.
+
+    symbol / category: when provided, flagged anomalies are stored in Qdrant
+    for future semantic retrieval (retrieve_similar_anomalies).
     """
     pipeline = CompositeAnomalyPipeline(
         z_threshold=z_threshold,
@@ -732,6 +779,8 @@ def run_composite_anomaly(
         df_cot=df_cot,
         df_fx=df_fx,
         df_corp_actions=df_corp_actions,
+        symbol=symbol,
+        category=category,
     )
     df_res, df_flagged = pipeline.run(
         df,

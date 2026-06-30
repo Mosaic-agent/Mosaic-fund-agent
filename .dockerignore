@@ -28,7 +28,11 @@ docs/
 *.mmd
 
 # Build artifacts
-dist/
+# Note: website/studio/dist/ is intentionally NOT excluded here.
+# The studio-builder stage in the Dockerfile runs `npm run build` inside Docker,
+# so the local dist/ may not exist — and the .dockerignore must let the source
+# through so Node can build it fresh. node_modules is excluded (large, rebuilt in-container).
+website/studio/node_modules/
 build/
 *.egg-info/
 

@@ -2,9 +2,11 @@
 
 The **🔬 Anomaly Detection** tab runs a five-step composite pipeline on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Company Event classification.
 
+Detected anomalies are automatically written to **Qdrant** (`market_anomalies` collection) for semantic memory and historical precedent retrieval. A separate **Correlation Engine** attributes each flagged date to external causal events (macro shocks, FX moves, insider activity) using three pluggable strategies.
+
 ## Architectural Pipeline & Data Flow
 
-The following data flow diagram illustrates how raw market inputs flow through the 5-step anomaly detection pipeline, map to a volatility/trend regime, integrate into the multi-pillar Signal Composite, and finally determine position sizing in the Risk Governor:
+The following data flow diagram illustrates how raw market inputs flow through the 5-step anomaly detection pipeline, map to a volatility/trend regime, feed the Correlation Engine and Qdrant memory layer, integrate into the multi-pillar Signal Composite, and finally determine position sizing in the Risk Governor:
 
 ```mermaid
 graph TD
@@ -14,6 +16,8 @@ graph TD
         COT["COT Net Positions / OI (Gold-only)"]
         FX["USDINR FX Rates & Vol"]
         CA["NSE Corporate Actions (Splits/Bonuses)"]
+        NEWS["News Articles (ClickHouse + Qdrant)"]
+        MACRO["Macro Events (IMF / World Bank)"]
     end
 
     %% Pipeline Steps
@@ -29,10 +33,26 @@ graph TD
     subgraph Regime ["3. Regime Classification"]
         RC["Regime Mapper & Score Allocator<br/>(Normal, Trend, Volatile, Flash Crash, etc.)"]
         RS["Regime Score (0 - 100)"]
+        FLAG["df_flagged: final_z_abs > threshold"]
+    end
+
+    %% Qdrant Memory Layer
+    subgraph QdrantLayer ["4. Qdrant Memory Layer"]
+        QW["store_anomalies(df_flagged, symbol)<br/>→ market_anomalies collection<br/>(768-dim nomic-embed-text)"]
+        QR["retrieve_similar_anomalies()<br/>find_similar_anomaly_events tool<br/>Historical Precedents section"]
+    end
+
+    %% Correlation Engine
+    subgraph CorrelEngine ["5. Correlation Engine (ml/correlation/)"]
+        CE_STRAT1["PreEventLeakStrategy<br/>(insider accumulation before corporate action)"]
+        CE_STRAT2["PostMacroShockStrategy<br/>(macro event → price reaction lag)"]
+        CE_STRAT3["CrossAssetCoMovementStrategy<br/>(FX / commodity co-movement)"]
+        CE_NEWS["News RAG (Qdrant news_articles)<br/>retrieve_articles() semantic search"]
+        CE_OUT["CorrelationFinding[]<br/>(event_type, date, lag_days, score, explanation)"]
     end
 
     %% Signal Composite
-    subgraph Composite ["4. Signal Composite Integration"]
+    subgraph Composite ["6. Signal Composite Integration"]
         P_Macro["Macro Theme (20%)"]
         P_Sentiment["News Sentiment (15%)"]
         P_Valuation["iNAV Premium (25%)"]
@@ -43,45 +63,57 @@ graph TD
     end
 
     %% Risk Governor
-    subgraph Governor ["5. Risk Governor Sizing"]
+    subgraph Governor ["7. Risk Governor Sizing"]
         RG_Vol["GARCH Vol Sizing<br/>(vol_target / garch_vol)"]
         RG_Trend["Trend EMA Filter<br/>(0.75x if < 50-day EMA)"]
         RG_Gate["Composite Score Gate<br/>(0.50x if score < 35)"]
         RG_Weight["Final Position Weight<br/>(blended_50 / blended_30)"]
     end
 
-    %% Connections
+    %% Connections — Detection
     OHLCV --> S1
     OHLCV --> S2
     OHLCV --> S3
     COT --> S3
     FX --> S3
-    
     S1 --> S3
     S2 --> S3
-    
     OHLCV --> S4
     S3 --> S4
-    
     CA --> S5
     S4 --> S5
-    
     S5 --> RC
     RC --> RS
-    
+    RC --> FLAG
+
+    %% Connections — Qdrant Memory
+    FLAG -->|"fire-and-forget thread"| QW
+    QW -->|"market_anomalies"| QR
+    QR -->|"Historical Precedents"| CE_OUT
+
+    %% Connections — Correlation Engine
+    FLAG --> CE_STRAT1
+    FLAG --> CE_STRAT2
+    FLAG --> CE_STRAT3
+    NEWS --> CE_NEWS
+    MACRO --> CE_STRAT2
+    FX --> CE_STRAT3
+    CE_NEWS --> CE_STRAT2
+    CE_STRAT1 --> CE_OUT
+    CE_STRAT2 --> CE_OUT
+    CE_STRAT3 --> CE_OUT
+
+    %% Connections — Composite & Governor
     RS --> P_Anomaly
-    
     P_Macro --> CS
     P_Sentiment --> CS
     P_Valuation --> CS
     P_Flow --> CS
     P_ML --> CS
     P_Anomaly --> CS
-    
     S2 --> RG_Vol
     CS --> RG_Gate
     OHLCV --> RG_Trend
-    
     RG_Vol --> RG_Weight
     RG_Trend --> RG_Weight
     RG_Gate --> RG_Weight
@@ -281,12 +313,176 @@ At current gold vol (34.5%) with a 15% target: `w = min(1.0, 15/34.5) = 43%` →
 
 The cache is in-memory only and does not persist across processes. It is cleared automatically when new price data arrives (via `ModelCacheInvalidator` observer) or when the process restarts.
 
+## Correlation Engine (`src/ml/correlation/`)
+
+After the anomaly pipeline flags dates, a separate **Correlation Engine** attributes each shock to an external causal event. It is anomaly-first: detection runs independently and strategies explain rather than detect.
+
+### Architecture
+
+```
+df_flagged (anomaly dates)
+      │
+      ▼
+CorrelationService.find_correlations(df_ohlcv, df_flagged)
+      ├── PreEventLeakStrategy._detect_signals()   → _score_signal()
+      ├── PostMacroShockStrategy._detect_signals() → _score_signal()   ← uses News RAG
+      └── CrossAssetCoMovementStrategy._detect_signals() → _score_signal()
+      │
+      ▼
+FindingsPipeline (filters + deduplication)
+      │
+      ▼
+List[CorrelationFinding]  (persisted + returned to agent)
+```
+
+Each strategy is split into two phases:
+- **`_detect_signals()`** — pure detection, produces raw `_Signal` records with features (no thresholds, no explanations)
+- **`_score_signal()`** — scores one signal into a `CorrelationFinding` or `None` (applies quality gates: min return, lag decay, direction penalty)
+
+### Strategies
+
+| Strategy | Signal source | What it detects |
+|---|---|---|
+| `PreEventLeakStrategy` | NSE corporate actions (`market_data.corporate_actions`) | Unusual price moves 1–5 days *before* an ex-date (split/bonus/demerger) — possible insider accumulation or pre-positioning |
+| `PostMacroShockStrategy` | Macro events (EventRegistry) + **News RAG** (Qdrant `news_articles`) | Price reaction within a configurable lag window after a macro shock (RBI policy, US Fed, global tariff, commodity move) |
+| `CrossAssetCoMovementStrategy` | USDINR FX rates, COMEX commodity prices | Same-day or next-day co-movement between the flagged asset and a cross-asset shock (USD spike, gold crash, crude move) |
+
+### News RAG Integration
+
+`PostMacroShockStrategy` uses semantic news retrieval to enrich findings. For each candidate anomaly date it calls `retrieve_articles(query, around_date)` from `src/ml/correlation/news_rag.py`:
+
+```
+query = "gold price shock RBI Fed macro"
+  │
+  ▼
+embed_text(query)  →  768-dim Ollama vector
+  │
+  ├─ 1. Qdrant query_points(collection="news_articles", filter=date_range)  ← fast path
+  └─ 2. ClickHouse cosine fallback (if Qdrant unavailable)
+  │
+  ▼
+Top-k articles ranked by cosine similarity
+  → score_news_quality(headline)  — exemplar-based quality weight
+  → score_event_relevance(event_text, symbol)  — symbol-context cosine score
+```
+
+### `CorrelationFinding` output fields
+
+| Field | Type | Description |
+|---|---|---|
+| `anomaly_date` | date | Flagged price anomaly date |
+| `event_type` | EventType | `INSIDER_LEAK`, `MACRO_SHOCK`, `CROSS_ASSET` |
+| `event_date` | date | Date of the attributed external event |
+| `lag_days` | int | Days between event and anomaly (negative = pre-event leak) |
+| `score` | float | Composite attribution confidence [0–1] |
+| `direction_match` | bool | Event direction (buy/sell pressure) matches price move |
+| `explanation` | str | Human-readable narrative (e.g. "RBI surprise cut 3 days before +4.2% move") |
+| `news_articles` | list | Supporting news headlines from RAG |
+
+### Agent tool
+
+`find_anomaly_correlations(symbol, lookback_days=365)` in `src/tools/market/correlation_tools.py` wraps the full engine and renders a Markdown report with a **timeline chart** and **lead-lag scatter grid** saved to `output/`.
+
+---
+
+## Qdrant Integration (`src/db/anomaly_vector.py`)
+
+Every anomaly pipeline run with a named `symbol` automatically persists flagged rows to the **`market_anomalies`** Qdrant collection. This creates a semantic memory of every shock the system has ever seen, enabling cross-asset and cross-time precedent retrieval.
+
+### Collection schema
+
+| Field | Value |
+|---|---|
+| Collection | `market_anomalies` |
+| Vector dim | 768 (nomic-embed-text via Ollama) |
+| Distance | COSINE |
+| Tenant index | `symbol` (`is_tenant=True`) |
+| Other indexes | `category` (keyword), `regime` (keyword), `trade_timestamp` (float) |
+
+### Write path — automatic on every run
+
+```python
+# src/ml/anomaly.py — CompositeAnomalyPipeline.run()
+df_flagged = df[df["is_anomaly"]]
+
+if self.symbol and not df_flagged.empty:
+    from src.db.anomaly_vector import store_anomalies
+    store_anomalies(df_flagged, self.symbol, self.category)
+    # ↑ fire-and-forget daemon thread — never blocks the pipeline
+```
+
+Callers opt-in by passing `symbol=` to `run_composite_anomaly()`:
+
+```python
+df_result, df_flagged, loglik = run_composite_anomaly(
+    df, symbol="GOLDBEES", category="etfs", ...
+)
+```
+
+Each flagged row is embedded as a text description:
+
+```
+"GOLDBEES (etfs) 2024-01-15: ⚡ Flash Crash / Black Swan (EXIT)
+ final_z=-4.23 garch_vol=18.5% return=-2.14% z_resid=3.87 if_conf=0.91"
+```
+
+Point ID = `uuid5("anomaly:{symbol}:{trade_date}")` — idempotent re-runs never duplicate.
+
+### Read path — historical precedents
+
+`retrieve_similar_anomalies()` queries `market_anomalies` by vector similarity, excluding a 30-day window around the query date (avoids trivial self-match):
+
+```python
+from src.ml.anomaly import retrieve_similar_anomalies
+
+similar = retrieve_similar_anomalies(
+    symbol="GOLDBEES",
+    regime="⚡ Flash Crash / Black Swan (EXIT)",
+    trade_date=date(2024, 1, 15),
+    k=5,
+)
+# → [{"symbol", "trade_date", "regime", "final_z", "daily_return", "similarity"}, ...]
+```
+
+### Agent tools
+
+| Tool | Location | What it does |
+|---|---|---|
+| `find_similar_anomaly_events` | `src/tools/market/equity.py` | Direct Qdrant similarity search — "what historical events looked like this crash on GOLDBEES?" |
+| `search_anomaly_events` | `src/tools/market/equity.py` | Appends a **Historical Precedents** table (from Qdrant) at the end of every report when similar past events exist |
+
+### Integration with `search_anomaly_events`
+
+```
+search_anomaly_events(symbol="RELIANCE", days=90)
+    │
+    ├─ run_composite_anomaly(..., symbol="RELIANCE", category="stocks")
+    │     └─ [background] store_anomalies(df_flagged, "RELIANCE", "stocks")
+    │
+    ├─ Parallel Google News searches per anomaly date
+    │
+    └─ retrieve_similar_anomalies("RELIANCE", top_regime, top_date, k=5)
+          └─ Appended as "🕰️ Historical Precedents" section in the report
+```
+
+### Integration with `GARCHAnomalySource` (signal aggregator)
+
+The nightly signal aggregator (`src/agents/signal_sources.py`) passes `symbol="GOLDBEES"` so every aggregator run writes GOLDBEES anomaly dates to Qdrant, building up a continuous time-series of gold-ETF regime history:
+
+```python
+_, df_flagged, _ = run_composite_anomaly(df, z_threshold=2.0,
+                                          symbol="GOLDBEES", category="etfs")
+```
+
+---
+
 ## Requirements
 
 - ≥ 60 rows per symbol in ClickHouse
 - Run `python src/main.py import --category etfs` (or any category) first
 - Cross-asset enrichment (COT + USDINR) fetched automatically if available
 - Python deps: `arch>=6.3.0` (GARCH) and `ruptures>=1.1.9` (PELT). Both degrade gracefully — the pipeline falls back to the naive return threshold if either is missing.
+- Qdrant: served at `localhost:6333` (or `QDRANT_HOST` env var). Anomaly storage is fire-and-forget — Qdrant being down never fails the pipeline.
 
 ---
 

@@ -962,6 +962,8 @@ class ClickHouseImporter:
                 settings={"max_partitions_per_insert_block": 1500},
             )
             total += len(chunk)
+        from src.db.market_vector import vectorize_prices
+        vectorize_prices(rows)
         return total
 
     # ── Bulk insert: mf_nav ───────────────────────────────────────────────────
@@ -996,6 +998,8 @@ class ClickHouseImporter:
             column_names=["symbol", "scheme_code", "nav_date", "nav"],
             settings={"max_partitions_per_insert_block": 300},
         )
+        from src.db.market_vector import vectorize_nav
+        vectorize_nav(rows)
         return len(rows)
 
     # ── Bulk insert: mf_holdings ──────────────────────────────────────────────
@@ -1042,6 +1046,8 @@ class ClickHouseImporter:
                 "security_name", "asset_type", "market_value_cr", "pct_of_nav",
             ],
         )
+        from src.db.mf_vector import vectorize_holdings
+        vectorize_holdings(rows)
         return len(rows)
 
     # ── Bulk insert: inav_snapshots ───────────────────────────────────────────
@@ -1110,6 +1116,8 @@ class ClickHouseImporter:
                           "open_interest", "source"],
             settings={"max_partitions_per_insert_block": 300},
         )
+        from src.db.market_vector import vectorize_cot
+        vectorize_cot(rows)
         return len(rows)
 
     # ── Bulk insert: cb_gold_reserves ────────────────────────────────────────
@@ -1167,6 +1175,8 @@ class ClickHouseImporter:
             ],
         )
         logger.info("Inserted %d macro indicator rows", len(rows))
+        from src.db.market_vector import vectorize_macro
+        vectorize_macro(rows)
         return len(rows)
 
     # ── Bulk insert: tijori_macro_indicators ──────────────────────────────────
@@ -1256,6 +1266,8 @@ class ClickHouseImporter:
             column_names=["trade_date", "symbol", "open", "high", "low", "close", "source"],
             settings={"max_partitions_per_insert_block": 300},
         )
+        from src.db.market_vector import vectorize_fx_rates
+        vectorize_fx_rates(rows)
         return len(rows)
 
     # ── Bulk insert: fii_dii_flows ────────────────────────────────────────────

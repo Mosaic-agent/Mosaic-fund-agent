@@ -45,3 +45,5 @@ scratch/
 
 # Local cache data
 data/isin_ticker_cache.json
+data/
+
