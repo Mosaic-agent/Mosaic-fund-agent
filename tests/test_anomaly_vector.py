@@ -206,7 +206,7 @@ def test_run_composite_anomaly_triggers_store():
     def fake_store(df_flagged, symbol, category):
         store_calls.append((df_flagged.copy(), symbol, category))
 
-    with patch("src.ml.anomaly._store_anomalies", side_effect=fake_store):
+    with patch("src.ml.anomaly._pipeline._store_anomalies", side_effect=fake_store):
         df_res, df_flagged, loglik = run_composite_anomaly(
             df_test,
             z_threshold=1.5,
