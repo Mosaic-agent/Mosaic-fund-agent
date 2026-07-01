@@ -243,7 +243,6 @@ def run_composite_anomaly(
         if cached is not None:
             log.info("run_composite_anomaly: cache hit for %s — skipping recompute", symbol.upper())
             return cached
-
     pipeline = CompositeAnomalyPipeline(
         z_threshold=z_threshold,
         cp_boost=cp_boost,
