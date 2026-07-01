@@ -2263,14 +2263,21 @@ This *boosts* only days suspicious to **both** algorithms.
                     _garch_all["upper_1s"] = _garch_all["close"] + _garch_all["garch_band_1s"]
                     _garch_all["lower_1s"] = _garch_all["close"] - _garch_all["garch_band_1s"]
 
-                    # Panel A: last 90 days — bands are ~2-3% of price, visible at this zoom
-                    _garch_90 = _garch_all.tail(90).reset_index(drop=True)
-                    _ya_min = float(_garch_90["lower_2s"].min())
-                    _ya_max = float(_garch_90["upper_2s"].max())
+                    # Panel A: full history — Altair auto-scales Y-axis so bands remain
+                    # visible regardless of date range. No tail() restriction needed.
+                    _garch_plot = _garch_all.reset_index(drop=True)
+                    _ya_min = float(_garch_plot["lower_2s"].min())
+                    _ya_max = float(_garch_plot["upper_2s"].max())
                     _ya_pad = (_ya_max - _ya_min) * 0.08
                     _ya_scale = alt.Scale(domain=[_ya_min - _ya_pad, _ya_max + _ya_pad], zero=False)
+                    _date_range = (
+                        f"{_garch_plot['trade_date'].iloc[0].strftime('%d %b %Y')} – "
+                        f"{_garch_plot['trade_date'].iloc[-1].strftime('%d %b %Y')}"
+                        if hasattr(_garch_plot["trade_date"].iloc[0], "strftime")
+                        else f"{str(_garch_plot['trade_date'].iloc[0])[:10]} – {str(_garch_plot['trade_date'].iloc[-1])[:10]}"
+                    )
 
-                    _band2 = alt.Chart(_garch_90).mark_area(
+                    _band2 = alt.Chart(_garch_plot).mark_area(
                         opacity=0.20, color="#F58518",
                     ).encode(
                         x=alt.X("trade_date:T", title=None, axis=alt.Axis(labels=False)),
@@ -2282,7 +2289,7 @@ This *boosts* only days suspicious to **both** algorithms.
                             alt.Tooltip("upper_2s:Q", title="+2σ", format=".2f"),
                         ],
                     )
-                    _band1 = alt.Chart(_garch_90).mark_area(
+                    _band1 = alt.Chart(_garch_plot).mark_area(
                         opacity=0.35, color="#F58518",
                     ).encode(
                         x=alt.X("trade_date:T", axis=alt.Axis(labels=False)),
@@ -2294,7 +2301,7 @@ This *boosts* only days suspicious to **both** algorithms.
                             alt.Tooltip("upper_1s:Q", title="+1σ", format=".2f"),
                         ],
                     )
-                    _close90 = alt.Chart(_garch_90).mark_line(
+                    _close90 = alt.Chart(_garch_plot).mark_line(
                         color="#4C78A8", strokeWidth=1.5,
                     ).encode(
                         x=alt.X("trade_date:T", axis=alt.Axis(labels=False)),
@@ -2307,7 +2314,7 @@ This *boosts* only days suspicious to **both** algorithms.
                     panel_a = (_band2 + _band1 + _close90).properties(
                         height=180,
                         title=alt.TitleParams(
-                            "Last 90 days — price with ±1σ / ±2σ bands",
+                            f"Price with ±1σ / ±2σ GARCH bands — {_date_range}",
                             fontSize=12, color="gray",
                         ),
                     )

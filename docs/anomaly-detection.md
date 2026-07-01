@@ -193,16 +193,17 @@ and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z t
 
 ## Step 5 — Company Event Classification (mechanical shock identification)
 
-Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. To ensure these are recognized correctly:
+Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. The suppression logic is **category-aware** — ETF corporate actions are admin events with no signal, while stock corporate actions are real analysable price events.
 
 1. The fetcher [nse_corporate_actions_fetcher.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/fetchers/nse_corporate_actions_fetcher.py) scrapes corporate events from the NSE website.
 2. The ex-dates are matched against the price history.
 3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [anomaly.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py).
-4. These rows are **not** filtered out from `df_flagged` anomalies; instead, they are preserved and their regime is classified as `🏢 Price Driven by Company Event`.
-5. On the price chart, these ex-dates are overlayed as gold `🏢` markers, highlighting them as company-event driven anomalies.
-6. Regular dividends, buybacks, and AGM events are labelled as corporate actions but are not flagged under this regime as they do not mechanically dilute or double stock prices.
+4. **ETFs only** (`category="etfs"`): suppressed rows are excluded from `df_flagged` — their regime is `🏢 Price Driven by Company Event` but they do not trigger anomaly alerts or Qdrant storage. ETF corporate actions (NAV resets, bonus units) carry no market-signal content.
+5. **Stocks, commodities, indices**: suppressed rows ARE included in `df_flagged` and stored in Qdrant — the corporate action is a real price event (merger, demerger, split) worth analysis. The regime label `🏢 Price Driven by Company Event` is still applied so callers can filter if needed.
+6. On the price chart, ex-dates are overlayed as gold `🏢` markers regardless of category.
+7. Regular dividends, buybacks, and AGM events are labelled as corporate actions but not regime-relabelled as they do not mechanically dilute or double stock prices.
 
-**Graceful degradation:** if `ruptures` is not installed or there are too few rows, `is_changepoint`/`cp_confirmed` are all False and the pipeline behaves exactly as the GARCH+IF version did. If no corporate actions are found in the database, the pipeline runs normally without suppression.
+**Graceful degradation:** if `ruptures` is not installed or there are too few rows, `is_changepoint`/`cp_confirmed` are all False and the pipeline behaves exactly as the GARCH+IF version did. If no corporate actions are found in the database, the pipeline runs normally without suppression. The ETF-only suppression rule applies only when `category` is explicitly set to `"etfs"` — empty or unknown categories are treated as non-ETF (no suppression).
 
 > The red anomaly dots on [plot_price_chart](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/chart_tools.py) are now driven by this full 3-method composite ([_composite_anomaly_dates](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/chart_tools.py#L32)), falling back to a naive `max(2.0, 2.5·std)` return threshold only when the pipeline can't run (<60 rows, `arch`/`ruptures` missing, or the DB-less yfinance path).
 
@@ -220,7 +221,7 @@ Each regime label is also mapped to a **numeric score (0–100)** that participa
 | 🧨 Blow-off Top (Weak) | High z_robust + Low volume + Positive return | 30 | Thin-volume rally |
 | 📈 Strong Trend (HODL) | High z_robust + Low z_resid | 70 | Predictable uptrend — hold position |
 | 🔀 Regime Shift (Change Point) | Flagged date confirmed by a PELT break (±3 rows) | 35 | Structural vol-regime change — re-assess sizing |
-| 🏢 Price Driven by Company Event | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) | 50 | Plotted as gold `🏢` marker (included in anomalies, not suppressed) |
+| 🏢 Price Driven by Company Event | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) — **suppressed from df_flagged for ETFs only**; stocks/commodities still flagged with this label | 50 | ETFs: excluded from df_flagged; Stocks: included in df_flagged and Qdrant |
 | 😱 Panic | Extreme drawdown across multiple indicators | 20 | Severe stress — maximum defensive |
 | ✅ Normal | All other | 50 | No action |
 
