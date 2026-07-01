@@ -19,6 +19,12 @@ class EventType(str, Enum):
     MACRO_RATE_DECISION = "macro_rate_decision"
     MACRO_COMMODITY_SHOCK = "macro_commodity_shock"
     MACRO_GEOPOLITICAL = "macro_geopolitical"
+    # PELT structural break in the symbol's own return distribution. Derived
+    # from the price series itself, so it's CONTEXT ("this anomaly sits at a
+    # volatility-regime transition"), not an external cause — it frames an
+    # anomaly as part of a regime shift and prompts looking for the macro/news
+    # that drove the transition.
+    REGIME_SHIFT = "regime_shift"
 
 
 @dataclass

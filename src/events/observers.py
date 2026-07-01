@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import pathlib
 
-from src.events.bus import DataImportedEvent, Observer, get_event_bus
+from src.events.bus import AnomalyDetectedEvent, DataImportedEvent, Observer, get_event_bus
 
 log = logging.getLogger(__name__)
 
@@ -134,19 +134,85 @@ class SanityCheckObserver(Observer):
             log.error("SanityCheckObserver failed: %s", exc)
 
 
+# ── 5. Anomaly → correlation attribution + news enrichment (async) ────────────
+
+class AnomalyCorrelationObserver(Observer):
+    """
+    On a flagged anomaly, run the correlation engine for that symbol — which
+    attributes the anomaly to macro/FX/news events, persists the attribution to
+    `market_anomalies` (feeding the precedent-weighting loop), and pulls
+    stock-specific news into `news_articles` via the two-pass RAG retrieval.
+
+    Reuses `find_anomaly_correlations` end to end. Runs async so detection never
+    blocks on it. The internal `run_composite_anomaly` recompute uses store=False
+    and publish_event=False (defaults), so this cannot re-fire the event —
+    no cascade loop.
+    """
+    event_types = ["anomaly.detected"]
+    async_ok = True
+
+    def handle(self, event: AnomalyDetectedEvent) -> None:
+        if not event.symbol:
+            return
+        log.info("AnomalyCorrelationObserver: correlating %s (%d anomalies up to %s)",
+                 event.symbol, event.n_anomalies, event.latest_date)
+        try:
+            from src.tools.market.correlation_tools import find_anomaly_correlations
+            find_anomaly_correlations.invoke({"symbol": event.symbol, "lookback_days": 365})
+            log.info("AnomalyCorrelationObserver: attribution + news enrichment done for %s", event.symbol)
+        except Exception as exc:
+            log.error("AnomalyCorrelationObserver failed for %s: %s", event.symbol, exc)
+
+
+# ── 6. Severe-anomaly alert (async) ───────────────────────────────────────────
+
+class AnomalyAlertObserver(Observer):
+    """
+    Emits a high-visibility alert when a flagged anomaly is a severe regime
+    (Flash Crash / Black Swan / Volatile Breakout). Prototype logs a structured
+    warning; wire `src/tools/premium_alerts.py` here to push to Slack/webhook.
+    """
+    event_types = ["anomaly.detected"]
+    async_ok = True
+
+    def handle(self, event: AnomalyDetectedEvent) -> None:
+        if not event.has_severe_regime():
+            return
+        log.warning(
+            "🚨 ANOMALY ALERT: %s — %d flagged (latest %s); regimes: %s",
+            event.symbol, event.n_anomalies, event.latest_date, ", ".join(event.regimes),
+        )
+        # To notify externally, call into src/tools/premium_alerts.py here.
+
+
 # ── Setup ─────────────────────────────────────────────────────────────────────
+
+_OBSERVERS_REGISTERED = False
+
 
 def setup_observers() -> None:
     """
     Register all production observers with the global EventBus.
-    Call once at application startup (e.g. in src/main.py or importer CLI).
+    Idempotent — safe to call from multiple entrypoints (CLI callback, scripts,
+    or lazily before the first publish). Only the first call subscribes.
 
     Order matters for sync observers (ModelCacheInvalidator must come before
     MLPredictionObserver so cache is cleared before re-training starts).
     """
+    global _OBSERVERS_REGISTERED
+    if _OBSERVERS_REGISTERED:
+        return
     bus = get_event_bus()
-    bus.subscribe(ModelCacheInvalidator())    # sync — clears cache first
-    bus.subscribe(MLPredictionObserver())     # async — re-trains after cache clear
-    bus.subscribe(SignalAggregatorObserver()) # async — refreshes composite
-    bus.subscribe(SanityCheckObserver())      # async — anomaly checks
-    log.info("EventBus: %d observers registered", bus.observer_count())
+    # data.imported hooks
+    bus.subscribe(ModelCacheInvalidator())      # sync — clears cache first
+    bus.subscribe(MLPredictionObserver())       # async — re-trains after cache clear
+    bus.subscribe(SignalAggregatorObserver())   # async — refreshes composite
+    bus.subscribe(SanityCheckObserver())        # async — anomaly checks
+    # anomaly.detected hooks
+    bus.subscribe(AnomalyCorrelationObserver()) # async — attribute + news enrich
+    bus.subscribe(AnomalyAlertObserver())       # async — severe-regime alert
+    _OBSERVERS_REGISTERED = True
+    log.info(
+        "EventBus: observers registered (data.imported=%d, anomaly.detected=%d)",
+        bus.observer_count("data.imported"), bus.observer_count("anomaly.detected"),
+    )

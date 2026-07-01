@@ -60,9 +60,15 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     if df_ohlcv.empty:
         return f"❌ No price data found in ClickHouse for symbol '{sym}'"
 
-    # Filter to lookback window
+    # Filter to lookback window — anchored to the DATA's last trade_date, not
+    # datetime.now(). A now-anchor shifts the window forward when data is even
+    # slightly stale, silently clipping recent structure (a regime break days
+    # before the edge falls out) and making results depend on the calendar date
+    # of the run. Anchoring to the last data point covers the last `lookback_days`
+    # of ACTUAL data, stably, regardless of staleness or run date.
     df_ohlcv["trade_date"] = pd.to_datetime(df_ohlcv["trade_date"])
-    cutoff = datetime.now() - pd.Timedelta(days=lookback_days)
+    anchor = df_ohlcv["trade_date"].max()
+    cutoff = anchor - pd.Timedelta(days=lookback_days)
     df_ohlcv = df_ohlcv[df_ohlcv["trade_date"] >= cutoff].copy()
 
     if len(df_ohlcv) < 5:
@@ -105,6 +111,14 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     # 3. Execute Correlation Service
     service = CorrelationService()
     findings = service.find_correlations(sym, df_ohlcv, df_benchmark, lookback_days)
+
+    # Split regime-shift findings out of the CAUSAL flow. A PELT regime break is
+    # derived from the same returns as the anomaly, so it's context ("this sits
+    # at a regime transition"), not a cause — attributing an anomaly to it would
+    # be circular. It gets its own section and must NOT count toward the causal
+    # driver table or the "unattributed" tally.
+    regime_findings = [f for f in findings if f.event.event_type == EventType.REGIME_SHIFT]
+    findings = [f for f in findings if f.event.event_type != EventType.REGIME_SHIFT]
 
     # Pre-calculate daily returns and historical percentiles for findings
     df_stock = df_ohlcv.sort_values("trade_date").copy()
@@ -397,6 +411,27 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     m_count = sum(1 for f in findings if f.confidence == "MODERATE")
     l_count = sum(1 for f in findings if f.confidence == "LOW")
 
+    # Regime Context — dated structural breaks that coincide with anomalies.
+    # Shown separately from causal attribution (a break is derived from the same
+    # returns, so it frames an anomaly as a regime transition, not its cause).
+    regime_section_lines: list[str] = []
+    if regime_findings:
+        regime_section_lines = [
+            "### 🔀 Regime Context (structural breaks — context, not cause)",
+        ]
+        _seen_breaks: set = set()
+        for f in sorted(regime_findings, key=lambda x: x.event.trade_date):
+            bd = f.event.trade_date
+            if bd in _seen_breaks:
+                continue
+            _seen_breaks.add(bd)
+            regime_section_lines.append(
+                f"- Volatility regime shift ~**{bd}** — anomaly on {f.anomaly_date} "
+                f"sits at this transition ({f.lead_lag_days:+d}d). Not an isolated "
+                f"shock; see the causal drivers above for what drove it."
+            )
+        regime_section_lines.append("")
+
     lines = [
         f"📊 **Event Correlation Report: {sym}** (Lookback: {lookback_days} days)",
         f"Found **{len(findings)}** anomaly-event correlation(s) — HIGH: {h_count} | MODERATE: {m_count} | LOW: {l_count}.",
@@ -407,6 +442,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         "### 🔝 Most Influential Drivers",
         drivers_str,
         "",
+        *regime_section_lines,
         "### 📅 Mapped Anomalies Timeline",
         "| Anomaly Date | Observed Return | Abnormal Return | Percentile | Offset | Event Trigger | Strategy | Score | Confidence |",
         "|---|---|---|---|---|---|---|---|---|",

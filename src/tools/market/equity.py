@@ -257,8 +257,6 @@ def search_anomaly_events(
         log.debug("Corporate actions not available for %s: %s", symbol_upper, exc)
 
     # ── 3. Run composite anomaly pipeline ────────────────────────────────────
-    cutoff = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=days)
-
     try:
         from src.ml.anomaly import run_composite_anomaly
         df_result, df_flagged, _ = run_composite_anomaly(
@@ -272,9 +270,13 @@ def search_anomaly_events(
     except Exception as exc:
         return f"Anomaly pipeline failed for {symbol_upper}: {exc}"
 
-    # Filter flagged dates to the requested window
+    # Filter flagged dates to the requested window — anchored to the DATA's last
+    # trade_date, not datetime.now(). A now-anchor drops recent anomalies when
+    # data is even slightly stale and makes results depend on the run date.
     df_flagged = df_flagged.copy()
     df_flagged["trade_date"] = pd.to_datetime(df_flagged["trade_date"])
+    anchor = pd.to_datetime(df_result["trade_date"]).max()
+    cutoff = anchor - pd.Timedelta(days=days)
     recent = df_flagged[df_flagged["trade_date"] >= cutoff].copy()
 
     # Also attach daily_return for query construction

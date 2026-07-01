@@ -50,13 +50,38 @@ def _resolve_node(state: EquityState) -> dict:
     from src.tools.company_resolver import resolve_company_info
     from src.tools.agent_tools import check_and_refresh_symbol_data
     info = resolve_company_info(state["question"])
-    sym = info.get("symbol", "")
+    # `or ""` — a failed resolution returns the key present-but-None, which
+    # dict.get(default) does NOT catch. Without this the workflow fetched an
+    # empty symbol and returned an all-zeros note instead of failing loudly.
+    sym = info.get("symbol") or ""
     if sym:
         check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True})
+    else:
+        logger.warning(
+            "india_equity: could not resolve a symbol for %r: %s",
+            state["question"], info.get("error", "resolver returned no symbol"),
+        )
     return {
-        "symbol":       info.get("symbol", ""),
-        "exchange":     info.get("exchange", "NSE"),
-        "company_name": info.get("company_name", state["question"]),
+        "symbol":       sym,
+        "exchange":     info.get("exchange") or "NSE",
+        "company_name": info.get("company_name") or state["question"],
+    }
+
+
+def _resolution_failed(state: EquityState) -> str:
+    """Conditional-edge router: skip the 12-tool fetch + synthesis when no
+    symbol resolved — otherwise every fetch queries an empty symbol and the
+    note comes back all-zeros."""
+    return "unresolved" if not state.get("symbol") else "fetch_all"
+
+
+def _unresolved_node(state: EquityState) -> dict:
+    return {
+        "report": (
+            f"❌ Could not resolve an NSE/BSE stock symbol for: **{state['question']}**\n\n"
+            "Name the company or ticker more directly (e.g. \"NDTV New Delhi Television\" "
+            "or \"research RELIANCE\")."
+        )
     }
 
 
@@ -84,8 +109,14 @@ def _fetch_all_node(state: EquityState) -> dict:
         return str(get_stock_cashflow.invoke({"input_str": inp}))
 
     def _shareholding():
+        # plot_shareholding_bar returns only a "[CHART:shareholding]" placeholder —
+        # no numbers — so synthesis had nothing real to narrate and hallucinated
+        # promoter/FII/DII %s. Fetch the actual pattern too and hand both to the LLM.
         from src.tools.chart_tools import plot_shareholding_bar
-        return str(plot_shareholding_bar.invoke({"symbol": sym}))
+        from src.tools.earnings_scraper import get_shareholding_pattern
+        chart = str(plot_shareholding_bar.invoke({"symbol": sym}))
+        data = str(get_shareholding_pattern.invoke({"symbol": sym}))
+        return f"{chart}\n{data}"
 
     def _mf_holdings():
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
@@ -97,11 +128,12 @@ def _fetch_all_node(state: EquityState) -> dict:
 
     def _news_gnews():
         from src.tools.news_search import get_stock_news
-        return str(get_stock_news.invoke({"company_name": cn, "days": 14}))
+        # Both news tools take a single `input_str` of the form "SYMBOL|Company".
+        return str(get_stock_news.invoke({"input_str": f"{sym}|{cn}"}))
 
     def _news_api():
         from src.tools.newsapi_search import get_newsapi_stock_news
-        return str(get_newsapi_stock_news.invoke({"symbol": sym}))
+        return str(get_newsapi_stock_news.invoke({"input_str": f"{sym}|{cn}"}))
 
     def _price_chart():
         from src.tools.chart_tools import plot_price_chart
@@ -128,7 +160,7 @@ def _fetch_all_node(state: EquityState) -> dict:
         "price_chart":  _price_chart,
         "anomalies":    _anomalies,
         "correlations": _correlations,
-    }, max_workers=12)
+    })  # concurrency capped in _par (external scrapers throttle on a 12-way burst)
 
 
 _SYNTHESIS_PROMPT = (
@@ -175,7 +207,21 @@ def _synthesise_node(state: EquityState) -> dict:
         SystemMessage(content=_SYNTHESIS_PROMPT + get_caveman_prompt() + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched data:\n{data}"),
     ])
-    return {"report": str(result.content)}
+    report = str(result.content).strip()
+    # Safety net: never return an empty report. The local reasoning model
+    # (gemma4 think=True) spends its whole token budget on reasoning tokens and
+    # returns EMPTY final content on a synthesis this size — and the MLX endpoint
+    # does not reliably honour a larger max_tokens override. So for a local-only
+    # setup this falls back to the complete raw sections (all data, no prose).
+    # Synthesised prose requires a cloud LLM — `_get_llm(prefer_cloud=True)`
+    # already picks one automatically when configured.
+    if not report:
+        logger.warning(
+            "india_equity: synthesis returned empty content (local model) — "
+            "falling back to raw sections; configure a cloud LLM for prose synthesis"
+        )
+        report = data
+    return {"report": report}
 
 
 _GRAPH = None
@@ -187,10 +233,15 @@ def _build_graph():
         return _GRAPH
     g = StateGraph(EquityState)
     g.add_node("resolve",    _resolve_node)
+    g.add_node("unresolved", _unresolved_node)
     g.add_node("fetch_all",  _fetch_all_node)
     g.add_node("synthesise", _synthesise_node)
     g.set_entry_point("resolve")
-    g.add_edge("resolve",    "fetch_all")
+    g.add_conditional_edges(
+        "resolve", _resolution_failed,
+        {"unresolved": "unresolved", "fetch_all": "fetch_all"},
+    )
+    g.add_edge("unresolved", END)
     g.add_edge("fetch_all",  "synthesise")
     g.add_edge("synthesise", END)
     _GRAPH = g.compile(checkpointer=_get_checkpointer())

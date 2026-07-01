@@ -74,6 +74,35 @@ class DataImportedEvent:
         return self.category in categories or self.symbol_key in categories
 
 
+@dataclass
+class AnomalyDetectedEvent:
+    """
+    Fired when a composite anomaly run flags one or more anomalies for a symbol
+    (opt-in: `run_composite_anomaly(..., publish_event=True)`).
+
+    Lets post-anomaly reactions (correlation attribution, news enrichment,
+    alerting) hang off the detection without the detector knowing about them.
+      symbol        : ticker the anomalies belong to
+      category      : "etfs" / "stocks" / ...
+      n_anomalies   : count of flagged rows in this run
+      latest_date   : most recent flagged trade_date (YYYY-MM-DD)
+      regimes       : distinct regime labels among the flagged rows
+      to_date       : latest date in the analysed window
+    """
+    event_type:  str       = "anomaly.detected"
+    symbol:      str       = ""
+    category:    str       = ""
+    n_anomalies: int       = 0
+    latest_date: str       = ""
+    regimes:     list[str] = field(default_factory=list)
+    to_date:     date      = field(default_factory=date.today)
+
+    def has_severe_regime(self) -> bool:
+        """True if any flagged regime is a high-severity signal worth alerting on."""
+        severe = ("Flash Crash", "Black Swan", "Volatile Breakout")
+        return any(any(s in r for s in severe) for r in self.regimes)
+
+
 # ── Observer ABC ──────────────────────────────────────────────────────────────
 
 class Observer(ABC):
@@ -138,9 +167,9 @@ class EventBus:
                 if observer in bucket:
                     bucket.remove(observer)
 
-    def publish(self, event: DataImportedEvent) -> None:
+    def publish(self, event: "DataImportedEvent | AnomalyDetectedEvent") -> None:
         """
-        Dispatch event to all matching observers.
+        Dispatch event to all matching observers (routed by event.event_type).
         Async observers are submitted to the thread pool.
         Sync observers are called inline.
         """
@@ -158,7 +187,7 @@ class EventBus:
                 self._safe_call(obs, event)
 
     @staticmethod
-    def _safe_call(obs: Observer, event: DataImportedEvent) -> None:
+    def _safe_call(obs: Observer, event: "DataImportedEvent | AnomalyDetectedEvent") -> None:
         try:
             obs.handle(event)
         except Exception as exc:

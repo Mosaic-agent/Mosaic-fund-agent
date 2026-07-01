@@ -17,7 +17,13 @@ def robust_zscore(s: pd.Series, window: int = 30) -> pd.Series:
     """
     rolling_med = s.rolling(window=window, min_periods=window // 2).median()
     rolling_mad = (s - rolling_med).abs().rolling(window=window, min_periods=window // 2).median()
-    return 0.6745 * (s - rolling_med) / (rolling_mad + 1e-10)
+    z = 0.6745 * (s - rolling_med) / (rolling_mad + 1e-10)
+    # Clip: when a rolling window is near-constant, MAD→0 and the 1e-10 floor
+    # lets z blow up to billions (validated: GOLDBEES z_robust max ≈ 7.3e9),
+    # which distorts final_z magnitude used by cp_boost / ranking / reports.
+    # A robust z beyond ±20 (20 MADs) is meaningless; capping preserves all
+    # real signal — flagging at >3 is unaffected — while keeping magnitude sane.
+    return z.clip(-20.0, 20.0)
 
 
 def repair_decimal_glitches(df: pd.DataFrame) -> pd.DataFrame:

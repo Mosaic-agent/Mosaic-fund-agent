@@ -100,6 +100,14 @@ def main(
     except Exception as exc:
         print(f"Warning: could not setup LLM cache: {exc}", file=sys.stderr)
 
+    # Register EventBus observers (post-import + post-anomaly hooks). Idempotent;
+    # run_composite_anomaly also calls this lazily, so any entrypoint is covered.
+    try:
+        from src.events.observers import setup_observers
+        setup_observers()
+    except Exception as exc:
+        print(f"Warning: could not register observers: {exc}", file=sys.stderr)
+
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 @app.command()

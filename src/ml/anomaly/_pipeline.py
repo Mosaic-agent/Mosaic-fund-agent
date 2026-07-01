@@ -96,6 +96,7 @@ class CompositeAnomalyPipeline:
         df_corp_actions: pd.DataFrame | None = None,
         symbol: str = "",
         category: str = "",
+        garch_z_threshold: float | None = None,
     ):
         self.z_threshold  = z_threshold
         self.cp_boost     = cp_boost
@@ -103,6 +104,13 @@ class CompositeAnomalyPipeline:
         self.df_fx        = df_fx
         self.symbol       = symbol
         self.category     = category
+        # Opt-in: when set, a large GARCH standardised residual (|z_resid| >
+        # this) also flags a day, independent of z_robust. GARCH residual is
+        # near-orthogonal to z_robust (validated corr ≈ 0.008), so this lets the
+        # pipeline catch volatility-surprise shocks that a modest raw z-score
+        # misses — and makes the Flash Crash regime reachable in df_flagged.
+        # None = disabled (original z_robust×IF behaviour, no flag-rate change).
+        self.garch_z_threshold = garch_z_threshold
         self.garch_loglik: float = 0.0
 
         # Pre-compute date sets so the full df_corp_actions DataFrame is not retained
@@ -174,11 +182,17 @@ class CompositeAnomalyPipeline:
         # ETF corporate actions (NAV resets, bonus units) are pure admin events with no
         # market-signal content. Stock corporate actions (mergers, demergers, splits) are
         # real price events worth analysing even when mechanically triggered.
+        # Base flag: amplified robust-z over threshold. Optionally OR in a large
+        # GARCH residual (near-orthogonal signal) so vol-surprise shocks flag too.
+        base_flag = df["final_z_abs"] > self.z_threshold
+        if self.garch_z_threshold is not None and "z_resid_abs" in df.columns:
+            base_flag = base_flag | (df["z_resid_abs"] > self.garch_z_threshold)
+
         is_etf = self.category.lower() in ("etfs", "etf")
         if is_etf:
-            df["is_anomaly"] = (df["final_z_abs"] > self.z_threshold) & ~df["suppress_corp_action"]
+            df["is_anomaly"] = base_flag & ~df["suppress_corp_action"]
         else:
-            df["is_anomaly"] = df["final_z_abs"] > self.z_threshold
+            df["is_anomaly"] = base_flag
 
         df_flagged = df[df["is_anomaly"]].copy()
 
@@ -202,6 +216,11 @@ class CompositeAnomalyPipeline:
 # tell two different callers' anonymous DataFrames apart.
 _RESULT_CACHE: dict[tuple, tuple] = {}
 
+# Sentinel so callers that pass garch_z_threshold=None explicitly (e.g. unit
+# tests wanting deterministic off) are distinguished from callers that omit it
+# (production tools) and should inherit settings.anomaly_garch_z_threshold.
+_GARCH_THRESH_UNSET = object()
+
 
 def run_composite_anomaly(
     df: pd.DataFrame,
@@ -218,6 +237,8 @@ def run_composite_anomaly(
     symbol: str = "",
     category: str = "",
     store: bool = True,
+    publish_event: bool = False,
+    garch_z_threshold: "float | None | object" = _GARCH_THRESH_UNSET,
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
@@ -230,7 +251,22 @@ def run_composite_anomaly(
     store: set False to use symbol/category for caching only, without
       triggering the Qdrant write (e.g. a caller that persists anomalies via
       its own separate write path and would otherwise double-write).
+    publish_event: opt-in. When True and anomalies are flagged, fire an
+      AnomalyDetectedEvent on the EventBus so post-anomaly observers (correlation
+      attribution, news enrichment, alerting) react. Off by default so routine
+      internal recomputes (charting, correlation's own recompute) stay quiet and
+      cannot trigger a cascade. Only fires on a fresh compute — a cache hit
+      returns before this, so identical repeat calls don't re-fire.
     """
+    # Resolve GARCH voting: omitted (sentinel) → inherit the settings knob;
+    # explicit None/float → honour it (unit tests pass None for determinism).
+    if garch_z_threshold is _GARCH_THRESH_UNSET:
+        try:
+            from config.settings import settings
+            garch_z_threshold = getattr(settings, "anomaly_garch_z_threshold", None)
+        except Exception:
+            garch_z_threshold = None
+
     cache_key = None
     if symbol:
         cache_key = (
@@ -238,6 +274,7 @@ def run_composite_anomaly(
             round(contamination, 6), round(z_threshold, 6), z_window,
             df_cot is not None, df_fx is not None, df_corp_actions is not None,
             cp_penalty, cp_proximity_days, round(cp_boost, 6),
+            garch_z_threshold,
         )
         cached = _RESULT_CACHE.get(cache_key)
         if cached is not None:
@@ -251,6 +288,7 @@ def run_composite_anomaly(
         df_corp_actions=df_corp_actions,
         symbol=symbol,
         category=category,
+        garch_z_threshold=garch_z_threshold,
     )
     df_res, df_flagged = pipeline.run(
         df,
@@ -264,4 +302,24 @@ def run_composite_anomaly(
     result = (df_res, df_flagged, pipeline.garch_loglik)
     if cache_key is not None:
         _RESULT_CACHE[cache_key] = result
+
+    if publish_event and symbol and not df_flagged.empty:
+        try:
+            from datetime import date
+            from src.events.bus import get_event_bus, AnomalyDetectedEvent
+            from src.events.observers import setup_observers
+            setup_observers()  # idempotent — guarantees observers exist for any entrypoint
+            latest = pd.to_datetime(df_flagged["trade_date"]).max()
+            regimes = sorted({str(r) for r in df_flagged.get("regime", []) if str(r)})
+            get_event_bus().publish(AnomalyDetectedEvent(
+                symbol=symbol.upper(),
+                category=category,
+                n_anomalies=int(len(df_flagged)),
+                latest_date=str(latest)[:10],
+                regimes=regimes,
+                to_date=latest.date() if hasattr(latest, "date") else date.today(),
+            ))
+        except Exception as exc:
+            log.warning("run_composite_anomaly: event publish failed (non-fatal): %s", exc)
+
     return result
