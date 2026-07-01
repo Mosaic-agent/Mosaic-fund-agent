@@ -17,7 +17,13 @@ from .strategies import (
 )
 from .service import CorrelationService
 from .event_registry import EventRegistry
-from .filters import FindingsPipeline, apply_quality_weights, deduplicate_by_date, cluster_episodes
+from .filters import (
+    FindingsPipeline,
+    apply_precedent_weight,
+    apply_quality_weights,
+    cluster_episodes,
+    deduplicate_by_date,
+)
 
 __all__ = [
     "CandidateEvent",
@@ -30,6 +36,7 @@ __all__ = [
     "FindingsPipeline",
     "PostMacroShockStrategy",
     "PreEventLeakStrategy",  # deprecated
+    "apply_precedent_weight",
     "apply_quality_weights",
     "cluster_episodes",
     "deduplicate_by_date",

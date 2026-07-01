@@ -125,6 +125,7 @@ class CompositeAnomalyPipeline:
         z_window: int = 30,
         cp_penalty: float | None = None,
         cp_proximity_days: int = 3,
+        store: bool = True,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         df = build_features(df, rf_lags=rf_lags)
 
@@ -181,7 +182,7 @@ class CompositeAnomalyPipeline:
 
         df_flagged = df[df["is_anomaly"]].copy()
 
-        if self.symbol and not df_flagged.empty and _store_anomalies is not None:
+        if store and self.symbol and not df_flagged.empty and _store_anomalies is not None:
             try:
                 _store_anomalies(df_flagged, self.symbol, self.category)
             except Exception as e:
@@ -191,6 +192,16 @@ class CompositeAnomalyPipeline:
 
 
 # ── Public wrapper ────────────────────────────────────────────────────────────
+
+# In-process cache: several independent tools (chart plotting, risk governor,
+# anomaly search, correlation engine) each call run_composite_anomaly() for
+# the exact same symbol/window within one user request — re-fitting GARCH +
+# Isolation Forest + PELT 3x over identical data. Keyed on every parameter
+# that affects the result, so a hit is only ever served for a truly identical
+# call. Gated on `symbol` being provided — without it there's no safe way to
+# tell two different callers' anonymous DataFrames apart.
+_RESULT_CACHE: dict[tuple, tuple] = {}
+
 
 def run_composite_anomaly(
     df: pd.DataFrame,
@@ -206,14 +217,32 @@ def run_composite_anomaly(
     df_corp_actions: pd.DataFrame | None = None,
     symbol: str = "",
     category: str = "",
+    store: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
     Defers execution to the OOP CompositeAnomalyPipeline.
 
-    symbol / category: when provided, flagged anomalies are stored in Qdrant
-    for future semantic retrieval (retrieve_similar_anomalies).
+    symbol / category: when provided, (a) enables the in-process result cache
+      keyed on symbol/category/data-shape/params, and (b) — when store=True —
+      flagged anomalies are stored in Qdrant for future semantic retrieval
+      (retrieve_similar_anomalies).
+    store: set False to use symbol/category for caching only, without
+      triggering the Qdrant write (e.g. a caller that persists anomalies via
+      its own separate write path and would otherwise double-write).
     """
+    cache_key = None
+    if symbol:
+        cache_key = (
+            symbol.upper(), category, len(df),
+            round(contamination, 6), round(z_threshold, 6), z_window,
+            df_cot is not None, df_fx is not None, df_corp_actions is not None,
+            cp_penalty, cp_proximity_days, round(cp_boost, 6),
+        )
+        cached = _RESULT_CACHE.get(cache_key)
+        if cached is not None:
+            log.info("run_composite_anomaly: cache hit for %s — skipping recompute", symbol.upper())
+            return cached
     pipeline = CompositeAnomalyPipeline(
         z_threshold=z_threshold,
         cp_boost=cp_boost,
@@ -230,5 +259,9 @@ def run_composite_anomaly(
         z_window=z_window,
         cp_penalty=cp_penalty,
         cp_proximity_days=cp_proximity_days,
+        store=store,
     )
-    return df_res, df_flagged, pipeline.garch_loglik
+    result = (df_res, df_flagged, pipeline.garch_loglik)
+    if cache_key is not None:
+        _RESULT_CACHE[cache_key] = result
+    return result

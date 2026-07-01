@@ -159,6 +159,8 @@ def _composite_anomaly_dates(symbol: str, category: str = "") -> tuple[set, set]
             df[["trade_date", "open", "high", "low", "close", "volume"]].copy(),
             df_cot=df_cot, df_fx=df_fx,
             df_corp_actions=df_corp,
+            symbol=symbol, category=category,
+            store=False,
         )
         anomaly_dates = {
             pd.Timestamp(d).normalize() for d in df_flagged["trade_date"]

@@ -3,8 +3,9 @@ src/ml/correlation/filters.py
 ──────────────────────────────
 Post-processing pipeline for CorrelationFindings:
   1. Quality & source hierarchy weighting
-  2. Date-based deduplication with secondary trigger merging
-  3. Episode clustering (consecutive anomalies → single representative)
+  2. Precedent weighting from past attributed anomalies (market_anomalies Qdrant)
+  3. Date-based deduplication with secondary trigger merging
+  4. Episode clustering (consecutive anomalies → single representative)
 
 Each stage is a standalone function composable into a pipeline via
 `FindingsPipeline.run()`.
@@ -14,6 +15,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any, List
+
+import pandas as pd
 
 from .models import CorrelationFinding, EventType
 
@@ -168,6 +171,102 @@ def apply_quality_weights(
     return adjusted
 
 
+# Bounded score adjustment from precedent — a soft corroboration signal, not
+# a hard override. Capped low so a handful of noisy/sparse precedents can't
+# swing a finding across a confidence band on their own.
+_PRECEDENT_ADJ_PER_VOTE = 5.0
+_PRECEDENT_ADJ_CAP = 10.0
+_PRECEDENT_K = 5
+
+
+def apply_precedent_weight(
+    findings: List[CorrelationFinding],
+    symbol: str = "",
+    df_anomaly: Any = None,
+    **_: Any,
+) -> List[CorrelationFinding]:
+    """Adjust each finding's score using precedent from past attributed anomalies.
+
+    For each finding, retrieves up to _PRECEDENT_K statistically similar past
+    anomalies (via the market_anomalies Qdrant collection) and checks what they
+    were attributed to:
+      - similar anomalies attributed to the SAME event type  → corroborates
+      - similar anomalies that went UNEXPLAINED                → contradicts
+      - similar anomalies never checked (no attribution yet)  → ignored (cold start)
+
+    No-ops entirely until enough history has accumulated — early findings are
+    scored exactly as before; the corroboration signal appears as attributed
+    history builds up in market_anomalies.
+    """
+    if not findings or df_anomaly is None or df_anomaly.empty or "regime" not in df_anomaly.columns:
+        return findings
+    if not symbol:
+        return findings
+
+    try:
+        from src.db.anomaly_vector import retrieve_similar_anomalies
+    except Exception:
+        return findings
+
+    regime_by_date = dict(zip(
+        pd.to_datetime(df_anomaly["trade_date"]).dt.date,
+        df_anomaly["regime"],
+    ))
+
+    adjusted: List[CorrelationFinding] = []
+    for f in findings:
+        regime = regime_by_date.get(f.anomaly_date, "")
+        if not regime:
+            adjusted.append(f)
+            continue
+
+        try:
+            precedents = retrieve_similar_anomalies(
+                symbol=symbol, regime=regime, trade_date=f.anomaly_date, k=_PRECEDENT_K,
+            )
+        except Exception as exc:
+            log.debug("Precedent lookup failed for %s/%s: %s", symbol, f.anomaly_date, exc)
+            precedents = []
+
+        checked = [p for p in precedents if p.get("attributed_confidence")]
+        if not checked:
+            # Cold start — no attributed history to compare against yet.
+            adjusted.append(f)
+            continue
+
+        corroborating = sum(
+            1 for p in checked
+            if p.get("attributed_event_type") == f.event.event_type.value
+            and p.get("attributed_confidence") in ("HIGH", "MODERATE")
+        )
+        contradicting = sum(1 for p in checked if p.get("attributed_confidence") == "UNEXPLAINED")
+
+        net_votes = corroborating - contradicting
+        if net_votes != 0:
+            adj = max(-_PRECEDENT_ADJ_CAP, min(_PRECEDENT_ADJ_CAP, net_votes * _PRECEDENT_ADJ_PER_VOTE))
+            f.correlation_score = max(0.0, min(100.0, f.correlation_score + adj))
+            if f.correlation_score >= 70.0:
+                f.confidence = "HIGH"
+            elif f.correlation_score >= 40.0:
+                f.confidence = "MODERATE"
+            else:
+                f.confidence = "LOW"
+            if net_votes > 0:
+                f.explanation += (
+                    f" Precedent: {corroborating}/{len(checked)} similar past anomalies "
+                    f"were also attributed to '{f.event.event_type.value}' ({adj:+.0f})."
+                )
+            else:
+                f.explanation += (
+                    f" ⚠️ Precedent: {contradicting}/{len(checked)} similar past anomalies "
+                    f"went unexplained — this match may be coincidental ({adj:+.0f})."
+                )
+
+        adjusted.append(f)
+
+    return adjusted
+
+
 def deduplicate_by_date(findings: List[CorrelationFinding]) -> List[CorrelationFinding]:
     """Group findings by anomaly date, keeping best score + merging secondaries into explanation."""
     by_date: dict[Any, List[CorrelationFinding]] = {}
@@ -271,6 +370,7 @@ class FindingsPipeline:
         if stages is None:
             stages = [
                 apply_quality_weights,
+                apply_precedent_weight,
                 deduplicate_by_date,
                 cluster_episodes,
             ]

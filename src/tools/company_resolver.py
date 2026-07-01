@@ -105,55 +105,26 @@ def rewrite_delegation_question(question: str) -> str:
 
 
 def _get_resolver_llm() -> "Any":
-    """Return (building once) a minimal LLM for single-token symbol lookups."""
+    """Return (building once) a minimal LLM for single-token symbol lookups.
+
+    Delegates to the same LLM-selection logic the main agent uses
+    (MosaicFundAgent._build_llm() / _build_cloud_llm()) rather than
+    duplicating provider-branching here. The duplicated version had a gap:
+    it could raise "Missing credentials" for a locally-configured LLM
+    (Ollama, no OPENAI_API_KEY) even though the exact same settings build
+    fine via _build_llm() for every other LLM call in the app.
+    """
     global _resolver_llm
     if _resolver_llm is not None:
         return _resolver_llm
     try:
-        from config.settings import settings
-        kwargs = dict(temperature=0, max_tokens=20)
-        provider = (settings.llm_cloud_provider if settings.llm_local_disabled else settings.llm_provider).strip().lower()
-        if settings.llm_base_url and not settings.llm_local_disabled and provider != "openrouter":
-            from langchain_openai import ChatOpenAI
-            _resolver_llm = ChatOpenAI(
-                model=settings.llm_model,
-                base_url=settings.llm_base_url,
-                api_key=settings.openai_api_key or "local",
-                **kwargs,
-            )
-        else:
-            model = settings.llm_cloud_model if settings.llm_local_disabled else settings.llm_model
-            if provider == "anthropic":
-                from langchain_anthropic import ChatAnthropic
-                _resolver_llm = ChatAnthropic(
-                    model=model,
-                    api_key=settings.anthropic_api_key,
-                    extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
-                    **kwargs,
-                )
-            elif provider == "openrouter":
-                from langchain_openai import ChatOpenAI
-                _resolver_llm = ChatOpenAI(
-                    model=model,
-                    api_key=settings.openrouter_api_key,
-                    base_url="https://openrouter.ai/api/v1",
-                    **kwargs,
-                )
-            elif provider == "google":
-                from langchain_google_genai import ChatGoogleGenerativeAI
-                _resolver_llm = ChatGoogleGenerativeAI(
-                    model=model,
-                    google_api_key=settings.google_api_key,
-                    temperature=0,
-                    max_output_tokens=20,
-                )
-            else:
-                from langchain_openai import ChatOpenAI
-                _resolver_llm = ChatOpenAI(
-                    model=model,
-                    api_key=settings.openai_api_key,
-                    **kwargs,
-                )
+        from src.agents.mosaic_fund_agent import MosaicFundAgent
+        tmp = object.__new__(MosaicFundAgent)
+        tmp._checkpointer = None
+        llm = tmp._build_llm()
+        if llm is None:
+            llm = tmp._build_cloud_llm()
+        _resolver_llm = llm
     except Exception as exc:
         log.warning("_get_resolver_llm: could not build LLM: %s", exc)
     return _resolver_llm
@@ -592,6 +563,36 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     upper = query.strip().upper().replace(" ", "")
     if upper in SYMBOL_TO_COMPANY:
         return upper
+
+    # 3b. Embedded ticker — a known symbol mentioned inside a longer free-text
+    # question (e.g. "why did GOLDBEES have price anomalies last year?").
+    # Steps 1-3 above only match when the ENTIRE query collapses to a symbol;
+    # this catches one mentioned as a single word within a sentence. Length
+    # >= 3 avoids false positives on short tickers that collide with common
+    # English words/fragments (e.g. "LT").
+    #
+    # Guard: many tickers are literally the first word of a longer official
+    # company name (RELIANCE -> "Reliance Industries"). If the query continues
+    # past that word with something that ISN'T the rest of the official name
+    # or a corporate suffix, it's more likely a different, unregistered entity
+    # sharing the same brand word ("Reliance Power" != Reliance Industries) —
+    # skip rather than risk a wrong resolution. A ticker whose own name does
+    # NOT start with the matched word (e.g. GOLDBEES -> "Nippon India Gold
+    # ETF") has no such ambiguity and is trusted outright.
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9&]*", query)
+    for i, word in enumerate(tokens):
+        w_upper = word.upper()
+        if len(w_upper) < 3 or w_upper not in SYMBOL_TO_COMPANY:
+            continue
+
+        name_words = SYMBOL_TO_COMPANY.get(w_upper, "").split()
+        if name_words and name_words[0].upper() == w_upper and i + 1 < len(tokens):
+            next_word = tokens[i + 1].lower()
+            expected_next = name_words[1].lower() if len(name_words) > 1 else None
+            if next_word not in corporate_suffixes and next_word != expected_next:
+                continue  # likely a different entity sharing this brand word
+
+        return w_upper
 
     # 4. Partial alias match — word-tokenized, longest word-count match wins.
     # Uses word boundaries to avoid "lt" matching "ltd" inside "insurance ltd".

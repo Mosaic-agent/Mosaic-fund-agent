@@ -172,6 +172,7 @@ class EventRegistry:
                 around_date=today,
                 days=lookback_days,
                 k=20,
+                symbol=symbol,
             )
             for a in articles:
                 pub_str = a.get("published_at", "")
@@ -448,7 +449,13 @@ class EventRegistry:
                     "source": ev.metadata.get("source", ""),
                     "url": ev.metadata.get("url", ""),
                     "published_at": pub_at,
-                    "category": symbol,
+                    # category is a consistent kind label ("stock_news"); the ticker
+                    # goes in the dedicated `symbol` field so a symbol pre-filter can
+                    # find this live-fetched news later (previously category=symbol
+                    # and symbol was unset → stored as "", making it unfindable and
+                    # forcing the live fetch to re-fire on every run).
+                    "category": "stock_news",
+                    "symbol": symbol,
                     "sentiment": "NEUTRAL",
                 })
                 texts_to_embed.append(f"{ev.label} {ev.description}")

@@ -45,5 +45,11 @@ scratch/
 
 # Local cache data
 data/isin_ticker_cache.json
-data/
+# Ignore everything under data/ EXCEPT tracked ground-truth files. Must use
+# `data/*` (not `data/`) so git walks the directory — a negation cannot
+# re-include a file whose parent directory is itself excluded.
+data/*
+# Exception: hand-labeled ground truth (not cache) — tests depend on it and it
+# has no regenerator, so it must be tracked or it silently vanishes on deletion.
+!data/news_quality_exemplars.json
 

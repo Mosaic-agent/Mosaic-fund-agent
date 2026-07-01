@@ -232,6 +232,33 @@ _TABLE_SCHEMA: dict[str, list[str]] = {
 }
 
 
+MAX_ROWS = 50
+MAX_CELL_CHARS = 300
+
+
+def _truncate_wide_cells(df):
+    """Cap every string/object cell to MAX_CELL_CHARS.
+
+    Guards against wide text columns (e.g. deepdive_reports.content_md, which
+    stores full markdown report sections) blowing up the token cost of a
+    single tool call — and, in a ReAct loop, every subsequent LLM call for
+    the rest of the session, since ToolMessages stay in context.
+    """
+    truncated_cols: set[str] = set()
+    for col in df.columns:
+        if df[col].dtype != object:
+            continue
+
+        def _clip(v):
+            if isinstance(v, str) and len(v) > MAX_CELL_CHARS:
+                truncated_cols.add(col)
+                return v[:MAX_CELL_CHARS] + "…[clipped]"
+            return v
+
+        df[col] = df[col].map(_clip)
+    return df, truncated_cols
+
+
 def _run_sql(sql: str) -> str:
     """Execute SQL and return a markdown table or error string."""
     try:
@@ -269,9 +296,18 @@ def _run_sql(sql: str) -> str:
                 pass
 
         n = len(df)
-        out = df.head(200).to_markdown(index=False)
-        if n > 200:
-            out += f"\n\n*[truncated — {n} total rows, showing 200]*"
+        page, truncated_cols = _truncate_wide_cells(df.head(MAX_ROWS))
+        out = page.to_markdown(index=False)
+        notes = []
+        if n > MAX_ROWS:
+            notes.append(f"showing {MAX_ROWS} of {n} total rows")
+        if truncated_cols:
+            notes.append(
+                f"columns clipped to {MAX_CELL_CHARS} chars: {', '.join(sorted(truncated_cols))} "
+                "— narrow your SELECT or add a WHERE/LIMIT to see full text"
+            )
+        if notes:
+            out += "\n\n*[" + "; ".join(notes) + "]*"
         return out
     except Exception as exc:
         return f"Query error: {exc}"
@@ -384,7 +420,9 @@ def execute_db_query(sql: str) -> str:
         toStartOfMonth(today())    — first day of current month
         toDate('2026-05-01')       — specific date
     - Column names: trade_date (not 'date'), nav_date, as_of_month, as_of
-    - Results truncated to 200 rows.
+    - Results truncated to 50 rows; any text cell over 300 chars is clipped
+      (e.g. deepdive_reports.content_md). Select only the columns you need
+      instead of SELECT * on text-heavy tables (deepdive_reports, news_articles).
 
     Example:
         SELECT symbol, trade_date, close

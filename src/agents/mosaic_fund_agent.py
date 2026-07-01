@@ -33,20 +33,29 @@ from src.analyzers.asset_analyzer import analyze_holding
 from src.analyzers.portfolio_analyzer import build_portfolio_report
 from src.clients.mcp_client import KiteMCPClient
 from src.models.portfolio import Holding, Portfolio
-from src.tools.earnings_scraper import EARNINGS_TOOLS
-from src.tools.news_search import NEWS_TOOLS
 from src.tools.summarization import SUMMARIZATION_TOOLS
-from src.tools.yahoo_finance import YAHOO_TOOLS
 from src.tools.zerodha_mcp_tools import ZERODHA_TOOLS, _parse_holdings
-from src.tools.skills_tools import SKILLS_TOOLS
-from src.tools.newsapi_search import get_newsapi_stock_news
-from src.tools.chart_tools import CHART_TOOLS
-from src.tools.shoonya_tools import SHOONYA_TOOLS
-from src.tools.market.correlation_tools import find_anomaly_correlations
-from src.tools.market.equity import find_similar_anomaly_events
-from src.tools.market.mf_tools import MF_QDRANT_TOOLS
-from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
+from src.tools.skills_tools import (
+    query_clickhouse_db,
+    get_live_inav,
+    import_symbol_data,
+    run_data_engineering_importer,
+    run_autonomous_research,
+    run_india_equity_research_workflow,
+    run_multi_fund_consensus_workflow,
+    run_portfolio_workflow,
+)
+from src.tools.chart_tools import plot_price_chart, plot_multi_price_chart
+from src.tools.report_publisher import publish_consolidated_pdf
 from src.tools.etf_setup_scanner import scan_etf_setups, scan_etf_trends
+from src.tools.agent_tools import (
+    check_and_refresh_symbol_data,
+    delegate_to_signal_agent,
+    delegate_to_macro_agent,
+    delegate_to_intl_etf_agent,
+    delegate_to_news_agent,
+    delegate_to_mf_agent,
+)
 from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.panel import Panel
@@ -54,8 +63,26 @@ from rich.markdown import Markdown
 
 logger = logging.getLogger(__name__)
 
-# All tools available to the agent
-ALL_TOOLS = ZERODHA_TOOLS + YAHOO_TOOLS + NEWS_TOOLS + [get_newsapi_stock_news] + EARNINGS_TOOLS + SUMMARIZATION_TOOLS + SKILLS_TOOLS + CHART_TOOLS + SHOONYA_TOOLS + [find_anomaly_correlations, find_similar_anomaly_events, publish_research_pdf, publish_consolidated_pdf, scan_etf_setups, scan_etf_trends] + MF_QDRANT_TOOLS
+# Tools bound directly to the main agent's ReAct loop. Kept deliberately narrow:
+# every entry here is either unique to "main" (broker/portfolio access, generic
+# SQL/import/chart plumbing) or a token-efficient StateGraph workflow. Anything
+# covered by a specialist sub-agent (single-stock research, MF holdings, news,
+# macro/COMEX, intl ETFs, signal/GARCH) is reached via a delegate_to_*_agent
+# tool instead of being duplicated here — the intent_router.py should route
+# most of those questions straight to the sub-agent and never reach this list
+# at all, but a delegate tool covers the case where "main" gets picked anyway.
+ALL_TOOLS = ZERODHA_TOOLS + SUMMARIZATION_TOOLS + [
+    scan_etf_setups, scan_etf_trends,
+    run_autonomous_research, run_india_equity_research_workflow,
+    run_multi_fund_consensus_workflow, run_portfolio_workflow,
+    query_clickhouse_db, get_live_inav,
+    import_symbol_data, run_data_engineering_importer,
+    plot_price_chart, plot_multi_price_chart,
+    publish_consolidated_pdf,
+    check_and_refresh_symbol_data,
+    delegate_to_signal_agent, delegate_to_macro_agent,
+    delegate_to_intl_etf_agent, delegate_to_news_agent, delegate_to_mf_agent,
+]
 
 
 
@@ -277,15 +304,21 @@ AGENT_SYSTEM_PROMPT = (
     "You are the Mosaic-fund-agent, a quantitative investment platform and agent for Indian equity markets (NSE/BSE). "
     "You have access to tools to fetch portfolio data, market information, news, financial results, "
     "and run core platform scripts. "
+    "You are the general/portfolio-wide agent — questions about a SPECIFIC domain "
+    "(single-stock research, MF holdings, news sentiment, macro/COMEX, international "
+    "ETFs, or ETF signals/GARCH) are normally routed to a specialist sub-agent before "
+    "reaching you. If one lands here anyway, delegate rather than trying to answer it "
+    "yourself — you don't hold that sub-agent's tools directly.\n"
     "Guidance on using specific tools/data sources:\n"
-    "  • Mutual Funds (MF): Use `query_clickhouse_db` to query `market_data.mf_holdings` and `market_data.mf_nav` directly, or use `run_fund_mom_returns` to fetch NAV returns.\n"
+    "  • Mutual Funds (MF): Use `query_clickhouse_db` for quick lookups against `market_data.mf_holdings`/`market_data.mf_nav`, or `run_multi_fund_consensus_workflow` for cross-fund MoM/YoY consensus. For whale-tracking, reverse lookups ('which funds hold X'), or single-fund deep dives, call `delegate_to_mf_agent`.\n"
+    "  • Single-stock / company research (price, financials, quarterly results, news, MF ownership): call `run_india_equity_research_workflow` — it runs 12 data-fetch tools in parallel and returns a full 8-section note for NSE/BSE stocks.\n"
     "  • Importing Stocks/ETFs: The import tools reuse the user's saved data source for 24 hours. If a tool returns `DATA_SOURCE_REQUIRED`, ask the user which source to use: 1. Shoonya, 2. NSE, or 3. yfinance, then retry with `data_source`. Never choose a source on the user's behalf. If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES', 'refresh GOLDBEES'), call `import_symbol_data(symbol, data_source=...)` — never `run_data_engineering_importer` for a single symbol. Only use `run_data_engineering_importer(category='stocks', data_source=...)` when the user asks to import ALL stocks generically without naming one. When the user specifies a particular year (e.g. '2019'), date, or month range, parse the dates and pass them as `start_date` (format YYYY-MM-DD) and `end_date` (format YYYY-MM-DD) parameters to `import_symbol_data` and `plot_price_chart` (e.g. for year 2019, `start_date='2019-01-01'` and `end_date='2019-12-31'`).\n"
-    "  • Yahoo Finance: Use `get_yahoo_finance_data` and `get_price_momentum` to fetch live prices, PE/PB ratios, dividend yield, and 52-week ranges. Supports US listed stocks by passing 'US' as the exchange (e.g. `ADSK:US`, `AAPL:US`).\n"
-    "  • Screener.in / Quarterly Results: Use `get_quarterly_results` to fetch quarterly revenue (in $ Millions for US stocks), net profit, EPS, and YoY growth percentages. Supports US listed stocks by passing 'US' as the exchange (e.g. `ADSK:US` or `AAPL:US`), which falls back to Yahoo Finance.\n"
-    "  • News API / Google News: Use `get_stock_news` (Google News RSS) and `get_newsapi_stock_news` (NewsAPI.org) to fetch recent financial news and infer sentiment.\n"
-    "  • US Company Deep-Dive / SEC Filings: Use `run_deepdive_analysis` to fetch SEC filings (10-K, 10-Q, etc.) and generate a multi-section research report for US stocks (like ADSK, AAPL). These reports are automatically persisted to ClickHouse and will be used to enhance your insights during `analyze` if they exist. You can also use the `query_clickhouse_db` tool to read raw data from `deepdive_*` tables or the `view_file` tool to read the final report.md file.\n"
-    "  • Price Anomalies: Use `explain_price_anomalies` to scan price history for GOLDBEES or any asset, detect daily return shocks (outliers exceeding 2%), automatically fetch historical news on those dates, and correlate them to explain the causes of price anomalies. Always call `plot_price_chart` in parallel with this tool to visually render the price trend and highlights.\n"
-    "  • Visualisation / Charts: Use the appropriate `plot_*` tools (like `plot_price_chart`, `plot_fii_dii_chart`, `plot_nav_chart`, etc.) whenever the user asks for a chart, trend, plot, or visual representation of price, NAV, flows, or signals. Always prefer calling these tools to render visual plots in your responses.\n"
+    "  • News sweeps / sentiment: call `delegate_to_news_agent`.\n"
+    "  • Macro / COMEX / FII-DII flows: call `delegate_to_macro_agent`.\n"
+    "  • International ETFs (MAFANG, HNGSNGBEES, MON100, etc.): call `delegate_to_intl_etf_agent`.\n"
+    "  • ETF signals, GOLDBEES ML pipeline, GARCH/Kelly sizing, price-anomaly explanations: call `delegate_to_signal_agent`.\n"
+    "  • Autonomous multi-domain research on a broad topic: call `run_autonomous_research`.\n"
+    "  • Visualisation / Charts: `plot_price_chart` and `plot_multi_price_chart` are available directly for portfolio-level price charts. Specialised charts (signal breakdown, FII/DII, NAV, intl ETF premium, etc.) come back as part of the relevant `delegate_to_*_agent` response — don't try to call those plot tools yourself.\n"
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "
     "Always reason step by step and use the available tools to gather data before answering. "
     "CRITICAL RULES:\n"

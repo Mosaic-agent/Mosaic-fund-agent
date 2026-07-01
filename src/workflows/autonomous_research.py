@@ -55,14 +55,40 @@ def _resolve_node(state: ResearchState) -> dict:
     from src.tools.agent_tools import check_and_refresh_symbol_data
 
     info = resolve_company_info(state["question"])
-    sym = info.get("symbol", "")
-    if sym:
+    # info.get("symbol", "") is NOT enough — a failed resolution returns the
+    # key WITH an explicit None value, and dict.get()'s default only applies
+    # when the key is absent. `or ""` catches both "absent" and "present but None".
+    sym = info.get("symbol") or ""
+    if info.get("error") or not sym:
+        logger.warning(
+            "autonomous_research: could not resolve a symbol for %r: %s",
+            state["question"], info.get("error", "resolver returned no symbol"),
+        )
+    else:
         status = check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True})
         logger.info("autonomous_research: resolved %s — data status: %s", sym, status[:40])
     return {
-        "symbol":       info.get("symbol", ""),
-        "exchange":     info.get("exchange", "NSE"),
-        "company_name": info.get("company_name", state["question"]),
+        "symbol":       sym,
+        "exchange":     info.get("exchange") or "NSE",
+        "company_name": info.get("company_name") or state["question"],
+    }
+
+
+def _resolution_failed(state: ResearchState) -> str:
+    """Conditional-edge router: skip the expensive fetch/correlate/verify/synthesise
+    chain entirely when no symbol resolved — no point running 6 parallel fetches
+    and 2 LLM calls against a symbol that doesn't exist."""
+    return "unresolved" if not state.get("symbol") else "fetch_all"
+
+
+def _unresolved_node(state: ResearchState) -> dict:
+    """Early-exit report when the company/symbol resolver found nothing."""
+    return {
+        "report": (
+            f"❌ Could not resolve a stock symbol for: **{state['question']}**\n\n"
+            "Try naming the company or ticker explicitly, e.g. "
+            "\"research RELIANCE\" or \"research Asian Paints\"."
+        )
     }
 
 
@@ -223,13 +249,18 @@ def _build_graph():
 
     g = StateGraph(ResearchState)
     g.add_node("resolve",    _resolve_node)
+    g.add_node("unresolved", _unresolved_node)
     g.add_node("fetch_all",  _fetch_all_node)
     g.add_node("correlate",  _correlate_node)
     g.add_node("verify",     _verify_node)
     g.add_node("synthesise", _synthesise_node)
 
     g.set_entry_point("resolve")
-    g.add_edge("resolve",    "fetch_all")
+    g.add_conditional_edges(
+        "resolve", _resolution_failed,
+        {"unresolved": "unresolved", "fetch_all": "fetch_all"},
+    )
+    g.add_edge("unresolved", END)
     g.add_edge("fetch_all",  "correlate")
     g.add_edge("correlate",  "verify")
     g.add_edge("verify",     "synthesise")
