@@ -176,40 +176,9 @@ services:
     restart: unless-stopped
 
   # ── Mosaic Fund Agent Studio ────────────────────────────────────────────────
-  # Serves the premium visual AI-powered research workspace at http://localhost:8502.
-  #
-  # The React app (website/studio/) is compiled inside Docker by the studio-builder
-  # stage in the Dockerfile — no local `npm run build` or node_modules needed.
-  # The baked dist/ is served by the Python agent_server.py at /api/* + static files.
-  #
-  # To rebuild after UI changes:  docker compose build studio
-  # To start:                     docker compose up studio
-  studio:
-    build: .
-    image: mosaic-fund-agent
-    entrypoint: ["python", "src/main.py", "studio", "--host=0.0.0.0", "--port=8502"]
-    ports:
-      - "8502:8502"
-    env_file: .env
-    environment:
-      NO_BROWSER: "1"
-      OUTPUT_DIR: /app/output
-      CLICKHOUSE_HOST: clickhouse
-      QDRANT_HOST: qdrant
-    volumes:
-      - mosaic-output:/app/output
-      - ./src:/app/src        # live Python backend edits without rebuild
-      - ./config:/app/config
-      # Note: website/ is NOT mounted — the compiled dist/ is baked into the image
-      # by the studio-builder stage. Re-run `docker compose build studio` after UI changes.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-    restart: unless-stopped
+  # Temporarily removed from compose (2026-07-01) — see git history to restore.
+  # Was: serves the visual AI research workspace at http://localhost:8502,
+  # built via the studio-builder stage in the Dockerfile.
 
   # ── Qdrant Vector Database ──────────────────────────────────────────────────
   qdrant:

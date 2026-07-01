@@ -123,6 +123,31 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
             tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
             target_dt = datetime.now(tz).date()
 
+    # RAG-first: check the Qdrant cache before touching the network. A prior
+    # call (this run, an earlier run, or a different sub-agent) may have
+    # already fetched and embedded this symbol/date.
+    try:
+        from src.ml.correlation.news_rag import retrieve_cached_news_for_symbol
+
+        cached = retrieve_cached_news_for_symbol(symbol, target_dt.isoformat())
+    except Exception as exc:
+        logger.debug("News cache lookup skipped for %s: %s", symbol, exc)
+        cached = []
+
+    if cached:
+        logger.info("News cache hit for %s/%s: %d article(s) — skipping live fetch", symbol, target_dt, len(cached))
+        return [
+            NewsItem(
+                title=c.get("title", ""),
+                source=c.get("source", ""),
+                published_at=c.get("published_at", ""),
+                url=c.get("url", ""),
+                description="",
+                sentiment=Sentiment(c.get("sentiment", "NEUTRAL")),
+            )
+            for c in cached[: settings.news_articles_per_stock]
+        ]
+
     # Calculate dynamic lookback needed to cover the target date
     tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
     today_dt = datetime.now(tz).date()
@@ -184,7 +209,42 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
         target_dt,
         lookback_days,
     )
+
+    _cache_articles_to_qdrant(symbol, target_dt, items)
+
     return items
+
+
+def _cache_articles_to_qdrant(symbol: str, target_dt, items: list[NewsItem]) -> None:
+    """Best-effort write-through: embed and upsert fetched articles so the next
+    call for this symbol/date (this run or another) hits the Qdrant cache
+    instead of re-fetching from GNews."""
+    if not items:
+        return
+    try:
+        from src.ml.correlation.news_rag import embed_batch, upsert_to_qdrant
+
+        texts = [f"{item.title}. {item.description}" for item in items]
+        vectors = embed_batch(texts)
+        if not vectors or all(v == 0.0 for v in vectors[0]):
+            return  # embeddings unavailable (e.g. Ollama down) — skip caching silently
+
+        articles = [
+            {
+                "title": item.title,
+                "source": item.source,
+                "url": item.url,
+                "published_at": item.published_at,
+                "published_date": target_dt.isoformat(),
+                "category": "stock_news",
+                "sentiment": item.sentiment.value,
+                "symbol": symbol,
+            }
+            for item in items
+        ]
+        upsert_to_qdrant(articles, vectors)
+    except Exception as exc:
+        logger.debug("News cache write skipped for %s: %s", symbol, exc)
 
 
 # ── LangChain Tool ────────────────────────────────────────────────────────────

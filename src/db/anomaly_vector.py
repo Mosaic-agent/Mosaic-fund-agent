@@ -108,6 +108,7 @@ def _ensure_collection() -> bool:
                 ("category",        PayloadSchemaType.KEYWORD),
                 ("regime",          PayloadSchemaType.KEYWORD),
                 ("trade_timestamp", PayloadSchemaType.FLOAT),
+                ("attributed_event_type", PayloadSchemaType.KEYWORD),
             ]:
                 try:
                     client.create_payload_index(
@@ -175,7 +176,32 @@ def _embed(texts: list[str]) -> list[list[float]]:
 
 # ── Write path ────────────────────────────────────────────────────────────────
 
-def _do_store(df_flagged: pd.DataFrame, symbol: str, category: str) -> None:
+# Attribution dict shape (see store_anomalies_with_attribution):
+#   {"event_type": str, "label": str, "score": float, "confidence": str,
+#    "strategy": str, "lag_days": int}
+# or None for an anomaly the correlation engine looked at but could not explain
+# (recorded as attributed_confidence="UNEXPLAINED" — a real negative signal,
+# distinct from an anomaly that was never checked at all).
+
+def _attribution_payload(attribution: dict | None) -> dict:
+    if attribution is None:
+        return {"attributed_confidence": "UNEXPLAINED"}
+    return {
+        "attributed_event_type": str(attribution.get("event_type", "")),
+        "attributed_label":      str(attribution.get("label", "")),
+        "attributed_score":      float(attribution.get("score", 0.0)),
+        "attributed_confidence": str(attribution.get("confidence", "")),
+        "attributed_strategy":   str(attribution.get("strategy", "")),
+        "attributed_lag_days":   int(attribution.get("lag_days", 0)),
+    }
+
+
+def _do_store(
+    df_flagged: pd.DataFrame,
+    symbol: str,
+    category: str,
+    attributions: dict[str, dict | None] | None = None,
+) -> None:
     if df_flagged.empty:
         return
     client = _get_client()
@@ -190,30 +216,29 @@ def _do_store(df_flagged: pd.DataFrame, symbol: str, category: str) -> None:
     for i, r in enumerate(rows):
         row = pd.Series(r._asdict())
         trade_date_str = str(row.get("trade_date", ""))[:10]
+        payload = {
+            "data_type":       "anomaly",
+            "symbol":          symbol,
+            "category":        category,
+            "trade_date":      trade_date_str,
+            "trade_timestamp": _to_ts(row.get("trade_date")),
+            "regime":          str(row.get("regime", "")),
+            "final_z":         _safe(row, "final_z"),
+            "final_z_abs":     _safe(row, "final_z_abs"),
+            "z_robust":        _safe(row, "z_robust"),
+            "z_resid":         _safe(row, "z_resid"),
+            "garch_vol":       _safe(row, "garch_vol"),
+            "if_confidence":   _safe(row, "if_confidence"),
+            "daily_return":    _safe(row, "daily_return"),
+            "close":           _safe(row, "close"),
+            "is_changepoint":  bool(row.get("is_changepoint", False)),
+            "cp_confirmed":    bool(row.get("cp_confirmed", False)),
+            "text":            texts[i],
+        }
+        if attributions is not None and trade_date_str in attributions:
+            payload.update(_attribution_payload(attributions[trade_date_str]))
         points.append(
-            PointStruct(
-                id=_point_id(symbol, trade_date_str),
-                vector=vectors[i],
-                payload={
-                    "data_type":       "anomaly",
-                    "symbol":          symbol,
-                    "category":        category,
-                    "trade_date":      trade_date_str,
-                    "trade_timestamp": _to_ts(row.get("trade_date")),
-                    "regime":          str(row.get("regime", "")),
-                    "final_z":         _safe(row, "final_z"),
-                    "final_z_abs":     _safe(row, "final_z_abs"),
-                    "z_robust":        _safe(row, "z_robust"),
-                    "z_resid":         _safe(row, "z_resid"),
-                    "garch_vol":       _safe(row, "garch_vol"),
-                    "if_confidence":   _safe(row, "if_confidence"),
-                    "daily_return":    _safe(row, "daily_return"),
-                    "close":           _safe(row, "close"),
-                    "is_changepoint":  bool(row.get("is_changepoint", False)),
-                    "cp_confirmed":    bool(row.get("cp_confirmed", False)),
-                    "text":            texts[i],
-                },
-            )
+            PointStruct(id=_point_id(symbol, trade_date_str), vector=vectors[i], payload=payload)
         )
 
     try:
@@ -221,6 +246,29 @@ def _do_store(df_flagged: pd.DataFrame, symbol: str, category: str) -> None:
         log.info("AnomalyVector: stored %d anomaly points for %s", len(points), symbol)
     except Exception as e:
         log.warning("AnomalyVector: upsert failed: %s", e)
+
+
+def store_anomalies_with_attribution(
+    df_flagged: pd.DataFrame,
+    symbol: str,
+    category: str,
+    attributions: dict[str, dict | None],
+) -> None:
+    """Fire-and-forget: store flagged anomalies together with what the
+    correlation engine concluded caused each one (or None → UNEXPLAINED).
+
+    Writing anomaly stats and attribution in the same upsert avoids a race
+    between two separate writes — a later ``set_payload`` call could fire
+    before the anomaly point itself has been created.
+    """
+    if df_flagged is None or df_flagged.empty or not _qdrant_available:
+        return
+    t = threading.Thread(
+        target=_do_store,
+        args=(df_flagged.copy(), symbol, category, attributions),
+        daemon=True,
+    )
+    t.start()
 
 
 def store_anomalies(df_flagged: pd.DataFrame, symbol: str, category: str = "") -> None:
@@ -316,6 +364,14 @@ def retrieve_similar_anomalies(
                     "daily_return": p.get("daily_return", 0.0),
                     "similarity":   float(hit.score),
                     "text":         p.get("text", ""),
+                    # Absent on points written before attribution existed —
+                    # "" / 0.0 defaults mean "no attribution recorded",
+                    # distinct from "UNEXPLAINED" (attribution was attempted
+                    # and the correlation engine found no cause).
+                    "attributed_event_type": p.get("attributed_event_type", ""),
+                    "attributed_label":      p.get("attributed_label", ""),
+                    "attributed_score":      p.get("attributed_score", 0.0),
+                    "attributed_confidence": p.get("attributed_confidence", ""),
                 })
 
         results_all.sort(key=lambda x: -x["similarity"])

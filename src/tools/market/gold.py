@@ -44,7 +44,7 @@ try:
     price_df['trade_date'] = pd.to_datetime(price_df['trade_date'])
     price_df = price_df.sort_values('trade_date').reset_index(drop=True)
     from src.ml.anomaly import run_composite_anomaly
-    df_r, _, _ = run_composite_anomaly(price_df)
+    df_r, _, _ = run_composite_anomaly(price_df, symbol='GOLDBEES', category='etfs', store=False)
     garch_vol = float(df_r['garch_vol'].dropna().iloc[-1])
     regime    = str(df_r['regime'].iloc[-1])
     latest    = float(df_r['close'].iloc[-1])
@@ -183,6 +183,8 @@ def explain_price_anomalies(
             z_threshold=z_threshold,
             df_cot=df_cot,
             df_fx=df_fx,
+            symbol=symbol_upper,
+            store=False,
         )
 
         for _, r in df_result.iterrows():

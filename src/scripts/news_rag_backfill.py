@@ -66,6 +66,10 @@ def main():
                     "fetch_source": row["fetch_source"],
                     "category": row["category"],
                     "etfs_impacted": row["etfs_impacted"],
+                    # `symbol` is what retrieve_articles' Pass-1 filter matches on;
+                    # etfs_impacted is the CH column holding the ticker. Coerce to ""
+                    # (never None) so upsert_to_qdrant's .upper() is safe.
+                    "symbol": row["etfs_impacted"] or "",
                     "sentiment": row["sentiment"],
                     "impact_tier": row["impact_tier"],
                     "title": row["title"],
@@ -172,6 +176,10 @@ def main():
                     "fetch_source": row["fetch_source"],
                     "category": row["category"],
                     "etfs_impacted": row["etfs_impacted"],
+                    # `symbol` is what retrieve_articles' Pass-1 filter matches on;
+                    # etfs_impacted is the CH column holding the ticker. Coerce to ""
+                    # (never None) so upsert_to_qdrant's .upper() is safe.
+                    "symbol": row["etfs_impacted"] or "",
                     "sentiment": row["sentiment"],
                     "impact_tier": row["impact_tier"],
                     "title": row["title"],

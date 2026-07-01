@@ -31,7 +31,10 @@ log = logging.getLogger(__name__)
 _qdrant_available = True
 try:
     from qdrant_client import QdrantClient
-    from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, Range, MatchValue, PayloadSchemaType
+    from qdrant_client.models import (
+        Distance, VectorParams, PointStruct, Filter, FieldCondition, Range,
+        MatchValue, PayloadSchemaType, KeywordIndexParams, KeywordIndexType,
+    )
 except ImportError:
     _qdrant_available = False
 
@@ -79,19 +82,71 @@ def ensure_collection(client: QdrantClient, collection_name: str, dim: int = 768
                     field_name="category",
                     field_schema=PayloadSchemaType.KEYWORD,
                 )
-                log.info("Created Qdrant payload indexes for published_timestamp and category")
+                # Exact-match index for retrieve_cached_news_for_symbol's
+                # (symbol, published_date) scroll — published_timestamp is a
+                # FLOAT range index and does not serve exact YYYY-MM-DD lookups.
+                client.create_payload_index(
+                    collection_name=collection_name,
+                    field_name="published_date",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                log.info("Created Qdrant payload indexes for published_timestamp, category, published_date")
             except Exception as e:
                 log.warning("Failed to create payload indexes in Qdrant: %s", e)
+        _ensure_symbol_index(client, collection_name)
         _qdrant_collection_verified = True
         return True
     except Exception as e:
         log.warning("Qdrant collection check failed: %s", e)
         return False
 
+
+_qdrant_symbol_index_verified = False
+
+
+def _ensure_symbol_index(client: QdrantClient, collection_name: str) -> None:
+    """Best-effort, run-once: tenant keyword index on `symbol`.
+
+    Most news queries are symbol-scoped (per-stock correlation retrieval and the
+    cache lookup), so `symbol` is the tenant field — same pattern as the
+    `market_anomalies` / `mf_holdings` / `market_data` collections
+    (see anomaly_vector.py, mf_vector.py, market_vector.py). Tenant indexing lets
+    Qdrant co-locate each symbol's points and avoid a full-collection scan.
+    """
+    global _qdrant_symbol_index_verified
+    if _qdrant_symbol_index_verified:
+        return
+    try:
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="symbol",
+            field_schema=KeywordIndexParams(type=KeywordIndexType.KEYWORD, is_tenant=True),
+        )
+    except Exception:
+        pass  # already exists — fine
+    _qdrant_symbol_index_verified = True
+
 def generate_point_id(url: str, title: str) -> str:
     """Generate a deterministic UUID v5 from URL or Title for Qdrant point ID."""
     key = url.strip() if url and url.strip() else title.strip()
     return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+
+
+def _normalize_symbols(raw) -> list[str]:
+    """Normalize a symbol payload into a list of upper-cased tickers.
+
+    Accepts a single ticker ("RELIANCE"), a comma/semicolon-joined string
+    ("GOLDBEES,SILVERBEES" as stored in ClickHouse etfs_impacted), a list, or
+    None. Returns [] when empty so a Qdrant keyword array index has nothing to
+    match rather than an empty-string element.
+    """
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        parts = [str(s) for s in raw]
+    else:
+        parts = str(raw).replace(";", ",").split(",")
+    return [p.strip().upper() for p in parts if p and p.strip()]
 
 def upsert_to_qdrant(articles: list[dict], vectors: list[list[float]]):
     """Upsert articles and their embeddings to Qdrant.
@@ -134,6 +189,12 @@ def upsert_to_qdrant(articles: list[dict], vectors: list[list[float]]):
                 import datetime
                 pub_ts = float(datetime.datetime.combine(date.today(), datetime.time.min).timestamp())
 
+        # Callers that already know the caller-local (e.g. IST) calendar date —
+        # which can disagree with the UTC-naive parse above near midnight — may
+        # pass it explicitly so cache-key lookups (exact match on published_date)
+        # stay consistent with the date they filtered on when fetching.
+        pub_date_str = art.get("published_date", pub_date_str)
+
         payload = {
             "title": title,
             "source": art.get("source", ""),
@@ -143,6 +204,13 @@ def upsert_to_qdrant(articles: list[dict], vectors: list[list[float]]):
             "published_timestamp": pub_ts,
             "category": art.get("category", ""),
             "sentiment": art.get("sentiment", "NEUTRAL"),
+            # Stored as a LIST of upper-cased tickers. Sources vary: single-ticker
+            # writers pass "RELIANCE"; the ClickHouse etfs_impacted column packs
+            # several as "GOLDBEES,SILVERBEES". A Qdrant keyword index matches a
+            # MatchValue against ANY element of an array, so a per-symbol filter
+            # (`match=MatchValue("GOLDBEES")`) hits multi-symbol news too — which a
+            # scalar "GOLDBEES,SILVERBEES" string would never match.
+            "symbol": _normalize_symbols(art.get("symbol", "")),
         }
         points.append(PointStruct(id=point_id, vector=vectors[i], payload=payload))
 
@@ -151,6 +219,44 @@ def upsert_to_qdrant(articles: list[dict], vectors: list[list[float]]):
         log.info("Successfully upserted %d points to Qdrant", len(points))
     except Exception as e:
         log.error("Failed to upsert to Qdrant: %s", e)
+
+def retrieve_cached_news_for_symbol(symbol: str, published_date: str, limit: int = 30) -> list[dict]:
+    """
+    Exact-match lookup of previously-fetched news for a symbol on a given date
+    straight from the Qdrant `news_articles` cache — no embedding call, no live
+    fetch. Returns [] (not an error) if nothing is cached, signalling the caller
+    to fall back to a live fetch.
+
+    Args:
+        symbol:         Ticker, upper/lower-cased freely (normalised internally).
+        published_date: YYYY-MM-DD string matching the `published_date` payload field.
+        limit:          Max cached articles to return.
+    """
+    client = get_qdrant_client()
+    if not client or not _qdrant_available:
+        return []
+    if not ensure_collection(client, "news_articles", _EMBED_DIM):
+        return []
+
+    try:
+        points, _ = client.scroll(
+            collection_name="news_articles",
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(key="symbol", match=MatchValue(value=symbol.upper())),
+                    FieldCondition(key="published_date", match=MatchValue(value=published_date)),
+                ]
+            ),
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as e:
+        log.debug("Qdrant cache lookup failed for %s/%s: %s", symbol, published_date, e)
+        return []
+
+    return [dict(p.payload or {}) for p in points]
+
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -238,22 +344,52 @@ def embed_text(text: str) -> list[float]:
     return vec
 
 
+# nomic-embed-text via Ollama's /api/embed becomes unreliable well before any
+# documented limit — a 321-item batch reproducibly resets the connection with
+# a 400 (the local model-runner subprocess appears to choke on it). Chunking
+# here means every caller gets a safe batch size automatically instead of
+# each one needing to remember its own wrapper — which is exactly how this
+# broke: mf_vector.py had a 32-item chunking wrapper, anomaly_vector.py's
+# equivalent didn't, and the unchunked call started failing at 321 items.
+_OLLAMA_EMBED_BATCH = 32
+
+
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    """Embed multiple texts in a single Ollama call (batched)."""
+    """Embed multiple texts via Ollama, chunked into safe sub-batches.
+
+    Empty/whitespace-only entries are excluded from each request. Ollama's
+    /api/embed rejects a batch containing even one empty string with a 400 —
+    which otherwise fails the ENTIRE batch and forces a slow per-item
+    fallback (one HTTP call per text) just because one entry was blank.
+    """
     if not texts:
         return []
 
+    if len(texts) > _OLLAMA_EMBED_BATCH:
+        result: list[list[float]] = []
+        for i in range(0, len(texts), _OLLAMA_EMBED_BATCH):
+            result.extend(embed_batch(texts[i : i + _OLLAMA_EMBED_BATCH]))
+        return result
+
     cleaned = [t.strip()[:512] if t else "" for t in texts]
+    non_empty_idx = [i for i, t in enumerate(cleaned) if t]
+    if not non_empty_idx:
+        return [[0.0] * _EMBED_DIM for _ in texts]
+
     url = f"{_get_ollama_base()}/api/embed"
-    payload = {"model": _EMBED_MODEL, "input": cleaned}
+    payload = {"model": _EMBED_MODEL, "input": [cleaned[i] for i in non_empty_idx]}
     try:
         resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
-        data = resp.json()
-        return data["embeddings"]
+        embeddings = resp.json()["embeddings"]
     except Exception as e:
         log.warning("Ollama batch embed failed: %s — falling back to individual", e)
         return [embed_text(t) for t in texts]
+
+    result = [[0.0] * _EMBED_DIM for _ in texts]
+    for pos, idx in enumerate(non_empty_idx):
+        result[idx] = embeddings[pos]
+    return result
 
 
 # ── Exemplar-based quality scoring ────────────────────────────────────────────
@@ -427,11 +563,18 @@ def retrieve_articles(
     days: int = 7,
     k: int = 20,
     category_filter: Optional[str] = None,
+    symbol: Optional[str] = None,
 ) -> list[dict]:
     """Retrieve top-k semantically relevant news articles within a date window.
 
     Queries Qdrant vector database if available, otherwise queries news_articles
     table in ClickHouse for rows with embeddings and ranks by cosine similarity.
+
+    When ``symbol`` is provided, retrieval is two-pass: a precise symbol-scoped
+    pass first (using the indexed `symbol` payload field), broadening to the
+    symbol-less semantic search only when the precise pass is too thin — so
+    tagged data is stock-specific while cold/untagged history still returns
+    something. Omitting ``symbol`` preserves the original symbol-less behaviour.
 
     Returns list of dicts with keys: title, source, url, published_at,
     category, sentiment, similarity.
@@ -452,42 +595,70 @@ def retrieve_articles(
     if client and _qdrant_available:
         try:
             if ensure_collection(client, "news_articles", len(query_vec)):
-                # Build filter conditions
-                must_conditions = [
+                # Base conditions applied to every pass: date window + optional category.
+                base_conditions = [
                     FieldCondition(
                         key="published_timestamp",
                         range=Range(gte=start_ts, lte=end_ts)
                     )
                 ]
                 if category_filter:
-                    must_conditions.append(
+                    base_conditions.append(
                         FieldCondition(
                             key="category",
                             match=MatchValue(value=category_filter)
                         )
                     )
 
-                search_result = client.query_points(
-                    collection_name="news_articles",
-                    query=query_vec,
-                    query_filter=Filter(must=must_conditions),
-                    limit=k,
-                    with_payload=True,
-                )
+                def _search(extra_conditions: list) -> list[dict]:
+                    res = client.query_points(
+                        collection_name="news_articles",
+                        query=query_vec,
+                        query_filter=Filter(must=base_conditions + extra_conditions),
+                        limit=k,
+                        with_payload=True,
+                    )
+                    out = []
+                    for hit in res.points:
+                        p = hit.payload or {}
+                        out.append({
+                            "title": p.get("title", ""),
+                            "source": p.get("source", ""),
+                            "url": p.get("url", ""),
+                            "published_at": p.get("published_at", ""),
+                            "category": p.get("category", ""),
+                            "sentiment": p.get("sentiment", "NEUTRAL"),
+                            "similarity": float(hit.score),
+                        })
+                    return out
 
-                qdrant_results = []
-                for hit in search_result.points:
-                    payload = hit.payload or {}
-                    qdrant_results.append({
-                        "title": payload.get("title", ""),
-                        "source": payload.get("source", ""),
-                        "url": payload.get("url", ""),
-                        "published_at": payload.get("published_at", ""),
-                        "category": payload.get("category", ""),
-                        "sentiment": payload.get("sentiment", "NEUTRAL"),
-                        "similarity": float(hit.score),
-                    })
-                log.info("Retrieved %d articles from Qdrant", len(qdrant_results))
+                # Pass 1 (precise): symbol-scoped, using the indexed `symbol` field.
+                results_map: dict = {}
+                if symbol:
+                    for r in _search(
+                        [FieldCondition(key="symbol", match=MatchValue(value=symbol.upper()))]
+                    ):
+                        results_map[r["url"] or r["title"]] = r
+                symbol_hits = len(results_map)
+
+                # Pass 2 (recall): broaden to the symbol-less semantic search when the
+                # precise pass is thin — cold/untagged history, or symbol=None (in which
+                # case this is the only pass, identical to the original behaviour).
+                _SYMBOL_MIN = max(3, k // 4)
+                broadened = symbol_hits < _SYMBOL_MIN
+                if broadened:
+                    for r in _search([]):
+                        key = r["url"] or r["title"]
+                        if key not in results_map:
+                            results_map[key] = r
+
+                qdrant_results = sorted(
+                    results_map.values(), key=lambda x: -x["similarity"]
+                )[:k]
+                log.info(
+                    "Retrieved %d articles from Qdrant (symbol=%s, symbol_hits=%d, broadened=%s)",
+                    len(qdrant_results), symbol or "-", symbol_hits, broadened,
+                )
                 return qdrant_results
         except Exception as q_err:
             log.warning("Qdrant search failed: %s — falling back to ClickHouse in-memory RAG", q_err)
@@ -515,10 +686,21 @@ def retrieve_articles(
         sql += " AND category = {cat:String}"
         params["cat"] = category_filter
 
-    sql += " LIMIT 500"  # cap for brute-force cosine
+    def _run(with_symbol: bool):
+        # etfs_impacted is the CH column holding the ticker for stock/live news.
+        q = sql + (" AND etfs_impacted = {sym:String}" if with_symbol else "")
+        q += " LIMIT 500"  # cap for brute-force cosine
+        p = dict(params)
+        if with_symbol:
+            p["sym"] = symbol.upper()
+        return query_df(q, parameters=p)
 
     try:
-        df = query_df(sql, parameters=params)
+        # Symbol-scoped first (mirrors the Qdrant Pass 1); broaden if it's empty
+        # so untagged history still returns something (mirrors Pass 2).
+        df = _run(with_symbol=bool(symbol))
+        if bool(symbol) and (df is None or df.empty):
+            df = _run(with_symbol=False)
     except Exception as e:
         log.warning("retrieve_articles ClickHouse query failed: %s", e)
         return []

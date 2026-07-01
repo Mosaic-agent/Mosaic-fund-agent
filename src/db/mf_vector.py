@@ -170,20 +170,11 @@ def _month_str(d: Any) -> str:
         return str(d)[:10]
 
 
-_OLLAMA_BATCH = 32   # nomic-embed-text safe batch size for Ollama
-
-
 def _embed(texts: list[str]) -> list[list[float]]:
-    """Embed texts in Ollama-safe batches of _OLLAMA_BATCH."""
+    """Embed texts via Ollama. embed_batch() chunks into safe sub-batches internally."""
     try:
         from src.ml.correlation.news_rag import embed_batch
-        if len(texts) <= _OLLAMA_BATCH:
-            return embed_batch(texts)
-        # Split into safe sub-batches, reassemble
-        result: list[list[float]] = []
-        for i in range(0, len(texts), _OLLAMA_BATCH):
-            result.extend(embed_batch(texts[i: i + _OLLAMA_BATCH]))
-        return result
+        return embed_batch(texts)
     except Exception as e:
         log.debug("MFVector: embed_batch failed: %s", e)
         return [[0.0] * _EMBED_DIM for _ in texts]
