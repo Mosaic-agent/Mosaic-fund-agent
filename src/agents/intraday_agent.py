@@ -746,7 +746,8 @@ class BaseIntradayAgent:
         )
 
         # Build Signal Dashboard content
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        from src.utils.ist import now_ist
+        timestamp = now_ist().strftime("%Y-%m-%d %H:%M:%S")
         time_suffix = f" [{self.remaining_seconds}s remaining]" if self.remaining_seconds is not None else ""
         
         # Calculate Daily, Weekly and Intraday trend states
