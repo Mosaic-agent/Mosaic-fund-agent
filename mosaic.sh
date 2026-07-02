@@ -15,6 +15,7 @@
 #   ./mosaic.sh analyze --max 3
 #   ./mosaic.sh ask "what is my riskiest holding?"
 #   ./mosaic.sh comex
+#   ./mosaic.sh intraday GOLDBEES
 #   ./mosaic.sh src/scripts/goldbees_report.py
 
 # Check if Docker is running
@@ -95,6 +96,16 @@ elif [[ "$FIRST_ARG" == "studio" ]]; then
     echo ""
     echo "  Studio is live → http://localhost:8502"
     if [[ "$OSTYPE" == "darwin"* ]]; then open "http://localhost:8502"; fi
+elif [[ "$FIRST_ARG" == "intraday" ]]; then
+    shift
+    ARGS=()
+    if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+        ARGS+=("--symbol" "$1")
+        shift
+    fi
+    ARGS+=("$@")
+    echo "Running Intraday Signal Agent in Docker..."
+    docker compose run --rm --entrypoint python mosaic src/agents/intraday_agent.py "${ARGS[@]}"
 elif [[ "$FIRST_ARG" == "chat" ]]; then
     # Run interactive chat with args (e.g. -t <thread_id>)
     docker compose run --rm -it mosaic "$@"
