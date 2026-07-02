@@ -81,6 +81,23 @@ _TABLE_DATE_COL: dict[str, str] = {
     "deepdive_prices":     "trade_date",
 }
 
+# Generic timestamp-column names an LLM commonly guesses when it doesn't
+# know the real per-table date column (see _TABLE_DATE_COL above).
+_DATE_COLUMN_ALIASES = ("date", "ts", "timestamp", "dt", "datetime", "event_time")
+
+# market_data.daily_prices (category='commodities') stores commodities under
+# plain names, but an LLM/user will naturally reference them by ticker or FX
+# pair notation. Map those aliases to the actual stored `symbol` value.
+_COMMODITY_SYMBOL_ALIASES: dict[str, str] = {
+    "XAUUSD": "GOLD", "XAU": "GOLD", "GC=F": "GOLD", "GC": "GOLD",
+    "XAGUSD": "SILVER", "XAG": "SILVER", "SI=F": "SILVER", "SI": "SILVER",
+    "XPTUSD": "PLATINUM", "XPT": "PLATINUM", "PL=F": "PLATINUM",
+    "XPDUSD": "PALLADIUM", "XPD": "PALLADIUM", "PA=F": "PALLADIUM",
+    "HG=F": "COPPER",
+    "CL=F": "CRUDEOIL", "WTI": "CRUDEOIL",
+    "NG=F": "NGAS",
+}
+
 
 def _auto_fix_sql(sql: str) -> tuple[str, list[str]]:
     """
@@ -99,9 +116,10 @@ def _auto_fix_sql(sql: str) -> tuple[str, list[str]]:
             changes.append(f"{pattern.pattern[:50]}… → fixed")
             result = new
 
-    # Table-aware bare `date` column fix:
-    # Detect which table is being queried and replace bare `date` references
-    # with the correct ClickHouse column name for that table.
+    # Table-aware bare date/time column fix:
+    # Detect which table is being queried and replace common LLM-guessed
+    # timestamp-column aliases (date, ts, timestamp, ...) with the correct
+    # ClickHouse column name for that table.
     table_match = re.search(
         r"\bFROM\s+(?:market_data\.)?(\w+)", result, re.I
     )
@@ -109,12 +127,28 @@ def _auto_fix_sql(sql: str) -> tuple[str, list[str]]:
         table = table_match.group(1).lower()
         correct_col = _TABLE_DATE_COL.get(table)
         if correct_col:
-            # Only replace standalone `date` (not inside function calls like toDate())
-            bare_date = re.compile(r"\bdate\b(?!\s*\()", re.I)
-            new = bare_date.sub(correct_col, result)
-            if new != result:
-                changes.append(f"date → {correct_col} (table: {table})")
-                result = new
+            for alias in _DATE_COLUMN_ALIASES:
+                if alias == correct_col:
+                    continue
+                # Only replace standalone identifiers, not inside function
+                # calls like toDate(...) / datetime(...) / dateDiff(...)
+                bare = re.compile(rf"\b{re.escape(alias)}\b(?!\s*\()", re.I)
+                new = bare.sub(correct_col, result)
+                if new != result:
+                    changes.append(f"{alias} → {correct_col} (table: {table})")
+                    result = new
+
+        # Commodity ticker/FX-pair alias fix — only applies to daily_prices,
+        # the one table where commodities are stored under plain symbol names.
+        if table == "daily_prices":
+            for alias, correct_symbol in _COMMODITY_SYMBOL_ALIASES.items():
+                quoted = re.compile(
+                    rf"(=\s*['\"]){re.escape(alias)}(['\"])", re.I
+                )
+                new = quoted.sub(rf"\g<1>{correct_symbol}\g<2>", result)
+                if new != result:
+                    changes.append(f"symbol '{alias}' → '{correct_symbol}' (table: {table})")
+                    result = new
 
     return result, changes
 
@@ -127,7 +161,7 @@ _stale_flag: _threading.local = _threading.local()
 
 # Table → import category mapping (used to suggest the right import command)
 _TABLE_IMPORT_CATEGORY: dict[str, str] = {
-    "daily_prices":      "etfs,stocks",
+    "daily_prices":      "etfs,stocks,commodities",
     "mf_nav":            "mf",
     "mf_holdings":       "mf",
     "fii_dii_flows":     "fii_dii",
@@ -420,6 +454,13 @@ def execute_db_query(sql: str) -> str:
         toStartOfMonth(today())    — first day of current month
         toDate('2026-05-01')       — specific date
     - Column names: trade_date (not 'date'), nav_date, as_of_month, as_of
+    - Do NOT guess a generic timestamp column like `ts`, `timestamp`, `dt`,
+      or `datetime` — there is no such column on any table. Always use the
+      exact name above for the table you're querying.
+    - Commodities live in daily_prices under category='commodities' with
+      symbol = GOLD, SILVER, PLATINUM, PALLADIUM, COPPER, CRUDEOIL, NGAS
+      (plain names, NOT tickers). Do NOT query symbol = 'XAUUSD'/'XAU'/'GC=F'
+      — use symbol = 'GOLD' (same idea for silver/XAG, copper/HG, etc.).
     - Results truncated to 50 rows; any text cell over 300 chars is clipped
       (e.g. deepdive_reports.content_md). Select only the columns you need
       instead of SELECT * on text-heavy tables (deepdive_reports, news_articles).
@@ -451,7 +492,8 @@ def execute_db_query(sql: str) -> str:
         hint = (
             "\n\n**ClickHouse syntax reminder:**\n"
             "- Dates: `today()`, `today() - 30`, `toStartOfMonth(today())`\n"
-            "- Column: `trade_date` (not `date`), `nav_date`, `as_of`\n"
+            "- Column: `trade_date` (not `date`, `ts`, `timestamp`, or `dt`), `nav_date`, `as_of`\n"
+            "- Run `describe_db_table` on the table first if unsure of its exact column names\n"
             "- Always add `FINAL` after table name\n"
             f"\n**SQL that was executed:**\n```sql\n{fixed}\n```"
         )

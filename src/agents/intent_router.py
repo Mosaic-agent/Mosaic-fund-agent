@@ -62,7 +62,7 @@ one of the following intents:
 | research      | Autonomous/deep/comprehensive multi-domain research on a topic    |
 | india_equity  | Indian stock fundamentals, earnings, price, financials, MF hold.  |
 | signal        | ETF signals, GOLDBEES ML pipeline, Kelly weight, GARCH, iNAV     |
-| macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD  |
+| macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD, gold/silver/commodity tickers (XAU, XAUUSD, XAG, XAGUSD, XPT, XPD, GC=F, SI=F, HG=F)  |
 | mf            | Mutual-fund holdings, NAV returns, fund consensus, fund managers  |
 | intl_etf      | International ETFs (MAFANG, HNGSNGBEES, Hang Seng, Nasdaq ETF)   |
 | news          | Latest news, headlines, news sentiment for a stock/ETF/market     |
@@ -174,8 +174,9 @@ def _get_router_llm() -> Any | None:
         except Exception as exc:
             logger.debug("Router LLM (NVIDIA NIM) build failed: %s", exc)
 
-    # 3. Local Ollama / LM Studio — use when base_url points to localhost
-    if settings.llm_base_url and any(h in settings.llm_base_url for h in ("localhost", "127.0.0.1")):
+    # 3. Local Ollama / LM Studio — any custom/local OpenAI-compatible endpoint,
+    #    not just literal localhost (Docker setups use host.docker.internal).
+    if settings.llm_base_url:
         try:
             from langchain_openai import ChatOpenAI
             return ChatOpenAI(

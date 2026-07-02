@@ -26,6 +26,10 @@ _SIGNAL_RE = re.compile(
 _MACRO_RE = re.compile(
     r"\bcomex|macro theme|macro scan|\bfii\b|\bdii\b|fii flow|dii flow|institutional flow"
     r"|gold price|silver price|copper price|crude oil|fed rate|rbi rate"
+    # Commodity ticker/symbol notations (XAUUSD, GC=F, ...) — an LLM or user
+    # may reference gold/silver/copper by ticker rather than the spelled-out word.
+    r"|\bxau(?:usd)?\b|\bxag(?:usd)?\b|\bxpt(?:usd)?\b|\bxpd(?:usd)?\b"
+    r"|\bgc=f\b|\bsi=f\b|\bhg=f\b|\bpl=f\b|\bpa=f\b"
     r"|usd.?inr|cot report|geopolit|war risk|tariff|trade war"
     r"|\b(?:iran|russia|ukraine|taiwan|israel|gaza|pakistan|opec|china)\b"
     r"|financial\s+news|global\s+(?:news|market)|macro\s+news"

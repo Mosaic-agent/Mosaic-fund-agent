@@ -8,7 +8,7 @@ one of the following intents:
 | research      | Autonomous/deep/comprehensive multi-domain research on a topic    |
 | india_equity  | Indian stock fundamentals, earnings, price, financials, MF hold.  |
 | signal        | ETF signals, GOLDBEES ML pipeline, Kelly weight, GARCH, iNAV     |
-| macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD  |
+| macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD, gold/silver/commodity tickers (XAU, XAUUSD, XAG, XAGUSD, XPT, XPD, GC=F, SI=F, HG=F)  |
 | mf            | Mutual-fund holdings, NAV returns, fund consensus, fund managers, which funds hold a stock/asset, find similar funds, fund category exposure (gold/commodity/equity)  |
 | intl_etf      | International ETFs (MAFANG, HNGSNGBEES, Hang Seng, Nasdaq ETF)   |
 | news          | Latest news, headlines, news sentiment for a stock/ETF/market     |
