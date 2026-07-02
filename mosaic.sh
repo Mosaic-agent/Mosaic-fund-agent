@@ -105,7 +105,10 @@ elif [[ "$FIRST_ARG" == "intraday" ]]; then
     fi
     ARGS+=("$@")
     echo "Running Intraday Signal Agent in Docker..."
-    docker compose run --rm --entrypoint python mosaic src/agents/intraday_agent.py "${ARGS[@]}"
+    # -it allocates a real TTY so the agent's in-place (top-style) dashboard
+    # refresh activates; without it, stdout is a pipe and the agent falls
+    # back to reprinting the full block every interval.
+    docker compose run --rm -it --entrypoint python mosaic src/agents/intraday_agent.py "${ARGS[@]}"
 elif [[ "$FIRST_ARG" == "chat" ]]; then
     # Run interactive chat with args (e.g. -t <thread_id>)
     docker compose run --rm -it mosaic "$@"

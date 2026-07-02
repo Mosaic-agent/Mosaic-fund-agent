@@ -19,11 +19,13 @@ Two subclasses handle asset-specific logic:
 from __future__ import annotations
 
 import math
+import re
 import sys
 import os
 import time
 import logging
 import argparse
+import textwrap
 import threading
 from datetime import datetime
 import pandas as pd
@@ -35,8 +37,20 @@ from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
 from src.tools.shoonya_tools import resolve_token
 from src.importer.fetchers.nse_inav_fetcher import get_latest_inav
 from src.db.pool import get_pool
+from src.utils.ist import now_ist
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+# ── Context gates ─────────────────────────────────────────────────────
+ADX_TREND_THRESHOLD = 25
+MIDDAY_START = (11, 30)
+MIDDAY_END = (13, 30)
+CONTEXT_READINESS_CAP = 45
+MOMENTUM_BREAKOUT_LONGS = frozenset({"BUY", "BUY (MOMENTUM CONFIRMED)"})
+# RSI(9)/Micro-Momentum unlock at 10 ticks but are noisy that early; ~3x the
+# window gives a statistically steadier read before trusting a breakout.
+MIN_RELIABLE_TICKS = 30
 
 
 class BaseIntradayAgent:
@@ -52,13 +66,20 @@ class BaseIntradayAgent:
     _RSI_PERIOD = 9       # tick RSI look-back
     _MOM_SPAN = 9         # micro-momentum EMA span
 
-    def __init__(self, symbol: str, category: str, interval_seconds: int = 5):
+    def __init__(self, symbol: str, category: str, interval_seconds: int = 5,
+                 fullscreen: bool = True):
         self.symbol = symbol.strip().upper()
         self.category = category.lower()
         self.interval_seconds = interval_seconds
         self.db_pool = get_pool()
         self.api = None
         self.running = False
+        self.loop_thread: threading.Thread | None = None
+
+        # top-style full-screen refresh (alternate screen buffer). Only used on
+        # a real TTY; captured/piped output falls back to plain sequential prints.
+        self.fullscreen = fullscreen
+        self._alt_active = False
 
         # Live state variables
         self.live_price: float | None = None
@@ -91,6 +112,7 @@ class BaseIntradayAgent:
         self._prev_line_count: int = 0
         self.adx_value: float = 15.0
         self.regime: str = "Mean-Reverting"
+        self._last_sample_size: int | None = None  # ticks feeding RSI/momentum/VWAP
         
         # Intraday ranges and HTF (Higher Timeframe) context
         self.today_high: float = -1.0
@@ -194,8 +216,65 @@ class BaseIntradayAgent:
         if pd.isna(adx_val):
             adx_val = 15.0
 
-        regime = "Trending" if adx_val >= 25 else "Mean-Reverting"
+        regime = "Trending" if adx_val >= ADX_TREND_THRESHOLD else "Mean-Reverting"
         return adx_val, regime
+
+    @staticmethod
+    def _parse_hhmm(hhmm: str) -> tuple[int, int]:
+        h, m = hhmm.split(":")
+        return int(h), int(m)
+
+    def _session_elapsed_fraction(self) -> float:
+        """Fraction of the NSE cash session elapsed so far.
+
+        Used to scale the full-day 15-day average volume down to an
+        expected-by-now baseline, so relative volume is comparable to the
+        partial cumulative day volume the feed reports.
+        """
+        now = now_ist()
+        oh, om = self._parse_hhmm(settings.market_open)
+        ch, cm = self._parse_hhmm(settings.market_close)
+        start = now.replace(hour=oh, minute=om, second=0, microsecond=0)
+        end = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+        total = (end - start).total_seconds()
+        if total <= 0:
+            return 1.0
+        frac = (now - start).total_seconds() / total
+        return min(1.0, max(0.05, frac))
+
+    def _session_phase(self) -> str:
+        """Current NSE session phase: OPENING | MORNING | MIDDAY | AFTERNOON | CLOSING | OFF."""
+        now = now_ist()
+        oh, om = self._parse_hhmm(settings.market_open)
+        ch, cm = self._parse_hhmm(settings.market_close)
+        t = (now.hour, now.minute)
+        if t < (oh, om) or t >= (ch, cm):
+            return "OFF"
+        if t < (oh + 1, om):        # first 60 min
+            return "OPENING"
+        if t < MIDDAY_START:
+            return "MORNING"
+        if t < MIDDAY_END:
+            return "MIDDAY"
+        if t < (ch - 1, cm):        # up to last 60 min
+            return "AFTERNOON"
+        return "CLOSING"
+
+    def _context_unfavorable(self) -> tuple[bool, str]:
+        """Check if regime, session, or sample size disfavors momentum breakout longs."""
+        reasons = []
+        if self.regime == "Mean-Reverting":
+            reasons.append(
+                f"range-bound regime (ADX {self.adx_value:.0f} < {ADX_TREND_THRESHOLD})"
+            )
+        if self._session_phase() == "MIDDAY":
+            reasons.append("midday low-momentum window (11:30–13:30 IST)")
+        sample_size = getattr(self, "_last_sample_size", None)
+        if sample_size is not None and sample_size < MIN_RELIABLE_TICKS:
+            reasons.append(
+                f"insufficient sample size ({sample_size}/{MIN_RELIABLE_TICKS} ticks)"
+            )
+        return bool(reasons), "; ".join(reasons)
 
     def _calculate_confidence_score(
         self, price: float, volume: float, vwap: float,
@@ -265,6 +344,14 @@ class BaseIntradayAgent:
         prem_pts = int(round(premium_score * 0.05))
 
         total_score = trend_pts + vwap_pts + delta_pts + vol_pts + rsi_pts + prem_pts
+
+        # Cap readiness when a momentum breakout is context-gated (regime or session).
+        # Signal may already be rewritten to "STANDBY (CONTEXT)" by evaluate_signal,
+        # so match both the original labels and the rewritten one.
+        is_gated_signal = signal in MOMENTUM_BREAKOUT_LONGS or "STANDBY" in signal.upper()
+        if is_gated_signal and self._context_unfavorable()[0]:
+            total_score = min(total_score, CONTEXT_READINESS_CAP)
+
         breakdown = {
             "trend": trend_pts,
             "vwap": vwap_pts,
@@ -337,6 +424,12 @@ class BaseIntradayAgent:
     def _map_signal_to_state(self, signal: str) -> str:
         """Map raw signal labels to a robust intraday state machine."""
         sig = signal.upper()
+        if "STANDBY" in sig:
+            return "🟠 STANDBY"
+        # Premium drag / avoid is a "do not buy" state, NOT a short setup —
+        # ETFs are hard to short and the premium can persist.
+        if "AVOID" in sig or "PREMIUM DRAG" in sig:
+            return "⛔ AVOID"
         if "MOMENTUM CONFIRMED" in sig or "ACCUMULATION" in sig:
             if "BUY" in sig or "LONG" in sig:
                 return "🟢 LONG ACTIVE"
@@ -344,7 +437,7 @@ class BaseIntradayAgent:
                 return "🔴 SHORT ACTIVE"
         elif "BUY" in sig or "WATCH_LONG" in sig:
             return "🟡 LONG SETUP"
-        elif "SELL" in sig or "WATCH_SHORT" in sig or "PREMIUM DRAG" in sig:
+        elif "SELL" in sig or "WATCH_SHORT" in sig:
             return "🔴 SHORT SETUP"
         else:
             return "⚪ WAIT"
@@ -358,7 +451,30 @@ class BaseIntradayAgent:
         if state in ("🟢 LONG ACTIVE", "🔴 SHORT ACTIVE"):
             lines.append("  WAITING FOR       : Setup fully mature & active")
             return lines
-            
+
+        if state == "⛔ AVOID":
+            lines.append("  WAITING FOR       : Premium to normalize below NAV threshold")
+            return lines
+
+        if state == "🟠 STANDBY":
+            _, reason = self._context_unfavorable()
+            lines.append("  WAITING FOR       :")
+            if self.regime == "Mean-Reverting":
+                lines.append(
+                    f"    • Regime to turn Trending (ADX > {ADX_TREND_THRESHOLD}; "
+                    f"current: {self.adx_value:.0f})"
+                )
+            if self._session_phase() == "MIDDAY":
+                lines.append("    • Session to exit midday chop window (after 13:30 IST)")
+            sample_size = getattr(self, "_last_sample_size", None)
+            if sample_size is not None and sample_size < MIN_RELIABLE_TICKS:
+                lines.append(
+                    f"    • More tick samples for a reliable read "
+                    f"(current: {sample_size}/{MIN_RELIABLE_TICKS})"
+                )
+            lines.append("    • Price to reclaim VWAP on above-average volume")
+            return lines
+
         if state == "⚪ WAIT":
             lines.append("  WAITING FOR       : Awaiting market structure shift (Neutral)")
             return lines
@@ -415,24 +531,26 @@ class BaseIntradayAgent:
         bp1 = tick_data.get("bp1")
         sp1 = tick_data.get("sp1")
 
-        # Update best bid/ask (these may arrive independently of lp/v)
-        if bp1 is not None:
-            self.best_bid = float(bp1)
-        if sp1 is not None:
-            self.best_ask = float(sp1)
+        # Mutate all shared live state under the lock so evaluate_signal (which
+        # snapshots under the same lock) never reads a half-updated tick.
+        with self._lock:
+            # Update best bid/ask (these may arrive independently of lp/v)
+            if bp1 is not None:
+                self.best_bid = float(bp1)
+            if sp1 is not None:
+                self.best_ask = float(sp1)
 
-        updated = False
-        if lp is not None:
-            self.live_price = float(lp)
-            self.today_high = max(self.today_high, self.live_price)
-            self.today_low = min(self.today_low, self.live_price)
-            updated = True
-        if v is not None:
-            self.live_volume = float(v)
-            updated = True
+            updated = False
+            if lp is not None:
+                self.live_price = float(lp)
+                self.today_high = max(self.today_high, self.live_price)
+                self.today_low = min(self.today_low, self.live_price)
+                updated = True
+            if v is not None:
+                self.live_volume = float(v)
+                updated = True
 
-        if updated:
-            with self._lock:
+            if updated:
                 self.ticks_count += 1
                 if lp is not None and v is not None:
                     lp_f = float(lp)
@@ -466,15 +584,22 @@ class BaseIntradayAgent:
     # ── VWAP ──────────────────────────────────────────────────────────
 
     def _compute_vwap(self, prices: list[float], volumes: list[float]) -> float:
-        """Compute VWAP from snapshot copies of price/volume history."""
-        if not prices:
+        """Compute VWAP from snapshot copies of price/volume history.
+
+        The feed's ``v`` is *cumulative* day volume, so per-tick traded volume
+        is the difference between consecutive samples. The first stored sample
+        is used only as a baseline — counting it as a delta from zero would
+        attribute all pre-connection (or, after a history trim, pre-window)
+        volume to a single price and anchor VWAP to the connect-time price.
+        """
+        if len(prices) < 2:
             return self.live_price or self.prev_close
 
         total_p_v = 0.0
         total_v = 0.0
-        prev_v = 0.0
+        prev_v = volumes[0]  # baseline — do not count the first sample as delta
 
-        for p, v in zip(prices, volumes):
+        for p, v in zip(prices[1:], volumes[1:]):
             delta_v = max(0.0, v - prev_v)
             total_p_v += p * delta_v
             total_v += delta_v
@@ -716,9 +841,17 @@ class BaseIntradayAgent:
             vol_hist = list(self.volume_history)
             cum_delta = self.cumulative_delta
 
+        self._last_sample_size = len(price_hist)
+
         vwap = self._compute_vwap(price_hist, vol_hist)
         pct_from_ema = ((price - self.ema50) / self.ema50) * 100
-        relative_vol = volume / self.avg_vol_15d if self.avg_vol_15d > 0 else 0.0
+        # `volume` is cumulative day-so-far; scale the full-day 15d average to
+        # an expected-by-now baseline so the ratio isn't skewed by time of day.
+        if pd.notna(self.avg_vol_15d) and self.avg_vol_15d > 0:
+            expected_vol = self.avg_vol_15d * self._session_elapsed_fraction()
+            relative_vol = volume / expected_vol if expected_vol > 0 else 0.0
+        else:
+            relative_vol = 0.0
 
         # Compute momentum snapshot
         momentum = self._compute_momentum_snapshot(price_hist, vwap, cum_delta)
@@ -727,17 +860,27 @@ class BaseIntradayAgent:
         signal, rationale, extra_lines = self.evaluate_signal_logic(
             vwap, pct_from_ema, relative_vol, momentum
         )
+
+        # ── Context gate: suppress momentum breakout longs in unfavorable context ──
+        gate_note = ""
+        gated, gate_reason = self._context_unfavorable()
+        if gated and signal in MOMENTUM_BREAKOUT_LONGS:
+            signal = "STANDBY (CONTEXT)"
+            gate_note = f"Breakout suppressed — {gate_reason}."
+
         self.last_signal = signal
 
         # Override rationale with dynamic, context-rich statement
         premium_pct = getattr(self, "last_premium_pct", None)
         premium_threshold = getattr(self, "last_premium_threshold", None)
         vwap_z = momentum.get("vwap_z", 0.0)
-        
+
         rationale = self._generate_rationale(
             signal, pct_from_ema, relative_vol, vwap_z, cum_delta,
             premium_pct, premium_threshold
         )
+        if gate_note:
+            rationale = f"{gate_note} {rationale}"
 
         # Calculate confidence score and breakdown
         confidence, breakdown = self._calculate_confidence_score(
@@ -746,13 +889,12 @@ class BaseIntradayAgent:
         )
 
         # Build Signal Dashboard content
-        from src.utils.ist import now_ist
         timestamp = now_ist().strftime("%Y-%m-%d %H:%M:%S")
         time_suffix = f" [{self.remaining_seconds}s remaining]" if self.remaining_seconds is not None else ""
         
-        # Calculate Daily, Weekly and Intraday trend states
+        # Calculate Daily, Long-Term and Intraday trend states
         daily_trend = "Bullish" if price >= self.ema50 else "Bearish"
-        weekly_trend = "Bullish" if price >= self.ema200 else "Bearish"
+        longterm_trend = "Bullish" if price >= self.ema200 else "Bearish"
         intraday_trend = "Bullish" if price > vwap else ("Bearish" if price < vwap else "Neutral")
 
         lines = []
@@ -761,8 +903,13 @@ class BaseIntradayAgent:
         lines.append("=" * 70)
         lines.append(f"  Live Ticker Price : ₹{price:.2f}")
         lines.append(f"  Intraday VWAP     : ₹{vwap:.2f} (LTP is {intraday_trend} vs VWAP)")
+        phase = self._session_phase()
+        phase_note = " (low-momentum)" if phase == "MIDDAY" else ""
+        reliability = "OK" if len(price_hist) >= MIN_RELIABLE_TICKS else "LOW"
         lines.append(f"  Regime            : {self.regime} (ADX: {self.adx_value:.0f})")
-        lines.append(f"  HTF Trend Context : Daily: {daily_trend} (EMA50) | Weekly: {weekly_trend} (EMA200)")
+        lines.append(f"  Session           : {phase}{phase_note}")
+        lines.append(f"  Reliability       : {reliability} ({len(price_hist)}/{MIN_RELIABLE_TICKS} ticks)")
+        lines.append(f"  HTF Trend Context : Daily: {daily_trend} (EMA50) | Long-Term: {longterm_trend} (EMA200)")
         lines.append(f"  Yesterday Levels  : H: ₹{self.yesterday_high:.2f} | L: ₹{self.yesterday_low:.2f} | C: ₹{self.yesterday_close:.2f}")
         lines.append(f"  Today's Range     : H: ₹{self.today_high:.2f} | L: ₹{self.today_low:.2f}")
         for line in extra_lines:
@@ -771,7 +918,7 @@ class BaseIntradayAgent:
             lines.append(line)
         state = self._map_signal_to_state(signal)
         
-        lines.append(f"  Today's Vol       : {volume:,.0f} shares ({relative_vol:.2f}x of 15d Avg)")
+        lines.append(f"  Today's Vol       : {volume:,.0f} shares ({relative_vol:.2f}x of expected-by-now)")
         lines.append("-" * 70)
         lines.append(f"  STATE             : {state}")
         lines.append(f"  READINESS         : {confidence}%")
@@ -802,12 +949,15 @@ class BaseIntradayAgent:
             t2 = entry - range_height
             inval = max(vwap, entry + range_height * 0.5)
             lines.append(f"  TRADE LEVELS     : Entry: <₹{entry:.2f} | T1: ₹{t1:.2f} | T2: ₹{t2:.2f} | Stop: >₹{inval:.2f}")
+        elif state == "⛔ AVOID":
+            lines.append("  TRADE LEVELS     : No entry — premium above NAV threshold")
+        elif state == "🟠 STANDBY":
+            lines.append("  TRADE LEVELS     : No breakout trade — context unfavorable")
         else:
             lines.append("  TRADE LEVELS     : No trade setup active (Neutral)")
         lines.append("-" * 70)
 
         # Wrap rationale to fit 70-character screen limit and avoid terminal wrapping corruption
-        import textwrap
         wrapped_rat = textwrap.wrap(rationale, width=50)
         if wrapped_rat:
             lines.append(f"  RATIONALE         : {wrapped_rat[0]}")
@@ -819,17 +969,53 @@ class BaseIntradayAgent:
         lines.append("=" * 70)
         
         output_str = "\n".join(lines) + "\n"
-        
-        import sys
-        if self._prev_line_count > 0:
-            # Move cursor up to the top of the block, then clear everything below it to avoid artifacts
-            sys.stdout.write("\033[F" * self._prev_line_count + "\033[J")
+
+        if self.fullscreen and self._supports_tty():
+            # top-style: enter the alternate screen once, then repaint each frame
+            # from the home position. Absolute positioning (not relative cursor-up)
+            # means it never stacks or duplicates when the block is taller than the
+            # window or the terminal scrolls.
+            self._enter_fullscreen()
+            # \033[H → cursor home (top-left), \033[J → clear to end of screen
+            sys.stdout.write("\033[H\033[J" + output_str)
             sys.stdout.flush()
-            
-        sys.stdout.write(output_str)
-        sys.stdout.flush()
-        
+        elif self._supports_tty() and self._prev_line_count > 0:
+            # Fallback in-place refresh when full-screen mode is disabled.
+            sys.stdout.write("\033[F" * self._prev_line_count + "\033[J" + output_str)
+            sys.stdout.flush()
+        else:
+            # Non-TTY (captured/piped) or first plain frame: sequential output.
+            sys.stdout.write(output_str)
+            sys.stdout.flush()
+
         self._prev_line_count = len(lines)
+
+    # ── Full-screen (top-style) rendering ─────────────────────────────
+
+    def _supports_tty(self) -> bool:
+        """True only when stdout is an interactive terminal."""
+        try:
+            return sys.stdout.isatty()
+        except Exception:
+            return False
+
+    def _enter_fullscreen(self):
+        """Switch to the alternate screen buffer and hide the cursor (like top)."""
+        if self._alt_active or not (self.fullscreen and self._supports_tty()):
+            return
+        # \033[?1049h → alternate screen buffer, \033[?25l → hide cursor
+        sys.stdout.write("\033[?1049h\033[?25l")
+        sys.stdout.flush()
+        self._alt_active = True
+
+    def _leave_fullscreen(self):
+        """Restore the cursor and the original screen buffer on exit."""
+        if not self._alt_active:
+            return
+        # \033[?25h → show cursor, \033[?1049l → restore primary screen buffer
+        sys.stdout.write("\033[?25h\033[?1049l")
+        sys.stdout.flush()
+        self._alt_active = False
 
     # ── Event loop & lifecycle ────────────────────────────────────────
 
@@ -870,14 +1056,31 @@ class BaseIntradayAgent:
         logger.info(f"[{self.symbol}] Intraday signal monitor started successfully.")
 
     def stop(self):
-        """Stop monitoring and close websocket."""
-        logger.info(f"[{self.symbol}] Stopping intraday monitor...")
+        """Stop monitoring, restore the terminal, and close the websocket."""
         self.running = False
+        # Restore the primary screen buffer before any further logging/printing,
+        # so the shutdown messages land on the user's normal terminal.
+        self._leave_fullscreen()
+        logger.info(f"[{self.symbol}] Stopping intraday monitor...")
         if self.api:
-            try:
-                self.api.close_websocket()
-            except Exception:
-                pass
+            # The vendored Shoonya SDK's close_websocket() calls Thread.join()
+            # with no timeout and can silently no-op mid-reconnect, either of
+            # which can hang shutdown. Bound the wait so Ctrl+C always returns
+            # control promptly — the underlying ws thread is a daemon, so it's
+            # safe to abandon and it will be reaped at process exit regardless.
+            closer = threading.Thread(target=self._close_api_websocket, daemon=True)
+            closer.start()
+            closer.join(timeout=2.0)
+            if closer.is_alive():
+                logger.warning(
+                    f"[{self.symbol}] Websocket close timed out after 2s; exiting anyway."
+                )
+
+    def _close_api_websocket(self):
+        try:
+            self.api.close_websocket()
+        except Exception:
+            pass
 
 
 class StockIntradayAgent(BaseIntradayAgent):
@@ -971,8 +1174,9 @@ class ETFIntradayAgent(BaseIntradayAgent):
     PREMIUM_THRESHOLD_COMMODITY = 2.5      # % — overnight COMEX gap is normal
     PREMIUM_THRESHOLD_INTERNATIONAL = 5.0  # % — timezone structural premium
 
-    def __init__(self, symbol: str, category: str, interval_seconds: int = 5):
-        super().__init__(symbol, category, interval_seconds)
+    def __init__(self, symbol: str, category: str, interval_seconds: int = 5,
+                 fullscreen: bool = True):
+        super().__init__(symbol, category, interval_seconds, fullscreen=fullscreen)
         self.declared_nav: float | None = None
 
         sym = symbol.strip().upper()
@@ -1051,7 +1255,8 @@ class ETFIntradayAgent(BaseIntradayAgent):
         return signal, rationale, extra_lines
 
 
-def create_intraday_agent(symbol: str, interval_seconds: int = 5) -> BaseIntradayAgent:
+def create_intraday_agent(symbol: str, interval_seconds: int = 5,
+                          fullscreen: bool = True) -> BaseIntradayAgent:
     """Factory: resolve symbol category from ClickHouse, return correct subclass."""
     db_pool = get_pool()
     symbol_upper = symbol.strip().upper()
@@ -1067,25 +1272,47 @@ def create_intraday_agent(symbol: str, interval_seconds: int = 5) -> BaseIntrada
         category = str(df['category'].iloc[0]).lower()
 
     if category == "etfs":
-        return ETFIntradayAgent(symbol_upper, category, interval_seconds)
-    return StockIntradayAgent(symbol_upper, category, interval_seconds)
+        return ETFIntradayAgent(symbol_upper, category, interval_seconds, fullscreen=fullscreen)
+    return StockIntradayAgent(symbol_upper, category, interval_seconds, fullscreen=fullscreen)
+
+
+def _install_sigint_hard_exit():
+    """First Ctrl+C triggers the normal graceful KeyboardInterrupt shutdown.
+    A second Ctrl+C (e.g. if shutdown is stuck on a slow websocket close)
+    force-exits immediately, so Ctrl+C is never a no-op from the user's view.
+    """
+    import signal as _signal
+
+    state = {"count": 0}
+
+    def _handler(signum, frame):
+        state["count"] += 1
+        if state["count"] >= 2:
+            print("\nForce quitting...")
+            os._exit(1)
+        raise KeyboardInterrupt()
+
+    _signal.signal(_signal.SIGINT, _handler)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    _install_sigint_hard_exit()
 
     parser = argparse.ArgumentParser(description="Read-Only Intraday Agent for ETF/Stock signals.")
     parser.add_argument("--symbol", type=str, default="GOLDBEES", help="NSE ETF/Stock symbol to track.")
     parser.add_argument("--interval", type=int, default=10, help="Interval in seconds between signal prints.")
     parser.add_argument("--duration", type=int, default=30, help="Total execution duration in seconds.")
+    parser.add_argument("--no-fullscreen", dest="fullscreen", action="store_false",
+                        help="Disable top-style full-screen refresh; print signals sequentially instead.")
+    parser.set_defaults(fullscreen=True)
     args, unknown_args = parser.parse_known_args()
     
     duration = args.duration
     # Parse positional duration from unknown args (e.g. 1 min, 60s, 1m, 60)
     if unknown_args:
         arg_str = " ".join(unknown_args).lower()
-        import re
-        
+
         match_min = re.search(r"(\d+(?:\.\d+)?)\s*(?:m|min|minute|minutes)\b", arg_str)
         match_sec = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds)\b", arg_str)
         
@@ -1108,7 +1335,9 @@ if __name__ == "__main__":
                     pass
 
     # Instantiate correct subclass via factory function
-    agent = create_intraday_agent(args.symbol, interval_seconds=args.interval)
+    agent = create_intraday_agent(
+        args.symbol, interval_seconds=args.interval, fullscreen=args.fullscreen
+    )
     try:
         agent.remaining_seconds = duration
         agent.start()
@@ -1116,6 +1345,8 @@ if __name__ == "__main__":
             agent.remaining_seconds = remaining
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nStopping agent...")
+        pass
     finally:
+        # stop() restores the terminal first, so this prints on the normal screen.
         agent.stop()
+        print(f"\n[{agent.symbol}] Intraday monitor stopped.")
