@@ -1905,19 +1905,27 @@ def _dispatch_slash(
                     premium_pct, premium_threshold
                 )
                 
-                confidence = agent_instance._calculate_confidence_score(
+                confidence, breakdown = agent_instance._calculate_confidence_score(
                     price, volume, vwap, pct_from_ema, relative_vol, momentum,
                     premium_pct, premium_threshold, agent_instance.last_signal
                 )
                 
+                daily_trend = "Bullish" if price >= agent_instance.ema50 else "Bearish"
+                weekly_trend = "Bullish" if price >= agent_instance.ema200 else "Bearish"
+                
                 prompt = (
-                    f"Write a concise, professional qualitative investment narrative for {symbol} based on the following intraday tracking session:\n"
-                    f"- Last Signal: {agent_instance.last_signal} (Confidence: {confidence}%)\n"
-                    f"- Regime: {agent_instance.regime} (ADX: {agent_instance.adx_value:.0f})\n"
-                    f"- Price: ₹{price:.2f} vs 50-day EMA: ₹{agent_instance.ema50:.2f} ({pct_from_ema:+.2f}%)\n"
+                    f"Write a concise, professional quantitative trade plan for {symbol} based on the following intraday tracking data:\n"
+                    f"- Last Intraday Signal: {agent_instance.last_signal}\n"
+                    f"- Confidence Score: {confidence}% (Breakdown: Trend Context {breakdown['trend']}/30, VWAP {breakdown['vwap']}/20, Delta {breakdown['delta']}/20, Vol {breakdown['vol']}/15, RSI {breakdown['rsi']}/10, Premium {breakdown['prem']}/5)\n"
+                    f"- Market Regime: {agent_instance.regime} (ADX: {agent_instance.adx_value:.0f})\n"
+                    f"- HTF Context: Daily Trend is {daily_trend} (price vs 50-day EMA: {pct_from_ema:+.2f}%), Weekly Trend is {weekly_trend} (price vs 200-day EMA)\n"
+                    f"- Intraday Level Context: Price is ₹{price:.2f}, VWAP is ₹{vwap:.2f}, Volume is {relative_vol:.2f}x of 15d Avg, Order Flow (Delta) is {cum_delta:+,.0f}\n"
                     f"- Rationale: {rationale}\n\n"
-                    f"Briefly explain what this signal and confidence score mean under this market structure. "
-                    f"Do not calculate any numbers. Avoid generic disclaimers."
+                    f"Your output MUST synthesize actionable insights and follow this EXACT structure:\n\n"
+                    f"Trade Bias: <Bias, e.g. Neutral to Bullish / Neutral / Bearish>\n"
+                    f"Reason: <Synthesize the trend context and why this bias makes sense, mentioning the HTF bias vs. the intraday session dynamics without paraphrasing numbers verbatim>\n"
+                    f"Trade Plan: <Provide a concrete plan with conditions. e.g. Wait for sustained acceptance above VWAP with positive delta and volume for a long, or rejection for short-term mean-reversion to VWAP. Keep it specific and actionable>\n\n"
+                    f"Do not write any introductory or concluding text, and do not repeat numbers unless necessary. Keep it professional."
                 )
                 
                 console.print(f"\n[yellow]⌛ Generating narrative...[/yellow]")
