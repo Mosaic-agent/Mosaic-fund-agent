@@ -1764,36 +1764,81 @@ def _dispatch_slash(
 
     # ── /intraday SYMBOL ───────────────────────────────────────────────────
     if name == "intraday":
-        symbol = parts[1].upper() if len(parts) > 1 else ""
-        if not symbol:
+        if len(parts) < 2:
             return "Usage: `/intraday SYMBOL`  — e.g. `/intraday GOLDBEES`", thread_id
+            
+        # Extract symbol words until option or duration specifier is met
+        symbol_parts = []
+        p = parts[1:]
+        i = 0
+        import re
+        while i < len(p):
+            val = p[i].lower()
+            if val.startswith("-") or val.isdigit() or re.match(r"^(m|min|minute|minutes|s|sec|second|seconds)$", val):
+                break
+            symbol_parts.append(p[i])
+            i += 1
+            
+        symbol_raw = " ".join(symbol_parts)
+        if not symbol_raw:
+            return "Usage: `/intraday SYMBOL`  — e.g. `/intraday GOLDBEES`", thread_id
+            
+        # Resolve raw symbol via ClickHouse lookups
+        from src.db.pool import get_pool
+        pool = get_pool()
+        sym_clean = symbol_raw.replace(" ", "").upper()
+        symbol = sym_clean
         
+        try:
+            query = """
+            SELECT DISTINCT symbol 
+            FROM market_data.daily_prices FINAL 
+            WHERE symbol = {sym1:String} OR symbol = {sym2:String}
+            """
+            df_sym = pool.query_df(query, parameters={"sym1": symbol_raw.upper(), "sym2": sym_clean})
+            if not df_sym.empty:
+                symbol = str(df_sym['symbol'].iloc[0])
+            elif symbol_parts:
+                first_word = symbol_parts[0].upper()
+                if len(first_word) >= 3:
+                    query_like = """
+                    SELECT DISTINCT symbol 
+                    FROM market_data.daily_prices FINAL 
+                    WHERE symbol LIKE {like_pattern:String}
+                    LIMIT 1
+                    """
+                    df_like = pool.query_df(query_like, parameters={"like_pattern": f"%{first_word}%"})
+                    if not df_like.empty:
+                        symbol = str(df_like['symbol'].iloc[0])
+        except Exception:
+            pass
+
         duration = 15
         interval = 5
         
         # Parse explicit options and clean remaining args
-        p = parts[2:]
+        p = p[i:]
         options = {}
         cleaned_p = []
-        i = 0
-        while i < len(p):
-            if p[i] == "--duration" and i + 1 < len(p):
+        i_opt = 0
+        while i_opt < len(p):
+            if p[i_opt] == "--duration" and i_opt + 1 < len(p):
                 try:
-                    duration = int(p[i+1])
+                    duration = int(p[i_opt+1])
                     options["duration"] = duration
                 except ValueError:
                     pass
-                i += 2
-            elif p[i] == "--interval" and i + 1 < len(p):
+                i_opt += 2
+            elif p[i_opt] == "--interval" and i_opt + 1 < len(p):
                 try:
-                    interval = int(p[i+1])
+                    interval = int(p[i_opt+1])
                     options["interval"] = interval
                 except ValueError:
                     pass
-                i += 2
+                i_opt += 2
             else:
-                cleaned_p.append(p[i])
-                i += 1
+                cleaned_p.append(p[i_opt])
+                i_opt += 1
                 
         # Parse positional duration if no explicit option was set
         if "duration" not in options and cleaned_p:
