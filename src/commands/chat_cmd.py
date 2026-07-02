@@ -1464,6 +1464,7 @@ Type your question, or use a slash command:
   [cyan]/ml[/cyan]                  — ML model status + live prediction
   [cyan]/prompts [category][/cyan]  — browse prompt library (signal·ml·equity·macro·intl_etf·chart·code·database·import)
   [cyan]/deepdive TICKER[/cyan]     — US stock SEC deep-dive (e.g. /deepdive ADSK)
+  [cyan]/intraday SYMBOL[/cyan]     — real-time tick-by-tick signal monitor
   [cyan]/macro[/cyan]              — macro events + COMEX + FII/DII scan
   [cyan]/cache[/cyan]              — show LLM cache stats  ([cyan]/cache clear[/cyan] to wipe)
   [cyan]/clear[/cyan]              — reset conversation memory (fresh thread)
@@ -1492,6 +1493,7 @@ _HELP_MD = """
 | `/signals` | ETF composite signal aggregator (all 18 ETFs) |
 | `/ml` | ML model status — LightGBM prediction, GARCH vol, anomaly regime |
 | `/deepdive TICKER` | US stock SEC 10-K deep-dive (e.g. `/deepdive ADSK`) |
+| `/intraday SYMBOL` | Real-time tick-by-tick signal monitor |
 | `/macro` | Live macro events + COMEX + FII/DII institutional flows |
 | `/caveman [level]` | Toggle Caveman mode (`lite`/`full`/`ultra`/`wenyan`/`off`) |
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
@@ -1759,6 +1761,46 @@ def _dispatch_slash(
                 return f"Invalid caveman level. Valid levels: {', '.join(valid_levels)} or 'off'.", thread_id
             os.environ["CAVEMAN_LEVEL"] = level
             return f"Caveman mode **enabled** (level: `{level}`). Less waffle, more speed.", thread_id
+
+    # ── /intraday SYMBOL ───────────────────────────────────────────────────
+    if name == "intraday":
+        symbol = parts[1].upper() if len(parts) > 1 else ""
+        if not symbol:
+            return "Usage: `/intraday SYMBOL`  — e.g. `/intraday GOLDBEES`", thread_id
+        
+        duration = 15
+        interval = 5
+        
+        p = parts[2:]
+        while p:
+            if p[0] == "--duration" and len(p) > 1:
+                try:
+                    duration = int(p[1])
+                except ValueError:
+                    pass
+                p = p[2:]
+            elif p[0] == "--interval" and len(p) > 1:
+                try:
+                    interval = int(p[1])
+                except ValueError:
+                    pass
+                p = p[2:]
+            else:
+                p = p[1:]
+                
+        from src.agents.intraday_agent import create_intraday_agent
+        console.print(f"[yellow]Connecting to Shoonya WebSocket and tracking {symbol} live for {duration} seconds...[/yellow]\n")
+        
+        try:
+            agent_instance = create_intraday_agent(symbol, interval_seconds=interval)
+            agent_instance.start()
+            import time
+            time.sleep(duration)
+            agent_instance.stop()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Intraday agent failed:[/bold red] {exc}")
+            
+        return "", thread_id
 
     # Unknown
     return f"Unknown command: `/{name}` — type `/help` for the full list.", thread_id
