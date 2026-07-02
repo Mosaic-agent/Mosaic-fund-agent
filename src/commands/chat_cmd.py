@@ -1771,22 +1771,55 @@ def _dispatch_slash(
         duration = 15
         interval = 5
         
+        # Parse explicit options and clean remaining args
         p = parts[2:]
-        while p:
-            if p[0] == "--duration" and len(p) > 1:
+        options = {}
+        cleaned_p = []
+        i = 0
+        while i < len(p):
+            if p[i] == "--duration" and i + 1 < len(p):
                 try:
-                    duration = int(p[1])
+                    duration = int(p[i+1])
+                    options["duration"] = duration
                 except ValueError:
                     pass
-                p = p[2:]
-            elif p[0] == "--interval" and len(p) > 1:
+                i += 2
+            elif p[i] == "--interval" and i + 1 < len(p):
                 try:
-                    interval = int(p[1])
+                    interval = int(p[i+1])
+                    options["interval"] = interval
                 except ValueError:
                     pass
-                p = p[2:]
+                i += 2
             else:
-                p = p[1:]
+                cleaned_p.append(p[i])
+                i += 1
+                
+        # Parse positional duration if no explicit option was set
+        if "duration" not in options and cleaned_p:
+            arg_str = " ".join(cleaned_p).lower()
+            import re
+            
+            match_min = re.search(r"(\d+(?:\.\d+)?)\s*(?:m|min|minute|minutes)\b", arg_str)
+            match_sec = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds)\b", arg_str)
+            
+            if match_min:
+                try:
+                    duration = int(float(match_min.group(1)) * 60)
+                except ValueError:
+                    pass
+            elif match_sec:
+                try:
+                    duration = int(float(match_sec.group(1)))
+                except ValueError:
+                    pass
+            else:
+                match_num = re.search(r"^(\d+)$", cleaned_p[0])
+                if match_num:
+                    try:
+                        duration = int(match_num.group(1))
+                    except ValueError:
+                        pass
                 
         from src.agents.intraday_agent import create_intraday_agent
         console.print(f"[yellow]Connecting to Shoonya WebSocket and tracking {symbol} live for {duration} seconds...[/yellow]\n")

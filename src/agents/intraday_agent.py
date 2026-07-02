@@ -701,13 +701,40 @@ if __name__ == "__main__":
     parser.add_argument("--symbol", type=str, default="GOLDBEES", help="NSE ETF/Stock symbol to track.")
     parser.add_argument("--interval", type=int, default=10, help="Interval in seconds between signal prints.")
     parser.add_argument("--duration", type=int, default=30, help="Total execution duration in seconds.")
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    
+    duration = args.duration
+    # Parse positional duration from unknown args (e.g. 1 min, 60s, 1m, 60)
+    if unknown_args:
+        arg_str = " ".join(unknown_args).lower()
+        import re
+        
+        match_min = re.search(r"(\d+(?:\.\d+)?)\s*(?:m|min|minute|minutes)\b", arg_str)
+        match_sec = re.search(r"(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds)\b", arg_str)
+        
+        if match_min:
+            try:
+                duration = int(float(match_min.group(1)) * 60)
+            except ValueError:
+                pass
+        elif match_sec:
+            try:
+                duration = int(float(match_sec.group(1)))
+            except ValueError:
+                pass
+        else:
+            match_num = re.search(r"^(\d+)$", unknown_args[0])
+            if match_num:
+                try:
+                    duration = int(match_num.group(1))
+                except ValueError:
+                    pass
 
     # Instantiate correct subclass via factory function
     agent = create_intraday_agent(args.symbol, interval_seconds=args.interval)
     try:
         agent.start()
-        time.sleep(args.duration)
+        time.sleep(duration)
     except KeyboardInterrupt:
         print("\nStopping agent...")
     finally:
