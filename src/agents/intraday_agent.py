@@ -654,7 +654,7 @@ class BaseIntradayAgent:
         
         lines = []
         lines.append("=" * 70)
-        lines.append(f"  [{timestamp}] INTRADAY READ-ONLY SIGNAL ({self.__class__.__name__}): {self.symbol}{time_suffix}")
+        lines.append(f"  [{timestamp}] INTRADAY SIGNAL: {self.symbol}{time_suffix}")
         lines.append("=" * 70)
         lines.append(f"  Live Ticker Price : ₹{price:.2f}")
         lines.append(f"  50-day EMA        : ₹{self.ema50:.2f} ({pct_from_ema:+.2f}%)")
@@ -668,15 +668,25 @@ class BaseIntradayAgent:
         lines.append("-" * 70)
         lines.append(f"  SIGNAL            : 💥 {signal}")
         lines.append(f"  CONFIDENCE        : {confidence}%")
-        lines.append(f"  RATIONALE         : {rationale}")
+        
+        # Wrap rationale to fit 70-character screen limit and avoid terminal wrapping corruption
+        import textwrap
+        wrapped_rat = textwrap.wrap(rationale, width=50)
+        if wrapped_rat:
+            lines.append(f"  RATIONALE         : {wrapped_rat[0]}")
+            for extra_line in wrapped_rat[1:]:
+                lines.append(f"                      {extra_line}")
+        else:
+            lines.append("  RATIONALE         : ")
+            
         lines.append("=" * 70)
         
         output_str = "\n".join(lines) + "\n"
         
         import sys
         if self._prev_line_count > 0:
-            # Move cursor up and clear the block
-            sys.stdout.write("\033[F" * self._prev_line_count)
+            # Move cursor up to the top of the block, then clear everything below it to avoid artifacts
+            sys.stdout.write("\033[F" * self._prev_line_count + "\033[J")
             sys.stdout.flush()
             
         sys.stdout.write(output_str)
