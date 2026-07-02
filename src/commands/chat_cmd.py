@@ -1828,7 +1828,13 @@ def _dispatch_slash(
             agent_instance = create_intraday_agent(symbol, interval_seconds=interval)
             agent_instance.start()
             import time
-            time.sleep(duration)
+            import sys
+            for remaining in range(duration, 0, -1):
+                sys.stdout.write(f"\r⌛ Monitoring live... {remaining}s remaining ")
+                sys.stdout.flush()
+                time.sleep(1)
+            sys.stdout.write("\r" + " " * 50 + "\r")
+            sys.stdout.flush()
             agent_instance.stop()
         except Exception as exc:
             console.print(f"[bold red]✗ Intraday agent failed:[/bold red] {exc}")

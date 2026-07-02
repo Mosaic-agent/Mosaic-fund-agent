@@ -734,7 +734,13 @@ if __name__ == "__main__":
     agent = create_intraday_agent(args.symbol, interval_seconds=args.interval)
     try:
         agent.start()
-        time.sleep(duration)
+        import sys
+        for remaining in range(duration, 0, -1):
+            sys.stdout.write(f"\r⌛ Monitoring live... {remaining}s remaining ")
+            sys.stdout.flush()
+            time.sleep(1)
+        sys.stdout.write("\r" + " " * 50 + "\r")
+        sys.stdout.flush()
     except KeyboardInterrupt:
         print("\nStopping agent...")
     finally:
