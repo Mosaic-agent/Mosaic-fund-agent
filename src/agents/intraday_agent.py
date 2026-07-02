@@ -91,6 +91,14 @@ class BaseIntradayAgent:
         self._prev_line_count: int = 0
         self.adx_value: float = 15.0
         self.regime: str = "Mean-Reverting"
+        
+        # Intraday ranges and HTF (Higher Timeframe) context
+        self.today_high: float = -1.0
+        self.today_low: float = 1e9
+        self.ema200: float = 0.0
+        self.yesterday_high: float = 0.0
+        self.yesterday_low: float = 0.0
+        self.yesterday_close: float = 0.0
 
     # ── Historical baselines ──────────────────────────────────────────
 
@@ -102,7 +110,7 @@ class BaseIntradayAgent:
         FROM market_data.daily_prices FINAL
         WHERE symbol = {symbol:String}
         ORDER BY trade_date DESC
-        LIMIT 100
+        LIMIT 250
         """
         df = self.db_pool.query_df(query, parameters={"symbol": self.symbol})
         if df.empty:
@@ -110,18 +118,31 @@ class BaseIntradayAgent:
 
         df = df.iloc[::-1].reset_index(drop=True)
         df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
+        
+        # Calculate 200-day EMA if there are enough rows
+        if len(df) >= 200:
+            df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
+            self.ema200 = df['ema200'].iloc[-1]
+        else:
+            self.ema200 = df['ema50'].iloc[-1]  # fallback
 
         self.prev_close = df['close'].iloc[-1]
         self.ema50 = df['ema50'].iloc[-1]
         self.avg_vol_15d = df['volume'].rolling(15).mean().iloc[-1]
 
-        # Compute ADX and Regime
+        # Store yesterday's price levels
+        self.yesterday_high = df['high'].iloc[-1]
+        self.yesterday_low = df['low'].iloc[-1]
+        self.yesterday_close = df['close'].iloc[-1]
+
+        # Compute ADX and Regime (using last 14 days, safe on 250 rows)
         self.adx_value, self.regime = self._calculate_adx(df)
 
         logger.info(
             f"[{self.symbol}] Category: {self.category} | "
             f"Prev Close: ₹{self.prev_close:.2f} | "
             f"50-day EMA: ₹{self.ema50:.2f} | "
+            f"200-day EMA: ₹{self.ema200:.2f} | "
             f"15d Avg Vol: {self.avg_vol_15d:,.0f} shares | "
             f"ADX: {self.adx_value:.1f} ({self.regime})"
         )
@@ -180,13 +201,14 @@ class BaseIntradayAgent:
         self, price: float, volume: float, vwap: float,
         pct_from_ema: float, relative_vol: float, momentum: dict,
         premium_pct: float | None, premium_threshold: float | None, signal: str
-    ) -> int:
-        """Calculate weighted confidence score from technical factors (0% to 100%)."""
+    ) -> tuple[int, dict]:
+        """Calculate weighted confidence score and return (score, breakdown)."""
         # 1. EMA Trend (30% weight)
         if pct_from_ema >= 0:
             ema_score = 100 if relative_vol > 1.0 else 80
         else:
             ema_score = 60 if relative_vol > 1.2 else 30
+        trend_pts = int(round(ema_score * 0.30))
 
         # 2. VWAP (20% weight)
         vwap_z = momentum.get("vwap_z", 0.0)
@@ -196,6 +218,7 @@ class BaseIntradayAgent:
             vwap_score = 100 if relative_vol > 1.0 else 70
         else:
             vwap_score = 60 if relative_vol > 1.2 else 30
+        vwap_pts = int(round(vwap_score * 0.20))
 
         # 3. Delta (20% weight)
         cum_delta = momentum.get("cum_delta", 0.0)
@@ -213,9 +236,11 @@ class BaseIntradayAgent:
                 delta_score = 100
             else:
                 delta_score = 50
+        delta_pts = int(round(delta_score * 0.20))
 
         # 4. Volume (15% weight)
         vol_score = min(100, int(relative_vol * 80))
+        vol_pts = int(round(vol_score * 0.15))
 
         # 5. RSI (10% weight)
         rsi = momentum.get("rsi")
@@ -227,6 +252,7 @@ class BaseIntradayAgent:
             rsi_score = 100 if pct_from_ema < 0 else 40
         else:
             rsi_score = 60
+        rsi_pts = int(round(rsi_score * 0.10))
 
         # 6. Premium (5% weight)
         if premium_pct is not None and premium_threshold is not None:
@@ -236,16 +262,18 @@ class BaseIntradayAgent:
                 premium_score = max(20, int(100 - (premium_pct - premium_threshold) * 20))
         else:
             premium_score = 100
+        prem_pts = int(round(premium_score * 0.05))
 
-        weighted_score = (
-            0.30 * ema_score +
-            0.20 * vwap_score +
-            0.20 * delta_score +
-            0.15 * vol_score +
-            0.10 * rsi_score +
-            0.05 * premium_score
-        )
-        return int(round(weighted_score))
+        total_score = trend_pts + vwap_pts + delta_pts + vol_pts + rsi_pts + prem_pts
+        breakdown = {
+            "trend": trend_pts,
+            "vwap": vwap_pts,
+            "delta": delta_pts,
+            "vol": vol_pts,
+            "rsi": rsi_pts,
+            "prem": prem_pts
+        }
+        return total_score, breakdown
 
     def _generate_rationale(
         self, signal: str, pct_from_ema: float, relative_vol: float,
@@ -304,9 +332,76 @@ class BaseIntradayAgent:
             parts.append(f"{delta_part} {premium_part}.")
         else:
             parts.append(f"{delta_part}.")
-        parts.append(conclusion)
-
         return " ".join(parts)
+
+    def _map_signal_to_state(self, signal: str) -> str:
+        """Map raw signal labels to a robust intraday state machine."""
+        sig = signal.upper()
+        if "MOMENTUM CONFIRMED" in sig or "ACCUMULATION" in sig:
+            if "BUY" in sig or "LONG" in sig:
+                return "🟢 LONG ACTIVE"
+            else:
+                return "🔴 SHORT ACTIVE"
+        elif "BUY" in sig or "WATCH_LONG" in sig:
+            return "🟡 LONG SETUP"
+        elif "SELL" in sig or "WATCH_SHORT" in sig or "PREMIUM DRAG" in sig:
+            return "🔴 SHORT SETUP"
+        else:
+            return "⚪ WAIT"
+
+    def _generate_waiting_for_list(
+        self, state: str, price: float, vwap: float,
+        momentum: dict, relative_vol: float
+    ) -> list[str]:
+        """Generate focused 'Waiting For' checklist representing missing trigger criteria."""
+        lines = []
+        if state in ("🟢 LONG ACTIVE", "🔴 SHORT ACTIVE"):
+            lines.append("  WAITING FOR       : Setup fully mature & active")
+            return lines
+            
+        if state == "⚪ WAIT":
+            lines.append("  WAITING FOR       : Awaiting market structure shift (Neutral)")
+            return lines
+
+        cum_delta = momentum.get("cum_delta", 0.0)
+        rsi = momentum.get("rsi")
+        micro_mom = momentum.get("micro_mom")
+        
+        bullets = []
+        if state == "🟡 LONG SETUP":
+            if price <= vwap:
+                bullets.append(f"Price holding above VWAP (Current: ₹{price:.2f} vs ₹{vwap:.2f})")
+            if cum_delta <= 0:
+                bullets.append(f"Positive Delta order flow (Current: {cum_delta:+,.0f})")
+            if rsi is None or rsi <= 60:
+                rsi_str = f"{rsi:.1f}" if rsi is not None else "N/A"
+                bullets.append(f"RSI > 60 (Current: {rsi_str})")
+            if micro_mom is None or micro_mom <= 0:
+                mom_str = f"{micro_mom:+.4f}" if micro_mom is not None else "N/A"
+                bullets.append(f"Positive Micro-Momentum (Current: {mom_str})")
+            if relative_vol < 1.2:
+                bullets.append(f"Increasing Volume > 1.2x average (Current: {relative_vol:.2f}x)")
+        elif state == "🔴 SHORT SETUP":
+            if price >= vwap:
+                bullets.append(f"Price holding below VWAP (Current: ₹{price:.2f} vs ₹{vwap:.2f})")
+            if cum_delta >= 0:
+                bullets.append(f"Negative Delta order flow (Current: {cum_delta:+,.0f})")
+            if rsi is None or rsi >= 40:
+                rsi_str = f"{rsi:.1f}" if rsi is not None else "N/A"
+                bullets.append(f"RSI < 40 (Current: {rsi_str})")
+            if micro_mom is None or micro_mom >= 0:
+                mom_str = f"{micro_mom:+.4f}" if micro_mom is not None else "N/A"
+                bullets.append(f"Negative Micro-Momentum (Current: {mom_str})")
+            if relative_vol < 1.2:
+                bullets.append(f"Increasing Volume > 1.2x average (Current: {relative_vol:.2f}x)")
+
+        if bullets:
+            lines.append("  WAITING FOR       :")
+            for b in bullets:
+                lines.append(f"    • {b}")
+        else:
+            lines.append("  WAITING FOR       : All conditions met")
+        return lines
 
     # ── WebSocket callback ────────────────────────────────────────────
 
@@ -329,6 +424,8 @@ class BaseIntradayAgent:
         updated = False
         if lp is not None:
             self.live_price = float(lp)
+            self.today_high = max(self.today_high, self.live_price)
+            self.today_low = min(self.today_low, self.live_price)
             updated = True
         if v is not None:
             self.live_volume = float(v)
@@ -642,8 +739,8 @@ class BaseIntradayAgent:
             premium_pct, premium_threshold
         )
 
-        # Calculate confidence score
-        confidence = self._calculate_confidence_score(
+        # Calculate confidence score and breakdown
+        confidence, breakdown = self._calculate_confidence_score(
             price, volume, vwap, pct_from_ema, relative_vol, momentum,
             premium_pct, premium_threshold, signal
         )
@@ -652,23 +749,62 @@ class BaseIntradayAgent:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         time_suffix = f" [{self.remaining_seconds}s remaining]" if self.remaining_seconds is not None else ""
         
+        # Calculate Daily, Weekly and Intraday trend states
+        daily_trend = "Bullish" if price >= self.ema50 else "Bearish"
+        weekly_trend = "Bullish" if price >= self.ema200 else "Bearish"
+        intraday_trend = "Bullish" if price > vwap else ("Bearish" if price < vwap else "Neutral")
+
         lines = []
         lines.append("=" * 70)
         lines.append(f"  [{timestamp}] INTRADAY SIGNAL: {self.symbol}{time_suffix}")
         lines.append("=" * 70)
         lines.append(f"  Live Ticker Price : ₹{price:.2f}")
-        lines.append(f"  50-day EMA        : ₹{self.ema50:.2f} ({pct_from_ema:+.2f}%)")
-        lines.append(f"  Intraday VWAP     : ₹{vwap:.2f} (LTP is {'ABOVE' if price >= vwap else 'BELOW'} VWAP)")
+        lines.append(f"  Intraday VWAP     : ₹{vwap:.2f} (LTP is {intraday_trend} vs VWAP)")
         lines.append(f"  Regime            : {self.regime} (ADX: {self.adx_value:.0f})")
+        lines.append(f"  HTF Trend Context : Daily: {daily_trend} (EMA50) | Weekly: {weekly_trend} (EMA200)")
+        lines.append(f"  Yesterday Levels  : H: ₹{self.yesterday_high:.2f} | L: ₹{self.yesterday_low:.2f} | C: ₹{self.yesterday_close:.2f}")
+        lines.append(f"  Today's Range     : H: ₹{self.today_high:.2f} | L: ₹{self.today_low:.2f}")
         for line in extra_lines:
             lines.append(line)
         for line in momentum_lines:
             lines.append(line)
+        state = self._map_signal_to_state(signal)
+        
         lines.append(f"  Today's Vol       : {volume:,.0f} shares ({relative_vol:.2f}x of 15d Avg)")
         lines.append("-" * 70)
-        lines.append(f"  SIGNAL            : 💥 {signal}")
-        lines.append(f"  CONFIDENCE        : {confidence}%")
+        lines.append(f"  STATE             : {state}")
+        lines.append(f"  READINESS         : {confidence}%")
+        lines.append(f"  ├─ Breakdown      : Trend: +{breakdown['trend']}/30 | VWAP: +{breakdown['vwap']}/20 | Delta: +{breakdown['delta']}/20")
+        lines.append(f"                      Vol: +{breakdown['vol']}/15 | RSI: +{breakdown['rsi']}/10 | Prem: +{breakdown['prem']}/5")
+        lines.append("-" * 70)
+
+        # Waiting For checklist
+        waiting_lines = self._generate_waiting_for_list(state, price, vwap, momentum, relative_vol)
+        for w_line in waiting_lines:
+            lines.append(w_line)
+        lines.append("-" * 70)
+
+        # Calculate tradable risk levels
+        high_lvl = self.today_high if self.today_high > 0 else price
+        low_lvl = self.today_low if self.today_low < 1e8 else price
+        range_height = high_lvl - low_lvl if high_lvl > low_lvl else price * 0.005
         
+        if state in ("🟢 LONG ACTIVE", "🟡 LONG SETUP"):
+            entry = high_lvl + price * 0.0005
+            t1 = entry + range_height * 0.5
+            t2 = entry + range_height
+            inval = min(vwap, entry - range_height * 0.5)
+            lines.append(f"  TRADE LEVELS     : Entry: >₹{entry:.2f} | T1: ₹{t1:.2f} | T2: ₹{t2:.2f} | Stop: <₹{inval:.2f}")
+        elif state in ("🔴 SHORT ACTIVE", "🔴 SHORT SETUP"):
+            entry = low_lvl - price * 0.0005
+            t1 = entry - range_height * 0.5
+            t2 = entry - range_height
+            inval = max(vwap, entry + range_height * 0.5)
+            lines.append(f"  TRADE LEVELS     : Entry: <₹{entry:.2f} | T1: ₹{t1:.2f} | T2: ₹{t2:.2f} | Stop: >₹{inval:.2f}")
+        else:
+            lines.append("  TRADE LEVELS     : No trade setup active (Neutral)")
+        lines.append("-" * 70)
+
         # Wrap rationale to fit 70-character screen limit and avoid terminal wrapping corruption
         import textwrap
         wrapped_rat = textwrap.wrap(rationale, width=50)
