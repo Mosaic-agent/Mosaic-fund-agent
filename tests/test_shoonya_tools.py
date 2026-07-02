@@ -16,7 +16,12 @@ import unittest
 # Add project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
+from src.tools.shoonya_tools import (
+    get_shoonya_quotes,
+    get_shoonya_live_tick,
+    initiate_shoonya_login,
+    complete_shoonya_login
+)
 from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
 
 class TestShoonyaTools(unittest.TestCase):
@@ -56,6 +61,18 @@ class TestShoonyaTools(unittest.TestCase):
         except json.JSONDecodeError:
             # If the tool returned a raw text error, let's fail the test to enforce that ALL data to LLM is JSON.
             self.fail(f"get_shoonya_live_tick did not return a valid JSON string: {result}")
+
+    def test_initiate_shoonya_login(self):
+        """Verify initiate_shoonya_login outputs redirect instructions containing the api_key."""
+        result = initiate_shoonya_login.invoke({})
+        self.assertIn("https://api.shoonya.com/OAuthlogin", result)
+        self.assertIn("api_key=", result)
+
+    def test_complete_shoonya_login_invalid_code(self):
+        """Verify complete_shoonya_login returns a descriptive error when provided an invalid code."""
+        result = complete_shoonya_login.invoke({"code": "invalid-auth-code-12345"})
+        self.assertIn("Error", result)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -164,4 +164,77 @@ def get_shoonya_live_tick(symbol: str) -> str:
             "message": f"Error occurred during Shoonya WebSocket live tick capture: {e}"
         }, indent=2)
 
-SHOONYA_TOOLS = [get_shoonya_quotes, get_shoonya_live_tick]
+
+@tool
+def initiate_shoonya_login(_: str = "") -> str:
+    """
+    Initiate Shoonya authentication by generating the browser authorization URL.
+    Returns the URL that the user must open in their browser to log in.
+    """
+    from config.settings import settings
+    user = getattr(settings, "shoonya_user_id", "")
+    secret = getattr(settings, "shoonya_api_secret", "")
+    
+    if not user or not secret:
+        return "Error: Shoonya credentials (SHOONYA_USER_ID, SHOONYA_API_SECRET) are not set in your .env file."
+
+    login_url = f"https://api.shoonya.com/OAuthlogin/investor-entry-level/login?api_key={user}&route_to={user}"
+    return f"Please open this URL in your browser to authenticate with Shoonya:\n{login_url}\n\nAfter logging in and authorizing, copy the 'code' parameter from the redirect URL and run the complete_shoonya_login(code=...) tool."
+
+
+@tool
+def complete_shoonya_login(code: str) -> str:
+    """
+    Complete the Shoonya authentication flow by exchanging the browser authorization code
+    for session tokens.
+    
+    Args:
+        code: The auth code copied from the redirect URL after browser login.
+    """
+    from config.settings import settings
+    from src.importer.fetchers.shoonya_fetcher import _save_session
+    
+    user = getattr(settings, "shoonya_user_id", "")
+    secret = getattr(settings, "shoonya_api_secret", "")
+    
+    if not user or not secret:
+        return "Error: Shoonya credentials (SHOONYA_USER_ID, SHOONYA_API_SECRET) are not set in your .env file."
+        
+    try:
+        from NorenRestApiPy.NorenApi import NorenApi
+        class ShoonyaApiPy(NorenApi):
+            def __init__(self):
+                NorenApi.__init__(
+                    self,
+                    host="https://api.shoonya.com/NorenWClientAPI",
+                    websocket="wss://api.shoonya.com/NorenWSAPI/",
+                )
+    except ImportError:
+        return "Error: NorenRestApiPy is not installed."
+
+    api = ShoonyaApiPy()
+    user_clean = user.replace("_U", "")
+    try:
+        result = api.getAccessToken(
+            authcode=code,
+            Secret_Code=secret,
+            client_id=user,
+            UID=user_clean
+        )
+        if result is not None:
+            asc_tok, usrid, ref_tok, actid = result
+            susertoken = getattr(api, '_NorenApi__susertoken', asc_tok)
+            _save_session({
+                "susertoken": susertoken,
+                "access_token": asc_tok,
+                "userid": usrid,
+                "accountid": actid
+            })
+            return f"Success! Authenticated successfully as {usrid}. The session token has been cached and saved to ClickHouse."
+        else:
+            return "Error: OAuth token generation failed. The code might be expired or invalid."
+    except Exception as exc:
+        return f"Error during OAuth token exchange: {exc}"
+
+
+SHOONYA_TOOLS = [get_shoonya_quotes, get_shoonya_live_tick, initiate_shoonya_login, complete_shoonya_login]

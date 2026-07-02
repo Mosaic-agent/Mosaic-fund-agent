@@ -48,6 +48,7 @@ from src.tools.skills_tools import (
 from src.tools.chart_tools import plot_price_chart, plot_multi_price_chart
 from src.tools.report_publisher import publish_consolidated_pdf
 from src.tools.etf_setup_scanner import scan_etf_setups, scan_etf_trends
+from src.tools.shoonya_tools import initiate_shoonya_login, complete_shoonya_login
 from src.tools.agent_tools import (
     check_and_refresh_symbol_data,
     delegate_to_signal_agent,
@@ -80,6 +81,7 @@ ALL_TOOLS = ZERODHA_TOOLS + SUMMARIZATION_TOOLS + [
     plot_price_chart, plot_multi_price_chart,
     publish_consolidated_pdf,
     check_and_refresh_symbol_data,
+    initiate_shoonya_login, complete_shoonya_login,
     delegate_to_signal_agent, delegate_to_macro_agent,
     delegate_to_intl_etf_agent, delegate_to_news_agent, delegate_to_mf_agent,
 ]
