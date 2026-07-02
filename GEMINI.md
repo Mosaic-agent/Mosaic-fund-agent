@@ -327,6 +327,7 @@ When working with Antigravity (`agy`) or Claude Code (`claude`), the following s
 | `/etf-news` | "etf news", "sentiment analysis" | Fetch and tag latest news articles by ETF category with sentiment. |
 | `/etf-setups` | "etf setups", "volume volatility scan" | Scan all 18 tracked ETFs for volume-volatility breakouts, exhaustion, or squeezes. |
 | `/goldbees-pipeline` | "run goldbees pipeline", "today's signal" | Run the full GOLDBEES ML prediction, Kelly sizing, and Risk Governor blend. |
+| `/intraday` | "track intraday", "intraday GOLDBEES" | Run the real-time read-only intraday signal monitor for an ETF or stock. |
 | `/ma-crossover` | "run crossover backtest", "golden cross" | Backtest SMA/EMA crossovers and plot equity curve performance. |
 | `/macro-scanner` | "macro trends today", "geopolitical events" | Scan live macro events and map their directional impact to ETFs. |
 | `/macro-strategy` | "macro strategy", "positioning" | Deep dive into the 2026 macro supercycle, real assets, and domestic alpha. |

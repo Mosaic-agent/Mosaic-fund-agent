@@ -328,6 +328,7 @@ request:
 | `/etf-news` | Fetch and tag ETF-category news with sentiment. |
 | `/etf-setups` | Scan all 18 tracked ETFs for volume-volatility breakouts, exhaustion, or squeezes. |
 | `/goldbees-pipeline` | Run or inspect the GOLDBEES ML and risk pipeline. |
+| `/intraday` | Run the real-time read-only intraday signal monitor for an ETF or stock. |
 | `/ma-crossover` | Backtest SMA/EMA crossovers and plot equity curve performance. |
 | `/macro-scanner` | Scan current macro events and map ETF impacts. |
 | `/macro-strategy` | Analyze macro positioning and asset allocation. |
