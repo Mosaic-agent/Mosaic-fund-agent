@@ -44,6 +44,10 @@ def _resolve_token(api, symbol: str) -> tuple[str, str] | None:
         return None
 
 
+# Public alias for cross-module use
+resolve_token = _resolve_token
+
+
 @tool
 def get_shoonya_quotes(symbol: str) -> str:
     """
