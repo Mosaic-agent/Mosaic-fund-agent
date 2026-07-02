@@ -1837,6 +1837,48 @@ def _dispatch_slash(
                 agent_instance.remaining_seconds = remaining
                 time.sleep(1)
             agent_instance.stop()
+            
+            # Generate qualitative narrative from LLM
+            if agent_instance.live_price is not None:
+                price = agent_instance.live_price
+                volume = agent_instance.live_volume
+                price_hist = list(agent_instance.price_history)
+                vol_hist = list(agent_instance.volume_history)
+                cum_delta = agent_instance.cumulative_delta
+                
+                vwap = agent_instance._compute_vwap(price_hist, vol_hist)
+                pct_from_ema = ((price - agent_instance.ema50) / agent_instance.ema50) * 100
+                relative_vol = volume / agent_instance.avg_vol_15d if agent_instance.avg_vol_15d > 0 else 0.0
+                momentum = agent_instance._compute_momentum_snapshot(price_hist, vwap, cum_delta)
+                vwap_z = momentum.get("vwap_z", 0.0)
+                
+                premium_pct = getattr(agent_instance, "last_premium_pct", None)
+                premium_threshold = getattr(agent_instance, "last_premium_threshold", None)
+                
+                rationale = agent_instance._generate_rationale(
+                    agent_instance.last_signal, pct_from_ema, relative_vol, vwap_z, cum_delta,
+                    premium_pct, premium_threshold
+                )
+                
+                confidence = agent_instance._calculate_confidence_score(
+                    price, volume, vwap, pct_from_ema, relative_vol, momentum,
+                    premium_pct, premium_threshold, agent_instance.last_signal
+                )
+                
+                prompt = (
+                    f"Write a concise, professional qualitative investment narrative for {symbol} based on the following intraday tracking session:\n"
+                    f"- Last Signal: {agent_instance.last_signal} (Confidence: {confidence}%)\n"
+                    f"- Regime: {agent_instance.regime} (ADX: {agent_instance.adx_value:.0f})\n"
+                    f"- Price: ₹{price:.2f} vs 50-day EMA: ₹{agent_instance.ema50:.2f} ({pct_from_ema:+.2f}%)\n"
+                    f"- Rationale: {rationale}\n\n"
+                    f"Briefly explain what this signal and confidence score mean under this market structure. "
+                    f"Do not calculate any numbers. Avoid generic disclaimers."
+                )
+                
+                console.print(f"\n[yellow]⌛ Generating narrative...[/yellow]")
+                narrative = agent.chat(prompt, thread_id=thread_id)
+                return narrative, thread_id
+            
         except Exception as exc:
             console.print(f"[bold red]✗ Intraday agent failed:[/bold red] {exc}")
             

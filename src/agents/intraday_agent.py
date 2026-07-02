@@ -26,6 +26,7 @@ import logging
 import argparse
 import threading
 from datetime import datetime
+import pandas as pd
 
 # Ensure project root is on sys.path for standalone and programmatic use
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -88,6 +89,8 @@ class BaseIntradayAgent:
         # UI state variables for in-place refreshes
         self.remaining_seconds: int | None = None
         self._prev_line_count: int = 0
+        self.adx_value: float = 15.0
+        self.regime: str = "Mean-Reverting"
 
     # ── Historical baselines ──────────────────────────────────────────
 
@@ -95,7 +98,7 @@ class BaseIntradayAgent:
         """Fetch daily price baseline metrics from ClickHouse."""
         logger.info(f"[{self.symbol}] Querying historical baseline from ClickHouse...")
         query = """
-        SELECT trade_date, close, volume
+        SELECT trade_date, open, high, low, close, volume
         FROM market_data.daily_prices FINAL
         WHERE symbol = {symbol:String}
         ORDER BY trade_date DESC
@@ -112,16 +115,198 @@ class BaseIntradayAgent:
         self.ema50 = df['ema50'].iloc[-1]
         self.avg_vol_15d = df['volume'].rolling(15).mean().iloc[-1]
 
+        # Compute ADX and Regime
+        self.adx_value, self.regime = self._calculate_adx(df)
+
         logger.info(
             f"[{self.symbol}] Category: {self.category} | "
             f"Prev Close: ₹{self.prev_close:.2f} | "
             f"50-day EMA: ₹{self.ema50:.2f} | "
-            f"15d Avg Vol: {self.avg_vol_15d:,.0f} shares"
+            f"15d Avg Vol: {self.avg_vol_15d:,.0f} shares | "
+            f"ADX: {self.adx_value:.1f} ({self.regime})"
         )
 
     def fetch_nav_reference(self):
         """Hook for fetching NAV reference (ETFs only). No-op in base."""
         pass
+
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> tuple[float, str]:
+        """Calculate Average Directional Index (ADX) and return (adx_value, regime)."""
+        if len(df) < period * 2:
+            return 15.0, "Mean-Reverting"
+
+        # True Range
+        df = df.copy()
+        df['h_l'] = df['high'] - df['low']
+        df['h_pc'] = (df['high'] - df['close'].shift(1)).abs()
+        df['l_pc'] = (df['low'] - df['close'].shift(1)).abs()
+        df['tr'] = df[['h_l', 'h_pc', 'l_pc']].max(axis=1)
+
+        # Directional Movement
+        df['up_move'] = df['high'] - df['high'].shift(1)
+        df['down_move'] = df['low'].shift(1) - df['low']
+
+        df['plus_dm'] = 0.0
+        df['minus_dm'] = 0.0
+
+        plus_mask = (df['up_move'] > df['down_move']) & (df['up_move'] > 0)
+        df.loc[plus_mask, 'plus_dm'] = df.loc[plus_mask, 'up_move']
+
+        minus_mask = (df['down_move'] > df['up_move']) & (df['down_move'] > 0)
+        df.loc[minus_mask, 'minus_dm'] = df.loc[minus_mask, 'down_move']
+
+        # Wilder's smoothing
+        span = 2 * period - 1
+        df['str'] = df['tr'].ewm(span=span, adjust=False).mean()
+        df['splus_dm'] = df['plus_dm'].ewm(span=span, adjust=False).mean()
+        df['sminus_dm'] = df['minus_dm'].ewm(span=span, adjust=False).mean()
+
+        # DI+ and DI-
+        df['plus_di'] = 100 * (df['splus_dm'] / df['str'])
+        df['minus_di'] = 100 * (df['sminus_dm'] / df['str'])
+
+        # DX and ADX
+        df['dx'] = 100 * ((df['plus_di'] - df['minus_di']).abs() / (df['plus_di'] + df['minus_di']))
+        df['adx'] = df['dx'].ewm(span=span, adjust=False).mean()
+
+        adx_val = float(df['adx'].iloc[-1])
+        if pd.isna(adx_val):
+            adx_val = 15.0
+
+        regime = "Trending" if adx_val >= 25 else "Mean-Reverting"
+        return adx_val, regime
+
+    def _calculate_confidence_score(
+        self, price: float, volume: float, vwap: float,
+        pct_from_ema: float, relative_vol: float, momentum: dict,
+        premium_pct: float | None, premium_threshold: float | None, signal: str
+    ) -> int:
+        """Calculate weighted confidence score from technical factors (0% to 100%)."""
+        # 1. EMA Trend (30% weight)
+        if pct_from_ema >= 0:
+            ema_score = 100 if relative_vol > 1.0 else 80
+        else:
+            ema_score = 60 if relative_vol > 1.2 else 30
+
+        # 2. VWAP (20% weight)
+        vwap_z = momentum.get("vwap_z", 0.0)
+        if abs(vwap_z) <= 0.5:
+            vwap_score = 50
+        elif price > vwap:
+            vwap_score = 100 if relative_vol > 1.0 else 70
+        else:
+            vwap_score = 60 if relative_vol > 1.2 else 30
+
+        # 3. Delta (20% weight)
+        cum_delta = momentum.get("cum_delta", 0.0)
+        if pct_from_ema >= 0:
+            if cum_delta > 0:
+                delta_score = 100
+            elif cum_delta < 0:
+                delta_score = 30
+            else:
+                delta_score = 50
+        else:
+            if cum_delta > 0:
+                delta_score = 80
+            elif cum_delta < 0:
+                delta_score = 100
+            else:
+                delta_score = 50
+
+        # 4. Volume (15% weight)
+        vol_score = min(100, int(relative_vol * 80))
+
+        # 5. RSI (10% weight)
+        rsi = momentum.get("rsi")
+        if rsi is None:
+            rsi_score = 50
+        elif rsi > 75:
+            rsi_score = 30 if pct_from_ema >= 0 else 40
+        elif rsi < 25:
+            rsi_score = 100 if pct_from_ema < 0 else 40
+        else:
+            rsi_score = 60
+
+        # 6. Premium (5% weight)
+        if premium_pct is not None and premium_threshold is not None:
+            if premium_pct <= premium_threshold:
+                premium_score = 100
+            else:
+                premium_score = max(20, int(100 - (premium_pct - premium_threshold) * 20))
+        else:
+            premium_score = 100
+
+        weighted_score = (
+            0.30 * ema_score +
+            0.20 * vwap_score +
+            0.20 * delta_score +
+            0.15 * vol_score +
+            0.10 * rsi_score +
+            0.05 * premium_score
+        )
+        return int(round(weighted_score))
+
+    def _generate_rationale(
+        self, signal: str, pct_from_ema: float, relative_vol: float,
+        vwap_z: float, cum_delta: float, premium_pct: float | None,
+        premium_threshold: float | None
+    ) -> str:
+        """Construct a context-rich natural language rationale statement."""
+        # 1. EMA Trend
+        if pct_from_ema >= 0:
+            ema_part = f"Price remains {pct_from_ema:.1f}% above the 50-day EMA"
+        else:
+            ema_part = f"Price remains {abs(pct_from_ema):.1f}% below the 50-day EMA"
+
+        # 2. VWAP
+        if abs(vwap_z) <= 0.5:
+            vwap_part = "while trading near VWAP"
+        elif vwap_z > 0:
+            vwap_part = "while breaking above VWAP"
+        else:
+            vwap_part = "while trading below VWAP"
+
+        # 3. Volume
+        if relative_vol >= 1.2:
+            vol_part = "on above-average volume"
+        elif relative_vol <= 0.8:
+            vol_part = "on below-average volume"
+        else:
+            vol_part = "on average volume"
+
+        # 4. Order Flow (Delta)
+        if cum_delta > 0 and relative_vol > 0.5:
+            delta_part = "Order flow is positive (buyers dominating)"
+        elif cum_delta < 0 and relative_vol > 0.5:
+            delta_part = "Order flow is negative (sellers dominating)"
+        else:
+            delta_part = "Order flow is neutral"
+
+        # 5. Premium
+        premium_part = ""
+        if premium_pct is not None and premium_threshold is not None:
+            if premium_pct > premium_threshold:
+                premium_part = f"and the ETF premium is elevated at {premium_pct:+.2f}%"
+            else:
+                premium_part = "and the ETF premium remains within acceptable limits"
+
+        # 6. Conclusion
+        if "BUY" in signal or "ACCUMULATE" in signal:
+            conclusion = "A high-conviction intraday entry setup is present."
+        elif "AVOID" in signal:
+            conclusion = "Avoid entry due to premium drag."
+        else:
+            conclusion = "No high-conviction intraday entry is present."
+
+        parts = [ema_part, vwap_part, vol_part + "."]
+        if premium_part:
+            parts.append(f"{delta_part} {premium_part}.")
+        else:
+            parts.append(f"{delta_part}.")
+        parts.append(conclusion)
+
+        return " ".join(parts)
 
     # ── WebSocket callback ────────────────────────────────────────────
 
@@ -447,6 +632,22 @@ class BaseIntradayAgent:
         )
         self.last_signal = signal
 
+        # Override rationale with dynamic, context-rich statement
+        premium_pct = getattr(self, "last_premium_pct", None)
+        premium_threshold = getattr(self, "last_premium_threshold", None)
+        vwap_z = momentum.get("vwap_z", 0.0)
+        
+        rationale = self._generate_rationale(
+            signal, pct_from_ema, relative_vol, vwap_z, cum_delta,
+            premium_pct, premium_threshold
+        )
+
+        # Calculate confidence score
+        confidence = self._calculate_confidence_score(
+            price, volume, vwap, pct_from_ema, relative_vol, momentum,
+            premium_pct, premium_threshold, signal
+        )
+
         # Build Signal Dashboard content
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         time_suffix = f" [{self.remaining_seconds}s remaining]" if self.remaining_seconds is not None else ""
@@ -458,6 +659,7 @@ class BaseIntradayAgent:
         lines.append(f"  Live Ticker Price : ₹{price:.2f}")
         lines.append(f"  50-day EMA        : ₹{self.ema50:.2f} ({pct_from_ema:+.2f}%)")
         lines.append(f"  Intraday VWAP     : ₹{vwap:.2f} (LTP is {'ABOVE' if price >= vwap else 'BELOW'} VWAP)")
+        lines.append(f"  Regime            : {self.regime} (ADX: {self.adx_value:.0f})")
         for line in extra_lines:
             lines.append(line)
         for line in momentum_lines:
@@ -465,6 +667,7 @@ class BaseIntradayAgent:
         lines.append(f"  Today's Vol       : {volume:,.0f} shares ({relative_vol:.2f}x of 15d Avg)")
         lines.append("-" * 70)
         lines.append(f"  SIGNAL            : 💥 {signal}")
+        lines.append(f"  CONFIDENCE        : {confidence}%")
         lines.append(f"  RATIONALE         : {rationale}")
         lines.append("=" * 70)
         
@@ -537,6 +740,8 @@ class StockIntradayAgent(BaseIntradayAgent):
         self, vwap: float, pct_from_ema: float, relative_vol: float,
         momentum: dict,
     ) -> tuple[str, str, list[str]]:
+        self.last_premium_pct = None
+        self.last_premium_threshold = None
         signal, rationale = self._ema_volume_signal(pct_from_ema, relative_vol)
 
         # Momentum overrides / refinements
@@ -652,9 +857,14 @@ class ETFIntradayAgent(BaseIntradayAgent):
     ) -> tuple[str, str, list[str]]:
         extra_lines: list[str] = []
         premium_pct = 0.0
+        
+        self.last_premium_pct = None
+        self.last_premium_threshold = None
 
         if self.declared_nav:
             premium_pct = ((self.live_price - self.declared_nav) / self.declared_nav) * 100
+            self.last_premium_pct = premium_pct
+            self.last_premium_threshold = self.premium_threshold
             extra_lines.append(f"  ETF Type          : {self.etf_type} (premium threshold: {self.premium_threshold:.1f}%)")
             extra_lines.append(f"  Declared NAV      : ₹{self.declared_nav:.4f}")
             extra_lines.append(
