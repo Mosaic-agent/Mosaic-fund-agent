@@ -85,6 +85,10 @@ class BaseIntradayAgent:
         self._tick_bid_ask: list[tuple[float, float | None, float | None]] = []
         # Each entry: (ltp_at_tick, best_bid_at_tick, best_ask_at_tick)
 
+        # UI state variables for in-place refreshes
+        self.remaining_seconds: int | None = None
+        self._prev_line_count: int = 0
+
     # ── Historical baselines ──────────────────────────────────────────
 
     def fetch_historical_baseline(self):
@@ -443,23 +447,39 @@ class BaseIntradayAgent:
         )
         self.last_signal = signal
 
-        # Print Signal Dashboard
+        # Build Signal Dashboard content
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print("\n" + "=" * 70)
-        print(f"  [{timestamp}] INTRADAY READ-ONLY SIGNAL ({self.__class__.__name__}): {self.symbol}")
-        print("=" * 70)
-        print(f"  Live Ticker Price : ₹{price:.2f}")
-        print(f"  50-day EMA        : ₹{self.ema50:.2f} ({pct_from_ema:+.2f}%)")
-        print(f"  Intraday VWAP     : ₹{vwap:.2f} (LTP is {'ABOVE' if price >= vwap else 'BELOW'} VWAP)")
+        time_suffix = f" [{self.remaining_seconds}s remaining]" if self.remaining_seconds is not None else ""
+        
+        lines = []
+        lines.append("=" * 70)
+        lines.append(f"  [{timestamp}] INTRADAY READ-ONLY SIGNAL ({self.__class__.__name__}): {self.symbol}{time_suffix}")
+        lines.append("=" * 70)
+        lines.append(f"  Live Ticker Price : ₹{price:.2f}")
+        lines.append(f"  50-day EMA        : ₹{self.ema50:.2f} ({pct_from_ema:+.2f}%)")
+        lines.append(f"  Intraday VWAP     : ₹{vwap:.2f} (LTP is {'ABOVE' if price >= vwap else 'BELOW'} VWAP)")
         for line in extra_lines:
-            print(line)
+            lines.append(line)
         for line in momentum_lines:
-            print(line)
-        print(f"  Today's Vol       : {volume:,.0f} shares ({relative_vol:.2f}x of 15d Avg)")
-        print("-" * 70)
-        print(f"  SIGNAL            : 💥 {signal}")
-        print(f"  RATIONALE         : {rationale}")
-        print("=" * 70)
+            lines.append(line)
+        lines.append(f"  Today's Vol       : {volume:,.0f} shares ({relative_vol:.2f}x of 15d Avg)")
+        lines.append("-" * 70)
+        lines.append(f"  SIGNAL            : 💥 {signal}")
+        lines.append(f"  RATIONALE         : {rationale}")
+        lines.append("=" * 70)
+        
+        output_str = "\n".join(lines) + "\n"
+        
+        import sys
+        if self._prev_line_count > 0:
+            # Move cursor up and clear the block
+            sys.stdout.write("\033[F" * self._prev_line_count)
+            sys.stdout.flush()
+            
+        sys.stdout.write(output_str)
+        sys.stdout.flush()
+        
+        self._prev_line_count = len(lines)
 
     # ── Event loop & lifecycle ────────────────────────────────────────
 
@@ -733,14 +753,11 @@ if __name__ == "__main__":
     # Instantiate correct subclass via factory function
     agent = create_intraday_agent(args.symbol, interval_seconds=args.interval)
     try:
+        agent.remaining_seconds = duration
         agent.start()
-        import sys
         for remaining in range(duration, 0, -1):
-            sys.stdout.write(f"\r⌛ Monitoring live... {remaining}s remaining ")
-            sys.stdout.flush()
+            agent.remaining_seconds = remaining
             time.sleep(1)
-        sys.stdout.write("\r" + " " * 50 + "\r")
-        sys.stdout.flush()
     except KeyboardInterrupt:
         print("\nStopping agent...")
     finally:

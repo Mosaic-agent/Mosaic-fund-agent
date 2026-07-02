@@ -1824,17 +1824,18 @@ def _dispatch_slash(
         from src.agents.intraday_agent import create_intraday_agent
         console.print(f"[yellow]Connecting to Shoonya WebSocket and tracking {symbol} live for {duration} seconds...[/yellow]\n")
         
+        # For interactive REPL chat, default to 1s interval for smooth in-place updates
+        if "interval" not in options:
+            interval = 1
+            
         try:
             agent_instance = create_intraday_agent(symbol, interval_seconds=interval)
+            agent_instance.remaining_seconds = duration
             agent_instance.start()
             import time
-            import sys
             for remaining in range(duration, 0, -1):
-                sys.stdout.write(f"\r⌛ Monitoring live... {remaining}s remaining ")
-                sys.stdout.flush()
+                agent_instance.remaining_seconds = remaining
                 time.sleep(1)
-            sys.stdout.write("\r" + " " * 50 + "\r")
-            sys.stdout.flush()
             agent_instance.stop()
         except Exception as exc:
             console.print(f"[bold red]✗ Intraday agent failed:[/bold red] {exc}")
