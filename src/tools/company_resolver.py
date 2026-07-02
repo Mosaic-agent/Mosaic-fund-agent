@@ -528,6 +528,30 @@ _ALIAS: dict[str, str] = {
 }
 
 
+# Research/action/format words that are never a company name on their own.
+# Stripped from a query before resolution so "research NDTV" / "deep dive on
+# TCS" / "note on Reliance" reduce to the actual name — and, critically, so the
+# ngram spell-corrector can't mis-match a noise word (e.g. "research" →
+# "Argosy Research Inc"). Deliberately excludes words that appear in real NSE
+# names (e.g. "investment", "power", "finance").
+_INTENT_WORDS = frozenset({
+    "research", "analyse", "analyze", "analysis", "deepdive", "deep", "dive",
+    "note", "report", "verdict", "recommendation", "recommend", "summary",
+    "overview", "outlook", "review", "fundamentals", "valuation",
+    "tell", "give", "show", "please", "about", "detailed", "full",
+})
+
+
+def _strip_intent_words(query: str) -> str:
+    """Drop intent/format words, keeping the rest in original order/case.
+    Returns "" if nothing survives (so the caller keeps the original query)."""
+    kept = [
+        w for w in query.split()
+        if re.sub(r"[^a-z]", "", w.lower()) not in _INTENT_WORDS
+    ]
+    return " ".join(kept).strip()
+
+
 def _local_indian_lookup(query: str) -> Optional[str]:
     """
     Fast local lookup: returns NSE symbol if the query matches a known
@@ -903,6 +927,16 @@ def _resolve_company_info_impl(query: str) -> dict:
             "currency":     "INR",
             "source":       "local_map",
         }
+
+    # ── 0. Strip research/action words ────────────────────────────────────
+    # "research NDTV" / "deep dive on TCS" → "NDTV" / "TCS" before any lookup,
+    # so a stricter LLM (qwen returns UNKNOWN on noisy strings) and the ngram
+    # spell-corrector don't derail on a noise word. Only adopt if something
+    # real survives.
+    _stripped = _strip_intent_words(query)
+    if _stripped and _stripped.lower() != query.strip().lower():
+        log.info("resolve_company: stripped intent words %r → %r", query, _stripped)
+        query = _stripped
 
     # ── 1. Fast local lookup (no network) ─────────────────────────────────
     local_sym = _local_indian_lookup(query)

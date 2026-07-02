@@ -150,6 +150,17 @@ class Settings(BaseSettings):
     # XPD (Palladium), HG (Copper). Used for pre-market signal detection.
     gold_api_key: str = Field(default="", description="gold-api.com API key")
 
+    # [NON-SENSITIVE] Anomaly pipeline: when set, a large GARCH standardised
+    # residual (|z_resid| > this) also flags a day, independent of the robust
+    # z-score. GARCH residual is near-orthogonal to z_robust, so this catches
+    # volatility-surprise shocks a modest raw z misses (and makes the Flash
+    # Crash regime reachable). None = disabled (original behaviour). Recommended
+    # enable value: 3.5. Production tool callers read this; raw run_composite_anomaly
+    # defaults to None so unit tests stay deterministic.
+    anomaly_garch_z_threshold: float | None = Field(
+        default=None, description="GARCH residual flag threshold (None=off; 3.5 recommended)"
+    )
+
     # [NON-SENSITIVE] Max news articles to fetch per stock symbol
     news_articles_per_stock: int = Field(default=5, description="Articles per stock")
 

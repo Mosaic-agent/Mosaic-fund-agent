@@ -9,6 +9,7 @@ Shared utilities for all StateGraph workflows:
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -40,25 +41,56 @@ def _get_llm(prefer_cloud: bool = True) -> Any:
 
 # ── Parallel executor ─────────────────────────────────────────────────────────
 
-def _par(fetchers: dict[str, Any], max_workers: int | None = None) -> dict[str, str]:
+# Concurrency cap for parallel fetch. Kept low (6) because several fetchers hit
+# rate-limited external scrapers (Yahoo Finance, Screener.in, GNews); a 12-way
+# burst intermittently trips their throttles and returns empty data. 6 keeps the
+# fan-out fast while staying under the burst threshold.
+_PAR_MAX_WORKERS = 6
+
+
+def _par(
+    fetchers: dict[str, Any],
+    max_workers: int | None = None,
+    retries: int = 2,
+    backoff: float = 1.5,
+) -> dict[str, str]:
     """
     Execute a dict of {key: callable} concurrently via ThreadPoolExecutor.
 
-    Returns {key: result_str}. Failed fetchers return a '*key unavailable: ...*'
-    placeholder so downstream synthesis always receives a complete dict.
+    Each fetcher is retried up to ``retries`` times with linear backoff on an
+    exception (transient network / rate-limit blips), so a single throttle
+    doesn't drop a whole section. Returns {key: result_str}; a fetcher that
+    still fails yields a '*key unavailable: ...*' placeholder so downstream
+    synthesis always receives a complete dict.
+
+    Note: this retries on *raised* errors. A scraper that returns empty/zero
+    data instead of raising (e.g. yfinance under throttle) can't be detected
+    here — the low concurrency cap is the primary mitigation for that.
     """
     if not fetchers:
         return {}
-    n = max_workers or min(len(fetchers), 12)
+    n = max_workers or min(len(fetchers), _PAR_MAX_WORKERS)
+
+    def _run(fn: Any, key: str) -> str:
+        last: Exception | None = None
+        for attempt in range(retries):
+            try:
+                return fn() or ""
+            except Exception as exc:  # noqa: BLE001 — fetchers are plug-ins
+                last = exc
+                if attempt < retries - 1:
+                    time.sleep(backoff * (attempt + 1))
+        logger.warning("_par: %s failed after %d attempt(s): %s", key, retries, last)
+        return f"*{key} unavailable: {last}*"
+
     results: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=n) as pool:
-        futures = {pool.submit(fn): key for key, fn in fetchers.items()}
+        futures = {pool.submit(_run, fn, key): key for key, fn in fetchers.items()}
         for f in as_completed(futures):
             key = futures[f]
             try:
-                results[key] = f.result() or ""
-            except Exception as exc:
-                logger.warning("_par: %s failed: %s", key, exc)
+                results[key] = f.result()
+            except Exception as exc:  # safety — _run should never raise
                 results[key] = f"*{key} unavailable: {exc}*"
     return results
 

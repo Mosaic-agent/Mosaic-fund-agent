@@ -234,7 +234,16 @@ def _synthesise_node(state: ResearchState) -> dict:
             f"Pre-collected data:\n{all_data}"
         )),
     ])
-    return {"report": str(result.content)}
+    report = str(result.content).strip()
+    # A thinking model can burn its token budget on reasoning and return empty
+    # final content on a large synthesis prompt — never return an empty report;
+    # fall back to the raw pre-collected sections.
+    if not report:
+        logger.warning(
+            "autonomous_research: synthesis returned empty content — falling back to raw sections"
+        )
+        report = all_data
+    return {"report": report}
 
 
 # ── Graph ─────────────────────────────────────────────────────────────────────

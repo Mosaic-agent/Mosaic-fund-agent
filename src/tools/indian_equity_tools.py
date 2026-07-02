@@ -309,6 +309,12 @@ def get_db_price_summary(symbol: str) -> dict[str, Any]:
 
         r = df.iloc[0]
 
+        # avg volume can come back NaN (e.g. a symbol with all-null volume in the
+        # window); int(NaN) raises "cannot convert float NaN to integer". NaN != NaN,
+        # so this guard coerces it to 0 without needing a pandas import in scope.
+        _avg_vol_30d = r["avg_vol_30d"]
+        _avg_vol_30d = int(_avg_vol_30d) if _avg_vol_30d == _avg_vol_30d else 0
+
         # Compute % changes from window-start close
         def _pct(window_days: int) -> float | None:
             start_df = query_df(f"""
@@ -335,7 +341,7 @@ def get_db_price_summary(symbol: str) -> dict[str, Any]:
                 "high": round(float(r["high_30d"]), 2),
                 "low": round(float(r["low_30d"]), 2),
                 "avg_close": round(float(r["avg_close_30d"]), 2),
-                "avg_volume": int(r["avg_vol_30d"]),
+                "avg_volume": _avg_vol_30d,
             },
             "60d": {
                 "change_pct": _pct(60),

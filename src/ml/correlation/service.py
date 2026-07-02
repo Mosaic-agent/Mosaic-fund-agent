@@ -87,8 +87,9 @@ class CorrelationService:
             df_ohlcv, df_corp_actions=df_corp, symbol=symbol, store=False,
         )
 
-        # 2. Build candidate events from all sources
-        events = self._registry.load_all(symbol, df_corp, lookback_days)
+        # 2. Build candidate events from all sources (df_ohlcv enables PELT
+        #    regime-shift events — structural breaks in this symbol's returns).
+        events = self._registry.load_all(symbol, df_corp, lookback_days, df_ohlcv=df_ohlcv)
 
         # 3. Execute strategies
         findings: List[CorrelationFinding] = []

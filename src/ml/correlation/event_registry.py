@@ -29,13 +29,87 @@ class EventRegistry:
         symbol: str,
         df_corp: Optional[pd.DataFrame],
         lookback_days: int = 365,
+        df_ohlcv: Optional[pd.DataFrame] = None,
     ) -> List[CandidateEvent]:
-        """Load events from all registered sources."""
+        """Load events from all registered sources.
+
+        df_ohlcv (optional): the symbol's price frame. When provided, PELT
+        structural breaks in its return distribution are added as REGIME_SHIFT
+        candidate events, so an anomaly landing near a regime transition can be
+        framed as such (and prompt attribution of the macro/news that drove it).
+        """
         events: List[CandidateEvent] = []
         events.extend(self._from_corporate_actions(df_corp))
         events.extend(self._from_macro_milestones())
         events.extend(self._from_fx_shocks())
         events.extend(self._from_news(symbol, lookback_days))
+        if df_ohlcv is not None:
+            events.extend(self._from_regime_shifts(df_ohlcv))
+        return events
+
+    # ── Regime shifts (PELT structural breaks) ────────────────────────────────
+
+    # Adaptive change-point sensitivity. A single fixed penalty is miscalibrated
+    # across asset classes: a value giving ~2 clean breaks on a volatile ETF
+    # gives 0 on a steadier large-cap. Instead scan penalties from conservative
+    # → sensitive (fractions of the BIC auto-penalty 2·log n) and accept the
+    # FIRST that yields a sensible 1..max_breaks count — so each symbol surfaces
+    # its own structural breaks at comparable rates, while the cap rejects the
+    # over-segmentation you get at very low penalties (noise). Descending, fine
+    # steps → the count grows gradually, so we catch it inside the band.
+    _REGIME_PENALTY_FACTORS = (0.6, 0.45, 0.35, 0.27, 0.2)
+
+    @staticmethod
+    def _from_regime_shifts(df_ohlcv: pd.DataFrame) -> List[CandidateEvent]:
+        """Detect volatility-regime breaks (PELT on log-returns) as events,
+        with an adaptive penalty so stocks and ETFs detect at comparable rates."""
+        events: List[CandidateEvent] = []
+        try:
+            import numpy as np
+            from src.ml.anomaly._changepoint import fit_change_points
+
+            df = df_ohlcv.copy()
+            if "trade_date" not in df.columns or "close" not in df.columns or len(df) < 60:
+                return events
+            df["trade_date"] = pd.to_datetime(df["trade_date"])
+            if "log_return" not in df.columns:
+                df["log_return"] = np.log(df["close"] / df["close"].shift(1))
+
+            n_valid = int(df["log_return"].notna().sum())
+            auto = 2.0 * np.log(max(n_valid, 2))
+            max_breaks = max(2, n_valid // 120)  # ~1 per 120 trading days
+
+            chosen = None
+            used_pen = None
+            for fct in EventRegistry._REGIME_PENALTY_FACTORS:
+                pen = auto * fct
+                res = fit_change_points(df, penalty=pen)
+                nb = int(res["is_changepoint"].sum())
+                if nb == 0:
+                    continue           # too conservative — go more sensitive
+                if nb > max_breaks:
+                    break              # over-segmented — reject; nothing trustworthy
+                chosen, used_pen = res, pen
+                break                  # first sensible count wins
+            if chosen is None:
+                return events          # genuinely no clear regime shift
+
+            for bd in chosen.loc[chosen["is_changepoint"], "trade_date"]:
+                events.append(
+                    CandidateEvent(
+                        trade_date=pd.Timestamp(bd).date(),
+                        event_type=EventType.REGIME_SHIFT,
+                        label="Volatility Regime Shift (PELT structural break)",
+                        description=(
+                            "The return distribution changed variance/mean regime "
+                            "around this date — anomalies here are part of a regime "
+                            "transition, not isolated blips."
+                        ),
+                        metadata={"detector": "pelt", "penalty": round(used_pen, 2)},
+                    )
+                )
+        except Exception as e:
+            log.warning("Regime-shift event detection failed: %s", e)
         return events
 
     # ── Corporate Actions ─────────────────────────────────────────────────────
