@@ -235,6 +235,10 @@ Examples:
   "composite scores all ETFs"    → 1. run_daily_signal_composite()  2. plot_signal_scores()
   "GOLDBEES position size"       → 1. run_risk_governor_analysis()  2. plot_garch_volatility_chart("GOLDBEES")
   "iNAV premium alerts"          → 1. run_premium_alerts()
+  "ou premium scan"              → 1. run_premium_alerts() — shows OU half-life, expected reversion %, net P&L after STCG for all intl ETFs
+  "ou premium scan domestic"     → 1. scan_domestic_etfs() — domestic ETF discount scan with OU reversion filter
+  "MAFANG OU analysis"           → 1. run_premium_alerts(symbols=["MAFANG"]) — OU speed θ, equilibrium μ, half-life, prob_revert_10d
+  "paper trade log"              → 1. query_clickhouse_db("SELECT as_of, symbol, action, current_prem, expected_reversion_pct, net_pnl_stcg_pct, ou_available FROM market_data.premium_signal_log FINAL ORDER BY as_of DESC, symbol LIMIT 100")
   "premium 6 months"             → run_premium_alerts(lookback=6, lookback_unit="months")
   "premium 1 year"               → run_premium_alerts(lookback=1, lookback_unit="years")
   "premium 90 days"              → run_premium_alerts(lookback=90, lookback_unit="days")
@@ -1201,6 +1205,8 @@ PROMPT_LIBRARY: dict[str, list[tuple[str, str]]] = {
         ("goldbees kelly weight",                    "Position sizing from GARCH + Kelly criterion"),
         ("composite score for all etfs",             "Signal aggregator: 18 ETFs scored 0-100"),
         ("inav premium alert",                       "Scarcity premium Z-score alerts"),
+        ("ou premium scan",                          "OU mean-reversion: all intl ETFs, cost/tax-adjusted"),
+        ("ou premium scan domestic",                 "Domestic ETF discount scan with OU reversion filter"),
         ("risk governor analysis",                   "GARCH volatility targeting decision"),
         ("plot signal scores",                       "Bar chart of all ETF composite scores"),
         ("plot signal breakdown GOLDBEES",           "Pillar-level weights: macro/sentiment/flow/ML"),
@@ -1233,6 +1239,9 @@ PROMPT_LIBRARY: dict[str, list[tuple[str, str]]] = {
     "intl_etf": [
         ("international ETF performance",            "3-year return, vol, Sharpe for 6 intl ETFs"),
         ("MAFANG premium chart",                     "China Tech scarcity premium trend"),
+        ("ou premium scan",                          "OU mean-reversion signals: half-life, net P&L after STCG"),
+        ("MAFANG OU analysis",                       "OU speed, equilibrium, half-life and 10d reversion prob"),
+        ("paper trade log",                          "premium_signal_log: action counts, avg reversion by symbol"),
         ("intl ETF regimes",                         "Bull/Sideways/Bear regimes per ETF"),
         ("intl ETF seasonality",                     "Best/worst months per ETF"),
         ("MON100 drawdowns",                         "Major loss episodes in Nasdaq 100 ETF"),
@@ -1283,6 +1292,7 @@ _CATEGORY_ALIASES = {
     "stocks": "equity", "stock": "equity", "nse": "equity",
     "geo": "macro", "geopolitical": "macro", "comex": "macro", "flows": "macro",
     "international": "intl_etf", "intl": "intl_etf", "global": "intl_etf",
+    "premium": "intl_etf", "ou": "intl_etf", "arbitrage": "intl_etf",
     "charts": "chart", "plots": "chart", "visualise": "chart",
     "sql": "database", "db": "database", "clickhouse": "database",
     "scripts": "code", "python": "code",

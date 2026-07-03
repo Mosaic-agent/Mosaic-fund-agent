@@ -1170,6 +1170,205 @@ def plot_intl_etf_premium(symbol: str = "MAFANG", days: int = 180) -> str:
 
 
 @tool
+def plot_ou_premium_chart(symbol: str = "MAFANG", lookback: int = 365) -> str:
+    """
+    Full 3-panel OU mean-reversion chart for an international ETF premium series.
+
+    Panel 1: Premium time-series + OU equilibrium μ, ±1σ/2σ bands, rolling μ,
+             and buy (▲) / sell (▼) signal markers at ±1.5σ thresholds.
+    Panel 2: Rolling 90-day OU half-life trend.
+    Panel 3: 60-day forward expected premium path + P(revert to μ) annotations.
+
+    Returns a text summary with all key OU stats and saves the chart to output/.
+
+    Args:
+        symbol:   ETF symbol — MAFANG, HNGSNGBEES, MON100, MASPTOP50, MAHKTECH, MONQ50
+        lookback: Days of history to display (default 365)
+
+    Examples:
+        plot_ou_premium_chart("MAFANG", 365)
+        plot_ou_premium_chart("HNGSNGBEES", 180)
+    """
+    try:
+        import math
+        import numpy as np
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        from src.ml.ou_estimator import fit_ou, expected_premium, expected_reversion, prob_revert
+        from src.db.pool import get_pool
+
+        sym = symbol.upper()
+        pool = get_pool()
+        df = pool.query_df(f"""
+            SELECT
+                toDate(snapshot_at) AS trade_date,
+                argMax(premium_discount_pct, snapshot_at) AS premium
+            FROM market_data.inav_snapshots
+            WHERE symbol = '{sym}'
+            GROUP BY trade_date
+            ORDER BY trade_date ASC
+        """)
+        if df.empty:
+            return f"No iNAV snapshot data for {sym}."
+
+        import pandas as pd
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        df = df.set_index("trade_date").sort_index()
+        if lookback and lookback < len(df):
+            df = df.iloc[-lookback:]
+
+        premiums = df["premium"].values
+        dates = df.index
+
+        state = fit_ou(premiums, dt=1.0)
+        if state is None:
+            return f"OU fit failed for {sym} — insufficient data or explosive AR(1). Use rolling Z-score instead."
+
+        mu        = state.mu
+        theta     = state.theta
+        sigma     = state.sigma
+        half_life = state.half_life_days
+        ou_std    = sigma / math.sqrt(2 * theta)
+
+        # Rolling OU fits
+        roll_window = 90
+        rolling_hl, rolling_mu_vals = [], []
+        for i in range(len(premiums)):
+            if i < roll_window:
+                rolling_hl.append(float("nan"))
+                rolling_mu_vals.append(float("nan"))
+            else:
+                s = fit_ou(premiums[i - roll_window:i], dt=1.0)
+                rolling_hl.append(s.half_life_days if s else float("nan"))
+                rolling_mu_vals.append(s.mu if s else float("nan"))
+
+        buy_threshold  = mu - 1.5 * ou_std
+        sell_threshold = mu + 1.5 * ou_std
+        buy_mask  = premiums < buy_threshold
+        sell_mask = premiums > sell_threshold
+
+        current  = premiums[-1]
+        horizons = list(range(61))
+        fwd_exp  = [expected_premium(current, theta, mu, h) for h in horizons]
+        fwd_up   = [expected_premium(current, theta, mu, h) + ou_std for h in horizons]
+        fwd_lo   = [expected_premium(current, theta, mu, h) - ou_std for h in horizons]
+
+        prob_5d  = prob_revert(current, theta, mu, sigma, mu, 5)
+        prob_10d = prob_revert(current, theta, mu, sigma, mu, 10)
+        prob_20d = prob_revert(current, theta, mu, sigma, mu, 20)
+        rev_10d  = expected_reversion(current, theta, mu, 10)
+
+        # ── Plot ──────────────────────────────────────────────────────────────
+        fig, axes = plt.subplots(3, 1, figsize=(16, 14), gridspec_kw={"height_ratios": [4, 1.5, 2]})
+        fig.suptitle(
+            f"{sym} — OU Mean-Reversion Strategy\n"
+            f"θ={theta:.4f}  μ={mu:.2f}%  σ={sigma:.4f}  half-life={half_life:.1f}d  R²={state.fit_r2:.3f}",
+            fontsize=13, fontweight="bold", y=0.98,
+        )
+
+        ax1 = axes[0]
+        ax1.plot(dates, premiums, color="#2196F3", linewidth=1.0, alpha=0.9, label="Premium (%)")
+        ax1.plot(dates, rolling_mu_vals, color="#FF9800", linewidth=1.2, alpha=0.7,
+                 linestyle="--", label=f"Rolling μ ({roll_window}d)")
+        ax1.axhline(mu, color="#4CAF50", linewidth=1.5, linestyle="-", alpha=0.8, label=f"OU μ = {mu:.2f}%")
+        ax1.axhline(mu + ou_std, color="#FFC107", linewidth=0.8, linestyle=":", alpha=0.6, label=f"±1σ∞ ({ou_std:.2f}%)")
+        ax1.axhline(mu - ou_std, color="#FFC107", linewidth=0.8, linestyle=":", alpha=0.6)
+        ax1.fill_between(dates, mu - 2 * ou_std, mu + 2 * ou_std, color="#E3F2FD", alpha=0.3, label="±2σ∞ band")
+        ax1.fill_between(dates, mu - ou_std, mu + ou_std, color="#BBDEFB", alpha=0.3)
+        ax1.axhline(buy_threshold, color="#00C853", linewidth=1.0, linestyle="--", alpha=0.5)
+        ax1.axhline(sell_threshold, color="#FF1744", linewidth=1.0, linestyle="--", alpha=0.5)
+        if buy_mask.any():
+            ax1.scatter(dates[buy_mask], premiums[buy_mask], color="#00C853", marker="^",
+                        s=40, zorder=5, alpha=0.8, label="BUY (< μ−1.5σ)")
+        if sell_mask.any():
+            ax1.scatter(dates[sell_mask], premiums[sell_mask], color="#FF1744", marker="v",
+                        s=40, zorder=5, alpha=0.8, label="SELL (> μ+1.5σ)")
+        ax1.scatter([dates[-1]], [current], color="#E91E63", marker="D", s=80, zorder=6, edgecolors="black")
+        ax1.annotate(f"  Today: {current:.2f}%", xy=(dates[-1], current), fontsize=9,
+                     fontweight="bold", color="#E91E63", xytext=(10, 0), textcoords="offset points")
+        ax1.set_ylabel("Premium / Discount (%)", fontsize=11)
+        ax1.legend(loc="upper left", fontsize=8, ncol=2, framealpha=0.9)
+        ax1.grid(True, alpha=0.3)
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax1.set_title("Premium Series + OU Equilibrium", fontsize=11, pad=8)
+
+        ax2 = axes[1]
+        ax2.plot(dates, rolling_hl, color="#9C27B0", linewidth=1.2, alpha=0.8)
+        ax2.axhline(half_life, color="#9C27B0", linewidth=1.0, linestyle="--", alpha=0.5,
+                    label=f"Full-period HL = {half_life:.1f}d")
+        ax2.fill_between(dates, 0, [v if not math.isnan(v) else 0 for v in rolling_hl],
+                         color="#E1BEE7", alpha=0.3)
+        ax2.set_ylabel("Half-life (days)", fontsize=10)
+        ax2.legend(loc="upper right", fontsize=8)
+        ax2.grid(True, alpha=0.3)
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+        ax2.set_ylim(bottom=0)
+        ax2.set_title(f"Rolling OU Half-life ({roll_window}d window)", fontsize=10, pad=5)
+
+        ax3 = axes[2]
+        ax3.plot(horizons, fwd_exp, color="#2196F3", linewidth=2.0, label="E[Premium]")
+        ax3.fill_between(horizons, fwd_lo, fwd_up, color="#BBDEFB", alpha=0.4, label="±1σ∞ band")
+        ax3.axhline(mu, color="#4CAF50", linewidth=1.5, linestyle="-", alpha=0.6, label=f"μ = {mu:.2f}%")
+        ax3.scatter([0], [current], color="#E91E63", marker="D", s=80, zorder=5, edgecolors="black")
+        ax3.annotate(
+            f"P(→μ in 5d) = {prob_5d:.0%}\nP(→μ in 10d) = {prob_10d:.0%}\n"
+            f"P(→μ in 20d) = {prob_20d:.0%}\nE[Δprem 10d] = {rev_10d:+.2f}%",
+            xy=(38, current * 0.9), fontsize=9,
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#FFF9C4", alpha=0.9, edgecolor="#FFC107"),
+        )
+        ax3.set_xlabel("Days Forward", fontsize=11)
+        ax3.set_ylabel("Expected Premium (%)", fontsize=10)
+        ax3.set_title(f"Forward Path from Today ({current:.2f}% → μ = {mu:.2f}%)", fontsize=10, pad=5)
+        ax3.legend(loc="upper right", fontsize=8)
+        ax3.grid(True, alpha=0.3)
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+        import os
+        save_path = f"output/{sym}_ou_premium_strategy.png"
+        os.makedirs("output", exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight", facecolor="white")
+        plt.close(fig)
+
+        signal = ("🟢 BUY" if current < buy_threshold
+                  else ("🔴 SELL/AVOID" if current > sell_threshold else "⚪ HOLD"))
+        sigma_from_mu = (current - mu) / ou_std
+
+        lines = [
+            f"📊 OU Premium Chart saved → {save_path}",
+            f"",
+            f"{'═'*52}",
+            f"  {sym} OU Mean-Reversion Summary",
+            f"{'═'*52}",
+            f"  Current premium    : {current:.2f}%",
+            f"  OU equilibrium μ   : {mu:.2f}%",
+            f"  Gap (current − μ)  : {current - mu:+.2f}%  ({sigma_from_mu:+.1f}σ from equilibrium)",
+            f"  OU speed θ         : {theta:.4f}",
+            f"  Half-life          : {half_life:.1f} days",
+            f"  Stationary σ∞      : {ou_std:.2f}%",
+            f"  R² of AR(1) fit    : {state.fit_r2:.3f}",
+            f"  Buy threshold      : < {buy_threshold:.2f}%  (μ − 1.5σ∞)",
+            f"  Sell threshold     : > {sell_threshold:.2f}%  (μ + 1.5σ∞)",
+            f"",
+            f"  E[premium in 5d]   : {expected_premium(current, theta, mu, 5):.2f}%",
+            f"  E[premium in 10d]  : {expected_premium(current, theta, mu, 10):.2f}%",
+            f"  E[Δprem 10d]       : {rev_10d:+.2f}%",
+            f"  P(→μ in 5d)        : {prob_5d:.1%}",
+            f"  P(→μ in 10d)       : {prob_10d:.1%}",
+            f"  P(→μ in 20d)       : {prob_20d:.1%}",
+            f"",
+            f"  Signal: {signal}",
+            f"{'═'*52}",
+        ]
+        return "\n".join(lines)
+
+    except Exception as exc:
+        return f"Error building OU premium chart for {symbol}: {exc}"
+
+
+@tool
 @clean_chart_tool_output
 def plot_shareholding_bar(symbol: str) -> str:
     """
@@ -1467,6 +1666,7 @@ CHART_TOOLS = [
     plot_garch_volatility_chart,
     plot_intl_etf_performance,
     plot_intl_etf_premium,
+    plot_ou_premium_chart,
     plot_shareholding_bar,
     plot_macd_chart,
 ]

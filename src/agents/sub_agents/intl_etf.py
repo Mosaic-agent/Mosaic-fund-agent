@@ -38,18 +38,38 @@ You are the Mosaic International ETF Analyst covering NSE-listed overseas ETFs.
 | MONQ50      | Motilal| Nasdaq 50 Index           | US Mid-Cap Tech  |
 
 ## Tool Selection Guide
-Match the user's intent to the right tool — call the chart immediately after the data tool:
 
-| Intent                              | Data tool                        | Chart tool                  |
-|-------------------------------------|----------------------------------|-----------------------------|
-| Performance / 3-year returns        | `get_intl_etf_performance()`     | `plot_intl_etf_performance()`|
-| Scarcity premium / discount         | `get_intl_etf_premium(symbol)`   | `plot_intl_etf_premium(symbol)`|
-| Bull/Sideways/Bear regime           | `get_intl_etf_regimes()`         | (narrate regimes in text)   |
-| Best / worst months (seasonality)   | `get_intl_etf_seasonality()`     | (narrate in table)          |
-| Return correlations + USDINR        | `get_intl_etf_correlation()`     | (narrate in table)          |
-| Major drawdown episodes             | `get_intl_etf_drawdowns()`       | (narrate in table)          |
-| ML feature importance (LightGBM)    | `get_intl_etf_lgbm()`            | (narrate feature ranks)     |
-| Simple price trend                  | (use price from performance)     | `plot_price_chart(symbol)`  |
+**CRITICAL ROUTING — read these rules FIRST, before making any plan:**
+
+RULE 1 — If the user's message contains ANY of these words or phrases:
+  "OU", "ou", "Ornstein", "mean-reversion", "half-life", "halflife", "reversion",
+  "theta", "equilibrium", "OU analysis", "OU chart", "prob revert", "revert to mean"
+→ call ONLY `plot_ou_premium_chart(symbol)`. Extract the symbol from the message.
+  Default to MAFANG if no symbol is mentioned.
+  Do NOT call performance, regime, seasonality, or premium data tools.
+  The tool is self-contained — it loads data, fits OU, and returns a full summary + chart.
+
+RULE 2 — If the user asks about "premium" or "discount" without any OU keyword:
+→ call `get_intl_etf_premium(symbol)` then `plot_intl_etf_premium(symbol)`.
+
+RULE 3 — If the user asks about "performance", "returns", "Sharpe", "volatility":
+→ call `get_intl_etf_performance()` then `plot_intl_etf_performance()`.
+
+| Intent                              | Data tool                        | Chart tool                      |
+|-------------------------------------|----------------------------------|---------------------------------|
+| Performance / 3-year returns        | `get_intl_etf_performance()`     | `plot_intl_etf_performance()`   |
+| Scarcity premium / discount         | `get_intl_etf_premium(symbol)`   | `plot_intl_etf_premium(symbol)` |
+| OU / mean-reversion / half-life     | —  (tool is self-contained)      | `plot_ou_premium_chart(symbol)` |
+| Bull/Sideways/Bear regime           | `get_intl_etf_regimes()`         | (narrate regimes in text)       |
+| Best / worst months (seasonality)   | `get_intl_etf_seasonality()`     | (narrate in table)              |
+| Return correlations + USDINR        | `get_intl_etf_correlation()`     | (narrate in table)              |
+| Major drawdown episodes             | `get_intl_etf_drawdowns()`       | (narrate in table)              |
+| ML feature importance (LightGBM)    | `get_intl_etf_lgbm()`            | (narrate feature ranks)         |
+| Simple price trend                  | (use price from performance)     | `plot_price_chart(symbol)`      |
+
+`plot_ou_premium_chart(symbol, lookback=365)` — no preceding data tool needed.
+Returns: θ, μ, σ, half-life, buy/sell thresholds (μ±1.5σ∞), E[premium 5/10/20d],
+P(→μ in 5/10/20d), and 🟢 BUY / ⚪ HOLD / 🔴 SELL signal. Also saves a 3-panel PNG.
 
 For a full picture, combine: performance → premium → regime → correlation.
 
@@ -92,11 +112,12 @@ whether they are seeing live or cached data.
 
     def _get_tools(self) -> list:
         from src.tools.intl_etf_tools import INTL_ETF_TOOLS
-        from src.tools.chart_tools import plot_intl_etf_performance, plot_intl_etf_premium, plot_price_chart
+        from src.tools.chart_tools import plot_intl_etf_performance, plot_intl_etf_premium, plot_ou_premium_chart, plot_price_chart
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
         return INTL_ETF_TOOLS + [
             plot_intl_etf_performance,
             plot_intl_etf_premium,
+            plot_ou_premium_chart,
             plot_price_chart,
             publish_research_pdf,
             publish_consolidated_pdf,
