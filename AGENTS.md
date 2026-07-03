@@ -39,7 +39,8 @@ python src/scripts/portfolio/inr_hedge_report.py
 python src/scripts/db/fix_bad_data.py                              # deduplication, watermark & price repair
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import
 python src/scripts/dsp/import_latest_dsp.py                        # latest month only
-python src/scripts/fund_imports/run.py <icici|nippon|all>          # Nippon: dynamic URL discovery from 2024 onward
+python src/scripts/fund_imports/run.py <icici|nippon|dsp|all>      # direct CLI; Nippon: dynamic URL discovery from 2024 onward
+# preferred: python src/main.py import --category nippon            # via amc_holdings_fetcher (canonical fetcher layer)
 python src/scripts/market/analyze_news_trend.py
 python src/scripts/goldbees_report.py                              # GOLDBEES signal (pre-baked, ~2s, use instead of MCP)
 python src/scripts/market/whale_tracker.py                         # all 7 multi-asset funds
@@ -147,7 +148,8 @@ All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
   - `search_anomaly_events(symbol, days)` (`market/equity.py`) — equity-generic; loads corp actions from ClickHouse → runs pipeline with suppression → **parallel** Google News (ThreadPoolExecutor, ±1d fallback, NewsAPI for <30d dates). Call for any NSE/BSE stock anomaly investigation.
   - `get_corporate_actions(symbol)` (`market/equity.py`) — fetches NSE corporate actions, upserts to `corporate_actions` table, returns history. Call when chart shows extreme (>20%) price move or user asks about splits/bonuses.
 - **Chart markers:** `plot_price_chart` renders 🔴 GARCH+IF+PELT genuine anomalies and 🏦 corporate action ex-dates as separate scatter layers. Result is session-cached by `(symbol, category, n_rows)` in `_ANOMALY_DATES_CACHE`.
-- **Scripts subdirs:** `dsp/` (DSP AMC import + analysis), `fund_imports/` (factory-pattern AMC importers), `etf/` (ETF comparison, CAGR, risk), `ml/` (prediction backfill/eval), `portfolio/` (health checks, opportunity scan, MoM returns, parallel stock import), `market/` (macro, FII/DII, metals, sentiment), `db/` (ClickHouse backup/restore/sanity/repair).
+- **Scripts subdirs:** `dsp/` (DSP AMC import + analysis), `fund_imports/` (factory-pattern AMC importers — wrapped by `src/importer/fetchers/amc_holdings_fetcher.py`), `etf/` (ETF comparison, CAGR, risk), `ml/` (prediction backfill/eval), `portfolio/` (health checks, opportunity scan, MoM returns, parallel stock import), `market/` (macro, FII/DII, metals, sentiment), `db/` (ClickHouse backup/restore/sanity/repair).
+- **AMC holdings fetcher:** `src/importer/fetchers/amc_holdings_fetcher.py` — canonical entry point for all 4 AMC importers (nippon, dsp, icici, icici-index). Use `fetch_amc_holdings(amc, full_reimport=, dry_run=)` or `python src/main.py import --category nippon|dsp|icici|icici-index`. The `scripts/fund_imports/` factory is the implementation layer; `amc_holdings_fetcher` is the public API.
 
 ## Critical: Grounding Rules — DO NOT Hallucinate
 
