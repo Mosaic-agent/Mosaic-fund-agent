@@ -81,6 +81,29 @@ INTL_ETF_SYMBOLS: list[str] = [
 
 _MIN_SNAPSHOTS_DEFAULT = 5
 
+# ── Cost / tax constants (all intl ETFs are equity post-Budget July 2024) ────
+ROUND_TRIP_COST_PCT: float = 0.10  # brokerage + STT + exchange + stamp
+STCG_EQUITY_RATE: float = 0.208    # 20% + 4% cess
+LTCG_EQUITY_RATE: float = 0.130    # 12.5% + cess
+
+
+def _apply_cost_tax_filter(result: dict[str, Any]) -> None:
+    """Enrich result with net P&L after cost and tax (all intl ETFs = equity)."""
+    rev = result.get("expected_reversion_pct")
+    if rev is None:
+        return
+    stcg = STCG_EQUITY_RATE
+    ltcg = LTCG_EQUITY_RATE
+    gross = abs(rev)
+    net_stcg = gross * (1 - stcg) - ROUND_TRIP_COST_PCT
+    net_ltcg = gross * (1 - ltcg) - ROUND_TRIP_COST_PCT
+    breakeven = ROUND_TRIP_COST_PCT / (1 - stcg) if stcg < 1 else float("inf")
+    result["expected_gross_pct"]        = round(gross, 4)
+    result["net_pnl_stcg_pct"]          = round(net_stcg, 4)
+    result["net_pnl_ltcg_pct"]          = round(net_ltcg, 4)
+    result["breakeven_gross_pct"]       = round(breakeven, 4)
+    result["is_profitable_after_costs"] = net_stcg > 0
+
 
 def check_premium_alerts(
     ch_client: Any,
@@ -117,16 +140,27 @@ def check_premium_alerts(
 
     for sym in symbols:
         result: dict[str, Any] = {
-            "symbol":           sym,
-            "latest_premium":   None,
-            "mean_premium":     None,
-            "std_premium":      None,
-            "z_score":          None,
-            "n_snapshots":      0,
-            "n_outliers_removed": 0,
-            "action":           "⚠ Insufficient Data",
-            "action_style":     "dim",
-            "error":            None,
+            "symbol":               sym,
+            "latest_premium":       None,
+            "mean_premium":         None,
+            "std_premium":          None,
+            "z_score":              None,
+            "raw_z_score":          None,
+            "n_snapshots":          0,
+            "n_outliers_removed":   0,
+            "action":               "⚠ Insufficient Data",
+            "action_style":         "dim",
+            "tax_class":            "equity",
+            "expected_reversion_pct": None,
+            "ou_available":         False,
+            "theta":                None,
+            "ou_mu":                None,
+            "half_life_days":       None,
+            "prob_revert_10d":      None,
+            "expected_premium_5d":  None,
+            "expected_premium_10d": None,
+            "horizon_days":         10,
+            "error":                None,
         }
 
         try:
@@ -140,7 +174,7 @@ def check_premium_alerts(
 
             latest_prem = live["premium_discount_pct"]
             result["latest_premium"] = round(latest_prem, 4)
-            result["inav_source"]    = live["source"]  # "db" or "nse_api_live"
+            result["inav_source"]    = live["source"]  # "db", "kite_live", "nippon_amc_live", "zerodha_amc_live", "mirae_amc_live", "motilal_amc_live", or "nse_prev_nav"
 
             # ── Historical premium: deduplicated into hourly buckets ───────────
             hist_rows = ch_client.query(
@@ -195,6 +229,7 @@ def check_premium_alerts(
             result["n_snapshots"] = len(premiums)  # count after outlier removal
             z = (latest_prem - mean_prem) / std_prem
             result["z_score"] = round(z, 3)
+            result["raw_z_score"] = round(z, 3)
 
             if z <= z_threshold:
                 result["action"]       = "🟢 SCREAMING BUY"
@@ -205,6 +240,47 @@ def check_premium_alerts(
             else:
                 result["action"]       = "🔴 NO ACTION"
                 result["action_style"] = "red"
+
+            # ── OU-adjusted expected reversion (with graceful fallback) ───────
+            from src.db.repository import MarketDataRepository
+            from src.db.pool import get_pool as _get_ou_pool
+            from src.ml.ou_estimator import expected_reversion, expected_premium, prob_revert
+
+            ou = MarketDataRepository(_get_ou_pool()).ou_state(sym)
+            if ou is not None:
+                fit_age = (date.today() - date.fromisoformat(ou["fit_date"])).days
+                if fit_age <= 7:
+                    result["ou_available"]          = True
+                    result["theta"]                 = ou["theta"]
+                    result["ou_mu"]                 = ou["mu"]
+                    result["half_life_days"]        = ou["half_life_days"]
+                    result["expected_reversion_pct"] = round(
+                        expected_reversion(latest_prem, ou["theta"], ou["mu"], 10), 4
+                    )
+                    result["expected_premium_5d"]   = round(
+                        expected_premium(latest_prem, ou["theta"], ou["mu"], 5), 4
+                    )
+                    result["expected_premium_10d"]  = round(
+                        expected_premium(latest_prem, ou["theta"], ou["mu"], 10), 4
+                    )
+                    result["prob_revert_10d"]       = round(
+                        prob_revert(latest_prem, ou["theta"], ou["mu"], ou["sigma"], ou["mu"], 10), 4
+                    )
+                else:
+                    # OU state stale — fall back to naive
+                    result["expected_reversion_pct"] = round(mean_prem - latest_prem, 4)
+            else:
+                # No OU state — fall back to naive
+                result["expected_reversion_pct"] = round(mean_prem - latest_prem, 4)
+
+            # ── Cost / tax filter ─────────────────────────────────────────────
+            _apply_cost_tax_filter(result)
+
+            # Downgrade signal if OU says trade is unprofitable after costs
+            if result.get("ou_available") and not result.get("is_profitable_after_costs", True):
+                if result["action"] in ("🟢 SCREAMING BUY", "🟡 GOOD ENTRY"):
+                    result["action"]       = "⚪ UNPROFITABLE"
+                    result["action_style"] = "dim"
 
         except Exception as exc:
             result["error"]        = str(exc)

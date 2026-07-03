@@ -149,7 +149,17 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
         except Exception as exc:
             logger.warning("Mirae AMC iNAV fetch failed: %s", exc)
 
-    # Merge: build dict from NSE rows, then overwrite/add Nippon, Zerodha, and Mirae rows
+    # Fetch live iNAVs from Motilal Oswal AMC API for MON100, MONQ50
+    from src.importer.fetchers.motilal_inav_fetcher import fetch_inav_motilal, MOTILAL_SYMBOLS
+    motilal_symbols = [s for s in clean if s in MOTILAL_SYMBOLS]
+    motilal_rows: list[dict[str, Any]] = []
+    if motilal_symbols:
+        try:
+            motilal_rows = fetch_inav_motilal(motilal_symbols)
+        except Exception as exc:
+            logger.warning("Motilal AMC iNAV fetch failed: %s", exc)
+
+    # Merge: NSE base, then overwrite with AMC-specific rows (higher accuracy)
     merged: dict[str, dict[str, Any]] = {}
     for r in nse_rows:
         merged[r["symbol"]] = r
@@ -159,13 +169,19 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
         merged[r["symbol"]] = r
     for r in mirae_rows:
         merged[r["symbol"]] = r
+    for r in motilal_rows:
+        merged[r["symbol"]] = r
 
     final_rows = list(merged.values())
 
     from src.utils.ist import utc_to_ist
     _snap_ist = utc_to_ist(snapshot_at).strftime("%Y-%m-%d %H:%M:%S IST")
-    logger.info("Combined iNAV: captured %d snapshot(s) at %s (NSE: %d, Nippon AMC: %d, Zerodha AMC: %d, Mirae AMC: %d)", 
-                len(final_rows), _snap_ist, len(nse_rows), len(nippon_rows), len(zerodha_rows), len(mirae_rows))
+    logger.info(
+        "Combined iNAV: captured %d snapshot(s) at %s "
+        "(NSE: %d, Nippon: %d, Zerodha: %d, Mirae: %d, Motilal: %d)",
+        len(final_rows), _snap_ist,
+        len(nse_rows), len(nippon_rows), len(zerodha_rows), len(mirae_rows), len(motilal_rows),
+    )
     return final_rows
 
 
@@ -190,18 +206,25 @@ def get_latest_inav(
     Return the latest iNAV snapshot for *symbol*.
 
     During market hours (IST 09:15–15:30) freshness is evaluated against
-    *max_age_minutes* (default 10 min) — iNAV updates every ~15 s, so data
-    older than that is treated as stale and triggers a live NSE API call.
+    *max_age_minutes* (default 2 min) — iNAV updates every ~15 s, so data
+    older than that is treated as stale and triggers a live fetch.
     Outside market hours the coarser *max_age_days* threshold applies.
 
     Resolution order:
       1. ClickHouse ``inav_snapshots`` — if row is fresh enough
-      2. NSE API live fetch            — if DB is stale/empty
+      2. Kite iNAV instrument           — true live AMC iNAV (source: kite_live)
+      3. Nippon / Zerodha / Mirae / Motilal AMC — live AMC APIs where available
+         (source: nippon_amc_live / zerodha_amc_live / mirae_amc_live / motilal_amc_live)
+      4. NSE /api/etf fallback          — PREVIOUS DAY's declared NAV only
+         (source: nse_prev_nav). Note: for US/HK-market ETFs (MON100, MONQ50,
+         MAFANG, MASPTOP50, MAHKTECH) this is the correct reference — the
+         underlying market is closed during Indian trading hours, so there is
+         no intraday iNAV to compute.
          Stores the fresh snapshot to DB when ``store_to_db=True``.
 
     Returns a dict with keys:
         symbol, premium_discount_pct, inav, market_price, snapshot_at, source
-    or None if both DB and NSE API return nothing.
+    or None if all sources return nothing.
     """
     sym = symbol.strip().upper().replace(".NS", "")
 
@@ -386,9 +409,47 @@ def get_latest_inav(
     except Exception as exc:
         logger.debug("get_latest_inav: Mirae AMC live fetch failed for %s: %s", sym, exc)
 
-    # ── 3. Fallback: NSE /api/etf (returns PREVIOUS DAY's declared NAV) ──
-    # Note: NSE's public ETF API only exposes the prior day's AMC-declared NAV.
+    # ── 2.95 Motilal Oswal AMC Live iNAV (MON100, MONQ50) ──
+    try:
+        from src.importer.fetchers.motilal_inav_fetcher import MOTILAL_SYMBOLS
+        if sym in MOTILAL_SYMBOLS:
+            from src.importer.fetchers.motilal_inav_fetcher import fetch_inav_motilal
+            motilal_rows = fetch_inav_motilal([sym])
+            if motilal_rows:
+                row = motilal_rows[0]
+                if store_to_db:
+                    try:
+                        from config.settings import settings
+                        from src.importer.clickhouse import ClickHouseImporter
+                        ch = ClickHouseImporter(
+                            host=settings.clickhouse_host, port=settings.clickhouse_port,
+                            database=settings.clickhouse_database,
+                            username=settings.clickhouse_user, password=settings.clickhouse_password,
+                        )
+                        try:
+                            ch.insert_inav_snapshots([row])
+                            logger.info("get_latest_inav: stored fresh Motilal AMC snapshot for %s", sym)
+                        finally:
+                            ch.close()
+                    except Exception:
+                        pass
+                return {
+                    "symbol":               sym,
+                    "premium_discount_pct": row["premium_discount_pct"],
+                    "inav":                 row["inav"],
+                    "market_price":         row["market_price"],
+                    "snapshot_at":          row["snapshot_at"],
+                    "source":               "motilal_amc_live",
+                }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Motilal AMC live fetch failed for %s: %s", sym, exc)
+
+    # ── 4. Fallback: NSE /api/etf (returns PREVIOUS DAY's declared NAV) ──
+    # NSE's public ETF API (/api/etf) only exposes the prior day's AMC-declared NAV.
     # The /api/quote-equity endpoint (true live iNAV) is Akamai-protected.
+    # For US/HK-market ETFs (MON100, MONQ50, MAFANG, MASPTOP50, MAHKTECH) the
+    # overseas market is CLOSED during Indian trading hours — the Motilal API
+    # returns the prior-day close adjusted for current USDINR (step 2.95 above).
     logger.info("get_latest_inav: %s not in DB or stale — calling NSE API (prev-day NAV)", sym)
     live_rows = fetch_inav_snapshots([sym])
     if not live_rows:
@@ -423,5 +484,5 @@ def get_latest_inav(
         "inav":                 row["inav"],
         "market_price":         row["market_price"],
         "snapshot_at":          row["snapshot_at"],
-        "source":               "nse_api_live",
+        "source":               "nse_prev_nav",
     }

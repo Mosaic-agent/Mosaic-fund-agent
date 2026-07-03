@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 _ZERODHA_API_URL = "https://api.zerodhafundhouse.com/api/v1/schemes"
 _TIMEOUT = 15
 
-# Tracked Zerodha symbols in our registry
+# Tracked Zerodha symbols in our registry (all 8 ETFs with live iNAV from the API)
 ZERODHA_SYMBOLS = {
-    "GOLDCASE", "SILVERCASE", "LIQUIDCASE", "TOP100CASE", "MID150CASE", "LTGILTCASE"
+    "GOLDCASE",    "SILVERCASE",  "LIQUIDCASE",
+    "TOP100CASE",  "MID150CASE",  "LTGILTCASE",
+    "NIFTYCASE",   "SML100CASE",
 }
 
 
@@ -165,7 +167,7 @@ def fetch_inav_zerodha(symbols: list[str]) -> list[dict[str, Any]]:
             "inav":                 inav,
             "market_price":         market_price,
             "premium_discount_pct": round(prem_disc, 4),
-            "source":               "ZERODHA_AMC",
+            "source":               "zerodha_amc_live",
         })
 
     logger.info("Zerodha iNAV: successfully compiled %d snapshot(s)", len(rows))

@@ -25,8 +25,24 @@ logger = logging.getLogger(__name__)
 _MIRAE_API_URL = "https://miraeassetetf.co.in/api/ticker"
 _TIMEOUT = 15
 
-# Tracked Mirae Asset symbols in our registry
-MIRAE_SYMBOLS = {"MAFANG", "MAHKTECH", "MASPTOP50"}
+# Tracked Mirae Asset symbols in our registry (all 38 ETFs available via the API)
+MIRAE_SYMBOLS = {
+    # ── International / US / HK ETFs (prev-session close adjusted for FX) ──
+    "MAFANG",     "MAHKTECH",   "MASPTOP50",
+    # ── Broad Market ──────────────────────────────────────────────────
+    "NIFTYETF",  "NEXT50",     "MIDCAPETF",  "SMALL250",   "MULTICAP",
+    "EQUAL50",   "EQUAL200",   "SENSEXETF",
+    # ── Sectoral / Thematic ─────────────────────────────────────────
+    "BANKETF",   "BANKPSU",    "BFSI",       "ITETF",      "INTERNET",
+    "MAKEINDIA", "EVINDIA",    "ENERGY",     "METAL",      "INFRA",
+    "HEALTHCARE","DEFENCE",    "CONSUMER",   "MIDSMALL",   "SMALLCAP",
+    "ALPHAETF",  "LOWVOL",     "VALUE",      "DIVIDEND",   "TOP20",
+    "ESG",       "SELECTIPO",
+    # ── Commodities ──────────────────────────────────────────────────
+    "GOLDETF",   "SILVERAG",
+    # ── Debt / Liquid ──────────────────────────────────────────────
+    "LIQUID",    "LIQUIDPLUS", "GSEC10YEAR",
+}
 
 
 def _safe(val: Any, default: float = 0.0) -> float:
@@ -180,7 +196,7 @@ def fetch_inav_mirae(symbols: list[str]) -> list[dict[str, Any]]:
             "inav":                 inav,
             "market_price":         market_price,
             "premium_discount_pct": round(prem_disc, 4),
-            "source":               "MIRAE_AMC",
+            "source":               "mirae_amc_live",
         })
 
     logger.info("Mirae iNAV: successfully compiled %d snapshot(s)", len(rows))
