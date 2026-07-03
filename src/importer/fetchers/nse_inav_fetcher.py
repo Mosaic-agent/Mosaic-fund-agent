@@ -129,19 +129,43 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
         except Exception as exc:
             logger.warning("Nippon AMC iNAV fetch failed: %s", exc)
 
-    # Merge: build dict from NSE rows, then overwrite/add Nippon rows
+    # Fetch live iNAVs from Zerodha AMC API for Zerodha-managed ETFs
+    from src.importer.fetchers.zerodha_inav_fetcher import fetch_inav_zerodha, ZERODHA_SYMBOLS
+    zerodha_symbols = [s for s in clean if s in ZERODHA_SYMBOLS]
+    zerodha_rows: list[dict[str, Any]] = []
+    if zerodha_symbols:
+        try:
+            zerodha_rows = fetch_inav_zerodha(zerodha_symbols)
+        except Exception as exc:
+            logger.warning("Zerodha AMC iNAV fetch failed: %s", exc)
+
+    # Fetch live iNAVs from Mirae AMC API for Mirae-managed ETFs
+    from src.importer.fetchers.mirae_inav_fetcher import fetch_inav_mirae, MIRAE_SYMBOLS
+    mirae_symbols = [s for s in clean if s in MIRAE_SYMBOLS]
+    mirae_rows: list[dict[str, Any]] = []
+    if mirae_symbols:
+        try:
+            mirae_rows = fetch_inav_mirae(mirae_symbols)
+        except Exception as exc:
+            logger.warning("Mirae AMC iNAV fetch failed: %s", exc)
+
+    # Merge: build dict from NSE rows, then overwrite/add Nippon, Zerodha, and Mirae rows
     merged: dict[str, dict[str, Any]] = {}
     for r in nse_rows:
         merged[r["symbol"]] = r
     for r in nippon_rows:
+        merged[r["symbol"]] = r
+    for r in zerodha_rows:
+        merged[r["symbol"]] = r
+    for r in mirae_rows:
         merged[r["symbol"]] = r
 
     final_rows = list(merged.values())
 
     from src.utils.ist import utc_to_ist
     _snap_ist = utc_to_ist(snapshot_at).strftime("%Y-%m-%d %H:%M:%S IST")
-    logger.info("Combined iNAV: captured %d snapshot(s) at %s (NSE: %d, Nippon AMC: %d)", 
-                len(final_rows), _snap_ist, len(nse_rows), len(nippon_rows))
+    logger.info("Combined iNAV: captured %d snapshot(s) at %s (NSE: %d, Nippon AMC: %d, Zerodha AMC: %d, Mirae AMC: %d)", 
+                len(final_rows), _snap_ist, len(nse_rows), len(nippon_rows), len(zerodha_rows), len(mirae_rows))
     return final_rows
 
 
@@ -291,6 +315,76 @@ def get_latest_inav(
                 }
     except Exception as exc:
         logger.debug("get_latest_inav: Nippon AMC live fetch failed for %s: %s", sym, exc)
+
+    # ── 2.7 Zerodha AMC Live iNAV (fallback for Zerodha-managed ETFs) ──
+    try:
+        from src.importer.fetchers.zerodha_inav_fetcher import ZERODHA_SYMBOLS
+        if sym in ZERODHA_SYMBOLS:
+            from src.importer.fetchers.zerodha_inav_fetcher import fetch_inav_zerodha
+            zerodha_rows = fetch_inav_zerodha([sym])
+            if zerodha_rows:
+                row = zerodha_rows[0]
+                if store_to_db:
+                    try:
+                        from config.settings import settings
+                        from src.importer.clickhouse import ClickHouseImporter
+                        ch = ClickHouseImporter(
+                            host=settings.clickhouse_host, port=settings.clickhouse_port,
+                            database=settings.clickhouse_database,
+                            username=settings.clickhouse_user, password=settings.clickhouse_password,
+                        )
+                        try:
+                            ch.insert_inav_snapshots([row])
+                            logger.info("get_latest_inav: stored fresh Zerodha AMC snapshot for %s", sym)
+                        finally:
+                            ch.close()
+                    except Exception:
+                        pass
+                return {
+                    "symbol":               sym,
+                    "premium_discount_pct": row["premium_discount_pct"],
+                    "inav":                 row["inav"],
+                    "market_price":         row["market_price"],
+                    "snapshot_at":          row["snapshot_at"],
+                    "source":               "zerodha_amc_live",
+                }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Zerodha AMC live fetch failed for %s: %s", sym, exc)
+
+    # ── 2.9 Mirae AMC Live iNAV (fallback for Mirae-managed ETFs) ──
+    try:
+        from src.importer.fetchers.mirae_inav_fetcher import MIRAE_SYMBOLS
+        if sym in MIRAE_SYMBOLS:
+            from src.importer.fetchers.mirae_inav_fetcher import fetch_inav_mirae
+            mirae_rows = fetch_inav_mirae([sym])
+            if mirae_rows:
+                row = mirae_rows[0]
+                if store_to_db:
+                    try:
+                        from config.settings import settings
+                        from src.importer.clickhouse import ClickHouseImporter
+                        ch = ClickHouseImporter(
+                            host=settings.clickhouse_host, port=settings.clickhouse_port,
+                            database=settings.clickhouse_database,
+                            username=settings.clickhouse_user, password=settings.clickhouse_password,
+                        )
+                        try:
+                            ch.insert_inav_snapshots([row])
+                            logger.info("get_latest_inav: stored fresh Mirae AMC snapshot for %s", sym)
+                        finally:
+                            ch.close()
+                    except Exception:
+                        pass
+                return {
+                    "symbol":               sym,
+                    "premium_discount_pct": row["premium_discount_pct"],
+                    "inav":                 row["inav"],
+                    "market_price":         row["market_price"],
+                    "snapshot_at":          row["snapshot_at"],
+                    "source":               "mirae_amc_live",
+                }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Mirae AMC live fetch failed for %s: %s", sym, exc)
 
     # ── 3. Fallback: NSE /api/etf (returns PREVIOUS DAY's declared NAV) ──
     # Note: NSE's public ETF API only exposes the prior day's AMC-declared NAV.
