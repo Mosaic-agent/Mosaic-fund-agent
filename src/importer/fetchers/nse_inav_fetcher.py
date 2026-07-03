@@ -50,7 +50,8 @@ def _safe(val: Any, default: float = 0.0) -> float:
 
 def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
     """
-    Fetch a live iNAV snapshot for each symbol in `symbols` from the NSE API.
+    Fetch a live iNAV snapshot for each symbol in `symbols` from the NSE API,
+    and merge/overwrite with live iNAV data from Nippon India AMC website for Nippon ETFs.
 
     Parameters
     ----------
@@ -61,12 +62,11 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
     list of dicts with keys:
         symbol, snapshot_at (datetime UTC), inav, market_price,
         premium_discount_pct, source
-
-    Returns an empty list if the NSE API is unreachable (e.g. outside hours).
     """
     clean = {s.upper().replace(".NS", "") for s in symbols}
     snapshot_at = datetime.now(timezone.utc).replace(tzinfo=None)  # ClickHouse expects naive UTC
 
+    nse_rows: list[dict[str, Any]] = []
     try:
         with httpx.Client(headers=_NSE_HEADERS, follow_redirects=True, timeout=_TIMEOUT) as client:
             # Warm up to get session cookies required by NSE
@@ -75,70 +75,98 @@ def fetch_inav_snapshots(symbols: list[str]) -> list[dict[str, Any]]:
             resp = client.get(_NSE_ETF_URL, timeout=_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
+
+            etf_list: list[dict] = data.get("data", []) if isinstance(data, dict) else data
+            if etf_list:
+                for entry in etf_list:
+                    sym = str(entry.get("symbol", "")).upper()
+                    if sym not in clean:
+                        continue
+
+                    raw_nav  = entry.get("nav") or entry.get("iNav")
+                    raw_ltp  = entry.get("ltP") or entry.get("lastPrice")
+
+                    if raw_nav is None:
+                        continue
+
+                    inav         = _safe(raw_nav)
+                    market_price = _safe(raw_ltp) if raw_ltp is not None else inav
+                    prem_disc    = ((market_price - inav) / inav * 100) if inav else 0.0
+
+                    if sym == "SILVERCASE":
+                        # Verify and correct duplicate GOLDCASE iNAV glitch
+                        goldcase_entry = next((e for e in etf_list if str(e.get("symbol", "")).upper() == "GOLDCASE"), None)
+                        silverbees_entry = next((e for e in etf_list if str(e.get("symbol", "")).upper() == "SILVERBEES"), None)
+                        if goldcase_entry and silverbees_entry:
+                            raw_gold_nav = goldcase_entry.get("nav") or goldcase_entry.get("iNav")
+                            raw_silverbees_nav = silverbees_entry.get("nav") or silverbees_entry.get("iNav")
+                            if raw_gold_nav and raw_silverbees_nav:
+                                gold_inav = _safe(raw_gold_nav)
+                                silverbees_inav = _safe(raw_silverbees_nav)
+                                if abs(inav - gold_inav) < 1e-6 and silverbees_inav > 0:
+                                    corrected_inav = round(silverbees_inav * 0.106127, 4)
+                                    inav = corrected_inav
+                                    prem_disc = ((market_price - inav) / inav * 100) if inav else 0.0
+
+                    nse_rows.append({
+                        "symbol":               sym,
+                        "snapshot_at":          snapshot_at,
+                        "inav":                 inav,
+                        "market_price":         market_price,
+                        "premium_discount_pct": round(prem_disc, 4),
+                        "source":               "NSE",
+                    })
     except Exception as exc:
         logger.warning("NSE iNAV fetch failed: %s", exc)
-        return []
 
-    etf_list: list[dict] = data.get("data", []) if isinstance(data, dict) else data
-    if not etf_list:
-        logger.warning("NSE iNAV API returned empty data list")
-        return []
+    # Fetch live iNAVs from Nippon AMC website for Nippon-managed ETFs
+    from src.importer.fetchers.nippon_inav_fetcher import fetch_inav_nippon, NIPPON_SYMBOL_MAP
+    nippon_symbols = [s for s in clean if s in NIPPON_SYMBOL_MAP]
+    nippon_rows: list[dict[str, Any]] = []
+    if nippon_symbols:
+        try:
+            nippon_rows = fetch_inav_nippon(nippon_symbols)
+        except Exception as exc:
+            logger.warning("Nippon AMC iNAV fetch failed: %s", exc)
 
-    rows: list[dict[str, Any]] = []
-    for entry in etf_list:
-        sym = str(entry.get("symbol", "")).upper()
-        if sym not in clean:
-            continue
+    # Fetch live iNAVs from Zerodha AMC API for Zerodha-managed ETFs
+    from src.importer.fetchers.zerodha_inav_fetcher import fetch_inav_zerodha, ZERODHA_SYMBOLS
+    zerodha_symbols = [s for s in clean if s in ZERODHA_SYMBOLS]
+    zerodha_rows: list[dict[str, Any]] = []
+    if zerodha_symbols:
+        try:
+            zerodha_rows = fetch_inav_zerodha(zerodha_symbols)
+        except Exception as exc:
+            logger.warning("Zerodha AMC iNAV fetch failed: %s", exc)
 
-        # NSE's "nav" field is the PREVIOUS DAY's declared NAV (navDate in response header),
-        # not a live intraday iNAV. NSE does not expose real-time iNAV through public APIs.
-        # For international ETFs (HNGSNGBEES, MAFANG…) this is the correct reference
-        # since the overseas market is closed during Indian hours.
-        # For domestic commodity ETFs (GOLDBEES, SILVERBEES…) the true live iNAV would
-        # require computing from current MCX/COMEX prices.
-        raw_nav  = entry.get("nav") or entry.get("iNav")
-        raw_ltp  = entry.get("ltP") or entry.get("lastPrice")
+    # Fetch live iNAVs from Mirae AMC API for Mirae-managed ETFs
+    from src.importer.fetchers.mirae_inav_fetcher import fetch_inav_mirae, MIRAE_SYMBOLS
+    mirae_symbols = [s for s in clean if s in MIRAE_SYMBOLS]
+    mirae_rows: list[dict[str, Any]] = []
+    if mirae_symbols:
+        try:
+            mirae_rows = fetch_inav_mirae(mirae_symbols)
+        except Exception as exc:
+            logger.warning("Mirae AMC iNAV fetch failed: %s", exc)
 
-        if raw_nav is None:
-            logger.debug("No NAV value for %s in NSE response", sym)
-            continue
+    # Merge: build dict from NSE rows, then overwrite/add Nippon, Zerodha, and Mirae rows
+    merged: dict[str, dict[str, Any]] = {}
+    for r in nse_rows:
+        merged[r["symbol"]] = r
+    for r in nippon_rows:
+        merged[r["symbol"]] = r
+    for r in zerodha_rows:
+        merged[r["symbol"]] = r
+    for r in mirae_rows:
+        merged[r["symbol"]] = r
 
-        inav         = _safe(raw_nav)        # prev-day declared NAV used as reference
-        market_price = _safe(raw_ltp) if raw_ltp is not None else inav
-        prem_disc    = ((market_price - inav) / inav * 100) if inav else 0.0
-
-        if sym == "SILVERCASE":
-            # Verify and correct duplicate GOLDCASE iNAV glitch
-            goldcase_entry = next((e for e in etf_list if str(e.get("symbol", "")).upper() == "GOLDCASE"), None)
-            silverbees_entry = next((e for e in etf_list if str(e.get("symbol", "")).upper() == "SILVERBEES"), None)
-            if goldcase_entry and silverbees_entry:
-                raw_gold_nav = goldcase_entry.get("nav") or goldcase_entry.get("iNav")
-                raw_silverbees_nav = silverbees_entry.get("nav") or silverbees_entry.get("iNav")
-                if raw_gold_nav and raw_silverbees_nav:
-                    gold_inav = _safe(raw_gold_nav)
-                    silverbees_inav = _safe(raw_silverbees_nav)
-                    if abs(inav - gold_inav) < 1e-6 and silverbees_inav > 0:
-                        corrected_inav = round(silverbees_inav * 0.106127, 4)
-                        logger.info(
-                            "Correcting SILVERCASE iNAV from %s to %s (ratio-scaled from SILVERBEES: %s)",
-                            inav, corrected_inav, silverbees_inav
-                        )
-                        inav = corrected_inav
-                        prem_disc = ((market_price - inav) / inav * 100) if inav else 0.0
-
-        rows.append({
-            "symbol":               sym,
-            "snapshot_at":          snapshot_at,
-            "inav":                 inav,
-            "market_price":         market_price,
-            "premium_discount_pct": round(prem_disc, 4),
-            "source":               "NSE",
-        })
+    final_rows = list(merged.values())
 
     from src.utils.ist import utc_to_ist
     _snap_ist = utc_to_ist(snapshot_at).strftime("%Y-%m-%d %H:%M:%S IST")
-    logger.info("NSE iNAV: captured %d snapshot(s) at %s", len(rows), _snap_ist)
-    return rows
+    logger.info("Combined iNAV: captured %d snapshot(s) at %s (NSE: %d, Nippon AMC: %d, Zerodha AMC: %d, Mirae AMC: %d)", 
+                len(final_rows), _snap_ist, len(nse_rows), len(nippon_rows), len(zerodha_rows), len(mirae_rows))
+    return final_rows
 
 
 def _is_market_open() -> bool:
@@ -252,6 +280,111 @@ def get_latest_inav(
             }
     except Exception as exc:
         logger.debug("get_latest_inav: Kite iNAV unavailable for %s: %s", sym, exc)
+
+    # ── 2.5 Nippon AMC Live iNAV (fallback for Nippon-managed ETFs) ──
+    try:
+        from src.importer.fetchers.nippon_inav_fetcher import NIPPON_SYMBOL_MAP
+        if sym in NIPPON_SYMBOL_MAP:
+            from src.importer.fetchers.nippon_inav_fetcher import fetch_inav_nippon
+            nippon_rows = fetch_inav_nippon([sym])
+            if nippon_rows:
+                row = nippon_rows[0]
+                if store_to_db:
+                    try:
+                        from config.settings import settings
+                        from src.importer.clickhouse import ClickHouseImporter
+                        ch = ClickHouseImporter(
+                            host=settings.clickhouse_host, port=settings.clickhouse_port,
+                            database=settings.clickhouse_database,
+                            username=settings.clickhouse_user, password=settings.clickhouse_password,
+                        )
+                        try:
+                            ch.insert_inav_snapshots([row])
+                            logger.info("get_latest_inav: stored fresh Nippon AMC snapshot for %s", sym)
+                        finally:
+                            ch.close()
+                    except Exception:
+                        pass
+                return {
+                    "symbol":               sym,
+                    "premium_discount_pct": row["premium_discount_pct"],
+                    "inav":                 row["inav"],
+                    "market_price":         row["market_price"],
+                    "snapshot_at":          row["snapshot_at"],
+                    "source":               "nippon_amc_live",
+                }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Nippon AMC live fetch failed for %s: %s", sym, exc)
+
+    # ── 2.7 Zerodha AMC Live iNAV (fallback for Zerodha-managed ETFs) ──
+    try:
+        from src.importer.fetchers.zerodha_inav_fetcher import ZERODHA_SYMBOLS
+        if sym in ZERODHA_SYMBOLS:
+            from src.importer.fetchers.zerodha_inav_fetcher import fetch_inav_zerodha
+            zerodha_rows = fetch_inav_zerodha([sym])
+            if zerodha_rows:
+                row = zerodha_rows[0]
+                if store_to_db:
+                    try:
+                        from config.settings import settings
+                        from src.importer.clickhouse import ClickHouseImporter
+                        ch = ClickHouseImporter(
+                            host=settings.clickhouse_host, port=settings.clickhouse_port,
+                            database=settings.clickhouse_database,
+                            username=settings.clickhouse_user, password=settings.clickhouse_password,
+                        )
+                        try:
+                            ch.insert_inav_snapshots([row])
+                            logger.info("get_latest_inav: stored fresh Zerodha AMC snapshot for %s", sym)
+                        finally:
+                            ch.close()
+                    except Exception:
+                        pass
+                return {
+                    "symbol":               sym,
+                    "premium_discount_pct": row["premium_discount_pct"],
+                    "inav":                 row["inav"],
+                    "market_price":         row["market_price"],
+                    "snapshot_at":          row["snapshot_at"],
+                    "source":               "zerodha_amc_live",
+                }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Zerodha AMC live fetch failed for %s: %s", sym, exc)
+
+    # ── 2.9 Mirae AMC Live iNAV (fallback for Mirae-managed ETFs) ──
+    try:
+        from src.importer.fetchers.mirae_inav_fetcher import MIRAE_SYMBOLS
+        if sym in MIRAE_SYMBOLS:
+            from src.importer.fetchers.mirae_inav_fetcher import fetch_inav_mirae
+            mirae_rows = fetch_inav_mirae([sym])
+            if mirae_rows:
+                row = mirae_rows[0]
+                if store_to_db:
+                    try:
+                        from config.settings import settings
+                        from src.importer.clickhouse import ClickHouseImporter
+                        ch = ClickHouseImporter(
+                            host=settings.clickhouse_host, port=settings.clickhouse_port,
+                            database=settings.clickhouse_database,
+                            username=settings.clickhouse_user, password=settings.clickhouse_password,
+                        )
+                        try:
+                            ch.insert_inav_snapshots([row])
+                            logger.info("get_latest_inav: stored fresh Mirae AMC snapshot for %s", sym)
+                        finally:
+                            ch.close()
+                    except Exception:
+                        pass
+                return {
+                    "symbol":               sym,
+                    "premium_discount_pct": row["premium_discount_pct"],
+                    "inav":                 row["inav"],
+                    "market_price":         row["market_price"],
+                    "snapshot_at":          row["snapshot_at"],
+                    "source":               "mirae_amc_live",
+                }
+    except Exception as exc:
+        logger.debug("get_latest_inav: Mirae AMC live fetch failed for %s: %s", sym, exc)
 
     # ── 3. Fallback: NSE /api/etf (returns PREVIOUS DAY's declared NAV) ──
     # Note: NSE's public ETF API only exposes the prior day's AMC-declared NAV.
