@@ -29,20 +29,34 @@ _TIMEOUT = 15
 
 # Map our internal symbols to the scheme names used on the Nippon AMC website
 NIPPON_SYMBOL_MAP: dict[str, str] = {
-    "GOLDBEES":   "Nippon India ETF Gold BeES",
-    "SILVERBEES": "Nippon India Silver ETF",
-    "NIFTYBEES":  "Nippon India ETF Nifty 50 BeES",
-    "JUNIORBEES": "Nippon India ETF Nifty Next 50 Junior BeES",
-    "LIQUIDBEES": "Nippon India ETF Nifty 1D Rate Liquid BeES",
-    "HNGSNGBEES": "Nippon India ETF Hang Seng BeES",
-    "BANKBEES":   "Nippon India ETF Nifty Bank BeES",
-    "PSUBNKBEES": "Nippon India ETF Nifty PSU Bank BeES",
-    "CPSEETF":    "CPSE ETF",
-    "ITBEES":     "Nippon India ETF Nifty IT",
-    "PHARMABEES": "Nippon India Nifty Pharma ETF",
-    "AUTOBEES":   "Nippon India Nifty Auto ETF",
-    "INFRABEES":  "Nippon India ETF Nifty Infrastructure BeES",
-    "SHARIABEES": "Nippon India ETF Nifty 50 Shariah BeES",
+    # ── Existing tracked ETFs ──────────────────────────────────────────────
+    "GOLDBEES":    "Nippon India ETF Gold BeES",
+    "SILVERBEES":  "Nippon India Silver ETF",
+    "NIFTYBEES":   "Nippon India ETF Nifty 50 BeES",
+    "JUNIORBEES":  "Nippon India ETF Nifty Next 50 Junior BeES",
+    "LIQUIDBEES":  "Nippon India ETF Nifty 1D Rate Liquid BeES",
+    "HNGSNGBEES":  "Nippon India ETF Hang Seng BeES",
+    "BANKBEES":    "Nippon India ETF Nifty Bank BeES",
+    "PSUBNKBEES":  "Nippon India ETF Nifty PSU Bank BeES",
+    "CPSEETF":     "CPSE ETF",
+    "ITBEES":      "Nippon India ETF Nifty IT",
+    "PHARMABEES":  "Nippon India Nifty Pharma ETF",
+    "AUTOBEES":    "Nippon India Nifty Auto ETF",
+    "INFRABEES":   "Nippon India ETF Nifty Infrastructure BeES",
+    "SHARIABEES":  "Nippon India ETF Nifty 50 Shariah BeES",
+    # ── Additional ETFs discovered via API coverage audit ──────────────────
+    "NIF100BEES":  "Nippon India ETF Nifty 100",
+    "NV20BEES":    "Nippon India ETF Nifty 50 Value 20",
+    "MID150BEES":  "Nippon India ETF Nifty Midcap 150",
+    "DIVOPPBEES":  "Nippon India ETF Nifty Dividend Opportunities 50",
+    "CONSUMBEES":  "Nippon India ETF Nifty India Consumption",
+    "MANUFGBEES":  "Nippon India ETF Nifty India Manufacturing",
+    "LTGILTBEES":  "Nippon India ETF Nifty 8-13 yr G-Sec Long Term Gilt",
+    "GILT5YBEES":  "Nippon India ETF Nifty 5 yr Benchmark G-Sec",
+    "LIQGRWBEES":  "Nippon India Nifty 1D Rate Liquid ETF \u2013 Growth",
+    "SENSEXIETF":  "Nippon India ETF BSE Sensex",
+    "SNXT30BEES":  "Nippon India ETF BSE Sensex Next 30",
+    "SNXT50BETA":  "Nippon India ETF BSE Sensex Next 50",
 }
 
 # Reverse mapping for fast lookups
@@ -192,7 +206,7 @@ def fetch_inav_nippon(symbols: list[str]) -> list[dict[str, Any]]:
             "inav":                 inav,
             "market_price":         market_price,
             "premium_discount_pct": round(prem_disc, 4),
-            "source":               "NIPPON_AMC",
+            "source":               "nippon_amc_live",
         })
 
     logger.info("Nippon iNAV: successfully compiled %d snapshot(s)", len(rows))

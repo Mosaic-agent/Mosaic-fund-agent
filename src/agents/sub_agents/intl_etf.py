@@ -95,9 +95,15 @@ or type: "import etfs" in the chat (routes to the main agent).
 
 ## iNAV Freshness
 Premium data is automatically kept current:
-- **During market hours (IST 09:15–15:30)**: if the DB snapshot is older than 10 minutes
-  the tool fetches live iNAV from the NSE API and stores the result. The `inav_source`
-  field in tool output will show `"nse_api_live"` when this happens.
+- **During market hours (IST 09:15–15:30)**: if the DB snapshot is older than 2 minutes
+  the tool fetches live iNAV from the AMC API (Kite → Nippon/Zerodha/Mirae/Motilal → NSE fallback)
+  and stores the result. The `inav_source` field in tool output will show `"kite_live"`,
+  `"nippon_amc_live"`, `"zerodha_amc_live"`, `"mirae_amc_live"`, `"motilal_amc_live"`,
+  or `"nse_prev_nav"` depending on which source succeeded. For US/HK-market ETFs
+  (MON100, MONQ50, MAFANG) the Motilal/NSE source reflects the prior Nasdaq close
+  adjusted for current USDINR — the overseas market is closed during Indian hours.
+  Note: `motilal_amc_live` includes a 2-day staleness gate; if the AMC batch
+  refresh job stalls, rows are dropped and NSE serves the iNAV instead.
 - **Outside market hours**: last stored snapshot (up to 4 days old) is used.
 When reporting a premium, always mention the snapshot timestamp so the user knows
 whether they are seeing live or cached data.

@@ -429,9 +429,13 @@ def get_live_inav(symbol: str) -> str:
             pass
 
     src_map = {
-        "kite_live":    "live iNAV via Kite",
-        "nse_api_live": "live from NSE (prev-day NAV)",
-        "db":           f"cached (DB{age_str})",
+        "kite_live":         "live iNAV via Kite",
+        "nippon_amc_live":   "live iNAV via Nippon AMC",
+        "zerodha_amc_live":  "live iNAV via Zerodha AMC",
+        "mirae_amc_live":    "live iNAV via Mirae AMC",
+        "motilal_amc_live":  "live iNAV via Motilal AMC",
+        "nse_prev_nav":      "prev-day NAV from NSE",
+        "db":                f"cached (DB{age_str})",
     }
     src_label = src_map.get(data["source"], data["source"])
     snap_ist = fmt_ist(snap_dt)
@@ -468,10 +472,16 @@ def run_premium_alerts(
     Trades the premium created by RBI's overseas investment cap.
 
     iNAV data freshness:
-      - During market hours (IST 09:15–15:30): DB snapshot must be ≤ 10 min old.
-        If stale, the NSE API is called live and the fresh snapshot is stored to DB.
+      - During market hours (IST 09:15–15:30): DB snapshot must be ≤ 2 min old.
+        If stale, the live fetch waterfall runs (Kite → Nippon/Zerodha/Mirae AMC → NSE)
+        and the fresh snapshot is stored to DB.
       - Outside market hours: last available DB snapshot (up to 4 days old) is used.
-    The 'inav_source' field in results indicates "db" (cached) or "nse_api_live".
+    The 'inav_source' field in results indicates the fetch path: "kite_live",
+    "nippon_amc_live", "zerodha_amc_live", "mirae_amc_live", "motilal_amc_live",
+    "nse_prev_nav" (for US/HK-market ETFs — prev-day NAV is correct since their
+    markets are closed during Indian hours), or "db" (cached).
+    Note: motilal_amc_live applies a 2-day staleness gate — if the AMC API has
+    not refreshed within 2 calendar days, NSE data is used instead.
 
     Args:
         lookback: Numeric period for the history window (default 30).
