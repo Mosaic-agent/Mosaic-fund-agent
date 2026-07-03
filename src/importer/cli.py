@@ -727,19 +727,13 @@ def run_import(
             console.print("  [yellow]⚠ No monthly rows returned.[/yellow]")
 
 
-    # ── AMC Fund-Holdings Importers (factory pattern) ────────────────────────
-    # Delegates to src/scripts/fund_imports/ for icici, nippon, icici-index, dsp.
-    # Each importer manages its own ClickHouse connection and watermarks.
+    # ── AMC Fund-Holdings Importers ───────────────────────────────────────────
     _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp") if c in categories]
     if _amc_cats:
-        from src.scripts.fund_imports.factory import create_importer as _create_fund_importer
+        from src.importer.fetchers.amc_holdings_fetcher import fetch_amc_holdings
 
         for _amc_cat in _amc_cats:
-            _kwargs: dict = {}
-            if _amc_cat in ("nippon", "dsp"):
-                _kwargs = {"full_reimport": full_reimport}
-            _imp = _create_fund_importer(_amc_cat, **_kwargs)
-            _imp.run(dry_run=dry_run)
+            fetch_amc_holdings(_amc_cat, full_reimport=full_reimport, dry_run=dry_run)
 
     ch.close()
 
