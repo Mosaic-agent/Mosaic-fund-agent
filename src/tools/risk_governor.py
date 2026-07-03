@@ -67,14 +67,18 @@ _EMA_WINDOW        = 50     # days for exponential moving average
 # Per-asset-class vol targets (backtest-validated Jan–Apr 2026)
 # Equity ETFs have structurally higher vol; 15% target over-de-risks them
 VOL_TARGETS: dict[str, float] = {
-    "gold":   15.0,   # GOLDBEES, SILVERBEES, debt-like safe-haven
+    "gold":   15.0,   # GOLDBEES, debt-like safe-haven
+    "silver": 20.0,   # SILVERBEES, SLV (structurally higher volatility)
     "equity": 20.0,   # NIFTYBEES, BANKBEES, ITBEES, MID150BEES, etc.
     "intl":   18.0,   # MON100, MAFANG, MAHKTECH, HNGSNGBEES
     "stock":  25.0,   # single-name idiosyncratic risk (individual smallcap/midcap stocks)
 }
 _GOLD_ETFS = frozenset({
-    "GOLDBEES", "SILVERBEES",
+    "GOLDBEES",
     "LIQUIDBEES", "LIQUIDCASE", "GILT5YBEES",  # safe-haven group (preserve prior 15% default)
+})
+_SILVER_ETFS = frozenset({
+    "SILVERBEES", "SLV", "SILVERCASE",
 })
 _EQUITY_ETFS = frozenset({
     "NIFTYBEES", "BANKBEES", "ITBEES", "PSUBNKBEES", "MID150BEES",
@@ -91,12 +95,14 @@ def vol_target_for(symbol: str) -> float:
     """Return the calibrated vol target for a given symbol.
 
     Order of classification:
-      gold/safe-haven (15%) → equity ETF (20%) → intl ETF (18%) → single stock (25%).
+      gold/safe-haven (15%) → silver (20%) → equity ETF (20%) → intl ETF (18%) → single stock (25%).
     Single-name stocks carry higher idiosyncratic vol than diversified ETFs,
     so any symbol not in the known-ETF sets is treated as a single name.
     """
     if symbol in _GOLD_ETFS:
         return VOL_TARGETS["gold"]
+    if symbol in _SILVER_ETFS:
+        return VOL_TARGETS["silver"]
     if symbol in _EQUITY_ETFS:
         return VOL_TARGETS["equity"]
     if symbol in _INTL_ETFS:

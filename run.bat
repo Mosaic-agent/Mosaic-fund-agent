@@ -20,15 +20,17 @@ if %errorlevel% neq 0 (
 :: 2. Check for .env file
 if not exist .env (
     echo =================================================================
-    echo  First-time setup: Creating '.env' configuration file.
+    echo  First-time setup: We need to configure your '.env' settings.
     echo =================================================================
-    copy .env.example .env
-    echo  Created '.env' from template.
-    echo  IMPORTANT: Please open the '.env' file in this folder and add
-    echo  your API keys (e.g. Zerodha login, OpenAI/Anthropic keys).
+    python --version >nul 2>&1
+    if %errorlevel% equ 0 (
+        python setup_wizard.py
+    ) else (
+        echo Creating '.env' from default template...
+        copy .env.example .env
+        echo Please open '.env' and insert your API keys manually.
+    )
     echo =================================================================
-    pause
-    exit /b 1
 )
 
 :: 3. Spin up the stack in background

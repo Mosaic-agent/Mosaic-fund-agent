@@ -128,6 +128,7 @@ FX_PAIRS: list[tuple[str, str]] = [
 # US-listed stocks (NASDAQ / NYSE)
 US_STOCKS: list[tuple[str, str]] = [
     ("ADSK",  "ADSK"),   # Autodesk Inc. — NASDAQ
+    ("SLV",   "SLV"),    # iShares Silver Trust ETF — NYSE Arca
 ]
 
 # ── Indices (Yahoo Finance) ────────────────────────────────────────────────────

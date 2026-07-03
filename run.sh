@@ -19,15 +19,18 @@ fi
 # 2. Check for .env file
 if [ ! -f .env ]; then
     echo "================================================================="
-    echo " First-time setup: Creating '.env' configuration file."
+    echo " First-time setup: We need to configure your '.env' settings."
     echo "================================================================="
-    cp .env.example .env
-    echo " Created '.env' from template."
-    echo " IMPORTANT: Please open the '.env' file in this folder and add"
-    echo " your API keys (e.g. Zerodha login, OpenAI/Anthropic keys)."
+    if command -v python3 &> /dev/null; then
+        python3 setup_wizard.py
+    elif command -v python &> /dev/null; then
+        python setup_wizard.py
+    else
+        echo "Creating '.env' from default template..."
+        cp .env.example .env
+        echo "Please open '.env' and insert your API keys manually."
+    fi
     echo "================================================================="
-    read -p "Press Enter to exit..."
-    exit 1
 fi
 
 # 3. Spin up the stack in background

@@ -163,7 +163,7 @@ def _metrics(returns: pd.Series, name: str) -> dict:
     }
 
 
-def run_backtest(eval_months: int = 0, save: bool = False):
+def run_backtest(eval_months: int = 0, eval_days: int = 0, save: bool = False):
     client = clickhouse_connect.get_client(
         host=settings.clickhouse_host, port=settings.clickhouse_port,
         database=settings.clickhouse_database,
@@ -220,7 +220,9 @@ def run_backtest(eval_months: int = 0, save: bool = False):
     df_res["w_kelly"]   = df_res["w_kelly"].shift(1)  # NaN preserved
 
     # Slice eval window
-    if eval_months > 0:
+    if eval_days > 0:
+        ev = df_res.tail(eval_days).copy()
+    elif eval_months > 0:
         cutoff = df_res["trade_date"].max() - pd.DateOffset(months=eval_months)
         ev = df_res[df_res["trade_date"] > cutoff].copy()
     else:
@@ -242,7 +244,7 @@ def run_backtest(eval_months: int = 0, save: bool = False):
         ("Blended 50", ev_kelly["w_blended"] * ev_kelly["log_ret"]),
     ]
 
-    label = f"last {eval_months}m" if eval_months else "full history"
+    label = f"last {eval_days}d" if eval_days else (f"last {eval_months}m" if eval_months else "full history")
     print(f"\n{'='*70}")
     print(f"  {SYMBOL} — Adaptive Kelly Backtest  ({label})")
     print(f"  Eval: {ev['trade_date'].min().date()} → {ev['trade_date'].max().date()}")
@@ -289,7 +291,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Adaptive Kelly backtest")
     parser.add_argument("--months", default=6, type=int,
                         help="Evaluate over last N months (0 = full history)")
+    parser.add_argument("--days", default=0, type=int,
+                        help="Evaluate over last N days (0 = use months)")
     parser.add_argument("--save", action="store_true",
                         help="Persist simulation decisions to weight_checkpoints table")
     args = parser.parse_args()
-    run_backtest(eval_months=args.months, save=args.save)
+    run_backtest(eval_months=args.months, eval_days=args.days, save=args.save)

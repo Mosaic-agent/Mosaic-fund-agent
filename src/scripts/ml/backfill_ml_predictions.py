@@ -137,9 +137,9 @@ def _predict_at_date(
     Fit the model on data up to `as_of` and return a prediction dict.
     Returns None if there is insufficient data for this date.
     """
-    # Slice: keep only rows available on or before as_of
+    # Slice: keep only rows available on or before as_of, starting from 2013-01-01
     as_of_ts = pd.Timestamp(as_of)
-    df_slice = df_feat_full[df_feat_full["trade_date"] <= as_of_ts].copy()
+    df_slice = df_feat_full[(df_feat_full["trade_date"] >= "2013-01-01") & (df_feat_full["trade_date"] <= as_of_ts)].copy()
 
     if len(df_slice) < _MIN_ROWS + horizon + 10:
         return None   # not enough history

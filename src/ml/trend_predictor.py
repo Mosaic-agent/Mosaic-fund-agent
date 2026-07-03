@@ -201,7 +201,7 @@ def _fetch_macro_series(start_date: str, end_date: str) -> pd.DataFrame:
 
 # ── Step 1: Data assembly ──────────────────────────────────────────────────────
 
-def build_master_table(ch_client) -> pd.DataFrame:
+def build_master_table(ch_client, symbol: str = "GOLDBEES") -> pd.DataFrame:
     """
     Pull and join all signal sources from ClickHouse into one flat table.
 
@@ -210,7 +210,77 @@ def build_master_table(ch_client) -> pd.DataFrame:
     Also merges real DXY + US 10Y yield from Yahoo Finance (degrades gracefully
     to NaN features if the fetch fails or the network is unavailable).
     """
-    df = ch_client.query_df(_MASTER_SQL)
+    is_silver = symbol.upper() in ("SLV", "SILVERBEES", "SILVER", "SILVERCASE")
+
+    # If silver, nullify gold-specific columns to ensure no leakage of gold parameters
+    gold_aum_col = "CAST(NULL, 'Nullable(Float64)') AS gld_aum_usd" if is_silver else "aum.aum_usd AS gld_aum_usd"
+    cot_mm_col = "CAST(NULL, 'Nullable(Float64)') AS cot_mm_net" if is_silver else "cot.mm_net AS cot_mm_net"
+    cot_oi_col = "CAST(NULL, 'Nullable(Float64)') AS cot_oi" if is_silver else "cot.oi AS cot_oi"
+    gold_close_col = "CAST(NULL, 'Nullable(Float64)') AS gold_close" if is_silver else "gold.gold_close AS gold_close"
+
+    master_sql = f"""
+    SELECT
+        p.trade_date  AS trade_date,
+        p.close       AS goldbees_close,
+        n.nav         AS goldbees_nav,
+        f.close       AS usdinr,
+        {gold_aum_col},
+        {cot_mm_col},
+        {cot_oi_col},
+        {gold_close_col},
+        fii.fii_net_cr  AS fii_net_cr,
+        fii.dii_net_cr  AS dii_net_cr
+    FROM (
+        SELECT trade_date, close
+        FROM market_data.daily_prices FINAL
+        WHERE symbol = '{symbol}'
+    ) p
+    LEFT JOIN (
+        SELECT nav_date AS trade_date, nav
+        FROM market_data.mf_nav FINAL
+        WHERE symbol = '{symbol}'
+    ) n ON p.trade_date = n.trade_date
+    LEFT JOIN (
+        SELECT trade_date, close
+        FROM market_data.fx_rates FINAL
+        WHERE symbol = 'USDINR'
+    ) f ON p.trade_date = f.trade_date
+    LEFT JOIN (
+        SELECT trade_date, aum_usd
+        FROM market_data.etf_aum FINAL
+        WHERE symbol = 'GLD'
+    ) aum ON p.trade_date = aum.trade_date
+    LEFT JOIN (
+        SELECT
+            d.trade_date,
+            argMax(c.mm_net,        c.report_date) AS mm_net,
+            argMax(c.open_interest, c.report_date) AS oi
+        FROM (
+            SELECT DISTINCT trade_date
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = '{symbol}'
+        ) d
+        CROSS JOIN market_data.cot_gold c
+        WHERE addDays(c.report_date, 3) <= d.trade_date
+        GROUP BY d.trade_date
+    ) cot ON p.trade_date = cot.trade_date
+    LEFT JOIN (
+        SELECT trade_date, close AS gold_close
+        FROM market_data.daily_prices FINAL
+        WHERE symbol = 'GOLD' AND category = 'commodities'
+    ) gold ON p.trade_date = gold.trade_date
+    LEFT JOIN (
+        SELECT trade_date, close AS silver_close
+        FROM market_data.daily_prices FINAL
+        WHERE symbol = 'SILVER' AND category = 'commodities'
+    ) silver ON p.trade_date = silver.trade_date
+    LEFT JOIN (
+        SELECT trade_date, fii_net_cr, dii_net_cr
+        FROM market_data.fii_dii_flows FINAL
+    ) fii ON p.trade_date = fii.trade_date
+    ORDER BY p.trade_date ASC
+    """
+    df = ch_client.query_df(master_sql)
     df["trade_date"] = pd.to_datetime(df["trade_date"])
     df = df.sort_values("trade_date").reset_index(drop=True)
     df["gld_aum_usd"]   = df["gld_aum_usd"].replace(0, np.nan).ffill()
@@ -289,16 +359,19 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["f_hvol10"] = df["f_logret1"].rolling(10).std() * np.sqrt(252)
 
     # ── 5. COT leverage — speculator over-positioning ────────────────────────
-    df["f_cot_pct_oi"] = df["cot_mm_net"] / df["cot_oi"].replace(0, np.nan) * 100
+    if "cot_mm_net" in df.columns and df["cot_mm_net"].notna().any():
+        df["f_cot_pct_oi"] = df["cot_mm_net"] / df["cot_oi"].replace(0, np.nan) * 100
 
     # ── 6. Retail spread — GOLDBEES premium/discount to AMFI NAV ─────────────
-    nav_safe = df["goldbees_nav"].replace(0, np.nan)
-    df["f_spread_pct"]    = (p - nav_safe) / nav_safe * 100
-    df["f_spread_delta5"] = df["f_spread_pct"].diff(5)
+    if "goldbees_nav" in df.columns and df["goldbees_nav"].notna().any():
+        nav_safe = df["goldbees_nav"].replace(0, np.nan)
+        df["f_spread_pct"]    = (p - nav_safe) / nav_safe * 100
+        df["f_spread_delta5"] = df["f_spread_pct"].diff(5)
 
     # ── 7. AUM momentum — 30-day log % change in GLD total assets ────────────
-    aum_safe = df["gld_aum_usd"].replace(0, np.nan)
-    df["f_aum_mom_30d"] = np.log(aum_safe / aum_safe.shift(30)) * 100
+    if "gld_aum_usd" in df.columns and df["gld_aum_usd"].notna().any():
+        aum_safe = df["gld_aum_usd"].replace(0, np.nan)
+        df["f_aum_mom_30d"] = np.log(aum_safe / aum_safe.shift(30)) * 100
 
     # ── 8. Currency stress + trend ────────────────────────────────────────────
     inr_safe   = df["usdinr"].replace(0, np.nan)
@@ -309,7 +382,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df["f_dxy_proxy"] = -np.log(inr_safe / inr_safe.shift(5)) * 100
 
     # ── 9. COMEX Gold momentum ────────────────────────────────────────────────
-    if "gold_close" in df.columns:
+    if "gold_close" in df.columns and df["gold_close"].notna().any():
         gc = df["gold_close"].replace(0, np.nan)
         df["f_gold_logret5"] = np.log(gc / gc.shift(5)) * 100
 
@@ -339,7 +412,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # GSR above 80+: silver under-performs → risk-off / recession fears → gold bid.
     # GSR below 60:  silver outperforms  → industrial demand / risk-on rally.
     # z-score normalises the ratio to a stationary signal.
-    if "silver_close" in df.columns and "gold_close" in df.columns:
+    if "silver_close" in df.columns and "gold_close" in df.columns and df["gold_close"].notna().any():
         sc = df["silver_close"].replace(0, np.nan)
         gc = df["gold_close"].replace(0, np.nan)
         df["f_gsr"]        = gc / sc
@@ -661,10 +734,10 @@ def fit_walk_forward(
 _MODEL_CACHE_DIR = pathlib.Path(__file__).parents[2] / "output" / ".cache" / "ml_models"
 
 
-def _model_cache_key(df_labeled: pd.DataFrame, n_splits: int, horizon: int) -> str:
+def _model_cache_key(symbol: str, df_labeled: pd.DataFrame, n_splits: int, horizon: int) -> str:
     max_date = str(df_labeled["trade_date"].max().date())
     n_rows   = len(df_labeled.dropna(subset=["target"]))
-    return f"goldbees_lgbm_{max_date}_{n_rows}_{n_splits}_{horizon}"
+    return f"{symbol.lower()}_lgbm_{max_date}_{n_rows}_{n_splits}_{horizon}"
 
 
 def _load_model_cache(cache_key: str):
@@ -679,12 +752,12 @@ def _load_model_cache(cache_key: str):
     return None
 
 
-def _save_model_cache(cache_key: str, payload) -> None:
+def _save_model_cache(symbol: str, cache_key: str, payload) -> None:
     try:
         import joblib
         _MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         # Remove stale cache files for this asset before writing the new one
-        for old in _MODEL_CACHE_DIR.glob("goldbees_lgbm_*.joblib"):
+        for old in _MODEL_CACHE_DIR.glob(f"{symbol.lower()}_lgbm_*.joblib"):
             old.unlink(missing_ok=True)
         joblib.dump(payload, _MODEL_CACHE_DIR / f"{cache_key}.joblib")
         log.info("Model cache saved: %s", cache_key)
@@ -695,6 +768,7 @@ def _save_model_cache(cache_key: str, payload) -> None:
 # ── Step 5: Public API ────────────────────────────────────────────────────────
 
 def run_trend_prediction(
+    symbol: str = "GOLDBEES",
     horizon: int = _HORIZON,
     n_splits: int = _N_SPLITS,
     verbose: bool = True,
@@ -728,14 +802,16 @@ def run_trend_prediction(
     from src.db.pool import get_pool as _get_ch_pool
     client = _get_ch_pool().get_client()  # unmanaged; closed after master table build
     try:
-        df_raw = build_master_table(client)
+        df_raw = build_master_table(client, symbol=symbol)
+        # Apply the pre-GFC regimes / 2013-01-01 filter to train post-2013 data
+        df_raw = df_raw[df_raw["trade_date"] >= "2013-01-01"].reset_index(drop=True)
     finally:
         client.close()
 
     df_feat    = engineer_features(df_raw)
     df_labeled = label_forward_return(df_feat, horizon=horizon)
 
-    cache_key = _model_cache_key(df_labeled, n_splits, horizon)
+    cache_key = _model_cache_key(symbol, df_labeled, n_splits, horizon)
     _cached   = _load_model_cache(cache_key)
 
     if _cached is not None:
@@ -747,6 +823,7 @@ def run_trend_prediction(
             aucs, r2_scores,
         ) = fit_walk_forward(df_labeled, n_splits=n_splits, gap=_GAP)
         _save_model_cache(
+            symbol,
             cache_key,
             ((m_clf, m_mean, m_low, m_high), fi_df, scores, hit_ratios, df_clean, feature_cols, aucs, r2_scores),
         )
@@ -940,14 +1017,19 @@ def run_trend_prediction(
 if __name__ == "__main__":
     import sys
     import os
+    import argparse
     import logging as _logging
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
     _logging.basicConfig(level=_logging.INFO, format="%(levelname)s %(message)s")
 
-    out = run_trend_prediction()
+    parser = argparse.ArgumentParser(description="Run LGBM Trend Predictor")
+    parser.add_argument("--symbol", default="GOLDBEES", type=str, help="Symbol to predict")
+    args = parser.parse_args()
+
+    out = run_trend_prediction(symbol=args.symbol)
     print(f"\n{'='*62}")
-    print(f"  LGBM TREND PREDICTOR — {out['as_of']}")
+    print(f"  LGBM TREND PREDICTOR — {args.symbol} — {out['as_of']}")
     print(f"{'='*62}")
     print(f"  Expected {out['horizon_days']}-day return : {out['expected_return_pct']:+.3f}%")
     print(f"  Probability up         : {out['prob_up']:.3f}")

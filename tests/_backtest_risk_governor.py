@@ -76,8 +76,8 @@ def _metrics(returns: pd.Series, name: str) -> dict:
     }
 
 
-def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15, eval_months: int = 0):
-    label = f"last {eval_months}m" if eval_months else "full history"
+def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15, eval_months: int = 0, eval_days: int = 0):
+    label = f"last {eval_days}d" if eval_days else (f"last {eval_months}m" if eval_months else "full history")
     print(f"Risk Governor Backtest — {symbol}  (target vol: {target_vol*100:.0f}%  eval: {label})")
 
     # ── 1. Fetch OHLCV ────────────────────────────────────────────────────────
@@ -128,7 +128,9 @@ def run_backtest(symbol: str = "GOLDBEES", target_vol: float = 0.15, eval_months
     df_res["strat_ret"] = df_res["applied_weight"] * df_res["log_ret"]
 
     # ── 5. Slice to evaluation window (GARCH always fit on full history) ─────
-    if eval_months > 0:
+    if eval_days > 0:
+        eval_df = df_res.tail(eval_days).copy()
+    elif eval_months > 0:
         cutoff = df_res["trade_date"].max() - pd.DateOffset(months=eval_months)
         eval_df = df_res[df_res["trade_date"] > cutoff].copy()
     else:
@@ -160,11 +162,13 @@ if __name__ == "__main__":
                         help="Annualised vol target as decimal (default 0.15 = 15%%)")
     parser.add_argument("--months", default=0, type=int,
                         help="Evaluate over last N months only (0 = full history). GARCH always fit on full data.")
+    parser.add_argument("--days", default=0, type=int,
+                        help="Evaluate over last N days only (0 = use months).")
     parser.add_argument("--symbols", default="",
                         help="Comma-separated list of symbols to test (overrides --symbol)")
     args = parser.parse_args()
 
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] or [args.symbol]
     for sym in symbols:
-        run_backtest(symbol=sym, target_vol=args.target_vol, eval_months=args.months)
+        run_backtest(symbol=sym, target_vol=args.target_vol, eval_months=args.months, eval_days=args.days)
         print()

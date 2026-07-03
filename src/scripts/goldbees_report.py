@@ -154,7 +154,7 @@ def main():
         SELECT method, recommended_weight, garch_vol_pct, regime
         FROM market_data.weight_checkpoints FINAL
         WHERE symbol = 'GOLDBEES'
-        ORDER BY as_of DESC LIMIT 4
+          AND as_of = (SELECT max(as_of) FROM market_data.weight_checkpoints FINAL WHERE symbol = 'GOLDBEES')
     """).set_index("method")
 
     # 3. iNAV premium (dict: symbol -> premium_pct)
