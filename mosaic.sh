@@ -39,8 +39,7 @@ if [[ $# -eq 0 ]]; then
     fi
     echo ""
     echo "  🖥️  UI (Data Hub):    http://localhost:8501
-  ⚡ Studio Workspace:  http://localhost:8502
-  📁 Reports:           http://localhost:8503
+  📁 Reports:           http://localhost:8502
   🧠 Vector DB:         http://localhost:6333/dashboard"
     echo ""
     docker compose run --rm -it mosaic chat
@@ -68,8 +67,7 @@ trap 'kill $TELEMETRY_PID 2>/dev/null; rm -f ./src/host_telemetry.json 2>/dev/nu
 
 echo ""
 echo "  🖥️  UI (Data Hub):    http://localhost:8501
-  ⚡ Studio Workspace:  http://localhost:8502
-  📁 Reports:           http://localhost:8503
+  📁 Reports:           http://localhost:8502
   🧠 Vector DB:         http://localhost:6333/dashboard"
 echo ""
 
@@ -80,22 +78,9 @@ if [[ "$FIRST_ARG" == *.py ]]; then
     echo "Running Python script in Docker..."
     docker compose run --rm --entrypoint python mosaic "$@"
 elif [[ "$FIRST_ARG" == "studio" ]]; then
-    # Build and start the Studio workspace (dedicated service, persistent)
-    echo "Building Mosaic Studio (React → dist inside Docker)..."
-    docker compose build studio
-    echo "Starting Studio service..."
-    docker compose up -d clickhouse qdrant studio
-    echo ""
-    echo "  ⚡ Studio Workspace:  http://localhost:8502"
-    echo ""
-    echo "Waiting for Studio to be ready..."
-    until curl -sf http://localhost:8502 >/dev/null 2>&1; do
-        printf "."
-        sleep 1
-    done
-    echo ""
-    echo "  Studio is live → http://localhost:8502"
-    if [[ "$OSTYPE" == "darwin"* ]]; then open "http://localhost:8502"; fi
+    echo "Studio Workspace has been temporarily disabled in the docker-compose stack."
+    echo "Please check git history or restore the 'studio' service in docker-compose.yml to run it."
+    exit 1
 elif [[ "$FIRST_ARG" == "intraday" ]]; then
     shift
     ARGS=()

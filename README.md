@@ -166,6 +166,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 | Pre-market gold/silver/crude outlook | `comex` |
 | FII/DII flow summary | `ask "show me institutional flows"` |
 | Is my ETF trading at a premium? | `premium-alerts` |
+| Is this intl ETF's premium cheap or rich right now? | `ask "OU premium chart for MAFANG"` |
 | What's the macro news moving markets? | `macro` |
 | Deep research on any Indian stock | `research "RELIANCE"` |
 | Full Zerodha portfolio health check | `analyze` |
@@ -193,6 +194,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 | [Architecture](docs/architecture.md) | How it works under the hood |
 | [Agent Architecture](docs/agent-architecture.md) | AI routing and workflow design |
 | [Anomaly Detection](docs/anomaly-detection.md) | 5-step pipeline, Correlation Engine, Qdrant integration |
+| [OU Mean-Reversion](docs/ou-mean-reversion.md) | Ornstein-Uhlenbeck premium strategy for international ETFs — buy/sell zones, forward path |
 
 ---
 

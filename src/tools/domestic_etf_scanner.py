@@ -114,6 +114,56 @@ DOMESTIC_ETF_SYMBOLS: list[str] = [
 
 _MIN_SNAPSHOTS_DEFAULT = 5
 
+# ── OU + cost/tax helpers ────────────────────────────────────────────────────
+
+_DEFAULT_HORIZON_DAYS = 10  # forward-looking window for OU expected reversion
+
+
+def _get_stcg_rate(tax_class: str) -> float:
+    """Return the applicable STCG rate for a given tax classification."""
+    if tax_class == "equity":
+        return STCG_EQUITY_RATE
+    # commodity and debt: slab rate — use 30% + cess as conservative default
+    return STCG_SLAB_30_RATE
+
+
+def _get_ltcg_rate(tax_class: str) -> float:
+    """Return the applicable LTCG rate for a given tax classification."""
+    if tax_class == "equity":
+        return LTCG_EQUITY_RATE
+    return LTCG_COMMODITY_RATE
+
+
+def _apply_cost_tax_filter(result: dict[str, Any]) -> None:
+    """
+    Enrich a scanner result dict with net P&L after cost and tax.
+
+    Adds:
+      - expected_gross_pct    : raw OU (or naive) expected reversion
+      - net_pnl_stcg_pct     : net after round-trip costs + STCG
+      - net_pnl_ltcg_pct     : net after round-trip costs + LTCG
+      - breakeven_gross_pct  : minimum gross gain to be STCG-profitable
+      - is_profitable_after_costs : True if net_pnl_stcg_pct > 0
+    """
+    rev = result.get("expected_reversion_pct")
+    if rev is None:
+        return
+
+    tax_class = result.get("tax_class", "equity")
+    stcg = _get_stcg_rate(tax_class)
+    ltcg = _get_ltcg_rate(tax_class)
+
+    gross = abs(rev)
+    net_stcg = gross * (1 - stcg) - ROUND_TRIP_COST_PCT
+    net_ltcg = gross * (1 - ltcg) - ROUND_TRIP_COST_PCT
+    breakeven = ROUND_TRIP_COST_PCT / (1 - stcg) if stcg < 1 else float("inf")
+
+    result["expected_gross_pct"]         = round(gross, 4)
+    result["net_pnl_stcg_pct"]           = round(net_stcg, 4)
+    result["net_pnl_ltcg_pct"]           = round(net_ltcg, 4)
+    result["breakeven_gross_pct"]        = round(breakeven, 4)
+    result["is_profitable_after_costs"]  = net_stcg > 0
+
 
 def scan_domestic_etfs(
     ch_client: Any,
@@ -194,11 +244,20 @@ def scan_domestic_etfs(
             "mean_premium":           None,
             "std_premium":            None,
             "z_score":                None,
+            "raw_z_score":            None,
             "n_snapshots":            0,
             "signal":                 "⚠ Insufficient Data",
             "signal_style":           "dim",
             "tax_class":              ETF_TAX_CLASS.get(sym.upper(), "equity"),
             "expected_reversion_pct": None,
+            "ou_available":           False,
+            "theta":                  None,
+            "ou_mu":                  None,
+            "half_life_days":         None,
+            "prob_revert_10d":        None,
+            "expected_premium_5d":    None,
+            "expected_premium_10d":   None,
+            "horizon_days":           _DEFAULT_HORIZON_DAYS,
             "error":                  None,
         }
 
@@ -236,6 +295,7 @@ def scan_domestic_etfs(
             # ── Z-score and signal classification ────────────────────────────
             z = (latest_prem - mean_prem) / std_prem
             result["z_score"] = round(z, 3)
+            result["raw_z_score"] = round(z, 3)
 
             if z >= z_high:
                 result["signal"]       = "🔴 HIGH PREMIUM"
@@ -253,8 +313,47 @@ def scan_domestic_etfs(
                 result["signal"]       = "⚪ FAIR VALUE"
                 result["signal_style"] = "dim"
 
-            # Expected mean-reversion gain (positive → upside for discount signals)
-            result["expected_reversion_pct"] = round(mean_prem - latest_prem, 4)
+            # ── OU-adjusted expected reversion (with graceful fallback) ───────
+            from src.db.repository import MarketDataRepository
+            from src.db.pool import get_pool as _get_ou_pool
+            from src.ml.ou_estimator import expected_reversion, expected_premium, prob_revert
+
+            ou = MarketDataRepository(_get_ou_pool()).ou_state(sym)
+            if ou is not None:
+                from datetime import datetime
+                fit_age = (date.today() - date.fromisoformat(ou["fit_date"])).days
+                if fit_age <= 7:
+                    result["ou_available"]        = True
+                    result["theta"]               = ou["theta"]
+                    result["ou_mu"]               = ou["mu"]
+                    result["half_life_days"]      = ou["half_life_days"]
+                    result["expected_reversion_pct"] = round(
+                        expected_reversion(latest_prem, ou["theta"], ou["mu"], _DEFAULT_HORIZON_DAYS), 4
+                    )
+                    result["expected_premium_5d"]  = round(
+                        expected_premium(latest_prem, ou["theta"], ou["mu"], 5), 4
+                    )
+                    result["expected_premium_10d"] = round(
+                        expected_premium(latest_prem, ou["theta"], ou["mu"], 10), 4
+                    )
+                    result["prob_revert_10d"]      = round(
+                        prob_revert(latest_prem, ou["theta"], ou["mu"], ou["sigma"], ou["mu"], 10), 4
+                    )
+                else:
+                    # OU state is stale — fall back to naive
+                    result["expected_reversion_pct"] = round(mean_prem - latest_prem, 4)
+            else:
+                # No OU state available — fall back to naive
+                result["expected_reversion_pct"] = round(mean_prem - latest_prem, 4)
+
+            # ── Cost / tax filter ─────────────────────────────────────────────
+            _apply_cost_tax_filter(result)
+
+            # Downgrade signal if OU says trade is unprofitable after costs
+            if result.get("ou_available") and not result.get("is_profitable_after_costs", True):
+                if result["signal"] == "🟢 GOOD DISCOUNT":
+                    result["signal"]       = "⚪ UNPROFITABLE"
+                    result["signal_style"] = "dim"
 
         except Exception as exc:
             result["error"]        = str(exc)
@@ -271,3 +370,38 @@ def scan_domestic_etfs(
 
     results.sort(key=_sort_key)
     return results
+
+
+def log_signals_to_db(results: list[dict[str, Any]], ch_client: Any, source: str = "domestic_scanner") -> int:
+    """
+    Write scanner results to premium_signal_log for paper-trade tracking.
+
+    Returns the number of rows logged.
+    """
+    from datetime import date as _date
+    today_str = _date.today().isoformat()
+    logged = 0
+    for r in results:
+        if r.get("z_score") is None:
+            continue
+        try:
+            ch_client.execute(
+                f"INSERT INTO market_data.premium_signal_log "
+                f"(as_of, symbol, current_prem, ou_mu, half_life_days, "
+                f"expected_reversion_pct, net_pnl_stcg_pct, action, "
+                f"ou_available, is_profitable_after_costs, signal_source) VALUES "
+                f"('{today_str}', '{r['symbol']}', "
+                f"{r.get('latest_premium') or 0}, "
+                f"{r.get('ou_mu') or 0}, "
+                f"{r.get('half_life_days') or 0}, "
+                f"{r.get('expected_reversion_pct') or 0}, "
+                f"{r.get('net_pnl_stcg_pct') or 0}, "
+                f"'{r.get('signal', '')}', "
+                f"{1 if r.get('ou_available') else 0}, "
+                f"{1 if r.get('is_profitable_after_costs') else 0}, "
+                f"'{source}')"
+            )
+            logged += 1
+        except Exception as exc:
+            log.warning("Failed to log signal for %s: %s", r.get("symbol"), exc)
+    return logged

@@ -1238,7 +1238,7 @@ PROMPT_LIBRARY: dict[str, list[tuple[str, str]]] = {
     ],
     "intl_etf": [
         ("international ETF performance",            "3-year return, vol, Sharpe for 6 intl ETFs"),
-        ("MAFANG premium chart",                     "China Tech scarcity premium trend"),
+        ("MAFANG premium chart",                     "US Tech (NYSE FANG+) scarcity premium trend"),
         ("ou premium scan",                          "OU mean-reversion signals: half-life, net P&L after STCG"),
         ("MAFANG OU analysis",                       "OU speed, equilibrium, half-life and 10d reversion prob"),
         ("paper trade log",                          "premium_signal_log: action counts, avg reversion by symbol"),

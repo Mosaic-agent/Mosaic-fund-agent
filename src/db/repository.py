@@ -409,3 +409,59 @@ class MarketDataRepository:
             "anomaly_flag":    str(r[3]),
             "as_of":           str(r[4]),
         }
+
+    # ── OU state (premium mean-reversion) ────────────────────────────────────
+
+    def ou_state(self, symbol: str, as_of=None) -> "dict | None":
+        """Most recent OU fit for `symbol` on or before `as_of` (default: today)."""
+        if as_of is None:
+            from datetime import date as _date
+            as_of = _date.today().isoformat()
+        rows = self._q(
+            f"SELECT symbol, fit_date, theta, mu, sigma, half_life_days, n_obs, fit_r2 "
+            f"FROM market_data.premium_ou_state FINAL "
+            f"WHERE symbol = '{symbol}' AND fit_date <= '{as_of}' "
+            f"ORDER BY fit_date DESC LIMIT 1"
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "symbol":         str(r[0]),
+            "fit_date":       str(r[1]),
+            "theta":          float(r[2]),
+            "mu":             float(r[3]),
+            "sigma":          float(r[4]),
+            "half_life_days": float(r[5]),
+            "n_obs":          int(r[6]),
+            "fit_r2":         float(r[7]),
+        }
+
+    def pair_state(self, symbol_a: str, symbol_b: str, as_of=None) -> "dict | None":
+        """Most recent cointegration pair fit on or before `as_of`."""
+        if as_of is None:
+            from datetime import date as _date
+            as_of = _date.today().isoformat()
+        rows = self._q(
+            f"SELECT symbol_a, symbol_b, fit_date, coint_pvalue, hedge_ratio, "
+            f"       alpha, theta, mu, sigma, half_life_days "
+            f"FROM market_data.premium_pair_state FINAL "
+            f"WHERE symbol_a = '{symbol_a}' AND symbol_b = '{symbol_b}' "
+            f"  AND fit_date <= '{as_of}' "
+            f"ORDER BY fit_date DESC LIMIT 1"
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "symbol_a":       str(r[0]),
+            "symbol_b":       str(r[1]),
+            "fit_date":       str(r[2]),
+            "coint_pvalue":   float(r[3]),
+            "hedge_ratio":    float(r[4]),
+            "alpha":          float(r[5]),
+            "theta":          float(r[6]),
+            "mu":             float(r[7]),
+            "sigma":          float(r[8]),
+            "half_life_days": float(r[9]),
+        }

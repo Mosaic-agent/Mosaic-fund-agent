@@ -30,7 +30,7 @@ import lightgbm as lgb
 INTL_ETFS = ["MAFANG", "HNGSNGBEES", "MON100", "MASPTOP50", "MAHKTECH", "MONQ50"]
 
 ETF_LABELS = {
-    "MAFANG":     "MAFANG · China Tech",
+    "MAFANG":     "MAFANG · US Tech (NYSE FANG+)",
     "HNGSNGBEES": "HNGSNGBEES · Hang Seng",
     "MON100":     "MON100 · Nasdaq 100",
     "MASPTOP50":  "MASPTOP50 · S&P 500",

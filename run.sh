@@ -42,7 +42,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 4. Wait for Streamlit UI and Studio UI to be healthy
+# 4. Wait for Streamlit UI and Reports file server to be healthy
 echo "Waiting for dashboard to start at http://localhost:8501..."
 until curl -s -I http://localhost:8501 | grep -q "200 OK"; do
     printf "."
@@ -51,18 +51,18 @@ done
 echo ""
 echo " Dashboard is live!"
 
-echo "Waiting for Studio Workspace to start at http://localhost:8502..."
+echo "Waiting for Reports file server to start at http://localhost:8502..."
 until curl -s -I http://localhost:8502 | grep -q "200 OK"; do
     printf "."
     sleep 1
 done
 echo ""
-echo " Studio Workspace is live!"
+echo " Reports file server is live!"
 
 # 5. Open browser automatically
 URL1="http://localhost:8501"
 URL2="http://localhost:8502"
-echo "Opening browser at $URL2 (Studio) and $URL1 (Data Hub)..."
+echo "Opening browser at $URL2 (Reports) and $URL1 (Data Hub)..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
     open "$URL2"
     open "$URL1"

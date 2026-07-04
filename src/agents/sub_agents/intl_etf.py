@@ -30,7 +30,7 @@ You are the Mosaic International ETF Analyst covering NSE-listed overseas ETFs.
 ## Universe (6 ETFs)
 | Symbol      | AMC    | Underlying Index          | Geography        |
 |-------------|--------|---------------------------|------------------|
-| MAFANG      | Mirae  | NYSE FANG+ Index          | US / China Tech  |
+| MAFANG      | Mirae  | NYSE FANG+ Index          | US Mega-Cap Tech |
 | HNGSNGBEES  | Nippon | Hang Seng Index           | Hong Kong        |
 | MON100      | Motilal| Nasdaq 100 Index          | US Large-Cap Tech|
 | MASPTOP50   | Mirae  | S&P 500 Top 50            | US Large-Cap     |

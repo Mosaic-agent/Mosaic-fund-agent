@@ -164,13 +164,13 @@ services:
     #     docker compose run mosaic config
 
   # ── Report file server ───────────────────────────────────────────────────────
-  # Serves /app/output/reports/ at http://localhost:8503 with directory listing.
+  # Serves /app/output/reports/ at http://localhost:8502 with directory listing.
   # Open in any browser to browse and download PDFs, HTML, and Markdown reports.
   files:
     image: python:3.11-slim
     command: python -m http.server 8502 --directory /app/output/reports
     ports:
-      - "8503:8502"
+      - "8502:8502"
     volumes:
       - mosaic-output:/app/output
     restart: unless-stopped

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 INTL_ETFS = ["MAFANG", "HNGSNGBEES", "MON100", "MASPTOP50", "MAHKTECH", "MONQ50"]
 
 INTL_ETF_LABELS = {
-    "MAFANG":    "China Tech",
+    "MAFANG":    "US Tech (NYSE FANG+)",
     "HNGSNGBEES":"Hang Seng",
     "MON100":    "Nasdaq 100",
     "MASPTOP50": "S&P 500",
@@ -40,7 +40,7 @@ def _load() -> "tuple":
 def get_intl_etf_performance() -> str:
     """
     Show 3-year performance metrics for all 6 international ETFs listed on NSE:
-    MAFANG (China Tech), HNGSNGBEES (Hang Seng), MON100 (Nasdaq 100),
+    MAFANG (US Tech, NYSE FANG+), HNGSNGBEES (Hang Seng), MON100 (Nasdaq 100),
     MASPTOP50 (S&P 500), MAHKTECH (HK Tech), MONQ50 (Nasdaq 50).
 
     Returns a table: Total Return %, Annualised Volatility %, Sharpe Ratio.
