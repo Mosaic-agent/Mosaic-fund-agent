@@ -23,4 +23,10 @@ echo "Starting Daily Sync: $(date)"
 # 4. Generate Risk Checkpoints (Kelly Sizing)
 .venv/bin/python3 src/main.py risk --save --symbol GOLDBEES
 
+# 5. OU Premium Refit (per-universe lookback: 90d domestic, 60d intl)
+.venv/bin/python3 src/scripts/refit_premium_ou.py
+
+# 6. Log Premium Signals for Paper Trading
+.venv/bin/python3 src/main.py premium-alerts --log-signals
+
 echo "Daily Sync Complete: $(date)"

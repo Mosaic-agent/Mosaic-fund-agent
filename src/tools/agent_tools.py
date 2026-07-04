@@ -251,7 +251,7 @@ def delegate_to_macro_agent(question: str) -> str:
 def delegate_to_intl_etf_agent(question: str) -> str:
     """
     Delegate to the specialist International ETF Sub-Agent covering the 6
-    NSE-listed overseas ETFs: MAFANG (China Tech), HNGSNGBEES (Hang Seng),
+    NSE-listed overseas ETFs: MAFANG (US Tech, NYSE FANG+), HNGSNGBEES (Hang Seng),
     MON100 (Nasdaq 100), MASPTOP50 (S&P 500 Top 50), MAHKTECH (HK Tech),
     MONQ50 (Nasdaq 50).
 

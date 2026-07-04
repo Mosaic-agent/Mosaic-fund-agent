@@ -638,6 +638,11 @@ def premium_alerts(
         "--min-snapshots",
         help="Minimum hourly snapshots required to compute a meaningful Z-score (default 5).",
     ),
+    log_signals: bool = typer.Option(
+        False,
+        "--log-signals",
+        help="Write today's signal results to premium_signal_log table for paper-trade tracking.",
+    ),
 ) -> None:
     """
     Scarcity Premium Alerts for international ETFs (MAFANG, HNGSNGBEES, …).
@@ -762,6 +767,39 @@ def premium_alerts(
         "Buy when premium dips below its mean (low Z), "
         "not when it is high.[/dim]"
     )
+
+    # ── Signal logging (paper-trade track record) ─────────────────────────────
+    if log_signals:
+        try:
+            from src.db.pool import get_pool as _get_ch_pool2
+            pool = _get_ch_pool2()
+            from datetime import date as _date
+            today_str = _date.today().isoformat()
+            logged = 0
+            for r in results:
+                if r.get("z_score") is None:
+                    continue
+                pool.execute(
+                    f"INSERT INTO market_data.premium_signal_log "
+                    f"(as_of, symbol, current_prem, ou_mu, half_life_days, "
+                    f"expected_reversion_pct, net_pnl_stcg_pct, action, "
+                    f"ou_available, is_profitable_after_costs, signal_source) VALUES "
+                    f"('{today_str}', '{r['symbol']}', "
+                    f"{r.get('latest_premium') or 0}, "
+                    f"{r.get('ou_mu') or 0}, "
+                    f"{r.get('half_life_days') or 0}, "
+                    f"{r.get('expected_reversion_pct') or 0}, "
+                    f"{r.get('net_pnl_stcg_pct') or 0}, "
+                    f"'{r.get('action', '')}', "
+                    f"{1 if r.get('ou_available') else 0}, "
+                    f"{1 if r.get('is_profitable_after_costs') else 0}, "
+                    f"'premium_alerts')"
+                )
+                logged += 1
+            console.print(f"  [green]✓ Logged {logged} signals to premium_signal_log[/green]")
+        except Exception as exc:
+            console.print(f"  [yellow]⚠ Signal logging failed: {exc}[/yellow]")
+
     console.rule("[dim]End of Premium Alerts[/dim]")
 
 

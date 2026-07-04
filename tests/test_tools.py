@@ -510,7 +510,7 @@ def test_silvercase_glitch_correction():
     mock_resp.json.return_value = mock_data
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("httpx.Client.get", return_value=mock_resp), \
+    with patch("httpx.Client.request", return_value=mock_resp), \
          patch("time.sleep"):
         # This will trigger _nse_etf_symbols and populate/correct the cache
         result = f.get_etf_inav("SILVERCASE")
@@ -546,7 +546,7 @@ def test_nse_inav_fetcher_importer_correction():
     mock_resp.json.return_value = mock_data
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("httpx.Client.get", return_value=mock_resp), \
+    with patch("httpx.Client.request", return_value=mock_resp), \
          patch("time.sleep"):
         rows = fetch_inav_snapshots(["SILVERCASE"])
 

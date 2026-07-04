@@ -5828,10 +5828,10 @@ with tab_intl_etf:
 
     # ── Sub-tabs ──────────────────────────────────────────────────────────────
     (
-        _ie_perf, _ie_prem, _ie_regime,
+        _ie_perf, _ie_prem, _ie_ou, _ie_regime,
         _ie_corr, _ie_season, _ie_lgbm, _ie_dd,
     ) = st.tabs([
-        "📊 Performance", "💰 Premium", "🎯 Regimes",
+        "📊 Performance", "💰 Premium", "📐 OU Mean-Reversion", "🎯 Regimes",
         "🔗 Correlation", "📅 Seasonality", "🤖 LightGBM", "📉 Drawdowns",
     ])
 
@@ -5906,6 +5906,82 @@ with tab_intl_etf:
             use_container_width=True,
         )
 
+    # ── OU Mean-Reversion ─────────────────────────────────────────────────────
+    with _ie_ou:
+        st.subheader("Ornstein-Uhlenbeck Mean-Reversion Strategy")
+        st.caption(
+            "Fits θ (speed), μ (equilibrium), σ (volatility) on the daily premium series. "
+            "Shows buy/sell zones at μ ± 1.5σ, backtested signals, where today sits in the "
+            "full distribution, what's driving the premium (price vs iNAV), and a 60-day "
+            "forward expected path."
+        )
+
+        from src.ui.intl_etf_analysis import INTL_ETFS as _OU_SYMS, ETF_LABELS as _OU_LABELS, PREMIUM_EXCLUDE as _OU_EXCLUDE
+        from src.scripts.chart_ou_premium import build_ou_chart
+
+        ou_col1, ou_col2 = st.columns([2, 1])
+        with ou_col1:
+            ou_sym = st.selectbox(
+                "Symbol",
+                options=[s for s in _OU_SYMS if s not in _OU_EXCLUDE],
+                format_func=lambda s: _OU_LABELS.get(s, s),
+                key="ou_sym",
+            )
+        with ou_col2:
+            ou_lookback = st.slider("Lookback (days)", min_value=120, max_value=730, value=365, step=30, key="ou_lookback")
+
+        @st.cache_data(ttl=3600, show_spinner="Loading premium history…")
+        def _ou_load(symbol: str):
+            pool = _get_pool()
+            hist = pool.query_df(f"""
+                SELECT
+                    toDate(snapshot_at) AS trade_date,
+                    argMax(premium_discount_pct, snapshot_at) AS premium,
+                    argMax(market_price, snapshot_at) AS price,
+                    argMax(inav, snapshot_at) AS inav
+                FROM market_data.inav_snapshots
+                WHERE symbol = '{symbol}'
+                GROUP BY trade_date
+                ORDER BY trade_date ASC
+            """)
+            hist["trade_date"] = pd.to_datetime(hist["trade_date"])
+            return hist.set_index("trade_date").sort_index()
+
+        _ou_df = _ou_load(ou_sym)
+        if _ou_df.empty:
+            st.warning(f"No iNAV snapshot data for {ou_sym}.")
+        else:
+            _ou_view = _ou_df.iloc[-ou_lookback:] if ou_lookback < len(_ou_df) else _ou_df
+            _ou_fig, _ou_summary = build_ou_chart(_ou_view, ou_sym)
+            if _ou_fig is None:
+                st.error(_ou_summary.get("error", f"OU fit failed for {ou_sym}."))
+            else:
+                _ou_signal = (
+                    "🟢 BUY" if _ou_summary["current"] < _ou_summary["buy_threshold"]
+                    else ("🔴 SELL/AVOID" if _ou_summary["current"] > _ou_summary["sell_threshold"] else "⚪ HOLD")
+                )
+                o1, o2, o3, o4 = st.columns(4)
+                o1.metric("Current premium", f"{_ou_summary['current']:.2f}%",
+                          f"{_ou_summary['current'] - _ou_summary['mu']:+.2f}% vs μ")
+                o2.metric("OU equilibrium μ", f"{_ou_summary['mu']:.2f}%",
+                          f"{_ou_summary['percentile']:.0f}th percentile")
+                o3.metric("Half-life", f"{_ou_summary['half_life']:.1f}d",
+                          f"R²={_ou_summary['r2']:.2f}")
+                o4.metric("Signal", _ou_signal)
+
+                st.pyplot(_ou_fig, use_container_width=True)
+
+                import io as _io
+                import matplotlib.pyplot as _plt
+                _ou_buf = _io.BytesIO()
+                _ou_fig.savefig(_ou_buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
+                st.download_button(
+                    "⬇ Download PNG", data=_ou_buf.getvalue(),
+                    file_name=f"{ou_sym}_ou_premium_strategy.png", mime="image/png",
+                    key="ou_download",
+                )
+                _plt.close(_ou_fig)
+
     # ── Regimes ───────────────────────────────────────────────────────────────
     with _ie_regime:
         st.subheader("Market Regime Detection (KMeans k=3)")
@@ -5951,10 +6027,11 @@ with tab_intl_etf:
 
         st.info(
             "**Two clusters detected:**  "
-            "China (MAFANG ↔ MASPTOP50 ρ≈0.53, HNGSNGBEES ↔ MAHKTECH ρ≈0.63) "
-            "and US (MON100 ↔ MONQ50 ρ≈0.47).  "
-            "Cross-cluster correlation is weak (0.11–0.36) — "
-            "MAFANG + MON100 is the best diversification pair.",
+            "China/HK (HNGSNGBEES ↔ MAHKTECH ρ≈0.60) "
+            "and US-linked (MAFANG ↔ MASPTOP50 ρ≈0.56, MON100 ↔ MONQ50 ρ≈0.53 — "
+            "MAFANG tracks the NYSE FANG+ index, not China, despite the name).  "
+            "Cross-cluster correlation is weak (0.10–0.26) — "
+            "MAFANG + HNGSNGBEES is the best diversification pair.",
             icon="💡",
         )
 
