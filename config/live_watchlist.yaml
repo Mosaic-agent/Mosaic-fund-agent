@@ -1,0 +1,12 @@
+# config/live_watchlist.yaml
+#
+# Ad-hoc symbols for the live monitor (src/agents/live_monitor.py), in
+# addition to the static indices (NIFTY, NIFTY BANK, INDIA VIX) and current
+# holdings pulled automatically from ClickHouse market_data.user_holdings.
+#
+# Read ONCE at process startup — adding a symbol here requires a restart
+# (dynamic runtime registration is a known v1 limitation, not yet built).
+#
+# Symbols must be valid NSE trading symbols (e.g. GOLDBEES, RELIANCE).
+symbols:
+  - NIFTYBEES

@@ -42,7 +42,10 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.events.live_events import LiveAlertEvent
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +122,7 @@ class Observer(ABC):
     async_ok:    bool      = True
 
     @abstractmethod
-    def handle(self, event: DataImportedEvent) -> None:
+    def handle(self, event: "DataImportedEvent | AnomalyDetectedEvent | LiveAlertEvent") -> None:
         """
         React to the event.  Must not raise — log and swallow all exceptions.
         """
@@ -167,7 +170,7 @@ class EventBus:
                 if observer in bucket:
                     bucket.remove(observer)
 
-    def publish(self, event: "DataImportedEvent | AnomalyDetectedEvent") -> None:
+    def publish(self, event: "DataImportedEvent | AnomalyDetectedEvent | LiveAlertEvent") -> None:
         """
         Dispatch event to all matching observers (routed by event.event_type).
         Async observers are submitted to the thread pool.
@@ -187,7 +190,7 @@ class EventBus:
                 self._safe_call(obs, event)
 
     @staticmethod
-    def _safe_call(obs: Observer, event: "DataImportedEvent | AnomalyDetectedEvent") -> None:
+    def _safe_call(obs: Observer, event: "DataImportedEvent | AnomalyDetectedEvent | LiveAlertEvent") -> None:
         try:
             obs.handle(event)
         except Exception as exc:

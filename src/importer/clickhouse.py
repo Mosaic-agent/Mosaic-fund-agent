@@ -622,6 +622,26 @@ ORDER BY (symbol, last_trade_time)
 """
 
 
+_DDL_LIVE_ALERTS = """
+CREATE TABLE IF NOT EXISTS market_data.live_alerts (
+    symbol                LowCardinality(String),
+    alert_timestamp       DateTime,
+    alert_type            LowCardinality(String),
+    zscore                Float64,
+    price                 Float64,
+    volume                Float64,
+    baseline_avg_volume   Float64,
+    correlated_headline   String,
+    correlated_source     String,
+    delivered_to_slack    UInt8 DEFAULT 0,
+    imported_at           DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+PARTITION BY toYYYYMM(alert_timestamp)
+ORDER BY (symbol, alert_timestamp)
+"""
+
+
 class ClickHouseImporter:
     """
     Thin wrapper around clickhouse_connect.Client for bulk data imports.
@@ -685,7 +705,7 @@ class ClickHouseImporter:
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
             _DDL_MACRO_INDICATORS, _DDL_TIJORI_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
             _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
-            _DDL_LIVE_QUOTES,
+            _DDL_LIVE_QUOTES, _DDL_LIVE_ALERTS,
         ):
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)
@@ -1507,6 +1527,23 @@ class ClickHouseImporter:
             r.get("ask_prices", []), r.get("ask_quantities", []), r.get("ask_orders", []),
         ] for r in rows]
         self._client.insert("market_data.live_quotes", data, column_names=cols)
+        return len(rows)
+
+    def insert_live_alerts(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        cols = [
+            "symbol", "alert_timestamp", "alert_type", "zscore", "price", "volume",
+            "baseline_avg_volume", "correlated_headline", "correlated_source",
+            "delivered_to_slack",
+        ]
+        data = [[
+            r["symbol"], r["alert_timestamp"], r.get("alert_type", ""),
+            r.get("zscore", 0.0), r.get("price", 0.0), r.get("volume", 0.0),
+            r.get("baseline_avg_volume", 0.0), r.get("correlated_headline", ""),
+            r.get("correlated_source", ""), int(r.get("delivered_to_slack", 0)),
+        ] for r in rows]
+        self._client.insert("market_data.live_alerts", data, column_names=cols)
         return len(rows)
 
     def close(self) -> None:
