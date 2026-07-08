@@ -11,6 +11,7 @@ Features
 --------
 - Infinite prompt loop; exits on 'quit' / Ctrl-C
 - Persistent conversation memory via LangGraph SqliteSaver (saved in output/checkpoints.db)
+- Persistent ↑/↓ input history via SQLite (saved in output/chat_history.db)
 - Intent-based sub-agent auto-routing (deepdive / signal / macro / main)
 - Slash commands for direct dispatch and utility actions
 - Rich spinner while waiting; Markdown-rendered responses
@@ -80,7 +81,10 @@ _REPORT_FOLLOWUP_RE = re.compile(
 def _build_prompt_session():
     """
     Build a prompt_toolkit PromptSession with:
-      • Persistent history (↑/↓ navigation across restarts)
+      • Persistent history (↑/↓ navigation across restarts), stored in SQLite
+        under OUTPUT_DIR so it survives container `--rm` teardown between
+        `./mosaic.sh` invocations (OUTPUT_DIR lives in the mosaic-output
+        named volume; the container's home directory does not persist)
       • Bracketed-paste support — large pastes land as a single block, not
         individual keystrokes, so multi-line pastes never trigger premature submit
       • Alt+Enter  → insert newline (for deliberately typed multi-line questions)
@@ -89,8 +93,9 @@ def _build_prompt_session():
     """
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.history import FileHistory
         from prompt_toolkit.key_binding import KeyBindings
+
+        from src.utils.sqlite_history import SQLiteHistory
 
         kb = KeyBindings()
 
@@ -99,8 +104,13 @@ def _build_prompt_session():
         def _newline(event):
             event.current_buffer.insert_text("\n")
 
+        history_db = os.path.join(
+            os.getenv("OUTPUT_DIR", "output"), "chat_history.db"
+        )
+        os.makedirs(os.path.dirname(history_db) or ".", exist_ok=True)
+
         return PromptSession(
-            history=FileHistory(os.path.expanduser("~/.mosaic_chat_history")),
+            history=SQLiteHistory(history_db),
             key_bindings=kb,
             multiline=False,         # Enter submits; newlines from paste are kept as-is
             enable_open_in_editor=False,

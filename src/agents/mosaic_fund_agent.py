@@ -406,12 +406,14 @@ class MosaicFundAgent:
         """
         Build the LLM instance from config.
 
-        Supports three modes:
+        Supports these modes:
           1. Local model (LLM_BASE_URL set) — any OpenAI-compatible server
              e.g. Ollama (http://localhost:11434/v1) or LM Studio (http://localhost:1234/v1)
              Set LLM_MODEL to the model name your server expects, e.g. deepseek-r1:7b
-          2. OpenAI cloud  — LLM_PROVIDER=openai  (default)
+          2. OpenAI cloud    — LLM_PROVIDER=openai  (default)
           3. Anthropic cloud — LLM_PROVIDER=anthropic
+          4. OpenRouter cloud — LLM_PROVIDER=openrouter
+          5. Google Gemini cloud — LLM_PROVIDER=google
 
         Returns None when LLM_LOCAL_DISABLED=true, deferring all traffic to the cloud LLM.
         [SENSITIVE] API keys are loaded from config/settings.py → .env
@@ -490,6 +492,18 @@ class MosaicFundAgent:
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+                timeout=settings.cloud_llm_request_timeout,  # cloud — tight (default 60s)
+            )
+
+        # ── Google Gemini cloud ────────────────────────────────────────────────
+        if provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            # [SENSITIVE] google_api_key from .env
+            return ChatGoogleGenerativeAI(
+                model=settings.llm_model,
+                google_api_key=settings.google_api_key,
+                temperature=0,
+                max_output_tokens=settings.llm_token_budget,
                 timeout=settings.cloud_llm_request_timeout,  # cloud — tight (default 60s)
             )
 

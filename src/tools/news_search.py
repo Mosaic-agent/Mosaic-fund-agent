@@ -12,6 +12,8 @@ Rate-limit friendly: no daily quota.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from typing import Any
 
 from gnews import GNews
@@ -21,6 +23,40 @@ from config.settings import settings
 from src.models.portfolio import NewsItem, Sentiment
 
 logger = logging.getLogger(__name__)
+
+# ── Retry-with-backoff for GNews ───────────────────────────────────────────────
+# gnews scrapes Google News RSS with no official API. A blocked/rate-limited
+# request comes back as HTTP 503 ("unusual traffic") from Google, but the
+# gnews library swallows that internally and just returns an empty list —
+# indistinguishable from "genuinely no articles" unless we retry. Retrying
+# with backoff recovers short-lived throttling; a longer IP-level block will
+# still exhaust retries and fall through to empty (same as today), just after
+# a bounded wait instead of failing on the first try.
+_GNEWS_MAX_RETRIES = 3
+_GNEWS_BASE_DELAY_SECONDS = 3.0
+
+
+def _gnews_get_news(client: GNews, query: str) -> list:
+    """client.get_news(query) with retry-on-empty + exponential backoff + jitter."""
+    for attempt in range(_GNEWS_MAX_RETRIES):
+        try:
+            articles = client.get_news(query)
+        except Exception as exc:
+            logger.debug(
+                "GNews request failed (attempt %d/%d) for %r: %s",
+                attempt + 1, _GNEWS_MAX_RETRIES, query, exc,
+            )
+            articles = None
+        if articles:
+            return articles
+        if attempt < _GNEWS_MAX_RETRIES - 1:
+            delay = _GNEWS_BASE_DELAY_SECONDS * (2 ** attempt) + random.uniform(0, 1.0)
+            logger.debug(
+                "GNews returned no results for %r (attempt %d/%d) — retrying in %.1fs",
+                query, attempt + 1, _GNEWS_MAX_RETRIES, delay,
+            )
+            time.sleep(delay)
+    return []
 
 # ── GNews URL-expansion patch ─────────────────────────────────────────────────
 # gnews resolves each Google-redirect URL via requests.head() with no timeout,
@@ -157,20 +193,14 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
     client = _make_gnews_client(lookback_days)
     query = f"{company_name} NSE stock" if company_name else f"{symbol} NSE stock"
 
-    try:
-        articles = client.get_news(query)
-    except Exception as exc:
-        logger.warning("GNews request failed for %s: %s", symbol, exc)
-        return []
+    articles = _gnews_get_news(client, query)
 
     # Fallback: bare symbol query if primary returned nothing
     if not articles:
-        try:
-            articles = client.get_news(symbol)
-        except Exception:
-            return []
+        articles = _gnews_get_news(client, symbol)
 
     filtered_items: list[NewsItem] = []
+    all_items: list[NewsItem] = []
     for article in articles:
         pub_date_str = article.get("published date", "")
         if not pub_date_str:
@@ -183,45 +213,54 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
         except Exception:
             continue
 
+        title = article.get("title") or ""
+        description = article.get("description") or ""
+        publisher = article.get("publisher", {})
+        source = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
+        news_item = NewsItem(
+            title=title,
+            source=source,
+            published_at=str(article.get("published date", "")),
+            url=article.get("url") or "",
+            description=description,
+            sentiment=_infer_sentiment(f"{title} {description}"),
+        )
+        # Every fetched article — regardless of date — is a candidate for RAG
+        # indexing below, so a stock's Qdrant corpus builds up across its full
+        # lookback window instead of only ever capturing "today"'s news.
+        all_items.append(news_item)
         if pub_dt == target_dt:
-            title = article.get("title") or ""
-            description = article.get("description") or ""
-            publisher = article.get("publisher", {})
-            source = publisher.get("title", "") if isinstance(publisher, dict) else str(publisher)
-
-            filtered_items.append(
-                NewsItem(
-                    title=title,
-                    source=source,
-                    published_at=str(article.get("published date", "")),
-                    url=article.get("url") or "",
-                    description=description,
-                    sentiment=_infer_sentiment(f"{title} {description}"),
-                )
-            )
+            filtered_items.append(news_item)
 
     items = filtered_items[: settings.news_articles_per_stock]
 
     logger.info(
-        "Fetched %d news articles for %s matching date %s (lookback=%dd)",
+        "Fetched %d news articles for %s matching date %s (lookback=%dd); %d total fetched for RAG indexing",
         len(items),
         symbol,
         target_dt,
         lookback_days,
+        len(all_items),
     )
 
-    _cache_articles_to_qdrant(symbol, target_dt, items)
+    # Index everything fetched (not just the today-filtered `items` returned
+    # to the caller) so researching a stock builds real historical RAG
+    # coverage for it — previously only same-day articles ever got indexed,
+    # which starved thinly-researched stocks (e.g. ITC) of any usable corpus.
+    _cache_articles_to_qdrant(symbol, all_items)
 
     return items
 
 
-def _cache_articles_to_qdrant(symbol: str, target_dt, items: list[NewsItem]) -> None:
-    """Best-effort write-through: embed and upsert fetched articles so the next
-    call for this symbol/date (this run or another) hits the Qdrant cache
-    instead of re-fetching from GNews."""
+def _cache_articles_to_qdrant(symbol: str, items: list[NewsItem]) -> None:
+    """Best-effort write-through: embed and upsert fetched articles (each under
+    its own actual published date) so future RAG / correlation queries for
+    this symbol have real historical coverage instead of re-fetching live."""
     if not items:
         return
     try:
+        from dateutil import parser as date_parser
+
         from src.ml.correlation.news_rag import embed_batch, upsert_to_qdrant
 
         texts = [f"{item.title}. {item.description}" for item in items]
@@ -229,19 +268,22 @@ def _cache_articles_to_qdrant(symbol: str, target_dt, items: list[NewsItem]) -> 
         if not vectors or all(v == 0.0 for v in vectors[0]):
             return  # embeddings unavailable (e.g. Ollama down) — skip caching silently
 
-        articles = [
-            {
+        articles = []
+        for item, vector in zip(items, vectors):
+            try:
+                published_date = date_parser.parse(item.published_at).date().isoformat()
+            except Exception:
+                published_date = ""
+            articles.append({
                 "title": item.title,
                 "source": item.source,
                 "url": item.url,
                 "published_at": item.published_at,
-                "published_date": target_dt.isoformat(),
+                "published_date": published_date,
                 "category": "stock_news",
                 "sentiment": item.sentiment.value,
                 "symbol": symbol,
-            }
-            for item in items
-        ]
+            })
         upsert_to_qdrant(articles, vectors)
     except Exception as exc:
         logger.debug("News cache write skipped for %s: %s", symbol, exc)

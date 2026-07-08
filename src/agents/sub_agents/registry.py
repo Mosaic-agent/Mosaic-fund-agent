@@ -62,6 +62,17 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     from src.agents.budget import BudgetCallbackHandler
     import time
 
+    # india_equity: narrow single-metric asks ("ITC dividend yield") don't need
+    # the full 8-section research note — answer from one Yahoo Finance call.
+    if intent == "india_equity":
+        try:
+            from .india_equity import try_quick_stat_answer
+            quick = try_quick_stat_answer(question)
+            if quick is not None:
+                return quick
+        except Exception as exc:
+            logger.debug("run_subagent_for: quick-stat fast path failed (%s) — using full agent", exc)
+
     # research intent: bypass ReAct loop and use StateGraph workflow (80% fewer tokens).
     # Set MOSAIC_USE_WORKFLOWS=0 to fall back to the ReAct agent for debugging.
     if intent == "research" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":

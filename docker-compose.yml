@@ -30,7 +30,9 @@ services:
 
   # ── One-time model initialiser ───────────────────────────────────────────────
   # Pulls gemma4:latest into the ollama service and creates the mosaic-gemma4
-  # variant from ollama/Modelfile (num_ctx=16384, temperature=0).
+  # variant from ollama/Modelfile (num_ctx=16384, temperature=0). Also pulls
+  # nomic-embed-text, used by src/ml/correlation/news_rag.py for RAG embeddings
+  # regardless of LLM_PROVIDER/LLM_BASE_URL (which route chat only).
   # FIRST RUN: downloads ~5-8 GB — runs once, then the volume cache is reused.
   ollama-init:
     image: ollama/ollama:latest
@@ -44,8 +46,9 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: >
       "ollama pull gemma4:latest &&
-       ollama create mosaic-gemma4 -f /modelfiles/Modelfile &&
-       echo 'mosaic-gemma4 ready'"
+       ollama create mosaic-gemma4 -f /modelfiles/Modelfile;
+       ollama pull nomic-embed-text &&
+       echo 'mosaic-gemma4 + nomic-embed-text ready'"
     restart: "no"
 
   clickhouse:
@@ -83,6 +86,9 @@ services:
     environment:
       CLICKHOUSE_HOST: clickhouse
       QDRANT_HOST: qdrant
+      # nomic-embed-text embeddings (news RAG) always go through Ollama,
+      # independent of LLM_PROVIDER/LLM_BASE_URL (which route chat only).
+      OLLAMA_HOST: http://ollama:11434
     volumes:
       - ./src:/app/src
       - ./config:/app/config
@@ -113,6 +119,9 @@ services:
       # Connect to the ClickHouse service defined above
       CLICKHOUSE_HOST: clickhouse
       QDRANT_HOST: qdrant
+      # nomic-embed-text embeddings (news RAG) always go through Ollama,
+      # independent of LLM_PROVIDER/LLM_BASE_URL (which route chat only).
+      OLLAMA_HOST: http://ollama:11434
 
     volumes:
       # Named volume — all output (reports, ML cache, LLM cache) lives inside

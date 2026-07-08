@@ -85,15 +85,14 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "", target_date: str
     from dateutil import parser as date_parser
 
     # Resolve target_dt
+    tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
     if not target_date or target_date.lower() == "today":
-        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
         target_dt = datetime.now(tz).date()
     else:
         try:
             target_dt = date_parser.parse(target_date).date()
         except Exception as exc:
             logger.warning("Failed to parse target_date '%s': %s. Defaulting to today.", target_date, exc)
-            tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
             target_dt = datetime.now(tz).date()
 
     target_date_str = target_dt.strftime("%Y-%m-%d")
@@ -129,41 +128,66 @@ def fetch_newsapi_articles(symbol: str, company_name: str = "", target_date: str
     # Company name in quotes gives best relevance for Indian financials
     query = f'"{company_name}" OR "{symbol} share" OR "{symbol} stock"' if company_name else f'"{symbol} share" OR "{symbol} stock"'
 
+    # Query a real lookback window (capped at NewsAPI's free-tier 30-day limit)
+    # instead of the single calendar day `target_date` — a single-day query
+    # against a handful of Indian domains rarely has ANY match, which starved
+    # thinly-covered stocks (e.g. ITC) of both the returned answer and the
+    # historical RAG corpus built from everything fetched here.
+    today_dt = datetime.now(tz).date()
+    from_date_str = (target_dt - timedelta(days=min(settings.news_lookback_days, 30))).strftime("%Y-%m-%d")
+    to_date_str = max(target_dt, today_dt).strftime("%Y-%m-%d")
+
     try:
         response = client.get_everything(
             q=query,
             domains=INDIAN_NEWS_DOMAINS,
-            from_param=target_date_str,
-            to=target_date_str,
+            from_param=from_date_str,
+            to=to_date_str,
             language="en",
             sort_by="publishedAt",
-            page_size=settings.news_articles_per_stock,
+            page_size=max(settings.news_articles_per_stock * 3, 20),
         )
     except Exception as exc:
-        logger.warning("NewsAPI request failed for %s on date %s: %s", symbol, target_date_str, exc)
+        logger.warning("NewsAPI request failed for %s (%s to %s): %s", symbol, from_date_str, to_date_str, exc)
         return []
 
+    all_items: list[NewsItem] = []
     items: list[NewsItem] = []
-    for article in response.get("articles", [])[: settings.news_articles_per_stock]:
+    for article in response.get("articles", []):
         title = article.get("title") or ""
         description = article.get("description") or ""
-        items.append(
-            NewsItem(
-                title=title,
-                source=article.get("source", {}).get("name", ""),
-                published_at=article.get("publishedAt", ""),
-                url=article.get("url", ""),
-                description=description,
-                sentiment=_infer_sentiment(f"{title} {description}"),
-            )
+        published_at = article.get("publishedAt", "")
+        news_item = NewsItem(
+            title=title,
+            source=article.get("source", {}).get("name", ""),
+            published_at=published_at,
+            url=article.get("url", ""),
+            description=description,
+            sentiment=_infer_sentiment(f"{title} {description}"),
         )
+        all_items.append(news_item)
+        try:
+            pub_dt = date_parser.parse(published_at).date() if published_at else None
+        except Exception:
+            pub_dt = None
+        if pub_dt == target_dt:
+            items.append(news_item)
+
+    items = items[: settings.news_articles_per_stock]
 
     logger.info(
-        "NewsAPI: fetched %d articles for %s matching date %s",
-        len(items),
-        symbol,
-        target_date_str,
+        "NewsAPI: fetched %d articles (%s to %s) for %s; %d matching date %s",
+        len(all_items), from_date_str, to_date_str, symbol, len(items), target_date_str,
     )
+
+    # Index everything fetched (not just the date-matched subset returned to
+    # the caller) so researching a stock builds real historical RAG coverage —
+    # previously these premium-source articles only ever lived in the
+    # short-TTL disk cache below and were never part of the symbol's
+    # historical corpus used by correlation/RAG queries.
+    if all_items:
+        from src.tools.news_search import _cache_articles_to_qdrant
+        _cache_articles_to_qdrant(symbol, all_items)
 
     # Persist to cache so next call within TTL window skips the HTTP request
     if _ttl > 0 and items:
