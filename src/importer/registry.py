@@ -254,6 +254,9 @@ MF_SCHEME_CODES: dict[str, str] = {
 MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
     ("120821", "QUANT_MULTI_ASSET", "INF966L01580"),
     ("152639", "BAJAJ_MULTI_ASSET", "INF0QA701821"),
+    ("119843", "SBI_MULTI_ASSET", "INF200K01TZ3"),
+    ("152064", "KOTAK_MULTI_ASSET", "INF174KA1PD4"),
+    ("120334", "ICICI_MULTI_ASSET", "INF109K015K4"),
 ]
 
 # ── Registry lookup ────────────────────────────────────────────────────────────

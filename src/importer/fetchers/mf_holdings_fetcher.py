@@ -80,6 +80,8 @@ _ISIN_TO_SEC_ID: dict[str, str] = {
     "INF966L01580": "F00000PDWV",   # Quant Multi Asset Fund Direct Growth
     "INF109K015K4": "F00000PE3K",   # ICICI Prudential Multi-Asset Fund Direct Growth
     "INF0QA701821": "F00001L0O1",   # Bajaj Finserv Multi Asset Alloc Fund Direct Growth
+    "INF200K01TZ3": "F00000PDDC",   # SBI Multi Asset Allocation Fund Direct Growth
+    "INF174KA1PD4": "F000025NG9",   # Kotak Multi Asset Allocation Fund Direct Growth
 }
 
 # ── Fallback: resolve ISIN → securityID via lightweight search ────────────────
