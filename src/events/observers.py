@@ -311,7 +311,7 @@ class LiveAlertObserver(Observer):
             _persist_live_headline_to_qdrant(event.symbol, headline)
 
         delivered = self._send_slack(event, headline, settings.slack_webhook_url)
-        self._log_to_clickhouse(event, headline, delivered)
+        self._log_to_clickhouse(event, headline, delivered_to_slack=delivered)
 
     @staticmethod
     def _send_slack(event: LiveAlertEvent, headline: dict | None, webhook_url: str) -> bool:
@@ -341,7 +341,12 @@ class LiveAlertObserver(Observer):
             return False
 
     @staticmethod
-    def _log_to_clickhouse(event: LiveAlertEvent, headline: dict | None, delivered: bool) -> None:
+    def _log_to_clickhouse(
+        event: LiveAlertEvent,
+        headline: dict | None,
+        delivered_to_slack: bool,
+        delivered_to_whatsapp: bool = False,
+    ) -> None:
         try:
             from src.importer.clickhouse import ClickHouseImporter
             with ClickHouseImporter() as ch:
@@ -355,10 +360,102 @@ class LiveAlertObserver(Observer):
                     "baseline_avg_volume": event.baseline_avg_volume,
                     "correlated_headline": (headline or {}).get("title", ""),
                     "correlated_source": (headline or {}).get("source", ""),
-                    "delivered_to_slack": delivered,
+                    "delivered_to_slack": delivered_to_slack,
+                    "delivered_to_whatsapp": delivered_to_whatsapp,
                 }])
         except Exception as exc:
             log.error("LiveAlertObserver: failed to log alert for %s to ClickHouse: %s", event.symbol, exc)
+
+
+# ── 8. WhatsApp delivery via CallMeBot (async) ──────────────────────────────
+
+class WhatsAppObserver(Observer):
+    """
+    Delivers live monitor alerts to WhatsApp via the CallMeBot free API.
+
+    Setup (one-time, ~1 min):
+      1. Add +34 644 597 079 to contacts as "CallMeBot".
+      2. Send it: "I allow callmebot to send me messages"
+      3. You receive your API key by WhatsApp within seconds.
+      4. Set CALLMEBOT_WHATSAPP_PHONE and CALLMEBOT_WHATSAPP_APIKEY in .env.
+
+    Rate limit: CallMeBot allows ~1 message/minute per phone number. This
+    observer enforces a 60-second minimum gap between messages — if a second
+    alert fires within that window it is logged at WARNING and skipped (not
+    queued) so the live monitor never accumulates a delivery backlog.
+
+    Message format is plain-text (no markdown) because WhatsApp does not render
+    Slack-style ``*bold*`` or ``_italic_`` formatting in non-business accounts.
+    """
+    event_types = ["live.alert"]
+    async_ok = True
+
+    _CALLMEBOT_URL = "https://api.callmebot.com/whatsapp.php"
+    _MIN_INTERVAL_SECONDS = 60  # CallMeBot rate limit
+
+    def __init__(self):
+        super().__init__()
+        self._last_sent_at: float = 0.0  # epoch seconds
+
+    def handle(self, event: LiveAlertEvent) -> None:
+        from config.settings import settings
+        phone = settings.callmebot_whatsapp_phone
+        apikey = settings.callmebot_whatsapp_apikey
+        if not phone or not apikey:
+            log.debug("WhatsAppObserver: CALLMEBOT_WHATSAPP_PHONE/APIKEY not set — skipping")
+            return
+
+        import time
+        now = time.time()
+        gap = now - self._last_sent_at
+        if gap < self._MIN_INTERVAL_SECONDS:
+            log.warning(
+                "WhatsAppObserver: rate-limit gap %.0fs < %ds — skipping WhatsApp for %s %s",
+                gap, self._MIN_INTERVAL_SECONDS, event.symbol, event.alert_type,
+            )
+            return
+
+        text = self._format_message(event)
+        delivered = self._send(phone, apikey, text)
+        if delivered:
+            self._last_sent_at = now
+
+    @staticmethod
+    def _format_message(event: LiveAlertEvent) -> str:
+        """Plain-text WhatsApp message — no markdown."""
+        emoji = "\U0001f6a8" if event.alert_type == "price_break" else "\U0001f4ca"
+        lines = [
+            f"{emoji} MOSAIC ALERT",
+            f"Symbol : {event.symbol}",
+            f"Type   : {event.alert_type.replace('_', ' ').title()}",
+            f"Z-score: {event.zscore:.2f}",
+            f"Price  : {event.price:.2f}",
+            f"Volume : {event.volume:,.0f}  (baseline ~{event.baseline_avg_volume:,.0f})",
+            f"Time   : {event.timestamp.strftime('%H:%M IST')}",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _send(phone: str, apikey: str, text: str) -> bool:
+        try:
+            import urllib.parse
+            import requests
+            params = {
+                "phone":  phone,
+                "text":   text,
+                "apikey": apikey,
+            }
+            resp = requests.get(
+                WhatsAppObserver._CALLMEBOT_URL,
+                params=params,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            log.info("WhatsAppObserver: delivered to WhatsApp (%s)", phone[-4:])
+            return True
+        except Exception as exc:
+            log.warning("WhatsAppObserver: delivery failed: %s", exc)
+            return False
 
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -389,6 +486,7 @@ def setup_observers() -> None:
     bus.subscribe(AnomalyAlertObserver())       # async — severe-regime alert
     # live.alert hooks (src/agents/live_monitor.py)
     bus.subscribe(LiveAlertObserver())          # async — news race + Slack + ClickHouse log
+    bus.subscribe(WhatsAppObserver())           # async — CallMeBot WhatsApp (rate-limited)
     _OBSERVERS_REGISTERED = True
     log.info(
         "EventBus: observers registered (data.imported=%d, anomaly.detected=%d, live.alert=%d)",

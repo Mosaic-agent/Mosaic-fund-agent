@@ -634,6 +634,7 @@ CREATE TABLE IF NOT EXISTS market_data.live_alerts (
     correlated_headline   String,
     correlated_source     String,
     delivered_to_slack    UInt8 DEFAULT 0,
+    delivered_to_whatsapp UInt8 DEFAULT 0,
     imported_at           DateTime DEFAULT now()
 )
 ENGINE = ReplacingMergeTree(imported_at)
@@ -1535,13 +1536,14 @@ class ClickHouseImporter:
         cols = [
             "symbol", "alert_timestamp", "alert_type", "zscore", "price", "volume",
             "baseline_avg_volume", "correlated_headline", "correlated_source",
-            "delivered_to_slack",
+            "delivered_to_slack", "delivered_to_whatsapp",
         ]
         data = [[
             r["symbol"], r["alert_timestamp"], r.get("alert_type", ""),
             r.get("zscore", 0.0), r.get("price", 0.0), r.get("volume", 0.0),
             r.get("baseline_avg_volume", 0.0), r.get("correlated_headline", ""),
             r.get("correlated_source", ""), int(r.get("delivered_to_slack", 0)),
+            int(r.get("delivered_to_whatsapp", 0)),
         ] for r in rows]
         self._client.insert("market_data.live_alerts", data, column_names=cols)
         return len(rows)

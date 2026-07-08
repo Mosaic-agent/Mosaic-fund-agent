@@ -427,6 +427,15 @@ class Settings(BaseSettings):
     # disable Slack delivery (alerts are still logged to ClickHouse).
     slack_webhook_url: str = Field(default="", description="Slack Incoming Webhook URL for live alert delivery")
 
+    # [SENSITIVE] CallMeBot WhatsApp API credentials for live alert delivery.
+    # Setup (one-time, ~1 min):
+    #   1. Add +34 644 597 079 to WhatsApp contacts as "CallMeBot".
+    #   2. Send it the message: "I allow callmebot to send me messages"
+    #   3. You'll receive your API key via WhatsApp within seconds.
+    # Then set both env vars below. Leave blank to disable WhatsApp delivery.
+    callmebot_whatsapp_phone: str = Field(default="", description="Your WhatsApp phone number with country code, e.g. 919876543210 (no +)")
+    callmebot_whatsapp_apikey: str = Field(default="", description="CallMeBot API key received via WhatsApp")
+
     # [NON-SENSITIVE] Robust z-score threshold for live 5-min bar anomaly detection.
     # Same formula/scale as the EOD anomaly pipeline's z_robust, but NOT yet
     # validated on intraday bars — expect a paper-testing tuning period.
