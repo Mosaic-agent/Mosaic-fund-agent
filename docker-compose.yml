@@ -172,6 +172,38 @@ services:
     #   Show active configuration (sensitive fields masked):
     #     docker compose run mosaic config
 
+  # ── Live Multi-Symbol Anomaly + News-Correlation Monitor ────────────────────
+  # Long-running process: watches NSE indices/holdings via Shoonya websocket
+  # (NSE→Yahoo polling fallback) through the trading session and pushes Slack
+  # alerts. Opt-in via `profiles` so it never starts on a bare
+  # `docker compose up` — start it explicitly:
+  #   docker compose up -d live-monitor         (detached, survives terminal close)
+  #   docker compose run --rm -it live-monitor --dry-run
+  #   docker compose run --rm -it live-monitor --check-session-only
+  # or via the wrapper: ./mosaic.sh live-monitor [-d|--dry-run|--check-session-only]
+  live-monitor:
+    build: .
+    image: mosaic-fund-agent
+    profiles: ["live-monitor"]
+    entrypoint: ["python", "src/agents/live_monitor.py"]
+    command: ["--watchlist-config", "config/live_watchlist.yaml"]
+    env_file: .env
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      QDRANT_HOST: qdrant
+    volumes:
+      - mosaic-output:/app/output
+      - ./src:/app/src
+      - ./config:/app/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
   # ── Report file server ───────────────────────────────────────────────────────
   # Serves /app/output/reports/ at http://localhost:8502 with directory listing.
   # Open in any browser to browse and download PDFs, HTML, and Markdown reports.

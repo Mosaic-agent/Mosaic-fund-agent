@@ -10,3 +10,12 @@
 # Symbols must be valid NSE trading symbols (e.g. GOLDBEES, RELIANCE).
 symbols:
   - NIFTYBEES
+
+# COMEX commodity futures — OPT-IN ONLY. Empty/missing = no COMEX symbols
+# watched at all. Always Yahoo-sourced (Shoonya has no COMEX feed); uses
+# Method C volume scoring (time-of-day-relative + return confirmation) via
+# a 60-day yfinance-backfilled baseline. Valid values: XAU (gold), XAG
+# (silver), XPT (platinum), XPD (palladium), HG (copper).
+# comex:
+#   - XAU
+#   - XAG

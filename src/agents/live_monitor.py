@@ -57,7 +57,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from config.settings import settings
-from src.agents.live_bar_builder import LiveBarBuilder
+from src.agents.live_bar_builder import LiveBarBuilder, TimeOfDayVolumeBaseline
 from src.agents.live_watchlist import WatchlistEntry, resolve_watchlist
 from src.events.bus import get_event_bus
 from src.events.observers import setup_observers
@@ -157,13 +157,15 @@ class LiveWebsocketManager:
         self._subscribe_keys: list[str] = []              # ["NSE|26000", ...]
         self._last_tick_at: dict[str, datetime] = {}
 
-    def connect(self, watchlist: list[WatchlistEntry]) -> None:
+    def connect(self, watchlist: list[WatchlistEntry], nse_baselines: dict[str, TimeOfDayVolumeBaseline] | None = None) -> None:
+        nse_baselines = nse_baselines or {}
         self._builders = {
             entry.token: LiveBarBuilder(
                 symbol=entry.symbol,
                 bar_seconds=settings.live_monitor_bar_seconds,
                 buffer_size=settings.live_monitor_buffer_size,
                 z_threshold=settings.live_monitor_zscore_threshold,
+                volume_baseline=nse_baselines.get(entry.symbol),
             )
             for entry in watchlist
         }
@@ -341,14 +343,16 @@ class PollingFallbackManager:
         self._cum_volume: dict[str, float] = {}          # symbol -> running volume sum
         self._watchlist: list[WatchlistEntry] = []
 
-    def connect(self, watchlist: list[WatchlistEntry]) -> None:
+    def connect(self, watchlist: list[WatchlistEntry], nse_baselines: dict[str, TimeOfDayVolumeBaseline] | None = None) -> None:
         self._watchlist = watchlist
+        nse_baselines = nse_baselines or {}
         self._builders = {
             entry.symbol: LiveBarBuilder(
                 symbol=entry.symbol,
                 bar_seconds=settings.live_monitor_bar_seconds,
                 buffer_size=settings.live_monitor_buffer_size,
                 z_threshold=settings.live_monitor_zscore_threshold,
+                volume_baseline=nse_baselines.get(entry.symbol),
             )
             for entry in watchlist
         }
@@ -426,6 +430,8 @@ class PollingFallbackManager:
             }
 
         # Dispatch a synthetic tick for every symbol that has a price.
+        fetched: list[str] = []
+        missing: list[str] = []
         for entry in self._watchlist:
             sym = entry.symbol
             if sym in nse_prices:
@@ -438,19 +444,21 @@ class PollingFallbackManager:
                 # so volume z-scores degrade gracefully (flat volume → no spike).
                 source = "Yahoo"
             else:
-                log.debug("PollingFallbackManager: no price for %s — skipping", sym)
+                missing.append(sym)
                 continue
 
+            fetched.append(f"{sym}={price:.2f}({source})")
             tick = {"t": "tf", "lp": str(price), "v": str(self._cum_volume[sym])}
             builder = self._builders[sym]
             events = builder.on_tick(tick)
             events = [e for e in events if self._vix_confirms(e)]
             if events:
-                log.debug(
-                    "PollingFallbackManager: %s price %.2f (source=%s) → %d event(s)",
-                    sym, price, source, len(events),
-                )
                 self._on_alert_events(events)
+
+        if fetched:
+            log.debug("PollingFallbackManager: imported — %s", ", ".join(fetched))
+        if missing:
+            log.warning("PollingFallbackManager: no price for %s — skipped this cycle", ", ".join(missing))
 
     def _vix_confirms(self, event) -> bool:
         vix = self._vix_builder
@@ -469,6 +477,209 @@ class PollingFallbackManager:
                 "no VIX confirmation.", event.symbol, event.zscore,
             )
         return confirmed
+
+
+# ── Volume baseline builders ─────────────────────────────────────────────────
+
+def _fetch_nse_volume_baselines(watchlist: list[WatchlistEntry]) -> dict[str, TimeOfDayVolumeBaseline]:
+    """
+    Build TimeOfDayVolumeBaseline for NSE symbols (equities/ETFs only — indices
+    like NIFTY/NIFTY BANK have no meaningful intraday volume on yfinance).
+    Best-effort: symbols that fail or have too little data silently fall back
+    to the flat rolling-window scoring in LiveBarBuilder.
+    """
+    # Skip indices — they have no tradable volume on yfinance.
+    candidates = [e for e in watchlist if e.source not in ("index",)]
+    if not candidates:
+        return {}
+
+    import yfinance as yf
+    tickers = [f"{e.symbol}.NS" for e in candidates]
+    sym_map = {f"{e.symbol}.NS": e.symbol for e in candidates}
+
+    try:
+        df = yf.download(tickers, period="60d", interval="5m", progress=False, auto_adjust=True)
+    except Exception as exc:
+        log.warning("NSE volume baseline backfill failed (%s) — using flat window.", exc)
+        return {}
+    if df.empty:
+        log.warning("NSE volume baseline backfill returned no data — using flat window.")
+        return {}
+
+    df = df.tz_convert("Asia/Kolkata")
+    baselines: dict[str, TimeOfDayVolumeBaseline] = {}
+    for yahoo_ticker, nse_sym in sym_map.items():
+        try:
+            if len(tickers) == 1:
+                vol = df["Volume"] if not hasattr(df["Volume"], "columns") else df["Volume"].iloc[:, 0]
+            else:
+                vol = df["Volume"][yahoo_ticker]
+            vol = vol.dropna()
+            if vol.empty or len(vol) < 100:
+                continue
+            baselines[nse_sym] = TimeOfDayVolumeBaseline.from_bars(
+                list(vol.index.to_pydatetime()), list(vol.values),
+            )
+        except Exception as exc:
+            log.warning("NSE volume baseline failed for %s (%s) — using flat window.", nse_sym, exc)
+
+    if baselines:
+        log.info("NSE volume baseline (Method C): built for %d symbol(s): %s",
+                 len(baselines), ", ".join(baselines.keys()))
+    return baselines
+
+
+# ── COMEX commodity poller (always Yahoo — Shoonya has no COMEX feed) ────────
+
+def _fetch_comex_volume_baselines(watchlist: list[WatchlistEntry]) -> dict[str, TimeOfDayVolumeBaseline]:
+    """
+    Backfills each COMEX symbol's TimeOfDayVolumeBaseline ("Method C" — see
+    TimeOfDayVolumeBaseline docstring) from 60 days of historical 5-min bars,
+    yfinance's max lookback at that interval. Best-effort: a symbol whose
+    fetch fails or comes back too thin is simply left without a baseline, and
+    LiveBarBuilder falls back to its flat rolling-window scoring for it —
+    never a hard failure for the whole watchlist.
+    """
+    if not watchlist:
+        return {}
+    import yfinance as yf
+
+    tickers = [e.yahoo_ticker for e in watchlist]
+    try:
+        df = yf.download(tickers, period="60d", interval="5m", progress=False, auto_adjust=True)
+    except Exception as exc:
+        log.warning("ComexYahooPoller: volume baseline backfill failed (%s) — using flat window for all symbols.", exc)
+        return {}
+    if df.empty:
+        log.warning("ComexYahooPoller: volume baseline backfill returned no data — using flat window for all symbols.")
+        return {}
+
+    df = df.tz_convert("Asia/Kolkata")
+    baselines: dict[str, TimeOfDayVolumeBaseline] = {}
+    for entry in watchlist:
+        try:
+            vol = df["Volume"] if len(tickers) == 1 else df["Volume"][entry.yahoo_ticker]
+            vol = vol.dropna()
+            if vol.empty:
+                continue
+            baselines[entry.symbol] = TimeOfDayVolumeBaseline.from_bars(
+                list(vol.index.to_pydatetime()), list(vol.values),
+            )
+        except Exception as exc:
+            log.warning("ComexYahooPoller: volume baseline backfill failed for %s (%s) — using flat window.",
+                        entry.symbol, exc)
+    log.info("ComexYahooPoller: built time-of-day volume baseline for %d/%d symbol(s).",
+              len(baselines), len(watchlist))
+    return baselines
+
+
+class ComexYahooPoller:
+    """
+    Polls COMEX commodity futures (gold, silver, platinum, palladium, copper)
+    via Yahoo Finance on a fixed interval, independent of whichever manager
+    (LiveWebsocketManager or PollingFallbackManager) is watching NSE symbols —
+    Shoonya carries no COMEX feed, so this always runs on Yahoo regardless of
+    Shoonya session state.
+
+    volume_spike uses "Method C" (see TimeOfDayVolumeBaseline) — a time-of-day-
+    relative volume z-score AND-confirmed by the return z-score — backed by a
+    60-day historical baseline fetched once in connect(). VIX confirmation is
+    skipped entirely: COMEX moves are US-market-driven and have no reason to
+    correlate with NSE India VIX in the same 5-minute bar.
+    """
+
+    def __init__(self, on_alert_events, poll_interval_seconds: int = 60):
+        self._on_alert_events = on_alert_events
+        self._poll_interval = poll_interval_seconds
+        self._running = False
+        self._thread: threading.Thread | None = None
+
+        self._builders: dict[str, LiveBarBuilder] = {}   # symbol -> builder
+        self._watchlist: list[WatchlistEntry] = []
+        self._cum_volume: dict[str, float] = {}          # symbol -> running volume sum
+
+    def connect(self, watchlist: list[WatchlistEntry]) -> None:
+        self._watchlist = watchlist
+        baselines = _fetch_comex_volume_baselines(watchlist)
+        self._builders = {
+            entry.symbol: LiveBarBuilder(
+                symbol=entry.symbol,
+                bar_seconds=settings.live_monitor_bar_seconds,
+                buffer_size=settings.live_monitor_buffer_size,
+                z_threshold=settings.live_monitor_zscore_threshold,
+                volume_baseline=baselines.get(entry.symbol),
+            )
+            for entry in watchlist
+        }
+        self._cum_volume = {entry.symbol: 0.0 for entry in watchlist}
+        if not watchlist:
+            return
+        log.info(
+            "ComexYahooPoller: watching %d COMEX symbol(s) via Yahoo every %ds: %s",
+            len(watchlist), self._poll_interval,
+            ", ".join(f"{e.symbol}({e.yahoo_ticker})" for e in watchlist),
+        )
+        self._running = True
+        self._thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=self._poll_interval + 5)
+
+    def flush_all(self):
+        events = []
+        for builder in self._builders.values():
+            events.extend(builder.flush())
+        return events
+
+    def _poll_loop(self) -> None:
+        while self._running:
+            try:
+                self._poll_once()
+            except Exception as exc:
+                log.warning("ComexYahooPoller: poll cycle error: %s", exc)
+            for _ in range(self._poll_interval):
+                if not self._running:
+                    break
+                time.sleep(1.0)
+
+    def _poll_once(self) -> None:
+        if not self._watchlist:
+            return
+        from src.importer.fetchers.yahoo_snapshot_fetcher import fetch_yahoo_snapshots
+
+        pairs = [(e.symbol, e.yahoo_ticker) for e in self._watchlist]
+        rows = fetch_yahoo_snapshots(pairs)
+        prices = {
+            r["symbol"]: (float(r["market_price"]), float(r.get("volume") or 0.0))
+            for r in rows
+            if float(r.get("market_price") or 0) > 0
+        }
+
+        fetched: list[str] = []
+        missing: list[str] = []
+        for entry in self._watchlist:
+            sym = entry.symbol
+            if sym not in prices:
+                missing.append(sym)
+                continue
+            price, vol_delta = prices[sym]
+            # yfinance's Volume is per-1min-bar (a real delta), not cumulative —
+            # unlike Shoonya/NSE's field — so accumulate it ourselves into the
+            # cumulative counter LiveBarBuilder.on_tick() expects.
+            self._cum_volume[sym] += vol_delta
+            fetched.append(f"{sym}={price:.2f}(vol={vol_delta:.0f})")
+            tick = {"t": "tf", "lp": str(price), "v": str(self._cum_volume[sym])}
+            events = self._builders[sym].on_tick(tick)
+            if events:
+                self._on_alert_events(events)
+
+        if fetched:
+            log.debug("ComexYahooPoller: imported — %s", ", ".join(fetched))
+        if missing:
+            log.warning("ComexYahooPoller: no price for %s — skipped this cycle", ", ".join(missing))
 
 
 
@@ -508,9 +719,13 @@ def _run_dry_run(on_alert_events) -> None:
 
 # ── Shutdown handling ──────────────────────────────────────────────────────────
 
-def _install_sigint_hard_exit(stop_event: threading.Event) -> None:
-    """First Ctrl+C sets the stop event for a graceful shutdown. A second
-    Ctrl+C force-exits immediately, mirroring src/agents/intraday_agent.py."""
+def _install_shutdown_signals(stop_event: threading.Event) -> None:
+    """First SIGINT/SIGTERM sets the stop event for a graceful shutdown. A
+    second SIGINT force-exits immediately, mirroring
+    src/agents/intraday_agent.py. SIGTERM is handled too (not just SIGINT)
+    because `docker compose stop` sends SIGTERM, not SIGINT — without this,
+    stopping the containerized service would skip the graceful shutdown path
+    (bar flush, manager/poller stop()) entirely."""
     state = {"count": 0}
 
     def _handler(_signum, _frame):
@@ -522,6 +737,7 @@ def _install_sigint_hard_exit(stop_event: threading.Event) -> None:
         stop_event.set()
 
     signal.signal(signal.SIGINT, _handler)
+    signal.signal(signal.SIGTERM, _handler)
 
 
 # ── CLI entry point ────────────────────────────────────────────────────────────
@@ -542,6 +758,9 @@ def main() -> int:
 
     if args.check_session_only:
         return 0 if check_session() else 1
+
+    from src.importer.clickhouse import ClickHouseImporter
+    ClickHouseImporter().ensure_schema()
 
     setup_observers()
 
@@ -590,26 +809,37 @@ def main() -> int:
             poll_interval_seconds=settings.live_monitor_poll_interval_seconds,
         )
 
-    manager.connect(watchlist)
+    # COMEX (exchange="COMEX") is always Yahoo-sourced — Shoonya has no COMEX
+    # feed — so it's split out of the watchlist handed to the NSE manager and
+    # run on its own poller regardless of which NSE data source is active.
+    nse_watchlist = [e for e in watchlist if e.exchange != "COMEX"]
+    comex_watchlist = [e for e in watchlist if e.exchange == "COMEX"]
+
+    nse_baselines = _fetch_nse_volume_baselines(nse_watchlist)
+    manager.connect(nse_watchlist, nse_baselines=nse_baselines)
+
+    comex_poller = ComexYahooPoller(
+        on_alert_events, poll_interval_seconds=settings.live_monitor_poll_interval_seconds,
+    )
+    comex_poller.connect(comex_watchlist)
 
     stop_event = threading.Event()
-    _install_sigint_hard_exit(stop_event)
+    _install_shutdown_signals(stop_event)
 
-    close_h, close_m = (int(x) for x in settings.market_close.split(":"))
-    log.info("Live monitor running until %02d:%02d IST (or Ctrl+C)...", close_h, close_m)
+    # No NSE-close auto-exit: COMEX (near-24h session) runs independently of
+    # NSE hours, and Shoonya/NSE-poll simply go idle (no ticks) outside NSE
+    # hours rather than needing the whole process torn down. Runs until
+    # Ctrl+C / SIGTERM (e.g. `docker compose stop`) either way.
+    log.info("Live monitor running until Ctrl+C / SIGTERM (no auto-exit at NSE close)...")
     try:
         while not stop_event.is_set():
-            now = now_ist()
-            close_t = now.replace(hour=close_h, minute=close_m, second=0, microsecond=0)
-            if now >= close_t:
-                log.info("Market close reached — shutting down.")
-                break
             stop_event.wait(timeout=1.0)
     finally:
-        final_events = manager.flush_all()
+        final_events = manager.flush_all() + comex_poller.flush_all()
         if final_events:
             on_alert_events(final_events)
         manager.stop()
+        comex_poller.stop()
         log.info("Live monitor stopped.")
 
     return 0

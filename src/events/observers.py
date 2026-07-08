@@ -310,13 +310,20 @@ class LiveAlertObserver(Observer):
         if headline:
             _persist_live_headline_to_qdrant(event.symbol, headline)
 
+        log.info(
+            "LiveAlertObserver: %s %s (z=%.2f) @ %s — price=%.2f volume=%.0f (baseline ~%.0f) — %s",
+            event.symbol, event.alert_type, event.zscore, event.timestamp.strftime("%H:%M IST"),
+            event.price, event.volume, event.baseline_avg_volume,
+            f"{headline['title']} ({headline['source']})" if headline else "no correlated news found",
+        )
+
         delivered = self._send_slack(event, headline, settings.slack_webhook_url)
         self._log_to_clickhouse(event, headline, delivered_to_slack=delivered)
 
     @staticmethod
     def _send_slack(event: LiveAlertEvent, headline: dict | None, webhook_url: str) -> bool:
         if not webhook_url:
-            log.debug("LiveAlertObserver: slack_webhook_url not set — logging only, no Slack delivery")
+            log.info("LiveAlertObserver: slack_webhook_url not set — logging only, no Slack delivery")
             return False
 
         lines = [
@@ -402,7 +409,7 @@ class WhatsAppObserver(Observer):
         phone = settings.callmebot_whatsapp_phone
         apikey = settings.callmebot_whatsapp_apikey
         if not phone or not apikey:
-            log.debug("WhatsAppObserver: CALLMEBOT_WHATSAPP_PHONE/APIKEY not set — skipping")
+            log.info("WhatsAppObserver: CALLMEBOT_WHATSAPP_PHONE/APIKEY not set — skipping")
             return
 
         import time

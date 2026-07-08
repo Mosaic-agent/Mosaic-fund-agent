@@ -380,6 +380,11 @@ ALTER TABLE market_data.news_articles
     ADD COLUMN IF NOT EXISTS fetch_source String DEFAULT ''
 """
 
+_DDL_LIVE_ALERTS_MIGRATE = """
+ALTER TABLE market_data.live_alerts
+    ADD COLUMN IF NOT EXISTS delivered_to_whatsapp UInt8 DEFAULT 0
+"""
+
 _DDL_WEIGHT_CHECKPOINTS = """
 CREATE TABLE IF NOT EXISTS market_data.weight_checkpoints (
     as_of                Date,
@@ -711,6 +716,7 @@ class ClickHouseImporter:
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)
         self._client.command(_DDL_NEWS_ARTICLES_MIGRATE)
+        self._client.command(_DDL_LIVE_ALERTS_MIGRATE)
         for alter in _ALTER_LOWCARDINALITY:
             try:
                 self._client.command(alter)

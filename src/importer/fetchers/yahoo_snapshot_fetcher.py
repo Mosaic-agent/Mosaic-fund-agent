@@ -64,6 +64,14 @@ def fetch_yahoo_snapshots(symbols: list[tuple[str, str]]) -> list[dict[str, Any]
 
     # Handle MultiIndex columns (yf.download default)
     import pandas as pd
+    def _bar_volume(bar_df) -> float:
+        # The very last row is the still-forming current minute bar — its
+        # volume starts at 0 and climbs through the minute, so it's not a
+        # representative "traded this bar" figure. Use the last FULLY
+        # closed bar instead when one exists.
+        vol_row = bar_df.iloc[-2] if len(bar_df) >= 2 else bar_df.iloc[-1]
+        return float(vol_row["Volume"]) if pd.notna(vol_row.get("Volume")) else 0.0
+
     if not isinstance(df.columns, pd.MultiIndex):
         # Single ticker case
         last_row = df.iloc[-1]
@@ -74,6 +82,9 @@ def fetch_yahoo_snapshots(symbols: list[tuple[str, str]]) -> list[dict[str, Any]
             "snapshot_at": snapshot_at,
             "inav": price,
             "market_price": price,
+            # Volume for the last fully-closed 1-minute bar (NOT cumulative-for-day)
+            # — yfinance's per-bar Volume column, unlike Shoonya/NSE's cumulative field.
+            "volume": _bar_volume(df),
             "premium_discount_pct": 0.0,
             "source": "Yahoo",
         })
@@ -91,6 +102,7 @@ def fetch_yahoo_snapshots(symbols: list[tuple[str, str]]) -> list[dict[str, Any]
                     "snapshot_at": snapshot_at,
                     "inav": price,
                     "market_price": price,
+                    "volume": _bar_volume(sym_df),
                     "premium_discount_pct": 0.0,
                     "source": "Yahoo",
                 })
