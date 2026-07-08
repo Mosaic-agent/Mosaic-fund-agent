@@ -85,21 +85,38 @@ def _config_symbols(config_path: str | None) -> list[str]:
 
 def resolve_watchlist(api, config_path: str | None = None) -> list[WatchlistEntry]:
     """
-    Resolve the full v1 watchlist against the given (already-authenticated)
-    Shoonya `api` instance. See module docstring for source precedence.
-    """
-    from src.tools.shoonya_tools import resolve_token
+    Resolve the full v1 watchlist.
 
+    Parameters
+    ----------
+    api : Shoonya API instance (already authenticated) **or** ``None``.
+          When ``None`` (polling-fallback mode), Shoonya token resolution is
+          skipped — the monitor uses symbol names directly against NSE/Yahoo.
+          Static index entries are always included because their tokens are
+          pre-set constants (no round-trip needed).
+    config_path : path to the ad-hoc YAML watchlist config file.
+    """
     entries: list[WatchlistEntry] = list(_index_entries())
     seen = {(e.exchange, e.token) for e in entries}
 
     def _add_symbols(symbols: list[str], source: str) -> None:
         for symbol in symbols:
-            resolved = resolve_token(api, symbol)
-            if resolved is None:
-                log.warning("live_watchlist: could not resolve token for %s (%s) — skipping", symbol, source)
-                continue
-            token, _tsym = resolved
+            if api is not None:
+                # Shoonya websocket path: resolve to a numeric token.
+                from src.tools.shoonya_tools import resolve_token
+                resolved = resolve_token(api, symbol)
+                if resolved is None:
+                    log.warning(
+                        "live_watchlist: could not resolve token for %s (%s) — skipping",
+                        symbol, source,
+                    )
+                    continue
+                token, _tsym = resolved
+            else:
+                # Polling-fallback path: no Shoonya session; use symbol as token
+                # placeholder. NSE/Yahoo fetchers work on symbol name directly.
+                token = symbol
+
             key = ("NSE", token)
             if key in seen:
                 continue
@@ -110,7 +127,8 @@ def resolve_watchlist(api, config_path: str | None = None) -> list[WatchlistEntr
     _add_symbols(_config_symbols(config_path), "config")
 
     log.info(
-        "live_watchlist: resolved %d entries total (%d static index, %d holding/config)",
+        "live_watchlist: resolved %d entries total (%d static index, %d holding/config)%s",
         len(entries), len(_INDEX_ENTRIES), len(entries) - len(_INDEX_ENTRIES),
+        " [polling-fallback mode — no Shoonya tokens]" if api is None else "",
     )
     return entries

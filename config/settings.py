@@ -455,6 +455,14 @@ class Settings(BaseSettings):
         default=2.0, description="Min |VIX z-return| in the same bar to confirm a price_break alert on another symbol"
     )
 
+    # [NON-SENSITIVE] Polling interval (seconds) used by PollingFallbackManager when
+    # Shoonya websocket is unavailable. NSE quote is tried first, Yahoo snapshot second.
+    # Keep ≥60s — NSE throttles aggressive scrapers; 60s gives ~15-min-delayed data
+    # which is fine for the anomaly baseline but not for tight intraday timing.
+    live_monitor_poll_interval_seconds: int = Field(
+        default=60, description="Poll interval (s) for NSE/Yahoo fallback when Shoonya websocket is unavailable"
+    )
+
     # ── News Filter LLM Settings ──────────────────────────────────────────────
     # [NON-SENSITIVE] Enable semantic news filter using a local/cloud LLM
     news_filter_llm_enabled: bool = Field(default=False, description="Enable semantic news filter via LLM")

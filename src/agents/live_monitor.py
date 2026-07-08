@@ -7,7 +7,18 @@ each bar for price/volume anomalies, and fires alerts (see
 src/events/observers.py:LiveAlertObserver) that get enriched with correlated
 news and delivered to Slack.
 
-This grew out of a manual investigation ("why did the market fall today?")
+Data source cascade (tried in order):
+  1. Shoonya websocket — real-time, zero delay (preferred).
+  2. NSE quote scrape  — ~15-min delayed; polled every
+     LIVE_MONITOR_POLL_INTERVAL_SECONDS (default 60 s).
+  3. Yahoo snapshot    — ~15-min delayed; same cadence as NSE, used only when
+     NSE returns no price for a symbol.
+
+Shoonya is tried first. If the session is missing/expired, the monitor falls
+back automatically to the polling path — no restart required. The polling
+path synthesises a Shoonya-format tick dict and feeds it through the same
+LiveBarBuilder → EventBus → LiveAlertObserver pipeline, so alert delivery,
+VIX gating, and ClickHouse logging all behave identically.
 where we reconstructed — after the close — that Nifty broke sharply within
 the same ~5-minute window as breaking news. This module surfaces that live.
 
@@ -299,7 +310,168 @@ class LiveWebsocketManager:
         return open_t <= now <= close_t
 
 
-# ── Dry-run: synthetic tick feed, no Shoonya at all ───────────────────────────
+# ── Polling fallback: NSE quote → Yahoo snapshot ──────────────────────────────
+
+class PollingFallbackManager:
+    """
+    Drop-in replacement for LiveWebsocketManager used when the Shoonya
+    websocket session is unavailable.
+
+    Polls each watchlist symbol on a fixed interval:
+      1. NSE quote API  (``fetch_nse_eod``) — tries first for every symbol.
+      2. Yahoo snapshot (``fetch_yahoo_snapshots``) — used for any symbol
+         that NSE returned nothing for (e.g. indices with no NSE quote endpoint,
+         or symbols traded only on Yahoo-mapped tickers).
+
+    Both sources carry ~15-minute delay, so alert timing is approximate — but
+    the bar-scoring, VIX gating, and Slack/ClickHouse delivery are identical
+    to the websocket path because ticks are synthesised in Shoonya format
+    (``{"t": "tf", "lp": "<price>", "v": "<cumulative_volume>"}``) and fed
+    directly into the same ``LiveBarBuilder.on_tick()`` pipeline.
+    """
+
+    def __init__(self, on_alert_events, poll_interval_seconds: int = 60):
+        self._on_alert_events = on_alert_events
+        self._poll_interval = poll_interval_seconds
+        self._running = False
+        self._thread: threading.Thread | None = None
+
+        self._builders: dict[str, LiveBarBuilder] = {}   # symbol -> builder
+        self._vix_builder: LiveBarBuilder | None = None
+        self._cum_volume: dict[str, float] = {}          # symbol -> running volume sum
+        self._watchlist: list[WatchlistEntry] = []
+
+    def connect(self, watchlist: list[WatchlistEntry]) -> None:
+        self._watchlist = watchlist
+        self._builders = {
+            entry.symbol: LiveBarBuilder(
+                symbol=entry.symbol,
+                bar_seconds=settings.live_monitor_bar_seconds,
+                buffer_size=settings.live_monitor_buffer_size,
+                z_threshold=settings.live_monitor_zscore_threshold,
+            )
+            for entry in watchlist
+        }
+        self._vix_builder = self._builders.get(VIX_SYMBOL)
+        if self._vix_builder is None:
+            log.warning(
+                "PollingFallbackManager: %s not in watchlist — price_break alerts "
+                "will NOT be VIX-confirmation-gated.", VIX_SYMBOL,
+            )
+        self._cum_volume = {entry.symbol: 0.0 for entry in watchlist}
+
+        log.info(
+            "PollingFallbackManager: watching %d symbol(s) via NSE→Yahoo poll "
+            "every %ds (Shoonya unavailable): %s",
+            len(watchlist), self._poll_interval,
+            ", ".join(e.symbol for e in watchlist),
+        )
+        self._running = True
+        self._thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=self._poll_interval + 5)
+
+    def flush_all(self):
+        events = []
+        for builder in self._builders.values():
+            events.extend(builder.flush())
+        return [e for e in events if self._vix_confirms(e)]
+
+    # ── Internal poll loop ────────────────────────────────────────────────────
+
+    def _poll_loop(self) -> None:
+        while self._running:
+            try:
+                self._poll_once()
+            except Exception as exc:
+                log.warning("PollingFallbackManager: poll cycle error: %s", exc)
+            # Sleep in 1-second increments so stop() is responsive.
+            for _ in range(self._poll_interval):
+                if not self._running:
+                    break
+                time.sleep(1.0)
+
+    def _poll_once(self) -> None:
+        """
+        Fetch prices for all watchlist symbols, cascade NSE → Yahoo, then
+        synthesise a Shoonya-format tick for each symbol that returned a price.
+        """
+        from src.importer.fetchers.nse_quote_fetcher import fetch_nse_eod
+        from src.importer.fetchers.yahoo_snapshot_fetcher import fetch_yahoo_snapshots
+
+        # Build symbol lists for each source.
+        # NSE quote: works for equities/ETFs — map (symbol, _) pairs.
+        nse_pairs = [(e.symbol, "") for e in self._watchlist]
+        nse_rows = fetch_nse_eod(nse_pairs, category="live_monitor")
+        nse_prices: dict[str, tuple[float, float]] = {  # symbol -> (close, volume)
+            r["symbol"]: (float(r["close"]), float(r.get("volume") or 0.0))
+            for r in nse_rows
+            if float(r.get("close") or 0) > 0
+        }
+
+        # Symbols NSE didn't return — try Yahoo (yf ticker = symbol + ".NS").
+        missing = [e for e in self._watchlist if e.symbol not in nse_prices]
+        yahoo_prices: dict[str, float] = {}
+        if missing:
+            yahoo_pairs = [(e.symbol, f"{e.symbol}.NS") for e in missing]
+            yahoo_rows = fetch_yahoo_snapshots(yahoo_pairs)
+            yahoo_prices = {
+                r["symbol"]: float(r["market_price"])
+                for r in yahoo_rows
+                if float(r.get("market_price") or 0) > 0
+            }
+
+        # Dispatch a synthetic tick for every symbol that has a price.
+        for entry in self._watchlist:
+            sym = entry.symbol
+            if sym in nse_prices:
+                price, vol = nse_prices[sym]
+                self._cum_volume[sym] += vol
+                source = "NSE"
+            elif sym in yahoo_prices:
+                price = yahoo_prices[sym]
+                # Yahoo doesn't give intraday volume; keep cumulative unchanged
+                # so volume z-scores degrade gracefully (flat volume → no spike).
+                source = "Yahoo"
+            else:
+                log.debug("PollingFallbackManager: no price for %s — skipping", sym)
+                continue
+
+            tick = {"t": "tf", "lp": str(price), "v": str(self._cum_volume[sym])}
+            builder = self._builders[sym]
+            events = builder.on_tick(tick)
+            events = [e for e in events if self._vix_confirms(e)]
+            if events:
+                log.debug(
+                    "PollingFallbackManager: %s price %.2f (source=%s) → %d event(s)",
+                    sym, price, source, len(events),
+                )
+                self._on_alert_events(events)
+
+    def _vix_confirms(self, event) -> bool:
+        vix = self._vix_builder
+        confirmed = vix_confirms(
+            event_symbol=event.symbol,
+            event_alert_type=event.alert_type,
+            event_ts=event.timestamp,
+            vix_last_z=vix.last_z_return if vix else None,
+            vix_last_bar_ts=vix.last_scored_bar_ts if vix else None,
+            bar_seconds=settings.live_monitor_bar_seconds,
+            vix_confirmation_zscore=settings.live_monitor_vix_confirmation_zscore,
+        )
+        if not confirmed:
+            log.info(
+                "PollingFallbackManager: suppressing %s price_break (z=%.2f) — "
+                "no VIX confirmation.", event.symbol, event.zscore,
+            )
+        return confirmed
+
+
+
 
 def _run_dry_run(on_alert_events) -> None:
     """
@@ -382,21 +554,42 @@ def main() -> int:
         _run_dry_run(on_alert_events)
         return 0
 
-    if not check_session():
-        return 1
+    # ── Source cascade: Shoonya → NSE poll → Yahoo poll ───────────────────────
+    manager: LiveWebsocketManager | PollingFallbackManager
 
-    from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
-    api = get_shoonya_api()
-    if api is None:
-        log.critical("Shoonya API unavailable at connect time — exiting.")
-        return 1
+    shoonya_ok = check_session()
+    if shoonya_ok:
+        from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
+        api = get_shoonya_api()
+        if api is None:
+            log.warning("Shoonya session check passed but API object is None — "
+                        "falling back to NSE/Yahoo polling.")
+            shoonya_ok = False
 
-    watchlist = resolve_watchlist(api, args.watchlist_config)
-    if not watchlist:
-        log.critical("Resolved watchlist is empty — nothing to watch. Exiting.")
-        return 1
+    if shoonya_ok:
+        watchlist = resolve_watchlist(api, args.watchlist_config)
+        if not watchlist:
+            log.critical("Resolved watchlist is empty — nothing to watch. Exiting.")
+            return 1
+        manager = LiveWebsocketManager(api, on_alert_events)
+        log.info("Live monitor: using Shoonya websocket (real-time).")
+    else:
+        log.warning(
+            "Shoonya unavailable — falling back to NSE→Yahoo polling "
+            "(~15-min delayed, every %ds).",
+            settings.live_monitor_poll_interval_seconds,
+        )
+        # resolve_watchlist needs an api object for token lookup; pass None so
+        # it skips Shoonya token resolution and uses static index entries only.
+        watchlist = resolve_watchlist(None, args.watchlist_config)
+        if not watchlist:
+            log.critical("Resolved watchlist is empty — nothing to watch. Exiting.")
+            return 1
+        manager = PollingFallbackManager(
+            on_alert_events,
+            poll_interval_seconds=settings.live_monitor_poll_interval_seconds,
+        )
 
-    manager = LiveWebsocketManager(api, on_alert_events)
     manager.connect(watchlist)
 
     stop_event = threading.Event()
