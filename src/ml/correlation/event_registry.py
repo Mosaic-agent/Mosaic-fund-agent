@@ -40,6 +40,7 @@ class EventRegistry:
         """
         events: List[CandidateEvent] = []
         events.extend(self._from_corporate_actions(df_corp))
+        events.extend(self._from_nse_announcements(symbol, lookback_days))
         events.extend(self._from_macro_milestones())
         events.extend(self._from_fx_shocks())
         events.extend(self._from_news(symbol, lookback_days))
@@ -154,6 +155,41 @@ class EventRegistry:
                     metadata={"action_type": action_type, "ratio": ratio},
                 )
             )
+        return events
+
+    # ── NSE Corporate Announcements (official disclosures) ────────────────────
+
+    @staticmethod
+    def _from_nse_announcements(symbol: str, lookback_days: int) -> List[CandidateEvent]:
+        """Official NSE announcements — board outcomes, M&A, credit ratings,
+        management changes. Ground-truth company-filing events, far more
+        authoritative for attribution than aggregated news (which only ever
+        found 0-2 articles per stock in practice)."""
+        events: List[CandidateEvent] = []
+        try:
+            from datetime import timedelta
+
+            from src.tools.nse_announcements import fetch_corporate_announcements
+
+            to_dt = date.today()
+            from_dt = to_dt - timedelta(days=lookback_days)
+            rows = fetch_corporate_announcements(symbol, from_dt, to_dt)
+            for r in rows:
+                try:
+                    pub_dt = datetime.fromisoformat(r["published_at"]).date()
+                except Exception:
+                    continue
+                events.append(
+                    CandidateEvent(
+                        trade_date=pub_dt,
+                        event_type=EventType.COMPANY_FILING,
+                        label=r["category"],
+                        description=r["description"],
+                        metadata={"source": "nse", "url": r["url"]},
+                    )
+                )
+        except Exception as e:
+            log.warning("NSE announcements event source failed for %s: %s", symbol, e)
         return events
 
     # ── Hardcoded Macro Milestones ────────────────────────────────────────────
@@ -336,7 +372,15 @@ class EventRegistry:
             for ge in gnews_events:
                 if ge.label.lower().strip() not in existing_titles:
                     live_events.append(ge)
-            
+                    existing_titles.add(ge.label.lower().strip())
+            # 3. Fetch from Yahoo Finance — not rate-limited/blocked like GNews
+            # scraping, and often covers lower-profile stocks the other two miss.
+            yahoo_events = self._fetch_live_yahoo(symbol)
+            for ye in yahoo_events:
+                if ye.label.lower().strip() not in existing_titles:
+                    live_events.append(ye)
+                    existing_titles.add(ye.label.lower().strip())
+
             # Embed and index/persist in Qdrant (RAG) & ClickHouse
             self._persist_and_index_live_news(live_events, symbol)
             
@@ -432,11 +476,13 @@ class EventRegistry:
                 max_results=100,
                 period=f"{lookback_days}d",
             )
+            from src.tools.news_search import _gnews_get_news
+
             company_name = get_company_name(symbol)
             query = f"{symbol} {company_name}" if company_name else f"{symbol} NSE"
-            articles = client.get_news(query)
+            articles = _gnews_get_news(client, query)
             if not articles:
-                articles = client.get_news(symbol)
+                articles = _gnews_get_news(client, symbol)
 
             events: List[CandidateEvent] = []
             tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
@@ -469,6 +515,57 @@ class EventRegistry:
             return events
         except Exception as e:
             log.warning("Live GNews fetch failed for %s: %s", symbol, e)
+            return []
+
+    @staticmethod
+    def _fetch_live_yahoo(symbol: str) -> List[CandidateEvent]:
+        """Live Yahoo Finance news fetcher — not rate-limited/blocked like
+        GNews scraping, and often covers lower-profile stocks the other two
+        sources miss. Yahoo's `.news` only returns recent items (no lookback
+        param), so this is a coverage top-up, not a full historical source."""
+        try:
+            import yfinance as yf
+            from dateutil import parser as date_parser
+            from src.tools.yahoo_finance import _build_yf_symbol
+
+            yf_symbol = _build_yf_symbol(symbol, "NSE")
+            raw_news = yf.Ticker(yf_symbol).news or []
+
+            events: List[CandidateEvent] = []
+            for n in raw_news:
+                c = n.get("content") or {}
+                title = c.get("title") or ""
+                if not title:
+                    continue
+                pub_date_str = c.get("pubDate") or c.get("displayTime") or ""
+                if not pub_date_str:
+                    continue
+                try:
+                    pub_dt = date_parser.parse(pub_date_str).date()
+                except Exception:
+                    continue
+
+                desc = c.get("summary") or c.get("description") or ""
+                provider = c.get("provider") or {}
+                source = provider.get("displayName", "") if isinstance(provider, dict) else str(provider)
+                url = (
+                    (c.get("canonicalUrl") or {}).get("url")
+                    or (c.get("clickThroughUrl") or {}).get("url")
+                    or ""
+                )
+
+                events.append(
+                    CandidateEvent(
+                        trade_date=pub_dt,
+                        event_type=EventType.NEWS_ANNOUNCEMENT,
+                        label=title,
+                        description=desc,
+                        metadata={"source": source, "url": url},
+                    )
+                )
+            return events
+        except Exception as e:
+            log.warning("Live Yahoo news fetch failed for %s: %s", symbol, e)
             return []
 
     @staticmethod

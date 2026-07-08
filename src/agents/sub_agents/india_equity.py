@@ -13,11 +13,89 @@ for LLMs that cannot emit tool calls.
 from __future__ import annotations
 
 import logging
+import re
 
 from src.agents.sub_agents.base import _SubAgent
 from src.agents.sub_agents.equity_gatherer import _gather_indian_equity_data
 
 logger = logging.getLogger(__name__)
+
+# ── Quick-stat fast path ────────────────────────────────────────────────────
+# A bare "ITC dividend yield" / "TCS P/E ratio" doesn't need the full 8-section
+# research note (12 parallel tools). If the question is a narrow single-metric
+# ask, answer it from one get_yahoo_finance_data call instead of routing
+# through the full ReAct agent below.
+
+_HEAVY_KEYWORDS_RE = re.compile(
+    r"\b(?:chart|plot|graph|report|research|analysis|analyse|compare|comparison"
+    r"|quarterly|earnings|cash\s*flow|shareholding|news|anomaly|anomalies"
+    r"|correlation|correlate|financials?|risks?|thesis|recommend|recommendation"
+    r"|deep\s*dive|summary|summarize|summarise|momentum|history|historical)\b",
+    re.I,
+)
+
+# (pattern, get_yahoo_finance_data() dict key, human label). Order matters —
+# more specific patterns (P/E, P/B) are checked before the generic price catch-all.
+_QUICK_STAT_FIELDS: list[tuple] = [
+    (re.compile(r"\bp\W?/?\W?e\s*ratio\b|\bprice.?to.?earnings\b", re.I), "pe_ratio", "P/E ratio"),
+    (re.compile(r"\bp\W?/?\W?b\s*ratio\b|\bprice.?to.?book\b", re.I), "pb_ratio", "P/B ratio"),
+    # Tolerates common typos ("dividiend", "yeild") — the LLM router already
+    # saw the raw text before any spell-correction happens.
+    (re.compile(r"\bdivid\w*\s+y[ie]{1,2}ld\w*\b", re.I), "dividend_yield_pct", "Dividend yield"),
+    (re.compile(r"\bmarket\s*cap(?:italisation|italization)?\b|\bmcap\b", re.I), "market_cap_formatted", "Market cap"),
+    (re.compile(r"\b52.?week\s*high\b|\b52\s*wk\s*high\b", re.I), "52_week_high", "52-week high"),
+    (re.compile(r"\b52.?week\s*low\b|\b52\s*wk\s*low\b", re.I), "52_week_low", "52-week low"),
+    (re.compile(r"\bsector\b", re.I), "sector", "Sector"),
+    (re.compile(r"\bindustry\b", re.I), "industry", "Industry"),
+    (re.compile(
+        r"\b(?:current|share|stock|cmp|ltp)\s*price\b|\bprice\s+of\b|\bwhat.?s\s+the\s+price\b",
+        re.I,
+    ), "current_price_inr", "Current price"),
+]
+
+
+def try_quick_stat_answer(question: str) -> str | None:
+    """
+    Answer narrow single-metric questions directly from one Yahoo Finance
+    call, bypassing the full 19-tool research agent below.
+
+    Returns None when the question isn't a narrow single-metric ask, or
+    resolution/fetch fails — the caller should fall back to the full agent.
+    """
+    if _HEAVY_KEYWORDS_RE.search(question):
+        return None
+
+    matched = [(field, label) for pat, field, label in _QUICK_STAT_FIELDS if pat.search(question)]
+    if not matched:
+        return None
+
+    from src.tools.company_resolver import resolve_company_info
+    info = resolve_company_info(question)
+    symbol = info.get("symbol")
+    if not symbol or info.get("error"):
+        return None
+
+    from src.tools.yahoo_finance import get_yahoo_finance_data
+    exchange = info.get("exchange") or "NSE"
+    data = get_yahoo_finance_data.invoke({"input_str": f"{symbol}:{exchange}"})
+    if not data.get("current_price_inr"):
+        return None  # fetch failed — let the full agent retry with more tools
+
+    lines = [f"**{info.get('company_name', symbol)} ({symbol}:{exchange})**"]
+    for field, label in matched:
+        value = data.get(field)
+        if value is None:
+            continue
+        if field in ("pe_ratio", "pb_ratio"):
+            lines.append(f"- {label}: {value:.2f}")
+        elif field == "dividend_yield_pct":
+            lines.append(f"- {label}: {value:.2f}%")
+        elif field in ("current_price_inr", "52_week_high", "52_week_low"):
+            lines.append(f"- {label}: ₹{value:,.2f}")
+        else:
+            lines.append(f"- {label}: {value}")
+    logger.info("try_quick_stat_answer: answered %r without invoking full agent", question[:60])
+    return "\n".join(lines)
 
 
 class IndianEquityResearchSubAgent(_SubAgent):
@@ -50,7 +128,8 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "  • `plot_shareholding_bar(symbol)` — fetches AND charts Promoter/FII/DII/Public % (do NOT also call get_shareholding_pattern separately)\n"
         "  • `get_mf_holdings_for_stock(company_name)` — DSP fund cross-ownership\n"
         "  • `get_db_price_summary(symbol)` — 30/60/90/365-day price trends from ClickHouse (auto-imports if missing)\n"
-        "  • `get_stock_news(company_name)` AND `get_newsapi_stock_news(symbol)` — news & sentiment\n"
+        "  • `get_stock_news(company_name)`, `get_newsapi_stock_news(symbol)`, AND `get_yahoo_stock_news(\"SYMBOL:EXCHANGE\")` — news & sentiment (3 independent sources)\n"
+        "  • `get_nse_announcements(symbol)` — official NSE disclosures (board outcomes, M&A, credit ratings, management changes) — ALWAYS call this too, it's the ground-truth source for material corporate events\n"
         "  • `plot_price_chart(symbol, 365)` — ALWAYS call this to fetch a 1-year price chart\n"
         "  • `search_anomaly_events(symbol, 365)` — ALWAYS call this to scan for 1-year price anomalies and fetch news context explaining the underlying reasons for those shocks\n"
         "  • `find_anomaly_correlations(symbol, 365)` — ALWAYS call this to map anomaly dates to FX shocks, macro events, and corporate filings; saves correlation timeline and lead-lag grid charts to disk for inclusion in the PDF\n"
@@ -107,10 +186,11 @@ class IndianEquityResearchSubAgent(_SubAgent):
 
     def _get_tools(self) -> list:
         from src.tools.company_resolver import resolve_company
-        from src.tools.yahoo_finance import YAHOO_TOOLS
+        from src.tools.yahoo_finance import YAHOO_TOOLS, YAHOO_NEWS_TOOLS
         from src.tools.earnings_scraper import get_quarterly_results  # get_shareholding_pattern excluded — plot_shareholding_bar calls it internally
         from src.tools.news_search import get_stock_news
         from src.tools.newsapi_search import get_newsapi_stock_news
+        from src.tools.nse_announcements import get_nse_announcements
         from src.tools.skills_tools import query_clickhouse_db, import_symbol_data
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
         from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
@@ -121,8 +201,9 @@ class IndianEquityResearchSubAgent(_SubAgent):
         return (
             [resolve_company]
             + YAHOO_TOOLS
+            + YAHOO_NEWS_TOOLS
             + [get_quarterly_results]
-            + [get_stock_news, get_newsapi_stock_news, query_clickhouse_db,
+            + [get_stock_news, get_newsapi_stock_news, get_nse_announcements, query_clickhouse_db,
                import_symbol_data, check_and_refresh_symbol_data,
                plot_price_chart, plot_shareholding_bar, plot_macd_chart,
                get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary,

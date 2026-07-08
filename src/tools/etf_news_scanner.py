@@ -225,8 +225,9 @@ def _fetch_gnews(query: str, max_results: int = 5) -> list[dict]:
     """Fetch articles from Google News RSS via gnews (no key needed)."""
     try:
         from gnews import GNews
+        from src.tools.news_search import _gnews_get_news
         client = GNews(language="en", country="IN", max_results=max_results, period="2d")
-        return client.get_news(query) or []
+        return _gnews_get_news(client, query)
     except Exception as exc:
         log.debug("gnews failed for '%s': %s", query, exc)
         return []

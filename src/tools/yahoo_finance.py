@@ -23,7 +23,8 @@ import yfinance as yf
 from langchain_core.tools import tool
 
 from config.settings import settings
-from src.models.portfolio import YahooFinanceData
+from src.models.portfolio import NewsItem, Sentiment, YahooFinanceData
+from src.tools.news_search import _infer_sentiment
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,8 @@ def fetch_yahoo_data(symbol: str, exchange: str = "NSE") -> YahooFinanceData:
             market_cap=_safe_float(info.get("marketCap")),
             pe_ratio=_safe_float(info.get("trailingPE")),
             pb_ratio=_safe_float(info.get("priceToBook")),
-            dividend_yield=_safe_float(info.get("dividendYield")) * 100,
+            # yfinance now returns dividendYield already as a percent (e.g. 5.52, not 0.0552)
+            dividend_yield=_safe_float(info.get("dividendYield")),
             fifty_two_week_high=_safe_float(info.get("fiftyTwoWeekHigh")),
             fifty_two_week_low=_safe_float(info.get("fiftyTwoWeekLow")),
             current_price=_safe_float(
@@ -277,5 +279,101 @@ def get_price_momentum(input_str: str) -> dict[str, Any]:
     }
 
 
+@tool
+def get_yahoo_stock_news(input_str: str) -> dict[str, Any]:
+    """
+    Fetch recent news for an Indian stock directly from Yahoo Finance.
+
+    Input format: "SYMBOL" or "SYMBOL:EXCHANGE"
+    Examples:
+      "RELIANCE"      → RELIANCE.NS
+      "ITC:NSE"       → ITC.NS
+
+    Complements get_stock_news (GNews) and get_newsapi_stock_news (NewsAPI.org)
+    — Yahoo's own news feed isn't rate-limited the way scraped GNews is, and
+    often covers lower-profile stocks the other two sources miss. Every
+    fetched article is also indexed into the Qdrant RAG news corpus, so
+    researching a stock here builds its historical coverage for later
+    correlation/RAG queries.
+
+    Returns articles with title, source, published_at, url, and sentiment.
+    """
+    parts = input_str.strip().split(":")
+    symbol = parts[0].strip().upper()
+    exchange = parts[1].strip().upper() if len(parts) > 1 else "NSE"
+    yf_symbol = _build_yf_symbol(symbol, exchange)
+
+    try:
+        raw_news = yf.Ticker(yf_symbol).news or []
+    except Exception as exc:
+        logger.warning("Yahoo news fetch failed for %s: %s", yf_symbol, exc)
+        raw_news = []
+
+    items: list[NewsItem] = []
+    for n in raw_news:
+        c = n.get("content") or {}
+        title = c.get("title") or ""
+        if not title:
+            continue
+        description = c.get("summary") or c.get("description") or ""
+        published_at = c.get("pubDate") or c.get("displayTime") or ""
+        provider = c.get("provider") or {}
+        source = provider.get("displayName", "") if isinstance(provider, dict) else str(provider)
+        url = (
+            (c.get("canonicalUrl") or {}).get("url")
+            or (c.get("clickThroughUrl") or {}).get("url")
+            or ""
+        )
+        items.append(NewsItem(
+            title=title,
+            source=source,
+            published_at=published_at,
+            url=url,
+            description=description,
+            sentiment=_infer_sentiment(f"{title} {description}"),
+        ))
+
+    # Index into Qdrant RAG — same historical-corpus write-through as
+    # get_stock_news / get_newsapi_stock_news.
+    if items:
+        from src.tools.news_search import _cache_articles_to_qdrant
+        _cache_articles_to_qdrant(symbol, items)
+
+    if not items:
+        return {
+            "symbol": symbol,
+            "source": "Yahoo Finance",
+            "articles": [],
+            "overall_sentiment": "NEUTRAL",
+            "note": "No articles found.",
+        }
+
+    sentiments = [i.sentiment for i in items]
+    pos = sentiments.count(Sentiment.POSITIVE)
+    neg = sentiments.count(Sentiment.NEGATIVE)
+    overall = "POSITIVE" if pos > neg else "NEGATIVE" if neg > pos else "NEUTRAL"
+
+    return {
+        "symbol": symbol,
+        "source": "Yahoo Finance",
+        "articles": [
+            {
+                "title": i.title,
+                "source": i.source,
+                "published_at": i.published_at,
+                "url": i.url,
+                "description": i.description,
+                "sentiment": i.sentiment.value,
+            }
+            for i in items
+        ],
+        "overall_sentiment": overall,
+        "positive_count": pos,
+        "negative_count": neg,
+        "neutral_count": sentiments.count(Sentiment.NEUTRAL),
+    }
+
+
 # Convenience list of Yahoo Finance tools
 YAHOO_TOOLS = [get_yahoo_finance_data, get_price_momentum]
+YAHOO_NEWS_TOOLS = [get_yahoo_stock_news]
