@@ -5829,10 +5829,11 @@ with tab_intl_etf:
     # ── Sub-tabs ──────────────────────────────────────────────────────────────
     (
         _ie_perf, _ie_prem, _ie_ou, _ie_regime,
-        _ie_corr, _ie_season, _ie_lgbm, _ie_dd,
+        _ie_corr, _ie_season, _ie_lgbm, _ie_dd, _ie_ou_backtest,
     ) = st.tabs([
         "📊 Performance", "💰 Premium", "📐 OU Mean-Reversion", "🎯 Regimes",
         "🔗 Correlation", "📅 Seasonality", "🤖 LightGBM", "📉 Drawdowns",
+        "🔬 OU Regime Backtest",
     ])
 
     # ── Performance ───────────────────────────────────────────────────────────
@@ -6120,6 +6121,109 @@ with tab_intl_etf:
         else:
             st.info("No drawdown episodes > 10% found in the 3-year window.")
 
+    # ── OU Regime Backtest ────────────────────────────────────────────────────
+    with _ie_ou_backtest:
+        import subprocess as _sp_ou
+        import sys as _sys_ou
+        from pathlib import Path as _Path_ou
+        from datetime import date as _date_ou
+
+        st.subheader("🔬 OU Regime Backtest")
+        st.caption(
+            "Walk-forward backtest for any international ETF premium-to-iNAV using:  \n"
+            "**PELT** change-point → **ADF/KPSS** stationarity gate → "
+            "**OU fit** → **ZJL optimal-stopping** thresholds (b\\*, s\\*)  \n"
+            "Premium P&L only — does **not** include the underlying index return."
+        )
+
+        from src.ui.intl_etf_analysis import INTL_ETFS as _BT_SYMS, ETF_LABELS as _BT_LABELS, PREMIUM_EXCLUDE as _BT_EXCLUDE
+
+        with st.form("ou_bt_intl_form"):
+            _bt_c1, _bt_c2, _bt_c3 = st.columns(3)
+            with _bt_c1:
+                _bt_symbol = st.selectbox(
+                    "ETF Symbol",
+                    options=_BT_SYMS,
+                    format_func=lambda s: f"{s}  —  {_BT_LABELS.get(s, s)}",
+                    key="bt_intl_symbol",
+                )
+                _bt_start = st.date_input("Start date", value=_date_ou(2023, 1, 1), key="bt_intl_start")
+                _bt_end   = st.date_input("End date",   value=_date_ou.today(),      key="bt_intl_end")
+            with _bt_c2:
+                _bt_c_buy    = st.number_input("Entry cost (bps)",    value=10.0, min_value=0.0, step=1.0, key="bt_intl_cbuy")
+                _bt_c_sell   = st.number_input("Exit cost (bps)",     value=10.0, min_value=0.0, step=1.0, key="bt_intl_csell")
+                _bt_burnin   = st.number_input("Burn-in (days)",      value=90,   min_value=30,  step=10,  key="bt_intl_burnin")
+            with _bt_c3:
+                _bt_pen      = st.number_input("PELT pen multiplier", value=3.0, min_value=0.5, step=0.5,      key="bt_intl_pen")
+                _bt_notional = st.number_input("Notional (₹)",        value=1_000_000, step=100_000,           key="bt_intl_notional")
+                _bt_floor    = st.number_input("Floor exposure",       value=0.20, min_value=0.0, max_value=1.0, step=0.05, key="bt_intl_floor")
+                _bt_refit    = st.number_input("Refit every N days",   value=5, min_value=1, step=1, key="bt_intl_refit",
+                                               help="1=daily (slow/accurate), 5=default, 10=fast")
+                _bt_conf_thr = st.number_input("Confidence threshold", value=0.0, min_value=0.0, max_value=100.0, step=5.0, key="bt_intl_conf",
+                                               help="Only trade when confidence ≥ this (0=no gate, 50-70 recommended)")
+            _bt_submit = st.form_submit_button("▶ Run Backtest", type="primary", use_container_width=True)
+
+        if _bt_submit:
+            _bt_out = (_Path_ou(__file__).resolve().parents[2]
+                       / "output" / "reports"
+                       / f"{_bt_symbol}_ou_regime_backtest.png")
+            _bt_cmd = [
+                _sys_ou.executable,
+                str(_Path_ou(__file__).resolve().parents[2]
+                    / "src" / "scripts" / "market" / "ou_regime_backtest.py"),
+                "--symbol",         _bt_symbol,
+                "--start",          str(_bt_start),
+                "--end",            str(_bt_end),
+                "--c-buy",          str(_bt_c_buy),
+                "--c-sell",         str(_bt_c_sell),
+                "--burnin",         str(int(_bt_burnin)),
+                "--pen-multiplier", str(_bt_pen),
+                "--notional",       str(int(_bt_notional)),
+                "--floor-exposure", str(_bt_floor),
+                "--refit-every",    str(int(_bt_refit)),
+                "--confidence-threshold", str(_bt_conf_thr),
+                "--log-level",      "WARNING",
+            ]
+            _bt_env = {
+                **__import__("os").environ,
+                "ALLOW_LOCAL_RUN": "1",
+                "PYTHONPATH": str(_Path_ou(__file__).resolve().parents[2]),
+            }
+            _bt_status = st.empty()
+            _bt_status.info(f"Running OU backtest for **{_bt_symbol}** ({_bt_start} → {_bt_end})… this may take 30–90 s.")
+            try:
+                with st.spinner("PELT → ADF/KPSS → OU fit → ZJL per trading day…"):
+                    _bt_proc = _sp_ou.run(
+                        _bt_cmd,
+                        capture_output=True, text=True,
+                        env=_bt_env,
+                        timeout=600,
+                    )
+                _bt_status.empty()
+                if _bt_proc.returncode != 0:
+                    st.error("Backtest failed:")
+                    st.code(_bt_proc.stderr[-3000:] or "(no stderr)", language="text")
+                else:
+                    st.success(f"Backtest for **{_bt_symbol}** complete.", icon="✅")
+                    if _bt_proc.stdout:
+                        with st.expander("📋 Performance Report", expanded=True):
+                            st.code(_bt_proc.stdout, language="text")
+                    # Show interactive Plotly chart (HTML)
+                    _bt_html = _bt_out.with_suffix(".html")
+                    if _bt_html.exists():
+                        import streamlit.components.v1 as _components_bt
+                        _components_bt.html(_bt_html.read_text(encoding="utf-8"), height=1250, scrolling=False)
+                    elif _bt_out.exists():
+                        st.image(str(_bt_out), use_container_width=True)
+                    else:
+                        st.warning("Chart HTML not found in output/reports/.")
+            except _sp_ou.TimeoutExpired:
+                _bt_status.empty()
+                st.error("Timed out after 10 minutes. Try increasing 'Refit every N days' (e.g. 10) or shorten the date range.")
+            except Exception as _bt_e:
+                _bt_status.empty()
+                st.error(f"Error: {_bt_e}")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB — REPORTS  (download generated PDFs, HTML, Markdown)
@@ -6152,11 +6256,12 @@ with tab_workflows:
             icon="💡",
         )
 
-    wf_research_tab, wf_equity_tab, wf_consensus_tab, wf_portfolio_tab = st.tabs([
+    wf_research_tab, wf_equity_tab, wf_consensus_tab, wf_portfolio_tab, wf_ou_tab = st.tabs([
         "🔭 Autonomous Research",
         "📈 Indian Equity",
         "🏦 MF Consensus",
         "💼 Portfolio Analysis",
+        "📉 OU Regime Backtest",
     ])
 
     # ── Workflow 1: Autonomous Research ───────────────────────────────────────
@@ -6267,6 +6372,92 @@ with tab_workflows:
             except Exception as _e:
                 st.error(f"Workflow failed: {_e}")
 
+    # ── Workflow 5: OU Regime Backtest ─────────────────────────────────────────
+    with wf_ou_tab:
+        import subprocess as _sp
+        import sys as _sys
+        from pathlib import Path as _Path
+        from datetime import date as _date
+
+        st.subheader("📉 OU Regime Backtest")
+        st.caption(
+            "Walk-forward backtest for international ETF premium-to-iNAV using:  \n"
+            "**PELT** change-point detection → **ADF/KPSS** stationarity gate → "
+            "**OU fit** → **ZJL optimal-stopping** thresholds (b\\*, s\\*)  \n"
+            "Premium P&L only — does **not** include the underlying index return."
+        )
+
+        with st.form("ou_backtest_form"):
+            _ou_c1, _ou_c2, _ou_c3 = st.columns(3)
+            with _ou_c1:
+                _ou_symbol = st.text_input("Symbol", value="MON100", help="NSE ETF symbol")
+                _ou_start  = st.date_input("Start date", value=_date(2023, 1, 1))
+                _ou_end    = st.date_input("End date",   value=_date.today())
+            with _ou_c2:
+                _ou_c_buy      = st.number_input("Entry cost (bps)",  value=10.0, min_value=0.0, step=1.0)
+                _ou_c_sell     = st.number_input("Exit cost (bps)",   value=10.0, min_value=0.0, step=1.0)
+                _ou_burnin     = st.number_input("Burn-in (days)",    value=90,   min_value=30, step=10)
+            with _ou_c3:
+                _ou_pen        = st.number_input("PELT pen multiplier", value=3.0, min_value=0.5, step=0.5)
+                _ou_notional   = st.number_input("Notional (₹)",    value=1_000_000, step=100_000)
+                _ou_floor      = st.number_input("Floor exposure",   value=0.20, min_value=0.0, max_value=1.0, step=0.05)
+                _ou_refit      = st.number_input("Refit every N days", value=5, min_value=1, step=1,
+                                                 help="1=daily (slow/accurate), 5=default, 10=fast")
+                _ou_conf_thr   = st.number_input("Confidence threshold", value=0.0, min_value=0.0, max_value=100.0, step=5.0,
+                                                 help="Only trade when confidence ≥ this (0=no gate, 50-70 recommended)")
+            _ou_submit = st.form_submit_button("▶ Run Backtest", type="primary", use_container_width=True)
+
+        if _ou_submit:
+            _ou_out_path = _Path(__file__).resolve().parents[2] / "output" / "reports" / f"{_ou_symbol}_ou_regime_backtest.png"
+            _ou_cmd = [
+                _sys.executable,
+                str(_Path(__file__).resolve().parents[2] / "src" / "scripts" / "market" / "ou_regime_backtest.py"),
+                "--symbol",        _ou_symbol,
+                "--start",         str(_ou_start),
+                "--end",           str(_ou_end),
+                "--c-buy",         str(_ou_c_buy),
+                "--c-sell",        str(_ou_c_sell),
+                "--burnin",        str(int(_ou_burnin)),
+                "--pen-multiplier",str(_ou_pen),
+                "--notional",      str(int(_ou_notional)),
+                "--floor-exposure",str(_ou_floor),
+                "--refit-every",   str(int(_ou_refit)),
+                "--confidence-threshold", str(_ou_conf_thr),
+                "--log-level",     "WARNING",
+            ]
+            try:
+                with st.spinner("PELT → ADF/KPSS → OU → ZJL per trading day…"):
+                    _ou_proc = _sp.run(
+                        _ou_cmd,
+                        capture_output=True, text=True,
+                        env=_ou_env,
+                        timeout=600,
+                    )
+                _ou_status.empty()
+                if _ou_proc.returncode != 0:
+                    st.error("Backtest failed:")
+                    st.code(_ou_proc.stderr[-3000:] if _ou_proc.stderr else "(no stderr)", language="text")
+                else:
+                    st.success("Backtest complete.", icon="✅")
+                    if _ou_proc.stdout:
+                        with st.expander("📋 Performance Report", expanded=True):
+                            st.code(_ou_proc.stdout, language="text")
+                    # Interactive Plotly chart (HTML) — theme-adaptive
+                    _ou_html_path = _ou_out_path.with_suffix(".html")
+                    if _ou_html_path.exists():
+                        import streamlit.components.v1 as _components_wf
+                        _components_wf.html(_ou_html_path.read_text(encoding="utf-8"), height=1250, scrolling=False)
+                    elif _ou_out_path.exists():
+                        st.image(str(_ou_out_path), use_container_width=True)
+                    else:
+                        st.warning("Chart not found — check output/reports/.")
+            except _sp.TimeoutExpired:
+                _ou_status.empty()
+                st.error("Timed out after 10 minutes. Try increasing 'Refit every N days' (e.g. 10) or shorten the date range.")
+            except Exception as _e:
+                _ou_status.empty()
+                st.error(f"Error: {_e}")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 15 — REPORTS
@@ -6284,7 +6475,7 @@ with tab_reports:
         "Reports are also browsable at **http://localhost:8502** (file server)."
     )
 
-    reports_dir = Path(os.environ.get("OUTPUT_DIR", "/app/output")) / "reports"
+    reports_dir = Path(os.environ.get("OUTPUT_DIR", str(Path(__file__).resolve().parents[2] / "output"))) / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     _EXT_ICON = {".pdf": "📄", ".html": "🌐", ".md": "📝", ".png": "🖼️"}
@@ -6310,7 +6501,7 @@ with tab_reports:
             ext_filter = st.multiselect(
                 "File type",
                 options=[".pdf", ".html", ".md", ".png"],
-                default=[".pdf", ".html", ".md"],
+                default=[".pdf", ".html", ".md", ".png"],
                 label_visibility="collapsed",
             )
         with col_refresh:
@@ -6344,4 +6535,6 @@ with tab_reports:
                         key=f"dl_{fpath.name}",
                         use_container_width=True,
                     )
+                if fpath.suffix == ".png":
+                    st.image(str(fpath), use_container_width=True)
                 st.divider()

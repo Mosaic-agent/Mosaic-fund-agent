@@ -139,3 +139,150 @@ never drift out of sync:
 - Not a directional call on the underlying index — this only prices the premium/discount
   component. A correct BUY signal can still lose money if the underlying index itself falls
   hard enough to swamp the premium reversion.
+
+---
+
+## Walk-Forward Backtest (`ou_regime_backtest.py`)
+
+A full walk-forward backtest that applies PELT regime detection *before* fitting the OU
+model — the strategy only trades inside confirmed stationary segments.
+
+### Architecture: two-layer pipeline
+
+```
+premiums[0..t]
+  ── PELT change-point detection ──► latest stationary segment
+  ── ADF stationarity gate ──────► pass/fail
+  ── if pass: fit_ou → ZJL thresholds b*, s*
+  ── trade decision (4 states)
+```
+
+Layer 1 — **PELT** (`ruptures`, `model="rbf"`) detects structural breaks in the premium
+series. Only the most-recent segment is passed to the OU fit. This prevents a regime change
+(e.g. RBI quota opening) from polluting the current fit with pre-break data.
+
+Layer 2 — **Stationarity gate** (`src/ml/premium_regime.py`): ADF + KPSS tests run on the
+current PELT segment. The gate is **ADF-only** — only `adf_p < threshold` must pass to
+enable trading. KPSS is advisory and only adjusts the confidence score.
+
+> **Why ADF-only?** ETF premiums have ARCH-type heteroskedasticity. KPSS rejects too
+> aggressively on short segments with clustered volatility. Making KPSS a hard gate produced
+> near-zero trades despite significant mean-reversion in backtests.
+
+### 4 market states
+
+| State | Trigger | Action |
+|---|---|---|
+| `CHEAP` | stationary + confident + `prem ≤ b*` | Buy (go to full exposure) |
+| `EXPENSIVE` | stationary + confident + `prem ≥ s*` | Sell (close position) |
+| `FAIR` | stationary + confident + between b*/s* | Hold — no new trade |
+| `STRUCTURAL_SHIFT` | PELT break detected AND segment age < `structural_shift_window` (10d) | Hold — wait for new regime to mature |
+| `NON_STATIONARY` | ADF gate fails on current segment | Hold |
+| `LOW_CONFIDENCE` | stationary but `confidence < confidence_threshold` | Hold |
+| `BURNIN` | first N days of data | No trading |
+
+### Confidence score (0–100)
+
+Weighted composite over four signals:
+
+| Component | Weight | What it measures |
+|---|---|---|
+| ADF p-value | 30% | `1 − min(adf_p / threshold, 1)` — lower p = higher confidence |
+| KPSS p-value | 30% | `min(kpss_p / 0.05, 1)` — higher p (fail-to-reject) = more confident |
+| Segment maturity | 20% | `min(segment_age / structural_shift_window, 1)` — avoids trading into a fresh break |
+| R² of AR(1) fit | 20% | direct OU fit quality |
+
+Set `confidence_threshold=50` to require at least 50/100 before trading. Range 50–70
+is the practical sweet spot — below 50 the gate rarely binds, above 70 it over-filters.
+
+### ZJL optimal double-stopping thresholds
+
+`b*` (buy) and `s*` (sell) come from a dynamic-programming solution to the optimal
+double-stopping problem for OU processes (Zervos-Johnson-Lai). Implemented in
+`src/ml/ou_estimator.py`. These are optimal for the fitted θ, μ, σ, and a given
+transaction cost and discount rate — more principled than fixed ±1.5σ∞ bands,
+especially when θ is low (slow-reverting, so tighter thresholds are costly).
+
+### Position sizing
+
+Exposure is binary: 0 (out) or 1 (full). `floor_exposure` (default 0.20) is held
+during `STRUCTURAL_SHIFT` / `TRANSITION` events rather than going to zero.
+
+### Refit cadence (`--refit-every`)
+
+PELT+ADF+KPSS+OU is refit only every N days (default 5). Between refits, the cached
+regime state (`b*`, `s*`, status) is reused; today's live premium is still compared
+against the cached thresholds. This bounds runtime to ~90 s for 850 days of history:
+
+| `--refit-every` | Runtime (850 rows) | Use case |
+|---|---|---|
+| 1 | ~4 min | highest accuracy |
+| 5 | ~90 s | **default** |
+| 10 | ~50 s | quick exploration |
+
+### Performance (GOLDBEES, 2023-01-02 → 2026-07-09)
+
+| Metric | PELT-OU (base) | Naive ±1.5σ |
+|---|---|---|
+| P&L (pp) | **+19.39** | +13.32 |
+| Sharpe | **+0.852** | +0.663 |
+| Win rate | **97.1%** | — |
+| Round trips | 35 | — |
+| Max drawdown | 6.68 pp | 6.68 pp |
+
+PELT-OU beats naive by **+46%** on P&L and **+28%** on Sharpe. The outperformance
+comes from the regime gate — it suppresses trades when the premium series loses
+stationarity (28% of days classified `NON_STATIONARY`).
+
+### Entry points
+
+| Where | How |
+|---|---|
+| CLI | `PYTHONPATH=. python src/scripts/market/ou_regime_backtest.py --symbol GOLDBEES --confidence-threshold 50` |
+| Agent | `run_ou_regime_backtest("GOLDBEES", confidence_threshold=50)` — routes via `IntlETFSubAgent` |
+| Streamlit UI | **🌍 Intl ETFs → 🔁 OU Regime Backtest** tab, or **⚙️ Workflows → OU Regime Backtest** |
+
+### CLI reference
+
+```
+--symbol              ETF symbol (default: MON100)
+--start / --end       Date range (default: 3 years to today)
+--confidence-threshold  Only trade when confidence ≥ N (default: 0, recommended: 50–70)
+--pen-multiplier      PELT penalty = multiplier × var(premiums) (default: 3.0)
+--c-buy / --c-sell    Transaction costs in bps (default: 10/10)
+--burnin              Days before trading starts (default: 90)
+--notional            ₹ notional for P&L display (default: 10,00,000)
+--floor-exposure      Exposure during STRUCTURAL_SHIFT events (default: 0.20)
+--refit-every         Refit cadence in days (default: 5)
+--log-level           Logging verbosity (default: WARNING)
+--csv-path            Override ClickHouse with a local CSV [date, premium_pct, price, inav]
+--event-flags-csv     CSV with [date, event_flag] for SEBI/RBI override dates
+```
+
+### Agent caching
+
+`run_ou_regime_backtest` caches results in `output/.cache/ou_backtest_<SYMBOL>_<hash>.txt`.
+The cache key includes all parameters **and** the latest `trade_date` in
+`market_data.inav_snapshots` for that symbol — so the cache is automatically invalidated
+when new iNAV data arrives (daily import). Repeated agent calls with the same params return
+instantly from cache.
+
+### Sensitivity runs
+
+The CLI automatically runs three sensitivity checks after the base run:
+- `2x_costs` — double entry/exit costs (friction robustness)
+- `pen×1.5` — PELT penalty multiplier 1.5× (more break-detection sensitivity)
+- `pen×6.0` — PELT penalty multiplier 6.0× (fewer breaks, longer segments)
+
+These are omitted from the agent tool output (trimmed to reduce context) but appear in
+the CLI report and chart Panel 4.
+
+### Key source files
+
+| File | Role |
+|---|---|
+| `src/ml/premium_regime.py` | PELT + ADF/KPSS gate + confidence score + `RegimeState` |
+| `src/ml/ou_estimator.py` | OU AR(1) fit + ZJL dynamic-programming thresholds |
+| `src/scripts/market/ou_regime_backtest.py` | Walk-forward engine + Plotly chart + CLI |
+| `src/tools/intl_etf_tools.py` | `run_ou_regime_backtest` agent tool with caching |
+| `src/agents/sub_agents/intl_etf.py` | Routing rules (RULE 1a backtest / RULE 1b OU signal) |
