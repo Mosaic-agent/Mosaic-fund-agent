@@ -160,6 +160,8 @@ def import_symbol_data_impl(
             )
             if not wm.empty:
                 last_date = wm.iloc[0]["last_date"]
+                if hasattr(last_date, "date"):
+                    last_date = last_date.date()
                 # Advance one trading day past the watermark
                 delta_from = last_date + timedelta(days=1)
                 if delta_from >= to_date:

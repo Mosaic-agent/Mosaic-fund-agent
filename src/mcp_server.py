@@ -48,7 +48,8 @@ from mcp.types import (
     Tool,
 )
 
-logging.basicConfig(level=logging.WARNING)
+from src.utils.logging_setup import setup_logging
+setup_logging(log_level="WARNING")
 log = logging.getLogger(__name__)
 
 app = Server("ofin-goldbees-pipeline")

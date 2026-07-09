@@ -218,7 +218,113 @@ class StudioRequestHandler(SimpleHTTPRequestHandler):
 
         # ── API Route: /api/chat/threads ──────────────────────────────────────
         if path == "/api/chat/threads":
-            self._send_json(200, {"threads": PROMPT_HISTORY[-30:]})
+            try:
+                checkpointer = _get_chat_checkpointer()
+                threads_map = {}
+                for cp_tuple in checkpointer.list(None):
+                    cfg = cp_tuple.config
+                    tid = cfg.get("configurable", {}).get("thread_id")
+                    if not tid:
+                        continue
+                    
+                    msgs = cp_tuple.checkpoint.get("channel_values", {}).get("messages", [])
+                    ts_val = cp_tuple.checkpoint.get("ts")
+                    
+                    if tid not in threads_map or len(msgs) > len(threads_map[tid]["messages"]):
+                        threads_map[tid] = {
+                            "ts": ts_val,
+                            "messages": msgs
+                        }
+                
+                threads_list = []
+                for tid, data in threads_map.items():
+                    ts_val = data["ts"]
+                    ts_str = ""
+                    if ts_val:
+                        if hasattr(ts_val, "strftime"):
+                            ts_str = ts_val.strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            ts_str = str(ts_val).split(".")[0].replace("T", " ")
+                    
+                    first_prompt = "Untitled"
+                    for m in data["messages"]:
+                        if m.__class__.__name__ == "HumanMessage" or getattr(m, "type", None) == "human":
+                            first_prompt = str(m.content)
+                            if "[End of context]\n" in first_prompt:
+                                first_prompt = first_prompt.split("[End of context]\n", 1)[1].strip()
+                            break
+                    
+                    if len(first_prompt) > 80:
+                        first_prompt = first_prompt[:77] + "..."
+                        
+                    threads_list.append({
+                        "thread_id": tid,
+                        "prompt": first_prompt,
+                        "timestamp": ts_str
+                    })
+                
+                threads_list.sort(key=lambda x: x["timestamp"], reverse=True)
+                self._send_json(200, {"threads": threads_list[:30]})
+            except Exception as exc:
+                import sys
+                print(f"Error fetching threads from checkpoints: {exc}", file=sys.stderr)
+                self._send_json(200, {"threads": PROMPT_HISTORY[-30:]})
+            return
+
+        # ── API Route: /api/chat/messages ─────────────────────────────────────
+        if path == "/api/chat/messages":
+            params = urllib.parse.parse_qs(parsed_url.query)
+            thread_id = params.get("thread_id", [""])[0]
+            if not thread_id:
+                self._send_json(400, {"status": "error", "error": "Missing thread_id parameter"})
+                return
+            
+            try:
+                checkpointer = _get_chat_checkpointer()
+                config = {"configurable": {"thread_id": thread_id}}
+                checkpoint_tuple = checkpointer.get(config)
+                
+                serialized_messages = []
+                if checkpoint_tuple:
+                    checkpoint = checkpoint_tuple.checkpoint
+                    msgs = checkpoint.get("channel_values", {}).get("messages", [])
+                    for msg in msgs:
+                        role = None
+                        if msg.__class__.__name__ == "HumanMessage" or getattr(msg, "type", None) == "human":
+                            role = "user"
+                        elif msg.__class__.__name__ == "AIMessage" or getattr(msg, "type", None) == "ai":
+                            role = "agent"
+                        
+                        if role:
+                            content = getattr(msg, "content", "")
+                            if isinstance(content, list):
+                                text_blocks = []
+                                for block in content:
+                                    if isinstance(block, dict) and block.get("type") == "text":
+                                        text_blocks.append(block.get("text", ""))
+                                    elif isinstance(block, str):
+                                        text_blocks.append(block)
+                                content = "".join(text_blocks)
+                            else:
+                                content = str(content)
+                                
+                            if "[End of context]\n" in content:
+                                content = content.split("[End of context]\n", 1)[1].strip()
+                                
+                            serialized_messages.append({
+                                "role": role,
+                                "content": content,
+                            })
+                
+                self._send_json(200, {
+                    "status": "success",
+                    "thread_id": thread_id,
+                    "messages": serialized_messages
+                })
+            except Exception as exc:
+                import sys
+                print(f"Error loading chat messages for thread {thread_id}: {exc}", file=sys.stderr)
+                self._send_json(500, {"status": "error", "error": str(exc)})
             return
 
         # ── API Route: /api/chat/status ───────────────────────────────────────

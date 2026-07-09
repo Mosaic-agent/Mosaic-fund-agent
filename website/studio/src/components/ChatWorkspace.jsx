@@ -236,10 +236,24 @@ export default function ChatWorkspace({ onActivity }) {
     setInput("");
   };
 
-  const resumeThread = (t) => {
-    setActiveThreadId(t.thread_id || null);
-    setThreadId(t.thread_id || null);
+  const resumeThread = async (t) => {
+    const tid = t.thread_id || null;
+    setActiveThreadId(tid);
+    setThreadId(tid);
     setMessages([]);
+    if (!tid) return;
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/chat/messages?thread_id=${tid}`);
+      const data = await res.json();
+      if (data.status === "success" && data.messages) {
+        setMessages(data.messages);
+      }
+    } catch (e) {
+      console.error("Failed to load thread messages:", e);
+    }
+    setIsLoading(false);
   };
 
   const sendMessage = useCallback(async (overrideText) => {
