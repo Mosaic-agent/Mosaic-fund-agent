@@ -142,9 +142,9 @@ never drift out of sync:
 
 ---
 
-## Walk-Forward Backtest (`ou_regime_backtest.py`)
+## ETF Premium Strategy Backtest (`ou_regime_backtest.py`)
 
-A full walk-forward backtest that applies PELT regime detection *before* fitting the OU
+A full walk-forward backtest that applies PELT regime detection *before* fitting the mean-reversion
 model — the strategy only trades inside confirmed stationary segments.
 
 ### Architecture: two-layer pipeline
@@ -240,7 +240,7 @@ stationarity (28% of days classified `NON_STATIONARY`).
 |---|---|
 | CLI | `PYTHONPATH=. python src/scripts/market/ou_regime_backtest.py --symbol GOLDBEES --confidence-threshold 50` |
 | Agent | `run_ou_regime_backtest("GOLDBEES", confidence_threshold=50)` — routes via `IntlETFSubAgent` |
-| Streamlit UI | **🌍 Intl ETFs → 🔁 OU Regime Backtest** tab, or **⚙️ Workflows → OU Regime Backtest** |
+| Streamlit UI | **🌍 Intl ETFs → 📈 ETF Premium Strategy** tab, or **⚙️ Workflows → ETF Premium Strategy** |
 
 ### CLI reference
 

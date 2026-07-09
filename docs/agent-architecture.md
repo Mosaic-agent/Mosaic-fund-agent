@@ -92,7 +92,7 @@ The router classifies free-form user questions into one of 10 intents, which map
 | `code` | `CodeSubAgent` | "run this Python", "query ClickHouse" |
 | `database` | `DatabaseSubAgent` | "show schema", "watermark status", "row counts" |
 | `mf` | `MFSubAgent` | "DSP multi asset holdings", "which funds hold Reliance", "cross-fund consensus" |
-| `intl_etf` | `IntlETFSubAgent` | "MAFANG performance", "Hang Seng premium", "run OU backtest on MON100", "PELT regime backtest", "confidence threshold 60" |
+| `intl_etf` | `IntlETFSubAgent` | "MAFANG performance", "Hang Seng premium", "run ETF premium backtest on MON100", "PELT regime backtest", "confidence threshold 60" |
 | `research` | `AutonomousResearchAgent` | "comprehensive research ADANIENT", "why is gold falling", "cross-asset analysis" |
 | `main` | `MosaicFundAgent` (direct) | General / unclassifiable queries |
 
@@ -183,7 +183,7 @@ class _SubAgent:
 
 - **Purpose:** International ETFs (MAFANG, HNGSNGBEES, MON100, MASPTOP50, MAHKTECH, MONQ50) — performance, scarcity premium, PELT regime backtest, KMeans regimes, seasonality, correlation, LightGBM feature importance, drawdowns, OU mean-reversion
 - **Tools (~14):** `INTL_ETF_TOOLS` (8: performance, premium, regimes, seasonality, correlation, drawdowns, lgbm, **run_ou_regime_backtest**) + `plot_intl_etf_performance` + `plot_intl_etf_premium` + `plot_ou_premium_chart` + `plot_price_chart` + `publish_research_pdf` + `publish_consolidated_pdf`
-- **Routing rules:** RULE 1a — backtest / walk-forward / PELT / confidence-threshold keywords → `run_ou_regime_backtest`; RULE 1b — OU / mean-reversion / half-life keywords → `plot_ou_premium_chart`
+- **Routing rules:** RULE 1a — backtest / walk-forward / PELT / confidence-threshold keywords → `run_ou_regime_backtest` (ETF Premium Strategy); RULE 1b — OU / mean-reversion / half-life keywords → `plot_ou_premium_chart`
 
 ### AutonomousResearchAgent (`research`)
 

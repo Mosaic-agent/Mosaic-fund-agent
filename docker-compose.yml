@@ -93,7 +93,7 @@ services:
       - ./src:/app/src
       - ./config:/app/config
       - ./tests:/app/tests
-      - mosaic-output:/app/output   # named volume — persists inside Docker
+      - ./output:/app/output   # bind mount — host files visible instantly
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -124,10 +124,8 @@ services:
       OLLAMA_HOST: http://ollama:11434
 
     volumes:
-      # Named volume — all output (reports, ML cache, LLM cache) lives inside
-      # Docker.  Use `docker compose cp` or `docker run --rm -v mosaic-output:/data`
-      # to inspect or extract files when needed.
-      - mosaic-output:/app/output
+      # Bind mount — reports/cache on host are visible inside container immediately.
+      - ./output:/app/output
       - ./src:/app/src
       - ./config:/app/config
       - ./tests:/app/tests
@@ -192,7 +190,7 @@ services:
       CLICKHOUSE_HOST: clickhouse
       QDRANT_HOST: qdrant
     volumes:
-      - mosaic-output:/app/output
+      - ./output:/app/output
       - ./src:/app/src
       - ./config:/app/config
     extra_hosts:
@@ -213,10 +211,7 @@ services:
     ports:
       - "8502:8502"
     volumes:
-      - mosaic-output:/app/output
-    restart: unless-stopped
-
-  # ── Mosaic Fund Agent Studio ────────────────────────────────────────────────
+      - ./output:/app/output ────────────────────────────────────────────────
   # Temporarily removed from compose (2026-07-01) — see git history to restore.
   # Was: serves the visual AI research workspace at http://localhost:8502,
   # built via the studio-builder stage in the Dockerfile.
@@ -234,6 +229,5 @@ services:
 volumes:
   clickhouse-data:
   clickhouse-backups:
-  mosaic-output:    # reports, ML model cache, LLM response cache
   ollama-models:    # gemma4 weights — persists across restarts (~5-8 GB)
   qdrant-data:      # qdrant vector data store

@@ -1,7 +1,7 @@
 """
 src/scripts/market/ou_regime_backtest.py
 ─────────────────────────────────────────
-Regime-Aware OU Optimal-Switching Backtest for International ETF Premiums.
+ETF Premium Strategy Backtest — PELT regime detection + mean-reversion optimal switching for International ETF Premiums.
 
 Strategy
 ────────
@@ -55,7 +55,6 @@ _ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_ROOT))
 os.environ.setdefault("ALLOW_LOCAL_RUN", "1")
 
-from src.utils.logging_setup import setup_logging
 from src.ml.premium_regime import (
     detect_regime, RegimeState,
     STATUS_STATIONARY, STATUS_NON_STATIONARY, STATUS_INSUFFICIENT_DATA,
@@ -63,6 +62,17 @@ from src.ml.premium_regime import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def setup_logging(log_level: str = "WARNING") -> None:
+    """Configure root logger — stdlib only, no external deps."""
+    numeric = getattr(logging, log_level.upper(), logging.WARNING)
+    logging.basicConfig(
+        level=numeric,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,
+    )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 NOTIONAL_DEFAULT = 1_000_000           # ₹10,00,000
@@ -615,7 +625,7 @@ def plot_results(
     output_path: Path,
 ) -> None:
     """
-    4-panel interactive Plotly chart saved as HTML (theme-adaptive) + PNG fallback.
+    4-panel Matplotlib chart saved as high-DPI PNG.
 
     Panel 1 — Premium series with regime shading + live b*/s* threshold lines
     Panel 2 — Cumulative P&L (pp) with trade markers (buy ▲ / sell ▼)
@@ -623,193 +633,174 @@ def plot_results(
     Panel 4 — Sensitivity: equity curves for different pen_multiplier values
     """
     try:
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        import matplotlib.patches as mpatches
+        from matplotlib.gridspec import GridSpec
 
-        rl         = base.regime_log
-        dates_idx  = list(base.equity_curve_pp.index)
-        prem_df    = df.set_index("date")
-
-        _REGIME_COLOURS = {
-            STATUS_STATIONARY:        "rgba(35,134,54,0.15)",
-            STATUS_NON_STATIONARY:    "rgba(218,54,51,0.12)",
-            STATUS_INSUFFICIENT_DATA: "rgba(158,106,3,0.13)",
-            STATUS_STRUCTURAL_SHIFT:  "rgba(255,140,0,0.18)",
-            "TRANSITION":             "rgba(137,87,229,0.15)",
-            "BURNIN":                 "rgba(100,100,100,0.08)",
-            "CHEAP":                  "rgba(35,134,54,0.22)",
-            "FAIR":                   "rgba(35,134,54,0.10)",
-            "EXPENSIVE":              "rgba(248,81,73,0.18)",
-            "LOW_CONFIDENCE":         "rgba(158,106,3,0.10)",
+        # ── colour palette (RGBA 0-1) ─────────────────────────────────────────
+        _C = {
+            STATUS_STATIONARY:        (0.14, 0.53, 0.21, 0.18),
+            STATUS_NON_STATIONARY:    (0.85, 0.21, 0.20, 0.14),
+            STATUS_INSUFFICIENT_DATA: (0.62, 0.42, 0.01, 0.15),
+            STATUS_STRUCTURAL_SHIFT:  (1.00, 0.55, 0.00, 0.20),
+            "TRANSITION":             (0.54, 0.34, 0.90, 0.16),
+            "BURNIN":                 (0.39, 0.39, 0.39, 0.10),
+            "CHEAP":                  (0.14, 0.53, 0.21, 0.25),
+            "FAIR":                   (0.14, 0.53, 0.21, 0.10),
+            "EXPENSIVE":              (0.97, 0.32, 0.29, 0.20),
+            "LOW_CONFIDENCE":         (0.62, 0.42, 0.01, 0.12),
         }
+        GREEN  = "#3fb950"
+        RED    = "#f85149"
+        GREY   = "#888888"
 
-        fig = make_subplots(
-            rows=4, cols=1,
-            shared_xaxes=True,
-            row_heights=[0.28, 0.27, 0.15, 0.30],
-            vertical_spacing=0.05,
-            subplot_titles=[
-                f"{symbol} — Premium to iNAV (%)",
-                "Cumulative P&L (pp, premium overlay only)",
-                "Daily P&L (pp)",
-                "Sensitivity — penalty multiplier comparison",
-            ],
-        )
+        rl        = base.regime_log
+        dates_idx = list(base.equity_curve_pp.index)
+        prem_df   = df.set_index("date")
 
-        # ── Panel 1: Premium + b*/s* lines + regime shading ──────────────────
+        # Convert date objects to matplotlib-friendly format
+        import datetime as _dt
+        def _to_dt(d):
+            return _dt.datetime(d.year, d.month, d.day) if not isinstance(d, _dt.datetime) else d
+        x = [_to_dt(d) for d in dates_idx]
+
+        # ── Figure layout ─────────────────────────────────────────────────────
+        fig = plt.figure(figsize=(16, 20), dpi=150)
+        fig.patch.set_facecolor("#0d1117")
+        gs = GridSpec(4, 1, figure=fig,
+                      height_ratios=[0.27, 0.25, 0.20, 0.28],
+                      hspace=0.10)
+        axes = [fig.add_subplot(gs[i]) for i in range(4)]
+
+        # common dark-mode style
+        for ax in axes:
+            ax.set_facecolor("#161b22")
+            ax.tick_params(colors="#c9d1d9", labelsize=9)
+            ax.yaxis.label.set_color("#c9d1d9")
+            ax.xaxis.label.set_color("#c9d1d9")
+            for spine in ax.spines.values():
+                spine.set_edgecolor("#30363d")
+            ax.grid(axis="y", color="#21262d", linewidth=0.6, linestyle="--")
+            ax.grid(axis="x", color="#21262d", linewidth=0.4, linestyle=":")
+            if ax is not axes[-1]:
+                ax.tick_params(labelbottom=False)
+
+        def _shade_regimes(ax):
+            prev_status, seg_start = None, None
+            for d, row in rl.iterrows():
+                st = row["status"]
+                if st != prev_status:
+                    if prev_status is not None and seg_start is not None:
+                        ax.axvspan(_to_dt(seg_start), _to_dt(d),
+                                   color=_C.get(prev_status, (0, 0, 0, 0)),
+                                   linewidth=0, zorder=0)
+                    seg_start, prev_status = d, st
+            if prev_status and seg_start:
+                ax.axvspan(_to_dt(seg_start), _to_dt(dates_idx[-1]),
+                           color=_C.get(prev_status, (0, 0, 0, 0)),
+                           linewidth=0, zorder=0)
+
+        # ── Panel 1: Premium + b*/s* + regime shading ─────────────────────────
+        ax1 = axes[0]
         premiums_series = [prem_df.loc[d, "premium_pct"] if d in prem_df.index else float("nan")
                            for d in dates_idx]
-        fig.add_trace(go.Scatter(
-            x=dates_idx, y=premiums_series,
-            mode="lines", name="Premium %",
-            line=dict(width=1.2),
-            hovertemplate="%{x|%d %b %Y}<br>Premium: %{y:.3f}%<extra></extra>",
-        ), row=1, col=1)
+        b_vals = [rl.loc[d, "b_star"] if d in rl.index else float("nan") for d in dates_idx]
+        s_vals = [rl.loc[d, "s_star"] if d in rl.index else float("nan") for d in dates_idx]
 
-        # b*/s* step lines (changes only when regime refits)
-        b_vals = [rl.loc[d, "b_star"] if d in rl.index else None for d in dates_idx]
-        s_vals = [rl.loc[d, "s_star"] if d in rl.index else None for d in dates_idx]
-        fig.add_trace(go.Scatter(
-            x=dates_idx, y=b_vals,
-            mode="lines", name="b* (buy threshold)",
-            line=dict(dash="dot", width=1.0, color="rgba(63,185,80,0.8)"),
-            hovertemplate="%{x|%d %b %Y}<br>b*: %{y:.3f}%<extra></extra>",
-        ), row=1, col=1)
-        fig.add_trace(go.Scatter(
-            x=dates_idx, y=s_vals,
-            mode="lines", name="s* (sell threshold)",
-            line=dict(dash="dot", width=1.0, color="rgba(248,81,73,0.8)"),
-            hovertemplate="%{x|%d %b %Y}<br>s*: %{y:.3f}%<extra></extra>",
-        ), row=1, col=1)
-
-        # Regime shading via vrect shapes (row 1 y-axis domain)
-        shapes = []
-        prev_status, seg_start = None, None
-        for d, row in rl.iterrows():
-            st = row["status"]
-            if st != prev_status:
-                if prev_status is not None and seg_start is not None:
-                    shapes.append(dict(
-                        type="rect", xref="x", yref="y domain",
-                        x0=str(seg_start), x1=str(d),
-                        y0=0, y1=1,
-                        fillcolor=_REGIME_COLOURS.get(prev_status, "rgba(0,0,0,0)"),
-                        line_width=0, layer="below",
-                    ))
-                seg_start, prev_status = d, st
-        if prev_status and seg_start:
-            shapes.append(dict(
-                type="rect", xref="x", yref="y domain",
-                x0=str(seg_start), x1=str(dates_idx[-1]),
-                y0=0, y1=1,
-                fillcolor=_REGIME_COLOURS.get(prev_status, "rgba(0,0,0,0)"),
-                line_width=0, layer="below",
-            ))
+        _shade_regimes(ax1)
+        ax1.plot(x, premiums_series, color="#58a6ff", linewidth=1.4, zorder=3, label="Premium %")
+        ax1.plot(x, b_vals, color=GREEN, linewidth=1.3, linestyle=":", zorder=3, label="b* buy")
+        ax1.plot(x, s_vals, color=RED,   linewidth=1.3, linestyle=":", zorder=3, label="s* sell")
+        ax1.axhline(0, color=GREY, linewidth=0.7, linestyle="--", alpha=0.5)
+        ax1.set_ylabel("Premium (%)", fontsize=9)
+        ax1.set_title(f"{symbol} — Premium to iNAV (%)", fontsize=10,
+                      color="#e6edf3", pad=4, loc="left")
+        ax1.legend(fontsize=8, loc="upper left", framealpha=0.3,
+                   labelcolor="#c9d1d9", facecolor="#161b22", edgecolor="#30363d")
 
         # ── Panel 2: Equity curve + trade markers ─────────────────────────────
+        ax2 = axes[1]
         eq_vals = list(base.equity_curve_pp.values)
-        fig.add_trace(go.Scatter(
-            x=dates_idx, y=eq_vals,
-            mode="lines", name="OU Strategy P&L",
-            line=dict(width=1.6),
-            fill="tozeroy", fillcolor="rgba(63,185,80,0.07)",
-            hovertemplate="%{x|%d %b %Y}<br>Cum P&L: %{y:.4f} pp<extra></extra>",
-        ), row=2, col=1)
-        fig.add_hline(y=0, line_dash="dash", line_width=0.8,
-                      line_color="rgba(150,150,150,0.5)", row=2, col=1)
+        _shade_regimes(ax2)
+        ax2.plot(x, eq_vals, color=GREEN, linewidth=1.8, zorder=3, label="Premium Strategy P&L")
+        ax2.fill_between(x, eq_vals, 0, where=[v >= 0 for v in eq_vals],
+                         color=GREEN, alpha=0.08, zorder=2)
+        ax2.fill_between(x, eq_vals, 0, where=[v < 0 for v in eq_vals],
+                         color=RED,   alpha=0.08, zorder=2)
+        ax2.axhline(0, color=GREY, linewidth=0.7, linestyle="--", alpha=0.5)
 
-        # Buy/sell markers from trades
-        buy_x  = [t.entry_date for t in base.trades if t.entry_date]
-        buy_y  = [eq_vals[dates_idx.index(t.entry_date)]
-                  for t in base.trades if t.entry_date and t.entry_date in dates_idx]
-        sell_x = [t.exit_date for t in base.trades if t.exit_date]
-        sell_y = [eq_vals[dates_idx.index(t.exit_date)]
-                  for t in base.trades if t.exit_date and t.exit_date in dates_idx]
-
+        buy_x  = [_to_dt(t.entry_date) for t in base.trades if t.entry_date and t.entry_date in dates_idx]
+        buy_y  = [eq_vals[dates_idx.index(t.entry_date)] for t in base.trades
+                  if t.entry_date and t.entry_date in dates_idx]
+        sell_x = [_to_dt(t.exit_date) for t in base.trades if t.exit_date and t.exit_date in dates_idx]
+        sell_y = [eq_vals[dates_idx.index(t.exit_date)] for t in base.trades
+                  if t.exit_date and t.exit_date in dates_idx]
         if buy_x:
-            fig.add_trace(go.Scatter(
-                x=buy_x, y=buy_y, mode="markers", name="Buy",
-                marker=dict(symbol="triangle-up", size=8, color="rgba(63,185,80,0.9)"),
-                hovertemplate="%{x|%d %b %Y}<br>Buy entry<extra></extra>",
-            ), row=2, col=1)
+            ax2.scatter(buy_x,  buy_y,  marker="^", s=35, color=GREEN, zorder=4,
+                        alpha=0.85, label="Buy entry")
         if sell_x:
-            fig.add_trace(go.Scatter(
-                x=sell_x, y=sell_y, mode="markers", name="Sell",
-                marker=dict(symbol="triangle-down", size=8, color="rgba(248,81,73,0.9)"),
-                hovertemplate="%{x|%d %b %Y}<br>Sell exit<extra></extra>",
-            ), row=2, col=1)
+            ax2.scatter(sell_x, sell_y, marker="v", s=35, color=RED,   zorder=4,
+                        alpha=0.85, label="Sell exit")
+
+        ax2.set_ylabel("Cum P&L (pp)", fontsize=9)
+        ax2.set_title("Cumulative P&L (pp, premium overlay only)", fontsize=10,
+                      color="#e6edf3", pad=4, loc="left")
+        ax2.legend(fontsize=8, loc="upper left", framealpha=0.3,
+                   labelcolor="#c9d1d9", facecolor="#161b22", edgecolor="#30363d")
 
         # ── Panel 3: Daily P&L bars ───────────────────────────────────────────
+        ax3 = axes[2]
         dpnl = list(base.daily_pnl.values)
-        bar_colors = ["rgba(63,185,80,0.7)" if v >= 0 else "rgba(248,81,73,0.7)" for v in dpnl]
-        fig.add_trace(go.Bar(
-            x=dates_idx, y=dpnl,
-            name="Daily P&L",
-            marker_color=bar_colors,
-            hovertemplate="%{x|%d %b %Y}<br>Daily: %{y:.4f} pp<extra></extra>",
-        ), row=3, col=1)
-        fig.add_hline(y=0, line_dash="dash", line_width=0.6,
-                      line_color="rgba(150,150,150,0.5)", row=3, col=1)
+        bar_colors = [GREEN if v >= 0 else RED for v in dpnl]
+        ax3.bar(x, dpnl, color=bar_colors, width=1.0, linewidth=0, alpha=0.75, zorder=3)
+        ax3.axhline(0, color=GREY, linewidth=0.7, linestyle="--", alpha=0.5)
+        ax3.set_ylabel("Daily P&L (pp)", fontsize=9)
+        ax3.set_title("Daily P&L (pp)", fontsize=10, color="#e6edf3", pad=4, loc="left")
+        ax3.tick_params(axis="y", labelsize=8)
 
         # ── Panel 4: Sensitivity ──────────────────────────────────────────────
-        fig.add_trace(go.Scatter(
-            x=dates_idx, y=eq_vals,
-            mode="lines", name=f"Base pen×{base.params['pen_multiplier']:.1f}",
-            line=dict(width=1.6),
-            hovertemplate="%{x|%d %b %Y}<br>%{y:.4f} pp<extra></extra>",
-        ), row=4, col=1)
-        sens_line_styles = ["dash", "dot", "dashdot"]
+        ax4 = axes[3]
+        _shade_regimes(ax4)
+        ax4.plot(x, eq_vals, color="#58a6ff", linewidth=2.0, zorder=3,
+                 label=f"Base pen×{base.params['pen_multiplier']:.1f}")
+        _linestyles = ["--", ":", "-."]
+        _sens_colors = ["#f0883e", "#a371f7", "#79c0ff"]
         for i, (sr, _sm) in enumerate(sens_results[:3]):
-            fig.add_trace(go.Scatter(
-                x=list(sr.equity_curve_pp.index),
-                y=list(sr.equity_curve_pp.values),
-                mode="lines",
-                name=sr.params["label"],
-                line=dict(dash=sens_line_styles[i % 3], width=1.1),
-                hovertemplate="%{x|%d %b %Y}<br>%{y:.4f} pp<extra></extra>",
-            ), row=4, col=1)
-        fig.add_hline(y=0, line_dash="dash", line_width=0.6,
-                      line_color="rgba(150,150,150,0.5)", row=4, col=1)
+            sx = [_to_dt(d) for d in sr.equity_curve_pp.index]
+            sy = list(sr.equity_curve_pp.values)
+            ax4.plot(sx, sy, linewidth=1.6, linestyle=_linestyles[i % 3],
+                     color=_sens_colors[i % 3], zorder=3, alpha=0.85,
+                     label=sr.params["label"])
+        ax4.axhline(0, color=GREY, linewidth=0.7, linestyle="--", alpha=0.5)
+        ax4.set_ylabel("Cum P&L (pp)", fontsize=9)
+        ax4.set_xlabel("Date", fontsize=9)
+        ax4.set_title("Sensitivity — penalty multiplier comparison", fontsize=10,
+                      color="#e6edf3", pad=4, loc="left")
+        ax4.legend(fontsize=8, loc="upper left", framealpha=0.3,
+                   labelcolor="#c9d1d9", facecolor="#161b22", edgecolor="#30363d")
 
-        # ── Layout ────────────────────────────────────────────────────────────
-        fig.update_layout(
-            height=1200,
-            template="plotly",        # auto-adapts in Streamlit to light/dark
-            hovermode="x unified",
-            legend=dict(
-                orientation="h", yanchor="top", y=-0.06,
-                xanchor="center", x=0.5, font=dict(size=10),
-            ),
-            margin=dict(l=60, r=20, t=80, b=60),
-            shapes=shapes,
-            title=dict(
-                text=f"<b>{symbol}</b> — Regime-Aware OU Optimal-Switching Backtest"
-                     f"<br><sup>Premium overlay P&L only · Does NOT include underlying index return</sup>",
-                font=dict(size=14),
-                y=0.98, yanchor="top",
-            ),
+        # ── X-axis date formatting (bottom panel only) ────────────────────────
+        ax4.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        ax4.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+        ax4.xaxis.set_minor_locator(mdates.MonthLocator())
+        plt.setp(ax4.xaxis.get_majorticklabels(), rotation=30, ha="right")
+
+        # ── Suptitle ──────────────────────────────────────────────────────────
+        fig.suptitle(
+            f"{symbol} — ETF Premium Strategy Backtest\n"
+            f"Premium overlay P&L only · Does NOT include underlying index return",
+            fontsize=12, color="#e6edf3", y=0.995, va="top",
         )
-        # Shorten subplot title font to avoid overlap
-        for ann in fig.layout.annotations:
-            ann.font = dict(size=11)
-        fig.update_yaxes(title_text="Premium (%)", row=1, col=1)
-        fig.update_yaxes(title_text="Cum P&L (pp)", row=2, col=1)
-        fig.update_yaxes(title_text="Daily P&L (pp)", row=3, col=1)
-        fig.update_yaxes(title_text="Cum P&L (pp)", row=4, col=1)
-        fig.update_xaxes(title_text="Date", row=4, col=1)
 
-        # Save as HTML (interactive, theme-adaptive) + PNG fallback
+        # ── Save ──────────────────────────────────────────────────────────────
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        html_path = output_path.with_suffix(".html")
-        fig.write_html(str(html_path), include_plotlyjs="cdn")
-        log.info("Interactive chart saved: %s", html_path)
-
-        # PNG fallback (requires kaleido)
-        try:
-            fig.write_image(str(output_path), width=1400, height=1200, scale=1.5)
-            log.info("PNG chart saved: %s", output_path)
-        except Exception as png_exc:
-            log.debug("PNG export skipped (%s) — HTML chart available", png_exc)
+        fig.savefig(str(output_path), dpi=150, bbox_inches="tight",
+                    facecolor=fig.get_facecolor())
+        plt.close(fig)
+        log.info("PNG chart saved: %s", output_path)
 
     except Exception as exc:
         log.warning("Plotting failed: %s", exc)
@@ -830,7 +821,7 @@ def print_report(
     sep = "─" * 72
 
     print(f"\n{'═'*72}")
-    print(f"  REGIME-AWARE OU OPTIMAL-SWITCHING BACKTEST  —  {symbol}")
+    print(f"  ETF PREMIUM STRATEGY BACKTEST  —  {symbol}")
     print(f"{'═'*72}\n")
 
     def _pct_regime(rd: dict, total: int) -> str:
@@ -919,7 +910,7 @@ def print_report(
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Regime-Aware OU Optimal-Switching Backtest for ETF premiums",
+        description="ETF Premium Strategy Backtest — PELT regime detection + mean-reversion optimal switching",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--symbol",           default="MON100",         help="NSE ETF symbol")
@@ -947,8 +938,6 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     setup_logging(log_level=args.log_level)
-
-    warnings.filterwarnings("ignore", category=FutureWarning)
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
     start = date.fromisoformat(args.start)

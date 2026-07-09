@@ -1,0 +1,119 @@
+flowchart TD
+    %% ── Entry points ────────────────────────────────────────────────────────
+    CLI(["💻 CLI\npython ou_regime_backtest.py\n--symbol --confidence-threshold …"])
+    UI(["🖥️ Streamlit UI\nIntl ETFs → ETF Premium Strategy\nWorkflows → ETF Premium Strategy"])
+    Agent(["🤖 IntlETFSubAgent\nrun_ou_regime_backtest(symbol, …)"])
+
+    %% ── Data loading ────────────────────────────────────────────────────────
+    subgraph DataLoad ["Data Loading"]
+        CH[("ClickHouse\nmarket_data.inav_snapshots\ndaily premium = price − iNAV")]
+        CSV[("CSV override\n--csv-path")]
+    end
+
+    %% ── Walk-forward loop ───────────────────────────────────────────────────
+    subgraph WFLoop ["Walk-Forward Loop  (per trading day t)"]
+        direction TB
+
+        Refit{"Refit due?\n(t mod refit_every == 0)"}
+
+        subgraph Layer1 ["Layer 1 — PELT Change-Point Detection"]
+            PELT["ruptures PELT\nmodel=rbf\npenalty = pen_multiplier × var(premiums)\n→ latest stationary segment"]
+        end
+
+        subgraph Layer2 ["Layer 2 — Stationarity Gate  (src/ml/premium_regime.py)"]
+            ADF["ADF test\nlags=None, trend=c\np < 0.05 → PASS"]
+            KPSS["KPSS test\nlags=None, trend=ct\n(advisory only)"]
+            Conf["Confidence score 0–100\n30% ADF + 30% KPSS\n+ 20% segment maturity\n+ 20% R² AR(1)"]
+        end
+
+        subgraph Layer3 ["Layer 3 — OU Fit + ZJL Thresholds  (src/ml/ou_estimator.py)"]
+            OUFit["AR(1) OLS fit\nX_{t+1} = a + bX_t + ε\n→ θ, μ, σ, σ∞, half-life"]
+            ZJL["ZJL dynamic programming\nb* (buy) · s* (sell)\noptimal for θ, μ, σ, c_buy, c_sell"]
+        end
+
+        Cache[("Regime cache\nb*, s*, status\nreused until next refit")]
+        Refit -->|Yes| PELT
+        PELT --> ADF
+        ADF --> KPSS
+        KPSS --> Conf
+        Conf --> OUFit
+        OUFit --> ZJL
+        ZJL --> Cache
+        Refit -->|No| Cache
+    end
+
+    %% ── Market state decision ────────────────────────────────────────────────
+    subgraph Decision ["Market State Decision"]
+        GateSS{"STRUCTURAL_SHIFT?\n(segment_age < 10d)"}
+        GateStat{"Stationary?\n(ADF pass)"}
+        GateConf{"Confidence ≥\nthreshold?"}
+        GatePrice{"premium vs b*/s*"}
+
+        SS["🟡 STRUCTURAL_SHIFT\nhold — wait for regime to mature"]
+        NS["⬜ NON_STATIONARY\nhold"]
+        LC["🔵 LOW_CONFIDENCE\nhold"]
+        CHEAP["🟢 CHEAP\npremium ≤ b*\n→ BUY (full exposure)"]
+        FAIR["⬜ FAIR\nb* < premium < s*\n→ hold"]
+        EXPENSIVE["🔴 EXPENSIVE\npremium ≥ s*\n→ SELL (close position)"]
+
+        GateSS -->|Yes| SS
+        GateSS -->|No| GateStat
+        GateStat -->|Fail| NS
+        GateStat -->|Pass| GateConf
+        GateConf -->|Below| LC
+        GateConf -->|Above| GatePrice
+        GatePrice -->|≤ b*| CHEAP
+        GatePrice -->|between| FAIR
+        GatePrice -->|≥ s*| EXPENSIVE
+    end
+
+    %% ── P&L accounting ──────────────────────────────────────────────────────
+    subgraph PnL ["P&L Accounting"]
+        Pos["Position tracker\nexposure ∈ {0, floor, 1}\ncumulative_pp · round_trips"]
+        Metrics["compute_metrics()\nSharpe · MDD · win_rate\nhit_ratio · avg_hold_period"]
+    end
+
+    %% ── Outputs ─────────────────────────────────────────────────────────────
+    subgraph Outputs ["Outputs"]
+        Report["📄 Text Report\nP&L · Sharpe · MDD · Win rate\nRegime time breakdown\nSensitivity runs (3×)"]
+        Chart["📊 Matplotlib PNG Chart\nPanel 1: premium + b*/s* bands + state colours\nPanel 2: equity curve\nPanel 3: daily P&L\nPanel 4: sensitivity equity curves"]
+        FileOut[("output/reports/\n<SYMBOL>_ou_regime_backtest.png")]
+        CacheOut[("output/.cache/\nou_backtest_<SYM>_<hash>.txt\nkey = params + max(trade_date)\nauto-invalidated on new data")]
+    end
+
+    %% ── Flows ───────────────────────────────────────────────────────────────
+    CLI --> DataLoad
+    UI --> DataLoad
+    Agent -->|subprocess| CLI
+
+    CH --> WFLoop
+    CSV --> WFLoop
+
+    WFLoop --> Decision
+    CHEAP & FAIR & EXPENSIVE & NS & SS & LC --> Pos
+    Pos --> Metrics
+    Metrics --> Report
+    Metrics --> Chart
+    Chart --> FileOut
+    Report --> CacheOut
+
+    Agent -->|reads cache on hit| CacheOut
+
+    %% ── Styles ──────────────────────────────────────────────────────────────
+    classDef entry fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef storage fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef state_buy fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef state_sell fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef state_hold fill:#f1f5f9,stroke:#94a3b8,color:#334155
+    classDef state_warn fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef output fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+
+    class CLI,UI,Agent entry
+    class CH,CSV,Cache,FileOut,CacheOut storage
+    class GateSS,GateStat,GateConf,GatePrice,Refit gate
+    class CHEAP state_buy
+    class EXPENSIVE state_sell
+    class FAIR,NS,LC state_hold
+    class SS state_warn
+    class Report,Chart output
