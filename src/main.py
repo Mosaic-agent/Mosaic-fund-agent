@@ -665,7 +665,9 @@ def premium_alerts(
     """
     _setup_logging()
 
-    from src.tools.premium_alerts import check_premium_alerts, INTL_ETF_SYMBOLS
+    from src.tools.premium_alerts import INTL_ETF_SYMBOLS
+    from src.commands.base import CommandRunner
+    from src.commands.premium_alerts_cmd import PremiumAlertsCommand
 
     sym_list = (
         [s.strip().upper() for s in symbols.split(",") if s.strip()]
@@ -682,28 +684,23 @@ def premium_alerts(
         )
     )
 
-    try:
-        from src.db.pool import get_pool as _get_ch_pool
-        ch = _get_ch_pool().get_client()  # unmanaged client; closed by check_premium_alerts
-    except Exception as exc:
-        console.print(f"[bold red]✗ ClickHouse connection failed:[/bold red] {exc}")
-        raise typer.Exit(code=1)
+    runner = CommandRunner()
+    cmd = PremiumAlertsCommand(
+        symbols=sym_list,
+        lookback_days=lookback,
+        z_threshold=z_threshold,
+        min_snapshots=min_snapshots,
+        log_signals=log_signals
+    )
 
     with console.status(f"[cyan]Computing premium Z-scores for {', '.join(sym_list)}…[/cyan]"):
         try:
-            results = check_premium_alerts(
-                ch_client=ch,
-                symbols=sym_list,
-                lookback_days=lookback,
-                z_threshold=z_threshold,
-                good_entry_threshold=z_threshold + 0.5,
-                min_snapshots=min_snapshots,
-            )
+            res_dict = runner.run(cmd)
+            results = res_dict["results"]
+            logged = res_dict["logged_count"]
         except Exception as exc:
             console.print(f"[bold red]✗ Alert computation failed:[/bold red] {exc}")
             raise typer.Exit(code=1)
-        finally:
-            ch.close()
 
     if not results:
         console.print("[yellow]⚠ No results returned — check that iNAV snapshots exist in ClickHouse.[/yellow]")
@@ -768,37 +765,8 @@ def premium_alerts(
         "not when it is high.[/dim]"
     )
 
-    # ── Signal logging (paper-trade track record) ─────────────────────────────
-    if log_signals:
-        try:
-            from src.db.pool import get_pool as _get_ch_pool2
-            pool = _get_ch_pool2()
-            from datetime import date as _date
-            today_str = _date.today().isoformat()
-            logged = 0
-            for r in results:
-                if r.get("z_score") is None:
-                    continue
-                pool.execute(
-                    f"INSERT INTO market_data.premium_signal_log "
-                    f"(as_of, symbol, current_prem, ou_mu, half_life_days, "
-                    f"expected_reversion_pct, net_pnl_stcg_pct, action, "
-                    f"ou_available, is_profitable_after_costs, signal_source) VALUES "
-                    f"('{today_str}', '{r['symbol']}', "
-                    f"{r.get('latest_premium') or 0}, "
-                    f"{r.get('ou_mu') or 0}, "
-                    f"{r.get('half_life_days') or 0}, "
-                    f"{r.get('expected_reversion_pct') or 0}, "
-                    f"{r.get('net_pnl_stcg_pct') or 0}, "
-                    f"'{r.get('action', '')}', "
-                    f"{1 if r.get('ou_available') else 0}, "
-                    f"{1 if r.get('is_profitable_after_costs') else 0}, "
-                    f"'premium_alerts')"
-                )
-                logged += 1
-            console.print(f"  [green]✓ Logged {logged} signals to premium_signal_log[/green]")
-        except Exception as exc:
-            console.print(f"  [yellow]⚠ Signal logging failed: {exc}[/yellow]")
+    if log_signals and logged:
+        console.print(f"  [green]✓ Logged {logged} signals to premium_signal_log[/green]")
 
     console.rule("[dim]End of Premium Alerts[/dim]")
 
@@ -1199,11 +1167,27 @@ def risk_cmd(
         border_style="cyan",
     ))
 
-    # ── Evaluate mode ─────────────────────────────────────────────────────────
-    if evaluate:
-        from src.tools.weight_checkpoint import evaluate_methods
+    from src.commands.base import CommandRunner
+    from src.commands.risk_cmd import RiskCommand
+
+    runner = CommandRunner()
+    cmd = RiskCommand(
+        symbol=symbol,
+        save=save,
+        evaluate=evaluate,
+        since_days=since_days,
+        blend=blend
+    )
+
+    try:
+        res = runner.run(cmd)
+    except Exception as exc:
+        console.print(f"[bold red]✗ Sizing computation failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+    if res["evaluate"]:
         console.print(f"\n[bold]Realised performance by method (last {since_days} days)[/bold]")
-        df = evaluate_methods(symbol=symbol, since_days=since_days)
+        df = res["df"]
         if df.empty:
             console.print("[yellow]No checkpoint data found. Run `mosaic risk --save` first.[/yellow]")
             return
@@ -1226,94 +1210,11 @@ def risk_cmd(
         console.print(tbl)
         return
 
-    # ── Fetch live inputs ─────────────────────────────────────────────────────
-    from config.settings import settings
-    from src.tools.risk_governor import compute_position_weight, vol_target_for
-
-    today = dt_date.today()
-
-    # 1. Latest ML prediction from ClickHouse
-    from src.db.pool import get_pool as _get_ch_pool
-    _ch_pool = _get_ch_pool()
-    pred_df = _ch_pool.query_df("""
-        SELECT expected_return_pct, confidence_low, confidence_high,
-               cv_r2_mean, regime_signal, horizon_days
-        FROM market_data.ml_predictions FINAL
-        ORDER BY as_of DESC LIMIT 1
-    """)
-
-    if pred_df.empty:
-        console.print("[red]No ML predictions found. Run `python src/main.py signals` or the trend predictor first.[/red]")
-        return
-
-    pred = pred_df.iloc[0]
-    exp_ret   = float(pred["expected_return_pct"])
-    conf_low  = float(pred["confidence_low"])
-    conf_high = float(pred["confidence_high"])
-    cv_r2     = float(pred["cv_r2_mean"])
-    ml_regime = str(pred["regime_signal"])
-    horizon   = int(pred["horizon_days"])
-
-    # 2. Latest GARCH vol + regime from anomaly pipeline
-    price_df = _ch_pool.query_df(f"""
-        SELECT trade_date,
-               toFloat64(argMax(close, imported_at)) AS close
-        FROM market_data.daily_prices
-        WHERE symbol = '{symbol}' AND category = 'etfs'
-        GROUP BY trade_date ORDER BY trade_date ASC
-    """)
-
-    garch_vol_pct = vol_target_for(symbol)  # fallback if GARCH fails
-    regime = "✅ Normal"
-    price_below_ema50 = False
-
-    if not price_df.empty:
-        try:
-            import pandas as _pd
-            from src.ml.anomaly import run_composite_anomaly
-            price_df["trade_date"] = _pd.to_datetime(price_df["trade_date"])
-            price_df_full = _pd.DataFrame({
-                "trade_date": price_df["trade_date"],
-                "open": price_df["close"], "high": price_df["close"],
-                "low": price_df["close"],  "close": price_df["close"],
-                "volume": 0,
-            })
-            df_res, _, _ = run_composite_anomaly(price_df_full)
-            last = df_res.dropna(subset=["garch_vol"]).iloc[-1]
-            garch_vol_pct = float(last["garch_vol"])
-            regime = str(last["regime"])
-            close_series = price_df["close"]
-            ema50 = close_series.ewm(span=50, adjust=False).mean()
-            price_below_ema50 = bool(close_series.iloc[-1] < ema50.iloc[-1])
-        except Exception as exc:
-            logger.warning("GARCH computation failed, using vol target: %s", exc)
-
-    # ── Compute all method weights ─────────────────────────────────────────────
-    from src.tools.adaptive_kelly import compute_kelly_weight, compute_blended_weight
-
-    vol_target = vol_target_for(symbol)
-    rg_dec = compute_position_weight(
-        garch_annual_vol_pct=garch_vol_pct,
-        regime=regime,
-        vol_target_pct=vol_target,
-        price_below_ema50=price_below_ema50,
-    )
-    kelly_dec = compute_kelly_weight(
-        expected_return_pct=exp_ret,
-        confidence_low_pct=conf_low,
-        confidence_high_pct=conf_high,
-        horizon_days=horizon,
-        cv_r2=cv_r2,
-        garch_annual_vol_pct=garch_vol_pct,
-    )
-    blended_w   = compute_blended_weight(rg_dec.final_weight, kelly_dec.final_weight, blend)
-    blended_30  = compute_blended_weight(rg_dec.final_weight, kelly_dec.final_weight, 0.3)
-
-    # ── Display ───────────────────────────────────────────────────────────────
-    console.print(f"\n[dim]As of {today}  |  GARCH vol: {garch_vol_pct:.1f}%  |  "
-                  f"Regime: {regime}  |  EMA50: {'below ⬇' if price_below_ema50 else 'above ⬆'}[/dim]")
-    console.print(f"[dim]ML expected return: {exp_ret:+.2f}%  |  "
-                  f"Conf band: [{conf_low:.2f}%, {conf_high:.2f}%]  |  CV R²: {cv_r2:.3f}[/dim]\n")
+    # ── Display normal report ────────────────────────────────────────────────
+    console.print(f"\n[dim]As of {res['today']}  |  GARCH vol: {res['garch_vol_pct']:.1f}%  |  "
+                  f"Regime: {res['regime']}  |  EMA50: {'below ⬇' if res['price_below_ema50'] else 'above ⬆'}[/dim]")
+    console.print(f"[dim]ML expected return: {res['exp_ret']:+.2f}%  |  "
+                  f"Conf band: [{res['conf_low']:.2f}%, {res['conf_high']:.2f}%]  |  CV R²: {res['cv_r2']:.3f}[/dim]\n")
 
     tbl = Table(box=box.SIMPLE_HEAD, show_header=True)
     tbl.add_column("Method",   style="bold")
@@ -1327,64 +1228,14 @@ def risk_cmd(
         if w >= 0.40: return "dark_orange"
         return "red"
 
-    rows_data = [
-        ("rg",          rg_dec.final_weight,  rg_dec.tier,
-         f"inverse-vol × regime × trend"),
-        ("kelly",       kelly_dec.final_weight, "—",
-         f"μ/σ²  raw={kelly_dec.raw_kelly:.1f}×  haircut={kelly_dec.confidence_haircut:.0%}"),
-        (f"blended_{int(blend*100)}", blended_w, "—",
-         f"{int((1-blend)*100)}% RG + {int(blend*100)}% Kelly"),
-        ("blended_30",  blended_30, "—",
-         "70% RG + 30% Kelly (conservative)"),
-    ]
-    for method, w, tier, notes in rows_data:
+    for method, w, tier, notes in res["rows_data"]:
         c_ = _tier_color(w)
         tbl.add_row(method, f"[{c_}]{w:.0%}[/{c_}]", tier, notes)
 
     console.print(tbl)
 
-    # ── Save checkpoints ──────────────────────────────────────────────────────
-    if save:
-        from src.tools.weight_checkpoint import save_checkpoints
-        checkpoint_rows = [
-            {
-                "as_of": today, "symbol": symbol, "method": "rg",
-                "recommended_weight": rg_dec.final_weight,
-                "garch_vol_pct": garch_vol_pct, "regime": regime,
-                "price_below_ema50": int(price_below_ema50),
-                "horizon_days": horizon,
-                "rationale": f"vol={garch_vol_pct:.1f}% regime_mult={rg_dec.regime_mult:.0%} trend={rg_dec.trend_mult:.0%}",
-            },
-            {
-                "as_of": today, "symbol": symbol, "method": "kelly",
-                "recommended_weight": kelly_dec.final_weight,
-                "expected_return_pct": exp_ret, "expected_vol_pct": kelly_dec.implied_vol_pct,
-                "garch_vol_pct": garch_vol_pct, "regime": regime,
-                "price_below_ema50": int(price_below_ema50),
-                "cv_r2": cv_r2, "horizon_days": horizon,
-                "rationale": f"raw_kelly={kelly_dec.raw_kelly:.2f} frac={kelly_dec.fractional_kelly:.2f} haircut={kelly_dec.confidence_haircut:.0%}",
-            },
-            {
-                "as_of": today, "symbol": symbol, "method": f"blended_{int(blend*100)}",
-                "recommended_weight": blended_w,
-                "expected_return_pct": exp_ret, "expected_vol_pct": kelly_dec.implied_vol_pct,
-                "garch_vol_pct": garch_vol_pct, "regime": regime,
-                "price_below_ema50": int(price_below_ema50),
-                "cv_r2": cv_r2, "horizon_days": horizon,
-                "rationale": f"rg={rg_dec.final_weight:.0%} kelly={kelly_dec.final_weight:.0%} blend={blend:.0%}",
-            },
-            {
-                "as_of": today, "symbol": symbol, "method": "blended_30",
-                "recommended_weight": blended_30,
-                "expected_return_pct": exp_ret, "expected_vol_pct": kelly_dec.implied_vol_pct,
-                "garch_vol_pct": garch_vol_pct, "regime": regime,
-                "price_below_ema50": int(price_below_ema50),
-                "cv_r2": cv_r2, "horizon_days": horizon,
-                "rationale": f"rg={rg_dec.final_weight:.0%} kelly={kelly_dec.final_weight:.0%} blend=30%",
-            },
-        ]
-        n = save_checkpoints(checkpoint_rows)
-        console.print(f"\n[green]✓ Saved {n} checkpoint rows to market_data.weight_checkpoints[/green]")
+    if save and res["saved_count"]:
+        console.print(f"\n[green]✓ Saved {res['saved_count']} checkpoint rows to market_data.weight_checkpoints[/green]")
 
 
 @app.command(name="signals")
@@ -1410,10 +1261,20 @@ def signals_cmd(
     """
     _setup_logging()
 
-    from src.agents.signal_aggregator import run_signal_aggregation, print_signal_report
+    from src.commands.base import CommandRunner
+    from src.commands.signals_cmd import SignalsCommand
+    from src.agents.signal_aggregator import print_signal_report
 
-    report = run_signal_aggregation(save=save, verbose=verbose)
-    print_signal_report(report)
+    runner = CommandRunner()
+    cmd = SignalsCommand(save=save, verbose=verbose)
+
+    try:
+        res = runner.run(cmd)
+        report = res["report"]
+        print_signal_report(report)
+    except Exception as exc:
+        console.print(f"[bold red]✗ Signal aggregation failed:[/bold red] {exc}")
+        raise typer.Exit(code=1)
 
     if save:
         console.print(f"[green]✓ Signal composite saved to DB for {len(report.signals)} ETFs.[/green]")
