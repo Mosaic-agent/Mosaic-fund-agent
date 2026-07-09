@@ -33,6 +33,11 @@ from langchain_core.tools import tool
 
 from src.utils.symbol_mapper import SYMBOL_TO_COMPANY
 
+try:
+    from src.db.pool import query_df as _query_df
+except Exception:  # ClickHouse not available at import time (e.g. test env)
+    _query_df = None  # type: ignore[assignment]
+
 log = logging.getLogger(__name__)
 
 _YAHOO_SEARCH_URL   = "https://query1.finance.yahoo.com/v1/finance/search"
@@ -769,7 +774,9 @@ def resolve_company_info(query: str, auto_import: bool = True) -> dict:
         market = info.get("market")
         if sym and market == "India":
             try:
-                from src.db.pool import query_df
+                query_df = _query_df  # module-level ref — patchable in tests
+                if query_df is None:
+                    raise RuntimeError("query_df not available")
                 # Check if symbol exists in ClickHouse daily_prices table
                 res = query_df(f"SELECT count() as cnt FROM market_data.daily_prices FINAL WHERE symbol = '{sym}'")
                 if not res.empty and res.iloc[0]['cnt'] == 0:

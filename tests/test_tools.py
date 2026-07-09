@@ -574,7 +574,7 @@ def test_auto_import_missing_symbol():
     # 2. Mock case where symbol DOES NOT EXIST in DB (cnt == 0)
     mock_df_missing = pd.DataFrame([{"cnt": 0}])
 
-    with patch("src.db.pool.query_df", return_value=mock_df_exists) as mock_query, \
+    with patch("src.tools.company_resolver._query_df", return_value=mock_df_exists) as mock_query, \
          patch("src.tools.skills_tools.import_symbol_data_impl") as mock_import:
         # Resolve a known company, e.g. "RELIANCE"
         resolve_company_info("RELIANCE", auto_import=True)
@@ -582,7 +582,7 @@ def test_auto_import_missing_symbol():
         mock_import.assert_not_called()
         print("  ✓ When symbol exists in DB, auto-import is NOT triggered")
 
-    with patch("src.db.pool.query_df", return_value=mock_df_missing) as mock_query, \
+    with patch("src.tools.company_resolver._query_df", return_value=mock_df_missing) as mock_query, \
          patch("src.tools.skills_tools.import_symbol_data_impl") as mock_import:
         # Resolve a company, e.g. "RELIANCE"
         resolve_company_info("RELIANCE", auto_import=True)

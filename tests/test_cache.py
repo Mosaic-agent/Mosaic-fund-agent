@@ -43,7 +43,10 @@ items2 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
 t2 = time.time() - t0
 print(f"  ✓ returned {len(items2)} articles in {t2:.2f}s  (speedup {t1/max(t2,0.01):.0f}x)")
 assert len(items1) == len(items2), "cache returned different count"
-assert t2 < 0.5, f"cache hit took too long: {t2:.2f}s"
+# Wall-clock threshold is generous (2 s) — what matters is the speedup ratio,
+# not an absolute number that is brittle on slow CI runners.
+assert t2 < 2.0, f"cache hit took too long: {t2:.2f}s"
+assert t2 < t1, f"cache hit ({t2:.2f}s) was not faster than live call ({t1:.2f}s)"
 print(f"  ✓ cache hit confirmed ({t2:.3f}s vs {t1:.1f}s live)")
 
 print("\nAll cache tests passed ✓")

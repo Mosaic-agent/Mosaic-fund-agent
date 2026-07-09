@@ -56,6 +56,14 @@ FX: USDINR moved +0.4% same day — partial macro overlay
 Corporate actions: None on record (not a split/bonus)
 ```
 
+```
+🚨 Live Monitor — during market hours (Slack alert)
+
+NIFTY BANK — price break (z=−4.8) @ 13:45 IST
+Price: 56,595   Volume: 45,231 (baseline ~1,050)
+📰 Trump says US-Iran ceasefire is "over" after fresh strikes — Reuters
+```
+
 ---
 
 ## Who is this for?
@@ -171,6 +179,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 | Deep research on any Indian stock | `research "RELIANCE"` |
 | Full Zerodha portfolio health check | `analyze` |
 | What happened to a stock? | `ask "why did X drop last week?"` |
+| Live anomaly + news alerts during market hours | `python src/agents/live_monitor.py` |
 
 ---
 

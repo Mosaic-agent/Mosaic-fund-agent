@@ -16,6 +16,9 @@
 #   ./mosaic.sh ask "what is my riskiest holding?"
 #   ./mosaic.sh comex
 #   ./mosaic.sh intraday GOLDBEES
+#   ./mosaic.sh live-monitor --dry-run
+#   ./mosaic.sh live-monitor --check-session-only
+#   ./mosaic.sh live-monitor -d          — detached, survives closing the terminal
 #   ./mosaic.sh src/scripts/goldbees_report.py
 
 # Check if Docker is running
@@ -94,6 +97,19 @@ elif [[ "$FIRST_ARG" == "intraday" ]]; then
     # refresh activates; without it, stdout is a pipe and the agent falls
     # back to reprinting the full block every interval.
     docker compose run --rm -it --entrypoint python mosaic src/agents/intraday_agent.py "${ARGS[@]}"
+elif [[ "$FIRST_ARG" == "live-monitor" ]]; then
+    shift
+    if [[ "$1" == "-d" || "$1" == "--detach" ]]; then
+        echo "Starting Live Monitor in Docker (detached — survives closing this terminal)..."
+        docker compose up -d live-monitor
+        echo "View logs with: docker compose logs -f live-monitor"
+        echo "Stop with:      docker compose stop live-monitor"
+    else
+        echo "Running Live Monitor in Docker (foreground, Ctrl+C to stop)..."
+        # No -it: live_monitor.py logs headlessly (no TUI), and -it requires a
+        # real TTY that isn't always available (e.g. scripted/CI invocation).
+        docker compose run --rm live-monitor "$@"
+    fi
 elif [[ "$FIRST_ARG" == "chat" ]]; then
     # Run interactive chat with args (e.g. -t <thread_id>)
     docker compose run --rm -it mosaic "$@"

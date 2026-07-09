@@ -417,6 +417,61 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] NSE regular session close time (IST, 24h HH:MM)
     market_close: str = Field(default="15:30", description="NSE market close time IST")
 
+    # ── Live Monitor / Alerting ───────────────────────────────────────────────
+    # Standalone multi-symbol live anomaly + news-correlation monitor
+    # (src/agents/live_monitor.py). Watches Shoonya ticks during market hours,
+    # scores 5-minute bars for price/volume anomalies, and pushes Slack alerts.
+
+    # [SENSITIVE] Slack Incoming Webhook URL for live alert delivery.
+    # Create one at https://api.slack.com/messaging/webhooks — leave blank to
+    # disable Slack delivery (alerts are still logged to ClickHouse).
+    slack_webhook_url: str = Field(default="", description="Slack Incoming Webhook URL for live alert delivery")
+
+    # [SENSITIVE] CallMeBot WhatsApp API credentials for live alert delivery.
+    # Setup (one-time, ~1 min):
+    #   1. Add +34 644 597 079 to WhatsApp contacts as "CallMeBot".
+    #   2. Send it the message: "I allow callmebot to send me messages"
+    #   3. You'll receive your API key via WhatsApp within seconds.
+    # Then set both env vars below. Leave blank to disable WhatsApp delivery.
+    callmebot_whatsapp_phone: str = Field(default="", description="Your WhatsApp phone number with country code, e.g. 919876543210 (no +)")
+    callmebot_whatsapp_apikey: str = Field(default="", description="CallMeBot API key received via WhatsApp")
+
+    # [NON-SENSITIVE] Robust z-score threshold for live 5-min bar anomaly detection.
+    # Same formula/scale as the EOD anomaly pipeline's z_robust, but NOT yet
+    # validated on intraday bars — expect a paper-testing tuning period.
+    live_monitor_zscore_threshold: float = Field(default=3.0, description="Robust z-score threshold for live bar anomaly detection")
+
+    # [NON-SENSITIVE] Live bar aggregation interval in seconds (default 5 min).
+    live_monitor_bar_seconds: int = Field(default=300, description="Live bar aggregation interval in seconds")
+
+    # [NON-SENSITIVE] Rolling bar buffer size fed into the robust z-score (30 bars = 2.5h at 5-min bars).
+    live_monitor_buffer_size: int = Field(default=30, description="Rolling bar buffer size for z-score scoring")
+
+    # [NON-SENSITIVE] Max seconds to wait for concurrent news correlation before sending the alert.
+    live_monitor_news_timeout_seconds: float = Field(default=5.0, description="Max wait for live news-correlation race before sending the alert")
+
+    # [NON-SENSITIVE] Path to the ad-hoc watchlist config file (YAML list of symbols).
+    live_monitor_watchlist_config: str = Field(default="config/live_watchlist.yaml", description="Path to ad-hoc watchlist config file")
+
+    # [NON-SENSITIVE] Cross-symbol confirmation gate: a price_break alert on any
+    # non-VIX symbol is only forwarded if INDIA VIX also moved at least this
+    # much (|z_return|) in the same bar. Deliberately a lower bar than
+    # live_monitor_zscore_threshold — this asks "did VIX move meaningfully",
+    # not "did VIX itself trip its own full anomaly threshold". Does not gate
+    # volume_spike alerts, and fails OPEN (never suppresses) whenever VIX has
+    # no scored baseline yet or its data is stale by more than one bar.
+    live_monitor_vix_confirmation_zscore: float = Field(
+        default=2.0, description="Min |VIX z-return| in the same bar to confirm a price_break alert on another symbol"
+    )
+
+    # [NON-SENSITIVE] Polling interval (seconds) used by PollingFallbackManager when
+    # Shoonya websocket is unavailable. NSE quote is tried first, Yahoo snapshot second.
+    # Keep ≥60s — NSE throttles aggressive scrapers; 60s gives ~15-min-delayed data
+    # which is fine for the anomaly baseline but not for tight intraday timing.
+    live_monitor_poll_interval_seconds: int = Field(
+        default=60, description="Poll interval (s) for NSE/Yahoo fallback when Shoonya websocket is unavailable"
+    )
+
     # ── News Filter LLM Settings ──────────────────────────────────────────────
     # [NON-SENSITIVE] Enable semantic news filter using a local/cloud LLM
     news_filter_llm_enabled: bool = Field(default=False, description="Enable semantic news filter via LLM")
