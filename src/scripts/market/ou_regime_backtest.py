@@ -43,6 +43,7 @@ import math
 import os
 import sys
 import warnings
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -247,6 +248,8 @@ def run_backtest(
     notional: float = NOTIONAL_DEFAULT,
     burnin: int = BURNIN_DEFAULT,
     pen_multiplier: float = 3.0,
+    pen_window: int = 250,
+    penalty_method: str = "heuristic",
     min_segment: int = 30,
     c_buy_bps: float = 10.0,
     c_sell_bps: float = 10.0,
@@ -264,7 +267,10 @@ def run_backtest(
     df               : DataFrame with columns [date, premium_pct, price, inav]
     event_flags      : dict date → 0/1
     burnin           : first N rows are burn-in (no trading)
-    pen_multiplier   : PELT penalty = pen_multiplier × var(premiums)
+    pen_multiplier   : PELT penalty = pen_multiplier × var(trailing pen_window obs).
+                       Ignored when penalty_method="crops".
+    pen_window       : trailing window (obs) for the PELT penalty variance estimate
+    penalty_method   : "heuristic" (default) or "crops" — see premium_regime.detect_regime
     min_segment      : min obs in PELT segment for stationarity test
     c_buy_bps        : entry transaction cost in bps
     c_sell_bps       : exit transaction cost in bps
@@ -326,6 +332,8 @@ def run_backtest(
                     premiums=premiums[:t+1],
                     dates=dates[:t+1],
                     pen_multiplier=pen_multiplier,
+                    pen_window=pen_window,
+                    penalty_method=penalty_method,
                     min_segment=min_segment,
                     r_daily=r_daily,
                     c_buy_bps=c_buy_bps,
@@ -458,6 +466,8 @@ def run_backtest(
         params={
             "label": label,
             "pen_multiplier": pen_multiplier,
+            "pen_window": pen_window,
+            "penalty_method": penalty_method,
             "c_buy_bps": c_buy_bps,
             "c_sell_bps": c_sell_bps,
             "burnin": burnin,
@@ -466,6 +476,11 @@ def run_backtest(
             "confidence_threshold": confidence_threshold,
         },
     )
+
+
+def _run_one(kwargs: dict) -> BacktestResult:
+    """Module-level shim so run_backtest can be dispatched to a process pool (picklable)."""
+    return run_backtest(**kwargs)
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
@@ -766,18 +781,18 @@ def plot_results(
         _shade_regimes(ax4)
         ax4.plot(x, eq_vals, color="#58a6ff", linewidth=2.0, zorder=3,
                  label=f"Base pen×{base.params['pen_multiplier']:.1f}")
-        _linestyles = ["--", ":", "-."]
-        _sens_colors = ["#f0883e", "#a371f7", "#79c0ff"]
-        for i, (sr, _sm) in enumerate(sens_results[:3]):
+        _linestyles = ["--", ":", "-.", "--"]
+        _sens_colors = ["#f0883e", "#a371f7", "#79c0ff", "#3fb950"]
+        for i, (sr, _sm) in enumerate(sens_results[:4]):
             sx = [_to_dt(d) for d in sr.equity_curve_pp.index]
             sy = list(sr.equity_curve_pp.values)
-            ax4.plot(sx, sy, linewidth=1.6, linestyle=_linestyles[i % 3],
-                     color=_sens_colors[i % 3], zorder=3, alpha=0.85,
+            ax4.plot(sx, sy, linewidth=1.6, linestyle=_linestyles[i % 4],
+                     color=_sens_colors[i % 4], zorder=3, alpha=0.85,
                      label=sr.params["label"])
         ax4.axhline(0, color=GREY, linewidth=0.7, linestyle="--", alpha=0.5)
         ax4.set_ylabel("Cum P&L (pp)", fontsize=9)
         ax4.set_xlabel("Date", fontsize=9)
-        ax4.set_title("Sensitivity — penalty multiplier comparison", fontsize=10,
+        ax4.set_title("Sensitivity — penalty multiplier / method comparison", fontsize=10,
                       color="#e6edf3", pad=4, loc="left")
         ax4.legend(fontsize=8, loc="upper left", framealpha=0.3,
                    labelcolor="#c9d1d9", facecolor="#161b22", edgecolor="#30363d")
@@ -917,7 +932,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--start",            default="2023-01-01",     help="Backtest start date YYYY-MM-DD")
     p.add_argument("--end",              default=str(date.today()), help="Backtest end date YYYY-MM-DD")
     p.add_argument("--burnin",           type=int,   default=90,   help="Burn-in rows (no trading)")
-    p.add_argument("--pen-multiplier",   type=float, default=3.0,  help="PELT penalty = mult × var")
+    p.add_argument("--pen-multiplier",   type=float, default=3.0,  help="PELT penalty = mult × var(trailing pen-window obs)")
+    p.add_argument("--pen-window",       type=int,   default=250,  help="Trailing obs window for PELT penalty variance (0=full history)")
     p.add_argument("--min-segment",      type=int,   default=30,   help="Min PELT segment obs")
     p.add_argument("--c-buy",            type=float, default=10.0, help="Entry cost (bps)")
     p.add_argument("--c-sell",           type=float, default=10.0, help="Exit cost (bps)")
@@ -930,6 +946,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--confidence-threshold", type=float, default=0.0,
                    help="Only trade when confidence >= this (0-100). Default 0=no gate. Recommended: 50-70")
     p.add_argument("--no-plot",          action="store_true",       help="Skip chart generation")
+    p.add_argument("--include-crops-sensitivity", action="store_true",
+                   help="Add a 5th sensitivity run using CROPS-style data-driven penalty "
+                        "selection instead of pen_multiplier (experimental — ~5-7x slower "
+                        "per refit than the heuristic; validated to overfit on some symbols, "
+                        "off by default)")
     p.add_argument("--log-level",        default="WARNING",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return p.parse_args()
@@ -956,12 +977,13 @@ def main() -> None:
     dates       = list(df["date"])
     event_flags = load_event_flags(args.event_flags_csv, dates)
 
-    # ── Base run ──────────────────────────────────────────────────────────────
-    print("Running base backtest…", flush=True)
-    base = run_backtest(
+    # ── Base + sensitivity runs — independent, dispatched to a process pool ────
+    # (a) base  (b) 2× costs  (c) pen_multiplier=1.5  (d) pen_multiplier=6.0
+    base_kwargs = dict(
         df=df, event_flags=event_flags,
         notional=args.notional, burnin=args.burnin,
         pen_multiplier=args.pen_multiplier,
+        pen_window=args.pen_window,
         min_segment=args.min_segment,
         c_buy_bps=args.c_buy, c_sell_bps=args.c_sell,
         discount_rate_annual=args.discount_rate,
@@ -970,18 +992,7 @@ def main() -> None:
         refit_every=args.refit_every,
         confidence_threshold=args.confidence_threshold,
     )
-    base_metrics = compute_metrics(base, df)
-
-    # ── Benchmark B: naive ────────────────────────────────────────────────────
-    naive = run_naive_backtest(
-        df=df, event_flags=event_flags,
-        notional=args.notional, burnin=args.burnin,
-        c_buy_bps=args.c_buy, c_sell_bps=args.c_sell,
-    )
-
-    # ── Sensitivity runs ──────────────────────────────────────────────────────
-    # (a) 2× costs  (b) pen_multiplier=1.5  (c) pen_multiplier=6.0
-    sensitivity_configs = [
+    sensitivity_overrides = [
         dict(c_buy_bps=args.c_buy*2, c_sell_bps=args.c_sell*2,
              pen_multiplier=args.pen_multiplier, label="2x_costs"),
         dict(c_buy_bps=args.c_buy, c_sell_bps=args.c_sell,
@@ -989,26 +1000,48 @@ def main() -> None:
         dict(c_buy_bps=args.c_buy, c_sell_bps=args.c_sell,
              pen_multiplier=6.0, label="pen×6.0"),
     ]
-    sens_pairs: list[tuple[BacktestResult, dict]] = []
-    for cfg in sensitivity_configs:
-        lbl = cfg.pop("label")
-        print(f"  Sensitivity: {lbl}…", flush=True)
-        sr = run_backtest(
+    if args.include_crops_sensitivity:
+        sensitivity_overrides.append(
+            dict(c_buy_bps=args.c_buy, c_sell_bps=args.c_sell,
+                 penalty_method="crops", label="crops")
+        )
+    sens_kwargs_list = [
+        dict(
             df=df, event_flags=event_flags,
             notional=args.notional, burnin=args.burnin,
+            pen_window=args.pen_window,
             min_segment=args.min_segment,
             discount_rate_annual=args.discount_rate,
             floor_exposure=args.floor_exposure,
-            label=lbl,
             refit_every=args.refit_every,
             confidence_threshold=args.confidence_threshold,
-            **cfg,
+            **override,
         )
-        sm = compute_metrics(sr, df)
-        sm["label"] = lbl
-        sens_pairs.append((sr, sm))
+        for override in sensitivity_overrides
+    ]
+    all_kwargs = [base_kwargs] + sens_kwargs_list
+    n_workers = min(len(all_kwargs), os.cpu_count() or 4)
+    print(f"Running {len(all_kwargs)} backtests in parallel across {n_workers} workers "
+          f"({', '.join(kw['label'] for kw in all_kwargs)})…", flush=True)
+    with ProcessPoolExecutor(max_workers=n_workers) as pool:
+        results = list(pool.map(_run_one, all_kwargs))
 
+    base = results[0]
+    base_metrics = compute_metrics(base, df)
+
+    sens_pairs: list[tuple[BacktestResult, dict]] = []
+    for sr, kw in zip(results[1:], sens_kwargs_list):
+        sm = compute_metrics(sr, df)
+        sm["label"] = kw["label"]
+        sens_pairs.append((sr, sm))
     sens_metrics = [sm for _, sm in sens_pairs]
+
+    # ── Benchmark B: naive ────────────────────────────────────────────────────
+    naive = run_naive_backtest(
+        df=df, event_flags=event_flags,
+        notional=args.notional, burnin=args.burnin,
+        c_buy_bps=args.c_buy, c_sell_bps=args.c_sell,
+    )
 
     # ── Report ────────────────────────────────────────────────────────────────
     print_report(

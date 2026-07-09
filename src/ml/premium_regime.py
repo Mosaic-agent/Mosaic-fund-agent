@@ -74,6 +74,8 @@ def detect_regime(
     premiums: np.ndarray,
     dates: Optional[list[date]] = None,
     pen_multiplier: float = 3.0,
+    pen_window: int = 250,
+    penalty_method: str = "heuristic",
     min_segment: int = 30,
     adf_threshold: float = 0.05,
     kpss_threshold: float = 0.05,
@@ -90,7 +92,19 @@ def detect_regime(
     ----------
     premiums       : time-ordered array of premium_pct values (%)
     dates          : corresponding dates (same length); used only for regime_start
-    pen_multiplier : PELT penalty = pen_multiplier × var(premiums)
+    pen_multiplier : PELT penalty = pen_multiplier × var(trailing pen_window obs)
+    pen_window     : trailing window (in obs) used to estimate variance for the PELT
+                     penalty (default 250 ≈ 1yr). Using a rolling window instead of
+                     the full history keeps the penalty tied to *current* volatility —
+                     a full-history variance would keep inflating after a vol regime
+                     shift, making PELT progressively less willing to carve out the
+                     new regime as its own segment (self-reinforcing false negative).
+                     Ignored when penalty_method="crops".
+    penalty_method : "heuristic" (default) = pen_multiplier × var(pen_window).
+                     "crops" = data-driven penalty selection: sweep a penalty grid,
+                     fit PELT once, and pick the elbow of the (n_breakpoints, cost)
+                     curve — no pen_multiplier tuning required. Falls back to the
+                     heuristic automatically if the sweep degenerates.
     min_segment    : minimum observations required for stationarity test + OU fit
     adf_threshold  : reject unit root if adf_p < this (default 0.05)
     kpss_threshold : KPSS advisory threshold — does NOT gate trading, only adjusts
@@ -122,14 +136,9 @@ def detect_regime(
     if n_total < min_segment:
         return _insufficient(0, dates, 0, theta_history)
 
-    # Penalty: heuristic BIC-motivated = pen_multiplier × variance
     finite_mask = np.isfinite(premiums)
     if finite_mask.sum() < min_segment:
         return _insufficient(0, dates, 0, theta_history)
-
-    pen = pen_multiplier * float(np.var(premiums[finite_mask]))
-    if pen <= 0:
-        pen = 1.0  # degenerate: constant series
 
     # Limit the time series length for change-point detection to bound O(N^3) complexity of RBF kernel.
     limit = 750
@@ -145,6 +154,26 @@ def detect_regime(
     # Clamped to [1, 5] so the jump never becomes coarse enough to miss a real break.
     _n = len(signal)
     jump = max(1, min(5, math.floor(math.log2(max(_n, 50) / 50))))
+
+    # Penalty selection
+    if penalty_method == "crops":
+        try:
+            pen, _crops_n_bkps = _select_penalty_crops(signal, min_segment, jump)
+            log.debug("CROPS penalty selected: pen=%.4f (n_bkps=%d)", pen, _crops_n_bkps)
+        except Exception as exc:
+            log.warning("CROPS penalty selection failed: %s — falling back to heuristic", exc)
+            penalty_method = "heuristic"
+
+    if penalty_method != "crops":
+        # Heuristic BIC-motivated penalty = pen_multiplier × variance.
+        # Estimated on a trailing window (not the full history) so the penalty tracks
+        # the CURRENT volatility regime rather than an ever-growing blend of old+new
+        # regimes — see pen_window docstring above.
+        clean_premiums = premiums[finite_mask]
+        var_window = clean_premiums[-pen_window:] if pen_window > 0 else clean_premiums
+        pen = pen_multiplier * float(np.var(var_window))
+        if pen <= 0:
+            pen = 1.0  # degenerate: constant series
 
     try:
         algo = rpt.Pelt(model="rbf", min_size=min_segment, jump=jump)
@@ -281,6 +310,80 @@ def detect_regime(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _select_penalty_crops(
+    signal: np.ndarray,
+    min_size: int,
+    jump: int,
+    n_grid: int = 25,
+) -> tuple[float, int]:
+    """
+    Data-driven PELT penalty selection — approximates CROPS (Haynes, Eckley &
+    Fearnhead 2017) via a log-spaced penalty grid + kneedle-style elbow
+    detection, rather than the exact interval-splitting algorithm (sufficient
+    for daily walk-forward use; avoids hand-tuning a fixed pen_multiplier).
+
+    Sweeps penalties spanning 0.001×–10× var(signal), fits PELT once, and for
+    each penalty records (n_breakpoints, segmentation_cost). Larger penalties
+    give fewer breakpoints but worse (higher) cost; smaller penalties give
+    more breakpoints but risk fitting noise. The elbow — point of maximum
+    perpendicular distance from the line joining the sparsest and densest
+    segmentations — is the standard diminishing-returns tradeoff point.
+    (Empirically on premium series, most of the interesting curvature sits
+    well below 1× var — a 0.3×-floor grid collapses to only 0-1 breakpoints.)
+
+    Returns
+    -------
+    (penalty, n_breakpoints) at the elbow. Raises on degenerate input (caller
+    is expected to catch and fall back to the heuristic pen_multiplier×var).
+    """
+    import ruptures as rpt
+
+    var = float(np.var(signal))
+    if var <= 0:
+        raise ValueError("degenerate signal: zero variance")
+
+    algo = rpt.Pelt(model="rbf", min_size=min_size, jump=jump).fit(signal.reshape(-1, 1))
+
+    grid = np.geomspace(0.001, 10.0, n_grid) * var
+    best_cost_for_nbkps: dict[int, float] = {}
+    pen_for_nbkps: dict[int, float] = {}
+    for pen in grid:
+        bkps = algo.predict(pen=float(pen))
+        n_bkps = len(bkps) - 1   # last element is always len(signal), not a real break
+        cost = algo.cost.sum_of_costs(bkps)
+        if n_bkps not in best_cost_for_nbkps or cost < best_cost_for_nbkps[n_bkps]:
+            best_cost_for_nbkps[n_bkps] = cost
+            pen_for_nbkps[n_bkps] = float(pen)
+
+    if len(best_cost_for_nbkps) < 3:
+        # Not enough spread across the grid to find a meaningful elbow —
+        # let the caller fall back to the heuristic.
+        raise ValueError("penalty sweep degenerate: <3 distinct segmentations")
+
+    pairs = sorted(best_cost_for_nbkps.items())   # ascending by n_bkps
+    xs = np.array([p[0] for p in pairs], dtype=float)
+    ys = np.array([p[1] for p in pairs], dtype=float)
+
+    x_norm = (xs - xs.min()) / (xs.max() - xs.min() + 1e-12)
+    y_norm = (ys - ys.min()) / (ys.max() - ys.min() + 1e-12)
+
+    p1 = np.array([x_norm[0], y_norm[0]])
+    p2 = np.array([x_norm[-1], y_norm[-1]])
+    line_vec = p2 - p1
+    line_len = float(np.linalg.norm(line_vec))
+    if line_len < 1e-12:
+        elbow_idx = 0
+    else:
+        line_unit = line_vec / line_len
+        pts = np.stack([x_norm, y_norm], axis=1) - p1
+        proj = np.outer(pts @ line_unit, line_unit)
+        dist = np.linalg.norm(pts - proj, axis=1)
+        elbow_idx = int(np.argmax(dist))
+
+    chosen_n_bkps = int(xs[elbow_idx])
+    return pen_for_nbkps[chosen_n_bkps], chosen_n_bkps
+
 
 def _insufficient(
     seg_start_idx: int,
