@@ -1021,7 +1021,8 @@ if __name__ == "__main__":
     import logging as _logging
 
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-    _logging.basicConfig(level=_logging.INFO, format="%(levelname)s %(message)s")
+    from src.utils.logging_setup import setup_logging
+    setup_logging()
 
     parser = argparse.ArgumentParser(description="Run LGBM Trend Predictor")
     parser.add_argument("--symbol", default="GOLDBEES", type=str, help="Symbol to predict")
