@@ -11,11 +11,17 @@ Symbols covered: MAFANG · HNGSNGBEES · MON100 · MASPTOP50 · MAHKTECH · MONQ
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
+from pathlib import Path
 
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
+
+_BACKTEST_CACHE_DIR = Path("output/.cache")
 
 INTL_ETFS = ["MAFANG", "HNGSNGBEES", "MON100", "MASPTOP50", "MAHKTECH", "MONQ50"]
 
@@ -256,6 +262,126 @@ def get_intl_etf_lgbm() -> str:
         return f"Error loading LightGBM data: {exc}"
 
 
+@tool
+def run_ou_regime_backtest(
+    symbol: str = "MON100",
+    confidence_threshold: float = 0.0,
+    pen_multiplier: float = 3.0,
+    c_buy_bps: float = 10.0,
+    c_sell_bps: float = 10.0,
+    burnin: int = 90,
+    notional: float = 1_000_000,
+    floor_exposure: float = 0.20,
+    refit_every: int = 5,
+) -> str:
+    """
+    Run the full PELT-aware OU regime backtest for an international ETF premium series.
+
+    Uses walk-forward PELT change-point detection + ADF stationarity gate +
+    Ornstein-Uhlenbeck ZJL optimal thresholds. Trades CHEAP (buy), EXPENSIVE (sell),
+    holds during NON_STATIONARY, STRUCTURAL_SHIFT, and LOW_CONFIDENCE periods.
+
+    4 market states reported: CHEAP · FAIR · EXPENSIVE · STRUCTURAL_SHIFT
+    Confidence gate: only trade when the regime confidence >= confidence_threshold.
+
+    Args:
+        symbol:               ETF symbol (MON100, MAFANG, HNGSNGBEES, MASPTOP50, MAHKTECH, MONQ50)
+        confidence_threshold: Only trade when confidence >= this value (0–100). 0 = no gate, 50–70 recommended.
+        pen_multiplier:       PELT penalty multiplier (default 3.0; lower = more breaks)
+        c_buy_bps:            Entry transaction cost in bps (default 10)
+        c_sell_bps:           Exit transaction cost in bps (default 10)
+        burnin:               Burn-in days before trading starts (default 90)
+        notional:             Notional in ₹ for P&L calculation (default 10,00,000)
+        floor_exposure:       Minimum exposure during TRANSITION events (default 0.20)
+        refit_every:          Refit PELT+ADF+OU every N days (1=daily/slow, 5=default, 10=fast)
+
+    Returns a text report with P&L, Sharpe, win rate, regime time breakdown, and chart path.
+
+    Examples:
+        run_ou_regime_backtest("MON100", confidence_threshold=50)
+        run_ou_regime_backtest("MAFANG", pen_multiplier=2.0, confidence_threshold=60)
+    """
+    import subprocess, sys
+
+    sym = symbol.upper()
+    root = Path(__file__).resolve().parents[2]
+    script = root / "src" / "scripts" / "market" / "ou_regime_backtest.py"
+
+    # ── Cache key: params + latest data date ──────────────────────────────────
+    # Invalidates automatically when new iNAV data arrives for this symbol.
+    max_date = "unknown"
+    try:
+        from src.db.pool import get_pool
+        row = get_pool().query_df(
+            f"SELECT max(toDate(snapshot_at)) AS d FROM market_data.inav_snapshots "
+            f"WHERE symbol = '{sym}' FINAL"
+        )
+        if not row.empty and row["d"].iloc[0] is not None:
+            max_date = str(row["d"].iloc[0])
+    except Exception:
+        pass  # no DB → skip cache
+
+    params_str = json.dumps({
+        "sym": sym, "conf": confidence_threshold, "pen": pen_multiplier,
+        "buy": c_buy_bps, "sell": c_sell_bps, "burnin": burnin,
+        "refit": refit_every, "floor": floor_exposure, "data_date": max_date,
+    }, sort_keys=True)
+    cache_key  = hashlib.sha1(params_str.encode()).hexdigest()[:12]
+    cache_file = _BACKTEST_CACHE_DIR / f"ou_backtest_{sym}_{cache_key}.txt"
+
+    if cache_file.exists():
+        cached = cache_file.read_text(encoding="utf-8")
+        logger.info("OU backtest cache hit for %s (key=%s)", sym, cache_key)
+        return f"[cached — data through {max_date}]\n\n{cached}"
+
+    # ── Run backtest subprocess ───────────────────────────────────────────────
+    try:
+        cmd = [
+            sys.executable, str(script),
+            "--symbol", sym,
+            "--confidence-threshold", str(confidence_threshold),
+            "--pen-multiplier", str(pen_multiplier),
+            "--c-buy", str(c_buy_bps),
+            "--c-sell", str(c_sell_bps),
+            "--burnin", str(int(burnin)),
+            "--notional", str(int(notional)),
+            "--floor-exposure", str(floor_exposure),
+            "--refit-every", str(int(refit_every)),
+            "--log-level", "WARNING",
+        ]
+        env = {**os.environ, "ALLOW_LOCAL_RUN": "1", "PYTHONPATH": str(root)}
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "unknown error").strip()[-1000:]
+            return f"OU backtest failed for {sym}: {err}"
+
+        output = proc.stdout.strip()
+        # Trim sensitivity runs and disclaimers to keep agent context lean
+        if "SENSITIVITY RUNS" in output:
+            output = output[:output.index("SENSITIVITY RUNS")].rstrip()
+        if "DISCLAIMERS" in output:
+            output = output[:output.index("DISCLAIMERS")].rstrip()
+
+        if not output:
+            return f"OU backtest completed for {sym} — no output captured."
+
+        # ── Persist to cache ──────────────────────────────────────────────────
+        try:
+            _BACKTEST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(output, encoding="utf-8")
+            logger.info("OU backtest cached for %s (key=%s, data=%s)", sym, cache_key, max_date)
+        except Exception:
+            pass  # cache write failure is non-fatal
+
+        return output
+
+    except subprocess.TimeoutExpired:
+        return f"OU backtest timed out for {sym} (>300 s). Try increasing refit_every to 10."
+    except Exception as exc:
+        return f"Error running OU backtest: {exc}"
+
+
 INTL_ETF_TOOLS = [
     get_intl_etf_performance,
     get_intl_etf_premium,
@@ -264,4 +390,5 @@ INTL_ETF_TOOLS = [
     get_intl_etf_correlation,
     get_intl_etf_drawdowns,
     get_intl_etf_lgbm,
+    run_ou_regime_backtest,
 ]

@@ -42,7 +42,8 @@ class OUState:
     """Fitted OU parameters for a single symbol."""
     theta: float          # mean-reversion speed (per day)
     mu: float             # long-term equilibrium premium (%)
-    sigma: float          # OU volatility (annualised if dt=1 day)
+    sigma: float          # OU diffusion coefficient
+    sigma_inf: float      # stationary std dev = sigma / sqrt(2*theta)
     half_life_days: float # ln(2) / theta
     n_obs: int            # number of observations used
     fit_r2: float         # R² of the AR(1) regression
@@ -119,10 +120,13 @@ def fit_ou(premiums: list[float] | np.ndarray, dt: float = 1.0) -> OUState | Non
     ss_tot = ((x_lead - x_lead.mean()) ** 2).sum()
     r2 = 1 - ss_res / ss_tot if ss_tot > 1e-15 else 0.0
 
+    sigma_inf = sigma / math.sqrt(2 * theta)
+
     return OUState(
         theta=round(theta, 6),
         mu=round(mu, 4),
         sigma=round(sigma, 6),
+        sigma_inf=round(sigma_inf, 4),
         half_life_days=round(half_life, 2),
         n_obs=n + 1,
         fit_r2=round(r2, 4),

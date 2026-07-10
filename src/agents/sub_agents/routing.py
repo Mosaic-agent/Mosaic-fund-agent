@@ -55,11 +55,14 @@ _INTL_ETF_RE = re.compile(
     r"|\b(?:mafang|hngsngbees|mon100|masptop50|mahktech|monq50)\b"
     r"|\bhang\s+seng(?:\s+etf)?|nasdaq\s+etf|s&p\s+500\s+etf|china\s+tech\s+etf"
     r"|\bscarcity\s+premium"
-    r"|intl\s+etf\s+(?:chart|pattern|regime|season|premium|performance|correlation|drawdown|lgbm|ml)"
+    r"|intl\s+etf\s+(?:chart|pattern|regime|season|premium|performance|correlation|drawdown|lgbm|ml|backtest)"
     r"|\boverseas\s+etf|foreign\s+etf"
-    r"|international\s+etf\s+(?:regime|season|drawdown|correlation|performance|premium|lgbm)"
+    r"|international\s+etf\s+(?:regime|season|drawdown|correlation|performance|premium|lgbm|backtest)"
     r"|plot_intl_etf_(?:performance|premium)"
-    r"|get_intl_etf_(?:performance|premium|data)",
+    r"|get_intl_etf_(?:performance|premium|data)"
+    r"|run_ou_regime_backtest"
+    r"|\bou\s+(?:backtest|regime\s+backtest|walk.?forward)"
+    r"|\bregime\s+backtest\b|\bpelt.*backtest\b|\bbacktest.*premium\b",
     re.I,
 )
 _MF_RE = re.compile(
