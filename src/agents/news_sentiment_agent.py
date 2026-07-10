@@ -260,7 +260,7 @@ class NewsSentimentAgent:
                 model=settings.llm_model,
                 api_key=settings.openrouter_api_key,
                 base_url="https://openrouter.ai/api/v1",
-                temperature=0.1,
+                temperature=0,
                 max_tokens=settings.llm_token_budget,
             )
 
@@ -275,7 +275,7 @@ class NewsSentimentAgent:
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
-                temperature=0.1,
+                temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_body={"options": {"num_ctx": settings.llm_context_window}},
             )
@@ -285,7 +285,7 @@ class NewsSentimentAgent:
             return ChatAnthropic(
                 model=settings.llm_model,
                 api_key=settings.anthropic_api_key,
-                temperature=0.1,
+                temperature=0,
                 max_tokens=settings.llm_token_budget,
                 extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
@@ -294,7 +294,7 @@ class NewsSentimentAgent:
         return ChatOpenAI(
             model=settings.llm_model,
             api_key=settings.openai_api_key,
-            temperature=0.1,
+            temperature=0,
             max_tokens=settings.llm_token_budget,
         )
 

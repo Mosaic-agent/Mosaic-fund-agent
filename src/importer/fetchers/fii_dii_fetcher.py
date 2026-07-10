@@ -57,16 +57,45 @@ logger = logging.getLogger(__name__)
 _SENSIBULL_DAILY   = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_daily"
 _SENSIBULL_MONTHLY = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_cash"
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
-    "Referer": "https://web.sensibull.com/",
-    "Origin": "https://web.sensibull.com",
-}
+import uuid
+import random
+import string
+
+def _get_sensibull_session() -> tuple[httpx.Client, dict[str, str]]:
+    """
+    Initialize an anonymous Sensibull Pluto session.
+    
+    Generates a unique x-device-id and random frt-ref, then calls Pluto
+    identify to establish the session. Returns the httpx.Client containing
+    session cookies and the headers dictionary.
+    """
+    device_id = str(uuid.uuid4())
+    frt_ref = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
+    
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://web.sensibull.com/",
+        "Origin": "https://web.sensibull.com",
+        "x-device-id": device_id,
+        "frt-ref": frt_ref,
+        "Accept": "application/json",
+    }
+    
+    client = httpx.Client(headers=headers, follow_redirects=True)
+    try:
+        r = client.get("https://oxide.sensibull.com/v1/pluto/auth/web/session/a/platform/identify", timeout=15)
+        r.raise_for_status()
+        token = client.cookies.get("access_token")
+        if token:
+            client.headers["X-Auth-Token"] = token
+    except Exception as exc:
+        logger.warning("Sensibull session initialization failed: %s", exc)
+        
+    return client, headers
 
 # Polite delay between paginated month requests
 _REQUEST_DELAY = 0.5
@@ -251,7 +280,8 @@ def fetch_fii_dii(from_date: date | None = None) -> list[dict]:
     all_rows: list[dict] = []
 
     try:
-        with httpx.Client(headers=_HEADERS, follow_redirects=True) as client:
+        client, headers = _get_sensibull_session()
+        try:
             if from_date is None:
                 # Current month only
                 all_rows = _fetch_month(client, year_month=None)
@@ -276,9 +306,11 @@ def fetch_fii_dii(from_date: date | None = None) -> list[dict]:
                         all_rows.extend(batch)
                         if i < len(needed) - 1:
                             time.sleep(_REQUEST_DELAY)
+        finally:
+            client.close()
 
     except Exception as exc:
-        logger.error("Sensibull FII/DII fetch failed with unrecoverable error: %s", exc)
+        logger.error("Sensibull FII/DII fetch failed: %s", exc)
         return []
 
     # Deduplicate by trade_date (last-seen wins), then filter and sort
@@ -315,15 +347,16 @@ def fetch_fii_dii_monthly() -> list[dict]:
         dii_buy_cr, dii_sell_cr, dii_net_cr, nifty_close, nifty_change_pct
     """
     try:
-        with httpx.Client(headers=_HEADERS, follow_redirects=True) as client:
+        client, _ = _get_sensibull_session()
+        try:
             resp = client.get(_SENSIBULL_MONTHLY, timeout=20)
             resp.raise_for_status()
             payload = resp.json()
+        finally:
+            client.close()
     except Exception as exc:
         logger.error("Sensibull monthly FII/DII fetch failed: %s", exc)
         return []
-
-    # Response is either {"data": {"YYYY-MM-DD": {...}}} or directly {"YYYY-MM-DD": {...}}
     raw = payload.get("data", payload)
     if not isinstance(raw, dict):
         logger.error("Unexpected monthly payload shape: %r", type(raw))
@@ -381,7 +414,8 @@ def fetch_fii_dii_fno(from_date: date | None = None) -> list[dict]:
     all_rows: list[dict] = []
 
     try:
-        with httpx.Client(headers=_HEADERS, follow_redirects=True) as client:
+        client, headers = _get_sensibull_session()
+        try:
             if from_date is None:
                 months = [None]  # type: ignore[list-item]
             else:
@@ -414,6 +448,8 @@ def fetch_fii_dii_fno(from_date: date | None = None) -> list[dict]:
 
                 if i < len(months) - 1:
                     time.sleep(_REQUEST_DELAY)
+        finally:
+            client.close()
 
     except Exception as exc:
         logger.error("Sensibull F&O fetch failed: %s", exc)

@@ -73,7 +73,7 @@ def _build_llm(context: Context) -> Any:
         from config.settings import settings
 
         is_resolver = context == "resolver"
-        temperature = 0 if is_resolver else 0.2
+        temperature = 0
         max_tokens = 20 if is_resolver else settings.llm_token_budget
 
         # Determine active provider, respecting llm_local_disabled for resolver
