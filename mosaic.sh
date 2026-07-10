@@ -35,10 +35,10 @@ if [[ $# -eq 0 ]]; then
         docker compose build studio 2>/dev/null
         docker compose up -d clickhouse qdrant ui files studio 2>/dev/null
     else
-        echo "Starting services (first run pulls gemma4 ~5-8 GB — grab a coffee)..."
-        docker compose build studio 2>/dev/null
-        docker compose up -d clickhouse qdrant ollama ui files studio 2>/dev/null
-        docker compose run --rm ollama-init 2>/dev/null || true   # no-op if already done
+        echo "Starting services (pulling local embedding models on first run — grab a coffee)..."
+        docker compose build studio
+        docker compose up -d clickhouse qdrant ollama ui files studio
+        docker compose run --rm ollama-init || true   # no-op if already done
     fi
     echo ""
     echo "  🖥️  UI (Data Hub):    http://localhost:8501

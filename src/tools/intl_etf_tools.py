@@ -275,7 +275,7 @@ def run_ou_regime_backtest(
     refit_every: int = 5,
 ) -> str:
     """
-    Run the full ETF Premium Strategy backtest (PELT regime detection + mean-reversion optimal switching) for an international ETF premium series.
+    Run the full ETF Premium Strategy / PELT-aware OU regime backtest for an international ETF premium series.
 
     Uses walk-forward PELT change-point detection + ADF stationarity gate +
     Ornstein-Uhlenbeck ZJL optimal thresholds. Trades CHEAP (buy), EXPENSIVE (sell),

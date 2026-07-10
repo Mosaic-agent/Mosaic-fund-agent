@@ -54,8 +54,9 @@ def _key_to_ord(key: str) -> tuple[int, int]:
 
 logger = logging.getLogger(__name__)
 
-_SENSIBULL_DAILY   = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_daily"
-_SENSIBULL_MONTHLY = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_cash"
+_SENSIBULL_DAILY    = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_daily"
+_SENSIBULL_MONTHLY  = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_cash"
+_SENSIBULL_IDENTIFY = "https://oxide.sensibull.com/v1/pluto/auth/web/session/a/platform/identify"
 
 _HEADERS = {
     "User-Agent": (
@@ -77,6 +78,21 @@ _REQUEST_DELAY = 0.5
 def _month_key(d: date) -> str:
     """Convert a date to Sensibull's year_month format: '2026-March'."""
     return f"{d.year}-{_MONTH_NAMES[d.month]}"
+
+
+def _establish_session(client: httpx.Client) -> None:
+    """
+    Sensibull now fronts oxide.sensibull.com with bot-protection that 403s
+    ("access denied") any request lacking a valid anon session cookie.
+    Hitting the platform "identify" endpoint first mints that cookie
+    (access_token/_cfuvid), which httpx's client-level cookie jar then
+    attaches to subsequent requests on the same client automatically.
+    """
+    try:
+        resp = client.get(_SENSIBULL_IDENTIFY, timeout=15)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("Sensibull session identify call failed: %s", exc)
 
 
 def _row_from_sensibull(trade_date: date, day_data: dict) -> dict | None:
@@ -252,6 +268,7 @@ def fetch_fii_dii(from_date: date | None = None) -> list[dict]:
 
     try:
         with httpx.Client(headers=_HEADERS, follow_redirects=True) as client:
+            _establish_session(client)
             if from_date is None:
                 # Current month only
                 all_rows = _fetch_month(client, year_month=None)
@@ -316,6 +333,7 @@ def fetch_fii_dii_monthly() -> list[dict]:
     """
     try:
         with httpx.Client(headers=_HEADERS, follow_redirects=True) as client:
+            _establish_session(client)
             resp = client.get(_SENSIBULL_MONTHLY, timeout=20)
             resp.raise_for_status()
             payload = resp.json()
@@ -382,6 +400,7 @@ def fetch_fii_dii_fno(from_date: date | None = None) -> list[dict]:
 
     try:
         with httpx.Client(headers=_HEADERS, follow_redirects=True) as client:
+            _establish_session(client)
             if from_date is None:
                 months = [None]  # type: ignore[list-item]
             else:

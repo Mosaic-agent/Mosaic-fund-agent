@@ -5833,7 +5833,7 @@ with tab_intl_etf:
     ) = st.tabs([
         "📊 Performance", "💰 Premium", "📐 OU Mean-Reversion", "🎯 Regimes",
         "🔗 Correlation", "📅 Seasonality", "🤖 LightGBM", "📉 Drawdowns",
-        "📈 ETF Premium Strategy",
+        "🔬 OU Regime Backtest",
     ])
 
     # ── Performance ───────────────────────────────────────────────────────────
@@ -6121,18 +6121,18 @@ with tab_intl_etf:
         else:
             st.info("No drawdown episodes > 10% found in the 3-year window.")
 
-    # ── ETF Premium Strategy ──────────────────────────────────────────────────
+    # ── OU Regime Backtest ────────────────────────────────────────────────────
     with _ie_ou_backtest:
         import subprocess as _sp_ou
         import sys as _sys_ou
         from pathlib import Path as _Path_ou
         from datetime import date as _date_ou
 
-        st.subheader("📈 ETF Premium Strategy")
+        st.subheader("🔬 OU Regime Backtest")
         st.caption(
             "Walk-forward backtest for any international ETF premium-to-iNAV using:  \n"
             "**PELT** change-point → **ADF/KPSS** stationarity gate → "
-            "**mean-reversion fit** → **ZJL optimal-stopping** thresholds (b\\*, s\\*)  \n"
+            "**OU fit** → **ZJL optimal-stopping** thresholds (b\\*, s\\*)  \n"
             "Premium P&L only — does **not** include the underlying index return."
         )
 
@@ -6190,9 +6190,9 @@ with tab_intl_etf:
                 "PYTHONPATH": str(_Path_ou(__file__).resolve().parents[2]),
             }
             _bt_status = st.empty()
-            _bt_status.info(f"Running Premium Strategy backtest for **{_bt_symbol}** ({_bt_start} → {_bt_end})… this may take 30–90 s.")
+            _bt_status.info(f"Running OU backtest for **{_bt_symbol}** ({_bt_start} → {_bt_end})… this may take 30–90 s.")
             try:
-                with st.spinner("PELT → ADF/KPSS → mean-reversion fit → ZJL per trading day…"):
+                with st.spinner("PELT → ADF/KPSS → OU fit → ZJL per trading day…"):
                     _bt_proc = _sp_ou.run(
                         _bt_cmd,
                         capture_output=True, text=True,
@@ -6208,64 +6208,21 @@ with tab_intl_etf:
                     if _bt_proc.stdout:
                         with st.expander("📋 Performance Report", expanded=True):
                             st.code(_bt_proc.stdout, language="text")
-                    # Show chart via Matplotlib (crisp, DPI-aware)
-                    if _bt_out.exists():
-                        import matplotlib
-                        matplotlib.use("Agg")
-                        import matplotlib.pyplot as _mpl_bt
-                        import matplotlib.image as _mpimg_bt
-                        _mpl_bt_fig, _mpl_bt_ax = _mpl_bt.subplots(figsize=(16, 14))
-                        _mpl_bt_ax.imshow(_mpimg_bt.imread(str(_bt_out)))
-                        _mpl_bt_ax.axis("off")
-                        _mpl_bt_fig.tight_layout(pad=0)
-                        st.pyplot(_mpl_bt_fig, use_container_width=True)
-                        _mpl_bt.close(_mpl_bt_fig)
+                    # Show interactive Plotly chart (HTML)
+                    _bt_html = _bt_out.with_suffix(".html")
+                    if _bt_html.exists():
+                        import streamlit.components.v1 as _components_bt
+                        _components_bt.html(_bt_html.read_text(encoding="utf-8"), height=1250, scrolling=False)
+                    elif _bt_out.exists():
+                        st.image(str(_bt_out), use_container_width=True)
                     else:
-                        _bt_html = _bt_out.with_suffix(".html")
-                        if _bt_html.exists():
-                            import streamlit.components.v1 as _components_bt
-                            _components_bt.html(_bt_html.read_text(encoding="utf-8"), height=1400, scrolling=False)
-                        else:
-                            st.warning("Chart not found in output/reports/.")
+                        st.warning("Chart HTML not found in output/reports/.")
             except _sp_ou.TimeoutExpired:
                 _bt_status.empty()
                 st.error("Timed out after 10 minutes. Try increasing 'Refit every N days' (e.g. 10) or shorten the date range.")
             except Exception as _bt_e:
                 _bt_status.empty()
                 st.error(f"Error: {_bt_e}")
-
-        # ── Saved results (shown without re-running) ──────────────────────────
-        _bt_reports_dir = _Path_ou(__file__).resolve().parents[2] / "output" / "reports"
-        _bt_saved_pngs = sorted(
-            _bt_reports_dir.glob("*_ou_regime_backtest.png"),
-            key=lambda _p: _p.stat().st_mtime, reverse=True,
-        )
-        if _bt_saved_pngs:
-            st.divider()
-            st.markdown("#### 📂 Previously Saved Results")
-            _bt_saved_opts = {
-                _p.name.replace("_ou_regime_backtest.png", ""): _p
-                for _p in _bt_saved_pngs
-            }
-            _bt_sel = st.selectbox(
-                "Select symbol",
-                options=list(_bt_saved_opts.keys()),
-                key="bt_saved_pick",
-            )
-            _bt_sel_path = _bt_saved_opts[_bt_sel]
-            import datetime as _dt_bt
-            _bt_mtime = _dt_bt.datetime.fromtimestamp(_bt_sel_path.stat().st_mtime)
-            st.caption(f"Last run: **{_bt_mtime:%Y-%m-%d %H:%M}**  ·  `{_bt_sel_path.name}`")
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as _mpl_bt_sv
-            import matplotlib.image as _mpimg_bt_sv
-            _fig_bt_sv, _ax_bt_sv = _mpl_bt_sv.subplots(figsize=(16, 14))
-            _ax_bt_sv.imshow(_mpimg_bt_sv.imread(str(_bt_sel_path)))
-            _ax_bt_sv.axis("off")
-            _fig_bt_sv.tight_layout(pad=0)
-            st.pyplot(_fig_bt_sv, use_container_width=True)
-            _mpl_bt_sv.close(_fig_bt_sv)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -6304,7 +6261,7 @@ with tab_workflows:
         "📈 Indian Equity",
         "🏦 MF Consensus",
         "💼 Portfolio Analysis",
-        "📈 ETF Premium Strategy",
+        "📉 OU Regime Backtest",
     ])
 
     # ── Workflow 1: Autonomous Research ───────────────────────────────────────
@@ -6415,18 +6372,18 @@ with tab_workflows:
             except Exception as _e:
                 st.error(f"Workflow failed: {_e}")
 
-    # ── Workflow 5: ETF Premium Strategy ──────────────────────────────────────
+    # ── Workflow 5: OU Regime Backtest ─────────────────────────────────────────
     with wf_ou_tab:
         import subprocess as _sp
         import sys as _sys
         from pathlib import Path as _Path
         from datetime import date as _date
 
-        st.subheader("📈 ETF Premium Strategy")
+        st.subheader("📉 OU Regime Backtest")
         st.caption(
             "Walk-forward backtest for international ETF premium-to-iNAV using:  \n"
             "**PELT** change-point detection → **ADF/KPSS** stationarity gate → "
-            "**mean-reversion fit** → **ZJL optimal-stopping** thresholds (b\\*, s\\*)  \n"
+            "**OU fit** → **ZJL optimal-stopping** thresholds (b\\*, s\\*)  \n"
             "Premium P&L only — does **not** include the underlying index return."
         )
 
@@ -6485,64 +6442,21 @@ with tab_workflows:
                     if _ou_proc.stdout:
                         with st.expander("📋 Performance Report", expanded=True):
                             st.code(_ou_proc.stdout, language="text")
-                    # Show chart via Matplotlib (crisp, DPI-aware)
-                    if _ou_out_path.exists():
-                        import matplotlib
-                        matplotlib.use("Agg")
-                        import matplotlib.pyplot as _mpl_ou
-                        import matplotlib.image as _mpimg_ou
-                        _mpl_ou_fig, _mpl_ou_ax = _mpl_ou.subplots(figsize=(16, 14))
-                        _mpl_ou_ax.imshow(_mpimg_ou.imread(str(_ou_out_path)))
-                        _mpl_ou_ax.axis("off")
-                        _mpl_ou_fig.tight_layout(pad=0)
-                        st.pyplot(_mpl_ou_fig, use_container_width=True)
-                        _mpl_ou.close(_mpl_ou_fig)
+                    # Interactive Plotly chart (HTML) — theme-adaptive
+                    _ou_html_path = _ou_out_path.with_suffix(".html")
+                    if _ou_html_path.exists():
+                        import streamlit.components.v1 as _components_wf
+                        _components_wf.html(_ou_html_path.read_text(encoding="utf-8"), height=1250, scrolling=False)
+                    elif _ou_out_path.exists():
+                        st.image(str(_ou_out_path), use_container_width=True)
                     else:
-                        _ou_html_path = _ou_out_path.with_suffix(".html")
-                        if _ou_html_path.exists():
-                            import streamlit.components.v1 as _components_wf
-                            _components_wf.html(_ou_html_path.read_text(encoding="utf-8"), height=1400, scrolling=False)
-                        else:
-                            st.warning("Chart not found — check output/reports/.")
+                        st.warning("Chart not found — check output/reports/.")
             except _sp.TimeoutExpired:
                 _ou_status.empty()
                 st.error("Timed out after 10 minutes. Try increasing 'Refit every N days' (e.g. 10) or shorten the date range.")
             except Exception as _e:
                 _ou_status.empty()
                 st.error(f"Error: {_e}")
-
-        # ── Saved results (shown without re-running) ──────────────────────────
-        _ou_reports_dir = _Path(__file__).resolve().parents[2] / "output" / "reports"
-        _ou_saved_pngs = sorted(
-            _ou_reports_dir.glob("*_ou_regime_backtest.png"),
-            key=lambda _p: _p.stat().st_mtime, reverse=True,
-        )
-        if _ou_saved_pngs:
-            st.divider()
-            st.markdown("#### 📂 Previously Saved Results")
-            _ou_saved_opts = {
-                _p.name.replace("_ou_regime_backtest.png", ""): _p
-                for _p in _ou_saved_pngs
-            }
-            _ou_sel = st.selectbox(
-                "Select symbol",
-                options=list(_ou_saved_opts.keys()),
-                key="ou_saved_pick",
-            )
-            _ou_sel_path = _ou_saved_opts[_ou_sel]
-            import datetime as _dt_ou_sv
-            _ou_mtime = _dt_ou_sv.datetime.fromtimestamp(_ou_sel_path.stat().st_mtime)
-            st.caption(f"Last run: **{_ou_mtime:%Y-%m-%d %H:%M}**  ·  `{_ou_sel_path.name}`")
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as _mpl_ou_sv
-            import matplotlib.image as _mpimg_ou_sv
-            _fig_ou_sv, _ax_ou_sv = _mpl_ou_sv.subplots(figsize=(16, 14))
-            _ax_ou_sv.imshow(_mpimg_ou_sv.imread(str(_ou_sel_path)))
-            _ax_ou_sv.axis("off")
-            _fig_ou_sv.tight_layout(pad=0)
-            st.pyplot(_fig_ou_sv, use_container_width=True)
-            _mpl_ou_sv.close(_fig_ou_sv)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -260,7 +260,8 @@ def fetch_shoonya_ohlcv(
 
     rows: list[dict[str, Any]] = []
 
-    for nse_sym, _yahoo_sym in symbols:
+    for idx, (nse_sym, _yahoo_sym) in enumerate(symbols, 1):
+        print(f"    [{idx}/{len(symbols)}] Fetching {nse_sym} via Shoonya...", flush=True)
         tradingsymbol = f"{nse_sym}-EQ"
         try:
             data = api.get_daily_price_series(
