@@ -26,11 +26,9 @@ from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE, CLICKHOUSE_FINAL_ALI
 
 TABLE_FORMAT_RULE = (
     "\n\nTABLE FORMATTING MANDATE (apply strictly):\n"
-    "When presenting structured data (allocations, consensus moves, flow metrics), ALWAYS use clean Markdown tables.\n"
-    "Specifically:\n"
-    "- Unified Macro Theme Allocations: Present exactly as a table with columns `Macro Theme | Combined Prev Weight | Combined Latest Weight | Net Flow Change`.\n"
-    "- High-Conviction Equity Cross-Ownership: Present exactly as a table with columns `Security Name | Funds Count | Combined Prev % | Combined Latest % | Net Change | Conviction Rating`.\n"
-    "Do NOT use bullet lists or prose for these datasets."
+    "When presenting structured data (allocations, consensus moves, flow metrics, fund history, holdings, etc.), ALWAYS use standard Markdown tables (using pipes `|` and hyphens `-`).\n"
+    "Never use any Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.) to construct borders or tables. Every table must begin and end with standard pipes (e.g. | Col 1 | Col 2 |).\n"
+    "Do NOT use bullet lists or raw pre-formatted blocks for datasets with multiple columns."
 )
 
 logger = logging.getLogger(__name__)

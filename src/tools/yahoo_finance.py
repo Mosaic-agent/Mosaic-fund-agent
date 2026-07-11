@@ -374,6 +374,145 @@ def get_yahoo_stock_news(input_str: str) -> dict[str, Any]:
     }
 
 
+
+
+
+# ── SEBI 2024 cap classification thresholds (INR Crore) ───────────────────────
+# Source: SEBI circular SEBI/HO/IMD/DF3/CIR/P/2017/114 + AMFI 2024 ranking list.
+_LARGE_CAP_CR = 20_000   # ≥ ₹20,000 Cr  (approx. NSE rank 1–100)
+_MID_CAP_CR   =  5_000   # ₹5,000–19,999 (approx. NSE rank 101–250)
+_SMALL_CAP_CR =    500   # ₹500–4,999 Cr (approx. NSE rank 251–500)
+# below ₹500 Cr          = Micro Cap
+
+
+def _classify_indian(mc_crore: float) -> str:
+    """Return SEBI cap category for an Indian stock (INR Crore input)."""
+    if mc_crore <= 0:
+        return "Unknown"
+    if mc_crore >= _LARGE_CAP_CR:
+        return "Large Cap"
+    if mc_crore >= _MID_CAP_CR:
+        return "Mid Cap"
+    if mc_crore >= _SMALL_CAP_CR:
+        return "Small Cap"
+    return "Micro Cap"
+
+
+def _classify_us(mc_usd: float) -> str:
+    """Return cap category for a US-listed stock (USD raw input)."""
+    b = mc_usd / 1e9   # convert to USD billions
+    if b >= 200:
+        return "Mega Cap"
+    if b >= 10:
+        return "Large Cap"
+    if b >= 2:
+        return "Mid Cap"
+    if b >= 0.3:
+        return "Small Cap"
+    return "Micro Cap"
+
+
+@tool
+def get_market_cap_category(input_str: str) -> dict[str, Any]:
+    """
+    Classify a stock as Micro / Small / Mid / Large cap using Yahoo Finance.
+
+    Uses SEBI's official 2024 NSE ranking thresholds for Indian stocks:
+      • Large Cap  : Market cap ≥ ₹20,000 Cr  (approx. NSE rank 1–100)
+      • Mid Cap    : ₹5,000 Cr – ₹19,999 Cr   (approx. NSE rank 101–250)
+      • Small Cap  : ₹500 Cr  – ₹4,999 Cr     (approx. NSE rank 251–500)
+      • Micro Cap  : Market cap < ₹500 Cr      (below rank 500)
+
+    For US stocks (no .NS/.BO suffix), applies USD-based convention:
+      Mega-cap ≥ $200 B | Large $10–200 B | Mid $2–10 B | Small $0.3–2 B | Micro < $0.3 B
+
+    Input format
+    ------------
+    "SYMBOL"           → e.g. "RELIANCE", "TCS"   (defaults to NSE)
+    "SYMBOL:EXCHANGE"  → e.g. "RELIANCE:NSE", "RELIANCE:BSE", "AAPL:US"
+
+    Returns
+    -------
+    dict with keys:
+        symbol               – Yahoo Finance ticker used (e.g. "RELIANCE.NS")
+        market_cap_raw       – Raw market cap (INR or USD, as returned by Yahoo)
+        market_cap_crore     – Market cap in ₹ Crore (Indian stocks only)
+        market_cap_usd_bn    – Market cap in USD billions (US stocks only)
+        market_cap_formatted – Human-readable e.g. "₹2,30,456.78 Cr"
+        cap_category         – "Micro Cap" | "Small Cap" | "Mid Cap" | "Large Cap"
+                               (or "Mega Cap" for large US stocks)
+        classification_basis – The threshold set applied
+        exchange             – "NSE" | "BSE" | "US"
+        sector               – Sector from Yahoo Finance
+        industry             – Industry from Yahoo Finance
+    """
+    parts    = input_str.strip().split(":")
+    symbol   = parts[0].strip().upper()
+    exchange = parts[1].strip().upper() if len(parts) > 1 else "NSE"
+
+    time.sleep(0.3)   # be polite to Yahoo Finance
+
+    yf_symbol = _build_yf_symbol(symbol, exchange)
+    try:
+        info: dict[str, Any] = yf.Ticker(yf_symbol).info or {}
+    except Exception as exc:
+        logger.warning("get_market_cap_category: fetch failed for %s: %s", yf_symbol, exc)
+        return {
+            "symbol":       yf_symbol,
+            "error":        str(exc),
+            "cap_category": "Unknown",
+            "exchange":     exchange,
+        }
+
+    mc_raw = _safe_float(info.get("marketCap"))
+    if mc_raw <= 0:
+        return {
+            "symbol":       yf_symbol,
+            "market_cap_raw": 0,
+            "cap_category": "Unknown",
+            "exchange":     exchange,
+            "error":        "Market cap not available from Yahoo Finance",
+        }
+
+    is_indian = (
+        exchange.upper() in ("NSE", "BSE")
+        or yf_symbol.endswith((".NS", ".BO"))
+    )
+
+    if is_indian:
+        mc_crore  = mc_raw / 1e7
+        category  = _classify_indian(mc_crore)
+        formatted = f"₹{mc_crore:,.2f} Cr"
+        basis     = "SEBI 2024: Large≥₹20k Cr | Mid ₹5k–20k | Small ₹500–5k | Micro<₹500 Cr"
+        return {
+            "symbol":               yf_symbol,
+            "market_cap_raw":       mc_raw,
+            "market_cap_crore":     round(mc_crore, 2),
+            "market_cap_formatted": formatted,
+            "cap_category":         category,
+            "classification_basis": basis,
+            "exchange":             exchange,
+            "sector":               info.get("sector", ""),
+            "industry":             info.get("industry", ""),
+        }
+    else:
+        b         = mc_raw / 1e9
+        category  = _classify_us(mc_raw)
+        formatted = f"${b:,.2f} B"
+        basis     = "US convention: Mega≥$200B | Large $10–200B | Mid $2–10B | Small $0.3–2B | Micro<$0.3B"
+        return {
+            "symbol":               yf_symbol,
+            "market_cap_raw":       mc_raw,
+            "market_cap_usd_bn":    round(b, 2),
+            "market_cap_formatted": formatted,
+            "cap_category":         category,
+            "classification_basis": basis,
+            "exchange":             exchange,
+            "sector":               info.get("sector", ""),
+            "industry":             info.get("industry", ""),
+        }
+
+
 # Convenience list of Yahoo Finance tools
-YAHOO_TOOLS = [get_yahoo_finance_data, get_price_momentum]
+YAHOO_TOOLS = [get_yahoo_finance_data, get_price_momentum, get_market_cap_category]
 YAHOO_NEWS_TOOLS = [get_yahoo_stock_news]
