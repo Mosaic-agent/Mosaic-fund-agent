@@ -15,6 +15,7 @@ Supported AMC keys
     "dsp"         DSP Mutual Fund   — monthly ZIP files (2022 → present)
     "icici"       ICICI Prudential MF — Morningstar API snapshot
     "icici-index" ICICI Prudential index constituents — Azure Blob
+    "bajaj"       Bajaj Finserv AMC — monthly + fortnightly XLSX via AJAX
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Valid values for the `amc` argument — mirrors factory.REGISTRY keys.
-AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "quant"})
+AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant"})
 
 
 def fetch_amc_holdings(
@@ -52,7 +53,7 @@ def fetch_amc_holdings(
     from src.scripts.fund_imports.factory import create_importer
 
     kwargs: dict = {}
-    if amc in ("nippon", "dsp", "quant"):
+    if amc in ("nippon", "dsp", "bajaj", "quant"):
         kwargs["full_reimport"] = full_reimport
 
     logger.info("fetch_amc_holdings: %s full=%s dry=%s", amc, full_reimport, dry_run)

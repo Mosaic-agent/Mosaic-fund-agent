@@ -250,10 +250,10 @@ MF_SCHEME_CODES: dict[str, str] = {
 #   DSP_*   → src/scripts/dsp/import_all_dsp_equity.py + import_latest_dsp.py
 #   ICICI_* → src/scripts/fund_imports/importers/icici_mf.py  (IciciMFImporter)
 #   NIPPON_*/RELIANCE_*/NIMF_* → src/scripts/fund_imports/importers/nippon.py
+#   BAJAJ_* → src/scripts/fund_imports/importers/bajaj.py (BajajImporter)
 # Each entry: (amfi_scheme_code, short_name, isin_growth)
 MF_HOLDINGS_WATCHLIST: list[tuple[str, str, str]] = [
     ("120821", "QUANT_MULTI_ASSET", "INF966L01580"),
-    ("152639", "BAJAJ_MULTI_ASSET", "INF0QA701821"),
     ("119843", "SBI_MULTI_ASSET", "INF200K01TZ3"),
     ("152064", "KOTAK_MULTI_ASSET", "INF174KA1PD4"),
     ("120334", "ICICI_MULTI_ASSET", "INF109K015K4"),
@@ -290,7 +290,7 @@ ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + [
     # Macro fundamentals (annual, free public APIs — no auth required)
     "world_bank", "imf_weo", "tijori_macro", "tijori_macro_indicators",
     # AMC fund-holdings importers (factory pattern in src/scripts/fund_imports/)
-    "icici", "nippon", "icici-index", "dsp", "quant",
+    "icici", "nippon", "icici-index", "dsp", "bajaj", "quant",
 ]
 
 
