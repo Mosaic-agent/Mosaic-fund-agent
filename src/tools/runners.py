@@ -105,6 +105,24 @@ def run_nippon_importer(full: bool = False) -> str:
 
 
 @tool
+def run_quant_importer(full: bool = False) -> str:
+    """
+    Import Quant Mutual Fund portfolio holdings into ClickHouse.
+
+    Default (full=False): delta sync — imports only the latest month not yet
+    in the database (fast). Use this for "import Quant holdings",
+    "refresh Quant data", "import Quant May holdings", etc.
+
+    Set full=True to re-import the entire history. Use only when asked to
+    "backfill", "re-import all Quant history", or "full Quant import".
+    """
+    args = ["src/main.py", "import", "--category", "quant"]
+    if full:
+        args.append("--full")
+    return _run_cmd_streaming(args)
+
+
+@tool
 def run_multi_asset_holdings_mom_yoy(
     fund: str = "",
     scheme_code: str = "",
@@ -360,10 +378,11 @@ def run_all_multi_asset_importers() -> str:
     for label, args in [
         ("DSP",    ["src/scripts/dsp/import_latest_dsp.py"]),
         ("Nippon", ["src/main.py", "import", "--category", "nippon"]),
+        ("Quant",  ["src/main.py", "import", "--category", "quant"]),
         ("ICICI",  ["src/scripts/fund_imports/run.py", "icici"]),
     ]:
         parts.append(f"=== {label} ===")
-        parts.append(_run_cmd(args))
+        parts.append(_run_cmd_streaming(args))
     return "\n".join(parts)
 
 
@@ -374,6 +393,7 @@ RUNNER_TOOLS = [
     run_etf_news_sentiment,
     run_dsp_multi_asset_importer,
     run_nippon_importer,
+    run_quant_importer,
     run_icici_importer,
     run_all_multi_asset_importers,
     run_multi_asset_holdings_mom_yoy,

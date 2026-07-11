@@ -290,7 +290,7 @@ ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + [
     # Macro fundamentals (annual, free public APIs — no auth required)
     "world_bank", "imf_weo", "tijori_macro", "tijori_macro_indicators",
     # AMC fund-holdings importers (factory pattern in src/scripts/fund_imports/)
-    "icici", "nippon", "icici-index", "dsp",
+    "icici", "nippon", "icici-index", "dsp", "quant",
 ]
 
 

@@ -77,31 +77,73 @@ def render_markdown_to_group(text: str) -> Group:
     Parse markdown text and return a Group of renderables where tables
     are beautifully formatted tables and the rest is standard markdown.
     """
-    # Split by blank lines to get paragraphs/blocks
-    blocks = re.split(r'\n\s*\n', text)
+    lines = text.split("\n")
     renderables: list[Any] = []
+    
+    in_table = False
+    table_lines: list[str] = []
+    text_lines: list[str] = []
+    
+    def flush_text():
+        if text_lines:
+            txt = "\n".join(text_lines).strip()
+            if txt:
+                # Check if it's a chart (contains chart tick or frame characters)
+                if any(c in txt for c in ("┤", "┼", "─", "└", "┐", "┘", "┌", "├", "┬", "┴", "╮", "╰", "╭")):
+                    from rich.text import Text as RichText
+                    chart_text = RichText.from_ansi(txt)
+                    chart_text.no_wrap = True
+                    renderables.append(chart_text)
+                else:
+                    renderables.append(Markdown(txt))
+            text_lines.clear()
 
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
-
-        # 1. Check if it's a table
-        if block.startswith("|"):
-            table = parse_markdown_table(block)
+    def flush_table():
+        if table_lines:
+            tbl_txt = "\n".join(table_lines)
+            table = parse_markdown_table(tbl_txt)
             if table:
                 renderables.append(table)
-                continue
+            else:
+                # If parsing failed, render it as normal markdown text
+                text_lines.extend(table_lines)
+                flush_text()
+            table_lines.clear()
 
-        # 2. Check if it's a chart (contains chart tick or frame characters)
-        if "┤" in block or ("┌" in block and "└" in block):
-            from rich.text import Text as RichText
-            chart_text = RichText.from_ansi(block)
-            chart_text.no_wrap = True
-            renderables.append(chart_text)
-            continue
-
-        # 3. Default to Markdown
-        renderables.append(Markdown(block))
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # A markdown table row must have '|'
+        is_table_row = "|" in line
+        
+        # Check if we can start a table
+        # We need a header row with '|' and the next row must be a separator row (e.g. |---|)
+        if not in_table and is_table_row and (i + 1 < len(lines)):
+            next_stripped = lines[i+1].strip()
+            # Split and clean next row
+            if next_stripped.startswith("|") or next_stripped.endswith("|") or "|" in next_stripped:
+                cells = [c.strip() for c in next_stripped.strip("|").split("|")]
+                if cells and all(re.match(r"^:?-+:?$", c) for c in cells):
+                    # Found a table start!
+                    flush_text()
+                    in_table = True
+        
+        if in_table:
+            if is_table_row:
+                table_lines.append(line)
+            else:
+                # End of table
+                flush_table()
+                in_table = False
+                text_lines.append(line)
+        else:
+            text_lines.append(line)
+        i += 1
+        
+    flush_table()
+    flush_text()
 
     return Group(*renderables)
+
