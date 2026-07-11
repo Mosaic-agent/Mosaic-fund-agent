@@ -49,6 +49,8 @@ _AT_AGENT_MAP: dict[str, str] = {
     "deepdive":  "deepdive",
     "deep":      "deepdive",
     "research":  "research",
+    "mf":        "mf",
+    "mutual_fund": "mf",
     "main":      "main",
 }
 
@@ -208,7 +210,7 @@ _INTENT_STEPS: dict[str, list] = {
 # ── AI planner ────────────────────────────────────────────────────────────────
 
 _VALID_AGENTS = frozenset(
-    ["signal", "macro", "news", "equity", "database", "code", "deepdive", "research", "main"]
+    ["signal", "macro", "news", "equity", "database", "code", "deepdive", "research", "main", "mf", "intl_etf"]
 )
 
 try:
@@ -814,7 +816,7 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
                     f"(e.g. `import_symbol_data(symbol='...', start_date='{start_date}', end_date='{end_date}')` "
                     f"and `plot_price_chart('...', start_date='{start_date}', end_date='{end_date}')`).\n"
                 )
-            raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+            raw = _get_message_text(llm.invoke([HumanMessage(content=prompt)]).content).strip()
 
             # Parse AGENT line — honour lock if set
             ai_intent = regex_intent
@@ -1178,6 +1180,20 @@ def _is_numeric_choice_prompt(answer: str) -> bool:
     return False
 
 
+def _get_message_text(content: Any) -> str:
+    """Extract string content from LangChain message content, which could be a list of blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        return "\n".join(texts)
+    return str(content) if content else ""
+
+
 def _get_suggestions(question: str, answer: str, intent: str) -> list[str]:
     """
     Generate 3 contextual follow-up prompt suggestions via the LLM.
@@ -1194,7 +1210,7 @@ def _get_suggestions(question: str, answer: str, intent: str) -> list[str]:
             question=question[:200],
             answer_summary=answer_summary,
         )
-        raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+        raw = _get_message_text(llm.invoke([HumanMessage(content=prompt)]).content).strip()
         suggestions = [
             ln.strip().lstrip("•-–—123456789.)> ").strip()
             for ln in raw.splitlines()
@@ -1294,6 +1310,13 @@ PROMPT_LIBRARY: dict[str, list[tuple[str, str]]] = {
         ("watermarks",                                   "Check last import date per source / symbol"),
         ("refresh data",                                 "Alias for import today's data"),
     ],
+    "mf": [
+        ("what pattern do you see across multi asset funds", "Cross-fund holdings consensus (adds, trims, and rotation)"),
+        ("show consensus adds and trims for multi asset",    "Top conviction holdings of institutional multi-asset funds"),
+        ("DSP fund holdings for infosys",                    "Institutional ownership breakdown for a specific stock"),
+        ("scheme MoM NAV returns for scheme 152056",          "NAV performance metrics for a specific mutual fund"),
+        ("run multi asset consensus --period yoy",           "YoY cross-fund holdings consensus"),
+    ],
 }
 
 _CATEGORY_ALIASES = {
@@ -1307,6 +1330,7 @@ _CATEGORY_ALIASES = {
     "sql": "database", "db": "database", "clickhouse": "database",
     "scripts": "code", "python": "code",
     "sync": "import", "refresh": "import", "data": "import",
+    "mutual_fund": "mf", "mutualfund": "mf", "funds": "mf", "fund": "mf",
 }
 
 
@@ -1334,8 +1358,9 @@ def _show_prompts(console: "Console", category: str = "") -> None:
     console.print(
         "[dim]  Usage: type the prompt above, or type [bold]/prompts signal[/bold] "
         "to filter by category.[/dim]\n"
-        "[dim]  Categories: signal · ml · equity · macro · intl_etf · database · chart · code[/dim]\n"
+        "[dim]  Categories: signal · ml · equity · macro · intl_etf · database · chart · code · mf · import[/dim]\n"
     )
+
 
 
 def _starter_suggestions(n: int = 3) -> list[str]:
@@ -1483,7 +1508,7 @@ Type your question, or use a slash command:
   [cyan]/analyze [--max N][/cyan]   — full Zerodha portfolio analysis
   [cyan]/signals[/cyan]             — ETF composite signal dashboard
   [cyan]/ml[/cyan]                  — ML model status + live prediction
-  [cyan]/prompts [category][/cyan]  — browse prompt library (signal·ml·equity·macro·intl_etf·chart·code·database·import)
+  [cyan]/prompts [category][/cyan]  — browse prompt library (signal·ml·equity·macro·intl_etf·chart·code·database·import·mf)
   [cyan]/deepdive TICKER[/cyan]     — US stock SEC deep-dive (e.g. /deepdive ADSK)
   [cyan]/intraday SYMBOL[/cyan]     — real-time tick-by-tick signal monitor
   [cyan]/macro[/cyan]              — macro events + COMEX + FII/DII scan
@@ -2183,6 +2208,7 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                 "research":     "research agent",
                 "india_equity": "equity agent",
                 "main":         "main agent",
+                "mf":           "mutual fund agent",
             }
             _agent_label = _LABEL_MAP.get(_intent, _intent)
             if _at_tag:
@@ -2197,9 +2223,9 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                 _model_back = _backend
 
             # @agent override is always locked — planner generates a plan but cannot change the agent.
-            # Regex routing for macro/deepdive/intl_etf/research is also locked.
+            # Regex routing for macro/deepdive/intl_etf/research/mf is also locked.
             from src.agents.sub_agents import _IMPORT_RE
-            _locked = bool(_at_intent) or _intent in ("macro", "deepdive", "intl_etf", "research") or (
+            _locked = bool(_at_intent) or _intent in ("macro", "deepdive", "intl_etf", "research", "mf") or (
                 _intent == "main" and bool(_IMPORT_RE.search(raw))
             )
             _ai_intent, _plan_text, _sql_hint = _build_ai_plan(raw, _intent, locked=_locked)
@@ -2218,6 +2244,8 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                     "research":     "research agent",
                     "india_equity": "equity agent",
                     "main":         "main agent",
+                    "mf":           "mutual fund agent",
+                    "intl_etf":     "intl ETF agent",
                 }.get(_intent, _intent)
 
             _ctx_size = settings.code_llm_context_window or settings.llm_context_window if _intent == "code" else settings.llm_context_window

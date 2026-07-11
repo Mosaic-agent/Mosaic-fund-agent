@@ -45,8 +45,11 @@ class MFSubAgent(_SubAgent):
         "| Ad-hoc holdings query                     | `query_clickhouse_db` on `mf_holdings FINAL`|\n"
         "| Import latest DSP holdings                | `run_dsp_multi_asset_importer`              |\n"
         "| Import latest Nippon holdings             | `run_nippon_importer`                       |\n"
+        "| Import latest Quant holdings              | `run_quant_importer`                        |\n"
         "| Import latest ICICI Pru holdings          | `run_icici_importer`                        |\n"
-        "| Import ALL multi-asset fund holdings      | `run_all_multi_asset_importers`             |\n\n"
+        "| Import ALL multi-asset fund holdings      | `run_all_multi_asset_importers`             |\n"
+        "| Retrieve breaking news for symbol/theme   | `get_stock_news`                            |\n"
+        "| Search ClickHouse database schemas/SQL    | `search_db_metadata`                        |\n\n"
         "## Routing rules\n"
         "- 'pattern across multi-asset funds', 'what are funds collectively buying', "
         "'smart money consensus' → `run_multi_asset_consensus`\n"
@@ -68,9 +71,10 @@ class MFSubAgent(_SubAgent):
         "- 'gold/silver/nuclear theme exposure across funds' → `run_whale_tracker`\n"
         "- 'list available funds', 'what funds have history' → "
         "`run_multi_asset_holdings_mom_yoy(list_funds=True)`\n"
-        "- 'import all multi asset funds', 'refresh all fund holdings', 'sync all AMC holdings' → `run_all_multi_asset_importers` (runs DSP + Nippon + ICICI)\n"
+        "- 'import all multi asset funds', 'refresh all fund holdings', 'sync all AMC holdings' → `run_all_multi_asset_importers` (runs DSP + Nippon + Quant + ICICI)\n"
         "- 'import / refresh DSP holdings' → `run_dsp_multi_asset_importer`\n"
         "- 'import / refresh Nippon holdings' → `run_nippon_importer`\n"
+        "- 'import / refresh Quant holdings' → `run_quant_importer`\n"
         "- 'import / refresh ICICI holdings', 'import ICICI Pru' → `run_icici_importer`\n\n"
         "### Nippon fund canonical names\n"
         "Use these exact strings in `fund=` parameters:\n"
@@ -80,10 +84,32 @@ class MFSubAgent(_SubAgent):
         "| Nippon India Multi Asset Omni FoF        | `NIPPON_INDIA_MULTI_ASSET_OMNI_FOF`        |\n"
         "Note: RLMF806 was renamed multiple times in history — the tool handles name variants "
         "automatically; always pass the canonical name above.\n\n"
+        "## Schema reference (authoritative — use these exact column names)\n"
+        "```\n"
+        "market_data.mf_holdings FINAL\n"
+        "  scheme_code     String     -- AMFI scheme code\n"
+        "  fund_name       String     -- e.g. DSP_MULTI_ASSET, BAJAJ_MULTI_ASSET\n"
+        "  as_of_month     Date       -- portfolio disclosure month (use for date filters)\n"
+        "  isin            String     -- security ISIN\n"
+        "  security_name   String     -- holding name  ← NOT 'holding_name' or 'name'\n"
+        "  asset_type      String     -- equity/gold/bond/cash  ← NOT 'asset_class'\n"
+        "  market_value_cr Float64    -- market value in ₹ crores\n"
+        "  pct_of_nav      Float64    -- weight as % of NAV  ← NOT 'weight_pct'\n"
+        "  imported_at     DateTime\n"
+        "\n"
+        "market_data.mf_nav FINAL\n"
+        "  symbol          String\n"
+        "  scheme_code     String\n"
+        "  nav_date        Date       -- date column  ← NOT 'date' or 'trade_date'\n"
+        "  nav             Float64\n"
+        "  imported_at     DateTime\n"
+        "```\n\n"
         "## Critical rules\n"
+        "- **Schema-first rule**: before writing ANY raw SQL against `mf_holdings` or `mf_nav`, \n"
+        "  call `describe_db_table('mf_holdings')` to confirm column names. Never guess.\n"
         "- The `mf_holdings` table uses columns `fund_name`, `pct_of_nav`, `market_value_cr` "
         "and `as_of_month` (Date). Always query with `FINAL` to deduplicate. NEVER use "
-        "`weight_pct` or `name` — those columns do not exist.\n"
+        "`weight_pct`, `holding_name`, `asset_class`, or `name` — those columns do not exist.\n"
         "- DSP active funds (DSP_SMALL_CAP, DSP_MID_CAP, DSP_FLEXI_CAP, DSP_MULTICAP, "
         "DSP_FOCUSED, DSP_VALUE, DSP_BUSINESS_CYCLE, DSP_QUANT, DSP_HEALTHCARE, etc.) "
         "carry meaningful manager-discretion signal. Passive funds (DSP_NIFTY_*_INDEX, "
@@ -103,12 +129,13 @@ class MFSubAgent(_SubAgent):
         "- NEVER compute returns or weighted averages in your head. All numeric work must "
         "come from tool output — your job is to narrate and synthesise.\n\n"
         "## Synthesis pattern\n"
-        "When the user asks an open-ended fund question, default to a two-step plan:\n"
+        "- **Present data in Markdown tables**: When reporting core holdings overlap, active shifts (adds/trims), or asset rotation, ALWAYS present the data in cleanly formatted markdown tables. Do not just write prose bullet points for structured data.\n"
+        "- Default to a two-step plan for open-ended queries:\n"
         "  1. Run `run_multi_asset_consensus()` to see the cross-fund regime first.\n"
         "  2. Drill into the specific fund with `run_multi_asset_holdings_mom_yoy` for "
         "the asked-about fund, then comment on whether its moves align with or diverge "
         "from the consensus.\n"
-        "Always end with a short 'What this signals' paragraph that connects the "
+        "- Always end with a short 'What this signals' paragraph that connects the "
         "position deltas to a directional view (e.g. risk-on rotation into gold, "
         "trimming cash, accumulating a single name across funds)."
     )
@@ -126,10 +153,12 @@ class MFSubAgent(_SubAgent):
             run_all_multi_asset_importers,
             query_clickhouse_db,
         )
+        from src.tools.db_tools import describe_db_table, list_db_tables, sample_db_table, search_db_metadata
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
         from src.tools.chart_tools import plot_fund_holdings_chart, plot_price_chart
         from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure
         from src.tools.report_publisher import publish_consolidated_pdf
+        from src.tools.news_search import get_stock_news
         return [
             run_multi_asset_holdings_mom_yoy,
             run_multi_asset_consensus,
@@ -147,6 +176,11 @@ class MFSubAgent(_SubAgent):
             plot_fund_holdings_chart,
             plot_price_chart,
             query_clickhouse_db,
+            describe_db_table,
+            list_db_tables,
+            sample_db_table,
+            search_db_metadata,
+            get_stock_news,
             publish_consolidated_pdf,
         ]
 

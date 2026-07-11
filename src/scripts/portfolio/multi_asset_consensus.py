@@ -62,7 +62,7 @@ MULTI_ASSET_FUNDS = [
     {"label": "DSP Multi Asset Omni",   "filter": "scheme_code = '154167'"},
     {"label": "Bajaj Multi Asset",      "filter": "scheme_code = '152639'"},
     {"label": "Quant Multi Asset",      "filter": "scheme_code = '120821'"},
-    {"label": "ICICI Multi Asset",      "filter": "fund_name = 'ICICI_MULTI_ASSET'"},
+    {"label": "ICICI Multi Asset",      "filter": "scheme_code = '120334'"},
 ]
 
 
@@ -115,16 +115,22 @@ def fund_snapshot(fund_filter: str, as_of_month: date,
 def fund_deltas(label: str, fund_filter: str, period: str,
                 asset: Optional[str]) -> pd.DataFrame:
     months = fund_month_list(fund_filter)
-    if len(months) < 2:
-        return pd.DataFrame()
+    if len(months) == 0:
+        return pd.DataFrame()  # no data at all — skip
 
     curr = months[-1]
+
+    if len(months) < 2:
+        return pd.DataFrame()  # Cannot compute delta shifts without at least two months of history
+
     if period == "mom":
         prev = months[-2]
     else:  # yoy
         if len(months) < 13:
-            return pd.DataFrame()  # not enough history
-        prev = months[-13]
+            # Fall back to oldest available month for pseudo-YoY
+            prev = months[0]
+        else:
+            prev = months[-13]
 
     curr_snap = fund_snapshot(fund_filter, curr, asset)
     prev_snap = fund_snapshot(fund_filter, prev, asset)
@@ -178,25 +184,29 @@ def _normalize_security_name(name: str) -> str:
 
 
 def cross_fund_consensus(period: str, asset: Optional[str],
-                         min_delta: float) -> tuple[pd.DataFrame, int, int]:
+                         min_delta: float) -> tuple[pd.DataFrame, int, int, int]:
     """
     Returns:
-        consensus_df : one row per security with aggregated metrics
-        n_funds_used : how many funds contributed at least one delta row
-        n_funds_skip : how many funds were skipped for insufficient history
+        consensus_df       : one row per security with aggregated metrics
+        n_funds_used       : how many funds contributed delta rows
+        n_funds_skip       : how many funds had no data at all
+        n_funds_baseline0  : how many funds contributed with prev=0 (single-month)
     """
     all_deltas: list[pd.DataFrame] = []
-    used = skipped = 0
+    used = skipped = baseline_zero = 0
     for f in MULTI_ASSET_FUNDS:
         df = fund_deltas(f["label"], f["filter"], period, asset)
         if df.empty:
             skipped += 1
             continue
+        # Detect single-month funds (prev_month is None)
+        if df["prev_month"].isnull().all():
+            baseline_zero += 1
         used += 1
         all_deltas.append(df)
 
     if not all_deltas:
-        return pd.DataFrame(), 0, skipped
+        return pd.DataFrame(), 0, skipped, baseline_zero
 
     combined = pd.concat(all_deltas, ignore_index=True)
     combined["security_key"] = combined["security_name"].map(_normalize_security_name)
@@ -218,7 +228,7 @@ def cross_fund_consensus(period: str, asset: Optional[str],
 
     grouped["net_funds"]      = grouped["n_funds_add"] - grouped["n_funds_trim"]
     grouped["consensus_size"] = grouped[["n_funds_add", "n_funds_trim"]].max(axis=1)
-    return grouped, used, skipped
+    return grouped, used, skipped, baseline_zero
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -233,15 +243,17 @@ def asset_class_rotation(period: str) -> pd.DataFrame:
     rows = []
     for f in MULTI_ASSET_FUNDS:
         months = fund_month_list(f["filter"])
-        if len(months) < 2:
+        if len(months) == 0:
             continue
         curr = months[-1]
+
+        if len(months) < 2:
+            continue
+
         if period == "mom":
             prev = months[-2]
         else:
-            if len(months) < 13:
-                continue
-            prev = months[-13]
+            prev = months[0] if len(months) < 13 else months[-13]
 
         pool = get_pool()
         df = pool.query_df(
@@ -270,6 +282,7 @@ def asset_class_rotation(period: str) -> pd.DataFrame:
                 "curr_pct": prow[curr_col],
                 "delta": prow[curr_col] - prow[prev_col],
             })
+
     if not rows:
         return pd.DataFrame()
 
@@ -283,6 +296,74 @@ def asset_class_rotation(period: str) -> pd.DataFrame:
     summary["net_funds"] = summary["n_funds_add"] - summary["n_funds_trim"]
     summary = summary.sort_values("net_funds", ascending=False)
     return summary
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Overlap Analysis & Rendering
+# ──────────────────────────────────────────────────────────────────────────
+
+def portfolio_overlap(asset: Optional[str] = None) -> pd.DataFrame:
+    """
+    Find common holdings across all 7 multi-asset funds in their latest snapshot.
+    Does not compute deltas, just shows absolute portfolio overlap.
+    """
+    all_snaps = []
+    for f in MULTI_ASSET_FUNDS:
+        months = fund_month_list(f["filter"])
+        if not months:
+            continue
+        curr = months[-1]
+        df = fund_snapshot(f["filter"], curr, asset)
+        if not df.empty:
+            df["fund_label"] = f["label"]
+            all_snaps.append(df)
+            
+    if not all_snaps:
+        return pd.DataFrame()
+        
+    combined = pd.concat(all_snaps, ignore_index=True)
+    combined["security_key"] = combined["security_name"].map(_normalize_security_name)
+    
+    grouped = combined.groupby("security_key").agg(
+        canonical_name=("security_name", lambda s: s.value_counts().idxmax()),
+        asset_type=("asset_type", lambda s: s.value_counts().idxmax() if len(s) else ""),
+        n_funds=("fund_label", "nunique"),
+        avg_pct=("pct_of_nav", "mean"),
+        total_mv_cr=("market_value_cr", "sum"),
+        funds_holding=("fund_label", lambda s: ", ".join(sorted(set(s)))),
+    ).reset_index(drop=True)
+    
+    grouped = grouped.sort_values(["n_funds", "avg_pct"], ascending=[False, False])
+    return grouped
+
+
+def render_portfolio_overlap(df: pd.DataFrame, top: int, min_funds: int) -> None:
+    if df.empty:
+        console.print("[yellow]No portfolio overlap data.[/yellow]")
+        return
+    flt = df[df["n_funds"] >= min_funds].head(top)
+    if flt.empty:
+        console.print(f"[dim]No overlap holdings at min_funds={min_funds}.[/dim]")
+        return
+        
+    t = Table(title=f"Portfolio Overlap (Core Holdings) — shared by ≥{min_funds} funds", box=box.ROUNDED, header_style="bold cyan")
+    t.add_column("Security", min_width=28, overflow="fold")
+    t.add_column("Asset", width=8)
+    t.add_column("# funds", justify="right", width=8)
+    t.add_column("Avg Weight", justify="right", width=10)
+    t.add_column("Total Value (Cr)", justify="right", width=15)
+    t.add_column("Funds holding", min_width=20, overflow="fold")
+    
+    for _, r in flt.iterrows():
+        t.add_row(
+            r["canonical_name"],
+            r["asset_type"] or "—",
+            str(int(r["n_funds"])),
+            f"{r['avg_pct']:.2f}%",
+            f"₹{r['total_mv_cr']:.1f}",
+            r["funds_holding"],
+        )
+    console.print(t)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -402,26 +483,44 @@ def main() -> int:
         border_style="cyan",
     ))
 
-    consensus, n_used, n_skipped = cross_fund_consensus(
+    # 1. Core Holdings Overlap (across all active funds)
+    overlap = portfolio_overlap(asset)
+    n_overlap_funds = 0
+    for f in MULTI_ASSET_FUNDS:
+        if fund_month_list(f["filter"]):
+            n_overlap_funds += 1
+            
+    console.print(f"[dim]Funds analysed for holdings overlap: {n_overlap_funds}[/dim]")
+    if not overlap.empty:
+        render_portfolio_overlap(overlap, args.top, args.min_funds)
+        console.print()
+
+    # 2. Consensus Shifts (Adds & Trims - delta analysis)
+    consensus, n_used, n_skipped, n_baseline0 = cross_fund_consensus(
         args.period, asset, args.min_delta
     )
-    console.print(
-        f"[dim]Funds analysed: {n_used}  ·  skipped (insufficient history): {n_skipped}[/dim]"
-    )
+    
+    # Auto-adjust min_funds if number of funds with history is smaller than min_funds
+    shift_min_funds = min(args.min_funds, max(1, n_used))
+    
+    status = f"[dim]Funds analysed for active shifts ({period_label}): {n_used}"
+    if n_skipped:
+        status += f"  ·  {n_skipped} skipped (no data)"
+    status += "[/dim]"
+    console.print(status)
 
-    if consensus.empty:
-        console.print("[red]No data — check that mf_holdings contains the multi-asset funds.[/red]")
-        return 1
-
-    console.print()
-    render_security_consensus(consensus, "add",  args.top, args.min_funds, period_label)
-    console.print()
-    render_security_consensus(consensus, "trim", args.top, args.min_funds, period_label)
+    if not consensus.empty:
+        render_security_consensus(consensus, "add",  args.top, shift_min_funds, period_label)
+        console.print()
+        render_security_consensus(consensus, "trim", args.top, shift_min_funds, period_label)
+    else:
+        console.print(f"[dim]No active shift consensus signals (insufficient multi-month history).[/dim]")
 
     if not args.no_rotation:
         console.print()
         rotation = asset_class_rotation(args.period)
-        render_asset_rotation(rotation, period_label)
+        if not rotation.empty:
+            render_asset_rotation(rotation, period_label)
 
     return 0
 

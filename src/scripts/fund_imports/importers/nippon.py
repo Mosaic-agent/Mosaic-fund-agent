@@ -208,8 +208,8 @@ def _normalise_fund_name(raw: str) -> str:
 class NipponImporter(BaseFundImporter):
     REQUEST_DELAY = 1.0
 
-    def __init__(self, from_year: int = 2017, full_reimport: bool = False) -> None:
-        super().__init__()
+    def __init__(self, from_year: int = 2017, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+        super().__init__(target_month=target_month, freshness_months=freshness_months)
         self._from_year = from_year
         self._full_reimport = full_reimport
 

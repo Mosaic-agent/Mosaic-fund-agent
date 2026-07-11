@@ -1588,6 +1588,8 @@ class ClickHouseImporter:
         full_reimport: bool = False, 
         dry_run: bool = False,
         data_source: str = "",
+        target_month: str = "",
+        freshness_months: int = 0,
     ) -> dict[str, Any]:
         """
         Execute the import logic (refactored from cli.py).
@@ -1607,6 +1609,8 @@ class ClickHouseImporter:
             clickhouse_database=self._database,
             clickhouse_user=self._username,
             clickhouse_password=self._password,
+            target_month=target_month,
+            freshness_months=freshness_months,
         )
         return {"status": "success", "categories": categories}
 

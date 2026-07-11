@@ -43,11 +43,13 @@ def _serialise(generations: list[Generation]) -> str:
     rows = []
     for g in generations:
         if isinstance(g, ChatGeneration):
+            tool_calls = getattr(g.message, "tool_calls", [])
             rows.append({
                 "type": "chat",
                 "text": g.text,
                 "message_type": g.message.__class__.__name__,
                 "message_content": g.message.content,
+                "tool_calls": tool_calls,
             })
         else:
             rows.append({"type": "generation", "text": g.text})
@@ -63,7 +65,10 @@ def _deserialise(data: str) -> list[Generation]:
         if r.get("type") == "chat":
             result.append(ChatGeneration(
                 text=r["text"],
-                message=AIMessage(content=r["message_content"]),
+                message=AIMessage(
+                    content=r["message_content"],
+                    tool_calls=r.get("tool_calls", []),
+                ),
             ))
         else:
             result.append(Generation(text=r["text"]))

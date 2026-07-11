@@ -128,11 +128,23 @@ def get_llm_recommendation(
             f"Never invent numbers. Do not output any markdown formatting (no bold/italics), just a plain text sentence."
         )
 
+        def _get_message_text(content) -> str:
+            if isinstance(content, list):
+                texts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            texts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        texts.append(block)
+                return "\n".join(texts)
+            return str(content) if content else ""
+
         res = llm.invoke([
             SystemMessage(content="You are a professional quantitative strategist for Indian ETF markets."),
             HumanMessage(content=prompt),
         ])
-        return str(res.content).strip()
+        return _get_message_text(res.content).strip()
     except Exception as exc:
         return f"Error generating recommendation: {exc}"
 

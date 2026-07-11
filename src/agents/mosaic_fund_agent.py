@@ -327,15 +327,27 @@ AGENT_SYSTEM_PROMPT = (
     "1. NEVER repeat your introductory welcome message ('Hello! I am the Mosaic-fund-agent...') once you have started using tools. "
     "2. If you have called tools, your final response MUST be a synthesis of the data returned by those tools (e.g. news headlines, financial metrics, sentiment). "
     "3. If multiple tools fail or return no data, state clearly what you tried and what was missing (e.g. 'I tried to fetch news but the service was unavailable').\n"
-    "When presenting structured data, weight shifts, signals, returns, or tabular results from any tool, "
-    "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points.\n\n"
+    "TABLE FORMATTING RULE (mandatory — always apply):\n"
+    "Use standard Markdown tables (using pipes `|` and hyphens `-`) whenever the response contains ANY of the following:\n"
+    "  - Multiple securities, ETFs, or funds with associated metrics (price, return, weight, score, etc.)\n"
+    "  - Signal outputs, regime labels, or ML predictions across symbols\n"
+    "  - FII/DII flows, NAV returns, or iNAV premium/discount data\n"
+    "  - MF holdings with pct_of_nav, market_value_cr, or asset allocations\n"
+    "  - Comparison of two or more values side by side (e.g. before/after, MoM delta)\n"
+    "  - Any tool result that returns rows of structured data\n"
+    "Never use any Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.) to draw tables or borders. Every table must begin and end with standard pipes (e.g. | Col 1 | Col 2 |). Never use bullet lists for data that has 2+ columns — use a table instead.\n\n"
     "NUMERIC COMPUTATION RULE (mandatory — never violate): "
     "NEVER compute, estimate, or derive any number (returns, ratios, averages, "
     "percentages, scores, sums, differences, CAGR, PE, Kelly fractions, etc.) "
     "inside your response. ALL numeric work MUST be performed by a tool call "
     "(Python, SQL, or a dedicated function). You may ONLY narrate or format "
     "numbers that were returned verbatim by a tool. If no tool has produced a "
-    "number, state that the data is unavailable — do NOT approximate."
+    "number, state that the data is unavailable — do NOT approximate.\n\n"
+    "CLICKHOUSE SYNTAX RULE (mandatory — never violate): "
+    "When writing ad-hoc SQL queries using `query_clickhouse_db`, every ReplacingMergeTree table MUST use the `FINAL` modifier. "
+    "If you declare an alias for the table, the alias MUST be declared BEFORE the `FINAL` modifier. "
+    "Example: `FROM market_data.mf_holdings AS h FINAL` or `FROM market_data.mf_holdings h FINAL`. "
+    "NEVER write `FROM market_data.mf_holdings FINAL AS h` or `FROM market_data.mf_holdings FINAL h`, as ClickHouse will raise a syntax error."
 )
 
 # Compact system prompt for low-context local models (≤ 4k tokens, e.g. gemma4).
@@ -344,7 +356,8 @@ AGENT_SYSTEM_PROMPT_COMPACT = (
     "You are Mosaic-fund-agent, a financial analyst for Indian equity markets (NSE/BSE). "
     "Answer concisely using your training knowledge. "
     "Use ₹ for Indian monetary values. Never invent figures. "
-    "NEVER compute any number yourself — only narrate numbers returned by tools."
+    "NEVER compute any number yourself — only narrate numbers returned by tools. "
+    "Always use Markdown tables for any structured data (signals, returns, holdings, flows)."
 )
 
 _CONN_TROUBLESHOOTING = (
@@ -672,11 +685,10 @@ class MosaicFundAgent:
         if self._checkpointer is not None:
             kwargs["checkpointer"] = self._checkpointer
 
-        # Attach context trimmer for local models to prevent token-overflow
-        if not settings.llm_local_disabled and settings.is_local_model:
-            from src.agents.sub_agents import _make_context_trimmer
-            kwargs["pre_model_hook"] = _make_context_trimmer(effective_window)
-            logger.info("MosaicFundAgent: context trimmer attached (window=%d tokens)", effective_window)
+        # Attach context trimmer to prevent token-overflow (for both local and cloud models)
+        from src.agents.sub_agents import _make_context_trimmer
+        kwargs["pre_model_hook"] = _make_context_trimmer(effective_window)
+        logger.info("MosaicFundAgent: context trimmer attached (window=%d tokens)", effective_window)
 
         return create_react_agent(**kwargs)
 

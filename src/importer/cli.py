@@ -111,6 +111,8 @@ def run_import(
     mf_holdings_month: Optional[date] = None,
     mf_holdings_months: int = 1,
     data_source: str = "",
+    target_month: str = "",
+    freshness_months: int = 0,
 ) -> None:
     """
     Run the historical data import for the specified categories.
@@ -728,12 +730,18 @@ def run_import(
 
 
     # ── AMC Fund-Holdings Importers ───────────────────────────────────────────
-    _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp") if c in categories]
+    _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp", "bajaj", "quant") if c in categories]
     if _amc_cats:
         from src.importer.fetchers.amc_holdings_fetcher import fetch_amc_holdings
 
         for _amc_cat in _amc_cats:
-            fetch_amc_holdings(_amc_cat, full_reimport=full_reimport, dry_run=dry_run)
+            fetch_amc_holdings(
+                _amc_cat,
+                full_reimport=full_reimport,
+                dry_run=dry_run,
+                target_month=target_month,
+                freshness_months=freshness_months,
+            )
 
     ch.close()
 

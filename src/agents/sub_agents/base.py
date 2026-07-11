@@ -22,7 +22,14 @@ from src.agents.sub_agents.infra import (
     _print_thinking_blocks,
     _wrap_tool_for_dedup,
 )
-from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE
+from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE, CLICKHOUSE_FINAL_ALIAS_RULE
+
+TABLE_FORMAT_RULE = (
+    "\n\nTABLE FORMATTING MANDATE (apply strictly):\n"
+    "When presenting structured data (allocations, consensus moves, flow metrics, fund history, holdings, etc.), ALWAYS use standard Markdown tables (using pipes `|` and hyphens `-`).\n"
+    "Never use any Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.) to construct borders or tables. Every table must begin and end with standard pipes (e.g. | Col 1 | Col 2 |).\n"
+    "Do NOT use bullet lists or raw pre-formatted blocks for datasets with multiple columns."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,18 +140,22 @@ class _SubAgent:
             from src.utils.caveman import get_caveman_prompt
             from config.settings import settings
 
-            pre_hook = None
-            if llm_override is None and settings.is_local_model:
-                pre_hook = _make_context_trimmer(settings.llm_context_window)
-                logger.info(
-                    "%s: context trimmer attached (window=%d tokens)",
-                    self.__class__.__name__, settings.llm_context_window,
-                )
+            # Always attach context trimmer using the appropriate context window size (local vs cloud)
+            window = (
+                settings.llm_cloud_context_window
+                if (llm_override is not None or not settings.is_local_model)
+                else settings.llm_context_window
+            )
+            pre_hook = _make_context_trimmer(window)
+            logger.info(
+                "%s: context trimmer attached (window=%d tokens)",
+                self.__class__.__name__, window,
+            )
 
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE,
+                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + CLICKHOUSE_FINAL_ALIAS_RULE,
                 pre_model_hook=pre_hook,
             )
             logger.info(
@@ -318,7 +329,7 @@ class _SubAgent:
                         # all collected tool data before writing the research note.
                         synth_llm = self._llm
                         try:
-                            if hasattr(synth_llm, "model") and "claude" in str(getattr(synth_llm, "model", "")).lower():
+                            if synth_llm.__class__.__name__ == "ChatAnthropic" and hasattr(synth_llm, "model") and "claude" in str(getattr(synth_llm, "model", "")).lower():
                                 synth_llm = synth_llm.bind(thinking={"type": "enabled", "budget_tokens": 8000})
                                 logger.info("%s: extended thinking enabled for synthesis", self.__class__.__name__)
                         except Exception:
@@ -326,7 +337,7 @@ class _SubAgent:
 
                         combined = "\n\n---\n\n".join(tool_sections[:10])
                         from src.utils.caveman import get_caveman_prompt
-                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + "\n\n" + (
+                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + CLICKHOUSE_FINAL_ALIAS_RULE + "\n\n" + (
                             "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
                             "- Write ONLY the sections for which you have actual tool output data.\n"
                             "- OMIT any section entirely if no tool data was collected for it.\n"
