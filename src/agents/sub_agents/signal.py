@@ -96,20 +96,31 @@ class SignalSubAgent(_SubAgent):
         Programmatic fallback for local models that cannot emit tool-call JSON.
 
         Routes by keyword detection:
-          anomaly/spike/drop/crash  → explain_price_anomalies + plot_price_chart
-          signal/pipeline/goldbees  → run_goldbees_pipeline
-          composite/scores/etf      → run_daily_signal_composite
+          similar/historical/precedent → find_similar_anomaly_events (Qdrant RAG)
+          anomaly/spike/drop/crash     → explain_price_anomalies + plot_price_chart
+          signal/pipeline/goldbees     → run_goldbees_pipeline
+          composite/scores/etf         → run_daily_signal_composite
         """
         import re as _re
         q = question.lower()
 
-        # ── Anomaly explanation path ──────────────────────────────────────────
-        if any(kw in q for kw in ("anomal", "spike", "crash", "drop", "outlier", "shock")):
-            # Extract symbol — default GOLDBEES for gold ETF queries
+        def _extract_symbol() -> str:
             symbol = "GOLDBEES"
             m = _re.search(r"\b([A-Z]{4,12}(?:BEES|ETF|GOLD|SILVER)?)\b", question.upper())
-            if m and m.group(1) not in ("OVER", "LAST", "DAYS", "SHOW", "FIND", "EXPLAIN", "ANALYSE", "ANALYZE"):
+            if m and m.group(1) not in ("OVER", "LAST", "DAYS", "SHOW", "FIND", "EXPLAIN", "ANALYSE", "ANALYZE", "LIKE", "THIS", "PAST", "SAME", "HAS", "HAD"):
                 symbol = m.group(1)
+            return symbol
+
+        # ── Historical precedent path (Qdrant RAG) ─────────────────────────────
+        if any(kw in q for kw in ("similar event", "similar anomal", "historical", "precedent", "looked like", "like this", "same regime", "past crash", "past flash", "happened last time")):
+            symbol = _extract_symbol()
+            logger.info("SignalSubAgent._fallback: historical precedent path — %s", symbol)
+            from src.tools.market.equity import find_similar_anomaly_events
+            return find_similar_anomaly_events.invoke({"symbol": symbol})
+
+        # ── Anomaly explanation path ──────────────────────────────────────────
+        if any(kw in q for kw in ("anomal", "spike", "crash", "drop", "outlier", "shock")):
+            symbol = _extract_symbol()
 
             # Extract time window — supports "30 days", "3 months", "1 year"
             days = 30
@@ -169,6 +180,7 @@ class SignalSubAgent(_SubAgent):
 
         return (
             "Your configured LLM does not support tool-calling for this query. "
-            "Try: 'explain GOLDBEES anomalies', 'run goldbees pipeline', or 'composite ETF scores'. "
+            "Try: 'explain GOLDBEES anomalies', 'run goldbees pipeline', 'composite ETF scores', "
+            "or 'find similar historical events for GOLDBEES'. "
             "For full capability, set LLM_PROVIDER=openai or LLM_PROVIDER=anthropic in .env."
         )

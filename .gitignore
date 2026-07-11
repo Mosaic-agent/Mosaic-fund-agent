@@ -42,6 +42,7 @@ scratch/
 # Agent CLI configs
 .antigravitycli/
 .codex/
+.gemini/
 
 # Local cache data
 data/isin_ticker_cache.json

@@ -54,8 +54,8 @@ def _key_to_ord(key: str) -> tuple[int, int]:
 
 logger = logging.getLogger(__name__)
 
-_SENSIBULL_DAILY    = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_daily"
-_SENSIBULL_MONTHLY  = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_cash"
+_SENSIBULL_DAILY   = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_daily"
+_SENSIBULL_MONTHLY = "https://oxide.sensibull.com/v1/compute/cache/fii_dii_cash"
 _SENSIBULL_IDENTIFY = "https://oxide.sensibull.com/v1/pluto/auth/web/session/a/platform/identify"
 
 _HEADERS = {
