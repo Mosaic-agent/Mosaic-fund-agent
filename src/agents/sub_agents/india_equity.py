@@ -35,8 +35,15 @@ _HEAVY_KEYWORDS_RE = re.compile(
 )
 
 # (pattern, get_yahoo_finance_data() dict key, human label). Order matters —
-# more specific patterns (P/E, P/B) are checked before the generic price catch-all.
 _QUICK_STAT_FIELDS: list[tuple] = [
+    (re.compile(
+        r"\b(?:large|mid|small|micro)\s*cap\b|"
+        r"\bmarket\s*cap(?:itali[sz]ation)?\s*categor\w*\b|"
+        r"\bcap\s*(?:category|class|classification)\b|"
+        r"\bwhat\s+cap\b|\bwhich\s+cap\b|"
+        r"\bis\s+\w+\s+(?:a\s+)?(?:large|mid|small|micro)\s*cap\b",
+        re.I,
+    ), "cap_category", "Market cap category"),
     (re.compile(r"\bp\W?/?\W?e\s*ratio\b|\bprice.?to.?earnings\b", re.I), "pe_ratio", "P/E ratio"),
     (re.compile(r"\bp\W?/?\W?b\s*ratio\b|\bprice.?to.?book\b", re.I), "pb_ratio", "P/B ratio"),
     # Tolerates common typos ("dividiend", "yeild") — the LLM router already
@@ -75,11 +82,19 @@ def try_quick_stat_answer(question: str) -> str | None:
     if not symbol or info.get("error"):
         return None
 
-    from src.tools.yahoo_finance import get_yahoo_finance_data
+    from src.tools.yahoo_finance import get_yahoo_finance_data, get_market_cap_category
     exchange = info.get("exchange") or "NSE"
+
+    cap_data = None
+    if any(field == "cap_category" for field, _ in matched):
+        cap_data = get_market_cap_category.invoke({"input_str": f"{symbol}:{exchange}"})
+
     data = get_yahoo_finance_data.invoke({"input_str": f"{symbol}:{exchange}"})
-    if not data.get("current_price_inr"):
+    if not data.get("current_price_inr") and not cap_data:
         return None  # fetch failed — let the full agent retry with more tools
+
+    if cap_data:
+        data = {**data, **cap_data}
 
     lines = [f"**{info.get('company_name', symbol)} ({symbol}:{exchange})**"]
     for field, label in matched:

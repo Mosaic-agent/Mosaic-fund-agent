@@ -82,7 +82,7 @@ Same as default — `goldbees_report.py` is read-only (does not write to DB).
 
 ## Grounding (do NOT invent)
 
-When the tool returns a `display_report` field, show it **verbatim**. Do not invent:
+Let the LLM format the data and reports (e.g., into clean Markdown tables or structured panels) to ensure maximum readability and a premium layout. The LLM must still use the exact numbers returned by the tools verbatim (no self-calculations or metric inventions). Do not invent:
 - Composite scores like "69/100"
 - Macro/sentiment/flow sub-scores
 - "ACCUMULATE" / "STRONG BUY" labels — use `regime_signal` as-is (BUY / WATCH_LONG / HOLD / WATCH_SHORT / SELL)

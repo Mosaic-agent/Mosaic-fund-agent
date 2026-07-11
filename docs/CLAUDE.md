@@ -238,7 +238,7 @@ Never invent:
 - "ACCUMULATE" / "STRONG BUY" labels — use `regime_signal` as-is
 - The RG weight is NOT the recommendation — `weights.blended_50` is
 
-When a tool returns a `display_report` field, show it **verbatim** — do not reformat.
+Let the LLM format the data and reports (e.g., into clean Markdown tables or structured panels) to ensure maximum readability and a premium layout. The LLM must still use the exact numbers returned by the tools verbatim (no self-calculations or metric inventions), but it should design and format the presentation layout dynamically.
 
 ### Macro Scanner
 - Net scores are article-counts, not % return forecasts

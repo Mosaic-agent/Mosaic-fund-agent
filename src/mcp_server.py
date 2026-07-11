@@ -67,7 +67,7 @@ async def list_tools() -> list[Tool]:
                 "3. Blend with rule-based Risk Governor (vol-targeting + regime)\n"
                 "4. Save decision checkpoint to DB for later evaluation\n\n"
                 "Returns: probability up, expected return, Kelly weight, blended weight, regime.\n\n"
-                "IMPORTANT: Show the 'display_report' field verbatim to the user. "
+                "Let the LLM format the data and reports (e.g., into clean Markdown tables or structured panels) to ensure maximum readability and a premium layout. The LLM must still use the exact numbers returned verbatim (no self-calculations or metric inventions). "
                 "Do NOT invent composite scores, macro ratings, sentiment scores, or "
                 "any metric not present in the JSON response — this pipeline does not "
                 "produce them. The recommended weight is 'blended_50', not 'rg'."
@@ -310,7 +310,7 @@ async def _run_pipeline(save: bool = True, blend: float = 0.5) -> dict:
         "checkpoint_saved": save,
         "recommendation": _summarise(ml, blended_w, regime),
         "_display_instructions": (
-            "Show the 'display_report' field verbatim. "
+            "Let the LLM format the data and reports (e.g., into clean Markdown tables or structured panels) to ensure maximum readability and a premium layout. The LLM must still use the exact numbers returned verbatim (no self-calculations or metric inventions). "
             "Do NOT add scores, ratings, or metrics not present in this JSON. "
             "The pipeline has no composite score, macro score, or sentiment score."
         ),

@@ -97,6 +97,7 @@ def _synthesise_node(state: ConsensusState) -> dict:
             "2. Asset-class rotation direction (risk-on/risk-off signal)\n"
             "3. Notable fund-level divergences from the consensus\n"
             "4. 'What this signals' paragraph with a directional view\n"
+            "Present all structured data and lists of securities in standard Markdown tables (using pipes `|` and hyphens `-`). Never use any Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.) to draw tables or borders. Every table must begin and end with standard pipes (e.g. | Col 1 | Col 2 |).\n"
             "Never invent numbers — only narrate tool output." + SYNTH_SUFFIX
         )),
         HumanMessage(content=(

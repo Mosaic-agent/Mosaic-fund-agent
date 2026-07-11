@@ -185,8 +185,7 @@ metrics, scores, or analysis beyond what the tools return.
 - ❌ The RG weight (91%) is NOT the recommendation — blended_50 is
 
 ### Display rule:
-When a tool returns a `display_report` field, show it **verbatim** without modification.
-Do not reformat, reinterpret, or add to it.
+Let the LLM format the data and reports (e.g., into clean Markdown tables or structured panels) to ensure maximum readability and a premium layout. The LLM must still use the exact numbers returned by the tools verbatim (no self-calculations or metric inventions), but it should design and format the presentation layout dynamically.
 
 ## GOLDBEES Pipeline — Pre-baked Script (preferred)
 
