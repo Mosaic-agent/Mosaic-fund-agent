@@ -20,6 +20,8 @@ class ImportDataCommand(Command):
     full_reimport: bool = False
     dry_run: bool = False
     data_source: str = ""
+    target_month: str = ""
+    freshness_months: int = 0
     _snapshot: Optional[list[dict[str, Any]]] = field(default=None, repr=False)
 
     def execute(self) -> dict[str, Any]:
@@ -32,6 +34,8 @@ class ImportDataCommand(Command):
             full_reimport=self.full_reimport,
             dry_run=self.dry_run,
             data_source=self.data_source,
+            target_month=self.target_month,
+            freshness_months=self.freshness_months,
         )
 
     def undo(self) -> None:

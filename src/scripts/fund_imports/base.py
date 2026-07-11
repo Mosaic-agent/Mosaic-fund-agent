@@ -82,8 +82,55 @@ class BaseFundImporter(ABC):
 
     REQUEST_DELAY: float = 1.0  # seconds between HTTP requests; override per subclass
 
-    def __init__(self) -> None:
+    def __init__(self, target_month: date | None = None, freshness_months: int = 0) -> None:
         self._console = Console()
+        self._target_month = target_month
+        self._freshness_months = freshness_months
+
+    def source_month(self, source: Any) -> date | None:
+        """
+        Extract the month (as first-of-month date) from a source item.
+        Default handles string date at index 0, date object at index 0, etc.
+        Subclasses with custom source structures can override this.
+        """
+        if isinstance(source, (list, tuple)) and len(source) >= 1:
+            val = source[0]
+            if isinstance(val, date):
+                return val.replace(day=1)
+            elif isinstance(val, str):
+                try:
+                    from datetime import datetime
+                    return datetime.strptime(val, "%Y-%m-%d").date().replace(day=1)
+                except ValueError:
+                    pass
+        return None
+
+    def _apply_freshness(self, sources: list, client=None) -> list:
+        """
+        Keep only sources from the most recent N months.
+        This forces re-import of those months regardless of watermark.
+        """
+        if not sources:
+            return sources
+        dated_sources = []
+        for s in sources:
+            m = self.source_month(s)
+            if m is not None:
+                dated_sources.append((m, s))
+        if not dated_sources:
+            return sources
+        
+        # Sort distinct months in descending order to find the N-th most recent month
+        distinct_months = sorted(list({m for m, _ in dated_sources}), reverse=True)
+        keep_months = set(distinct_months[:self._freshness_months])
+        
+        filtered = [s for m, s in dated_sources if m in keep_months]
+        if filtered:
+            self._console.print(
+                f"[dim]Freshness delta: keeping {len(filtered)} source(s) from the "
+                f"{len(keep_months)} most recent month(s)[/dim]"
+            )
+        return filtered
 
     # ── Abstract interface ────────────────────────────────────────────────────
 
@@ -140,6 +187,17 @@ class BaseFundImporter(ABC):
         console = self._console
         sources = self.fetch_sources()
 
+        if self._target_month:
+            target_first = self._target_month.replace(day=1)
+            before = len(sources)
+            sources = [s for s in sources if self.source_month(s) == target_first]
+            console.print(
+                f"[dim]Month filter: {before} → {len(sources)} source(s) "
+                f"matching {target_first.strftime('%Y-%m')}[/dim]"
+            )
+        elif self._freshness_months > 0:
+            sources = self._apply_freshness(sources, None)
+
         if test:
             sources = sources[:1]
             console.print("[dim]Test mode: limited to first source.[/dim]")
@@ -148,7 +206,8 @@ class BaseFundImporter(ABC):
         if not dry_run:
             client = _ch_client()
             self.ensure_schema(client)
-            sources = self.filter_sources(sources, client)
+            if not (self._freshness_months > 0 and not self._target_month):
+                sources = self.filter_sources(sources, client)
 
         if not sources:
             console.print("[bold green]✓ Nothing to import — all up to date.[/bold green]")

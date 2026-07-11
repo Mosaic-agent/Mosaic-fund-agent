@@ -123,8 +123,8 @@ class QuantImporter(BaseFundImporter):
     Loads dynamic list of monthly Excel sheets from quantmutual.com.
     """
 
-    def __init__(self, full_reimport: bool = False) -> None:
-        super().__init__()
+    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+        super().__init__(target_month=target_month, freshness_months=freshness_months)
         self.full_reimport = full_reimport
 
     def fund_name(self) -> str:
@@ -164,35 +164,33 @@ class QuantImporter(BaseFundImporter):
             )
         }
         
-        # ID=1, CAT=3 is the standard Monthly Portfolio category in ASP.NET PageMethods
-        payload = {"id": "1", "cat": "3"}
-        
         sources: list[tuple[str, str]] = []
-        try:
-            resp = httpx.post(DISCLOSURES_URL, json=payload, headers=headers, timeout=20)
-            resp.raise_for_status()
-            data = resp.json()
-            html_content = data.get("d", "")
-            
-            if not html_content:
-                logger.warning("Empty HTML returned from Quant disclosures page")
-                return []
+        current_year = datetime.now().year
+        for year in range(2023, current_year + 1):
+            payload = {"id": str(year), "cat": "MONTHLY PORTFOLIO"}
+            try:
+                resp = httpx.post(DISCLOSURES_URL, json=payload, headers=headers, timeout=20)
+                resp.raise_for_status()
+                data = resp.json()
+                html_content = data.get("d", "")
                 
-            soup = BeautifulSoup(html_content, "html.parser")
-            for a_tag in soup.find_all("a"):
-                href = a_tag.get("href", "")
-                text = a_tag.get_text()
-                
-                if href.lower().endswith((".xlsx", ".xls")):
-                    # Full download URL
-                    url = href if href.startswith("http") else BASE_URL + href
-                    dt = _parse_month_year(text)
-                    if dt:
-                        sources.append((dt.strftime("%Y-%m-%d"), url))
-        except Exception as exc:
-            logger.error("Failed to fetch Quant disclosures monthly links: %s", exc)
-            self._console.print(f"[red]Error fetching Quant portfolio list: {exc}[/red]")
-            return []
+                if not html_content:
+                    continue
+                    
+                soup = BeautifulSoup(html_content, "html.parser")
+                for a_tag in soup.find_all("a"):
+                    href = a_tag.get("href", "")
+                    text = a_tag.get_text()
+                    
+                    if href.lower().endswith((".xlsx", ".xls")):
+                        # Full download URL
+                        url = href if href.startswith("http") else BASE_URL + href
+                        dt = _parse_month_year(text)
+                        if dt:
+                            sources.append((dt.strftime("%Y-%m-%d"), url))
+            except Exception as exc:
+                logger.error("Failed to fetch Quant disclosures for year %d: %s", year, exc)
+                self._console.print(f"[red]Error fetching Quant portfolio list for year {year}: {exc}[/red]")
             
         # Return sorted chronologically
         return sorted(sources, key=lambda x: x[0])

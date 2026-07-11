@@ -62,7 +62,7 @@ MULTI_ASSET_FUNDS = [
     {"label": "DSP Multi Asset Omni",   "filter": "scheme_code = '154167'"},
     {"label": "Bajaj Multi Asset",      "filter": "scheme_code = '152639'"},
     {"label": "Quant Multi Asset",      "filter": "scheme_code = '120821'"},
-    {"label": "ICICI Multi Asset",      "filter": "fund_name = 'ICICI_MULTI_ASSET'"},
+    {"label": "ICICI Multi Asset",      "filter": "scheme_code = '120334'"},
 ]
 
 

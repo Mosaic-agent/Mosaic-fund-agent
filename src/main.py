@@ -234,6 +234,51 @@ def ask(
 
 
 @app.command()
+def mf(
+    question: str = typer.Argument(..., help="Natural language question for the Mutual Fund sub-agent."),
+) -> None:
+    """
+    Ask the Mutual Fund sub-agent directly about holdings, NAV returns, or consensus.
+    """
+    _setup_logging()
+
+    if not _check_config():
+        raise typer.Exit(code=1)
+
+    from src.agents.sub_agents import run_subagent_for
+
+    console.print(f"\n[bold]Mutual Fund Agent Question:[/bold] {question}\n")
+
+    try:
+        answer = run_subagent_for("mf", question)
+        from src.utils.markdown_renderer import render_markdown_to_group
+        console.print(Panel(render_markdown_to_group(answer), title="[bold green]Mutual Fund Agent Response[/bold green]", border_style="green"))
+    except Exception as exc:
+        console.print(f"[bold red]✗ Error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+
+
+@app.command(name="report")
+def generate_report(
+    output: str = typer.Option("output/consolidated_report.pdf", "--output", "-o", help="Output PDF file path.")
+) -> None:
+    """
+    Generate a consolidated Multi-Asset allocation report with Qdrant RAG news context.
+    """
+    _setup_logging()
+    from src.workflows.consolidated_mf_report import build_consolidated_report
+    console.print("[bold cyan]Generating consolidated Multi-Asset report...[/bold cyan]")
+    try:
+        pdf_path = build_consolidated_report(output)
+        console.print(f"[bold green]✓ Report published successfully at: {pdf_path}[/bold green]")
+    except Exception as exc:
+        console.print(f"[bold red]✗ Error: {exc}[/bold red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+
 def chat(
     thread_id: str = typer.Option(
         None,
@@ -912,6 +957,17 @@ def import_data(
         "--source",
         help="Price source for stock/ETF imports: shoonya, nse, or yfinance.",
     ),
+    target_month: str = typer.Option(
+        "",
+        "--month",
+        "-m",
+        help="Specific month to import (format: YYYY-MM, e.g. 2026-06). AMC category only.",
+    ),
+    freshness_months: int = typer.Option(
+        0,
+        "--fresh",
+        help="Re-import the N most recent months even if already in DB. AMC category only.",
+    ),
 ) -> None:
     """
     Import historical market data (stocks, ETFs, MF NAV, commodities, indices)
@@ -928,6 +984,8 @@ def import_data(
       mosaic import --category mf            # only mutual fund NAV
       mosaic import --dry-run                # preview without writing
       mosaic import --full --lookback 365    # re-import last 1 year
+      mosaic import --category nippon --month 2026-06
+      mosaic import --category quant --fresh 3
     """
     _setup_logging()
 
@@ -960,14 +1018,24 @@ def import_data(
             "(valid for 24 hours from selection).[/dim]"
         )
 
+    panel_info = [
+        f"Categories: {', '.join(categories)}",
+        f"Lookback: {lookback_days}d",
+        "Full re-import" if full_reimport else "Delta sync",
+    ]
+    if data_source:
+        panel_info.append(f"Source: {data_source}")
+    if target_month:
+        panel_info.append(f"Month: {target_month}")
+    if freshness_months > 0:
+        panel_info.append(f"Fresh: {freshness_months} mo")
+    if dry_run:
+        panel_info.append("DRY RUN")
+
     console.print(
         Panel(
             f"[bold]📥 Historical Data Importer[/bold]\n"
-            f"[dim]Categories: {', '.join(categories)} · "
-            f"Lookback: {lookback_days}d · "
-            f"{'Full re-import' if full_reimport else 'Delta sync'}"
-            f"{f' · Source: {data_source}' if data_source else ''}"
-            f"{' · DRY RUN' if dry_run else ''}[/dim]",
+            f"[dim]{' · '.join(panel_info)}[/dim]",
             border_style="cyan",
         )
     )
@@ -981,6 +1049,8 @@ def import_data(
         full_reimport=full_reimport,
         dry_run=dry_run,
         data_source=data_source,
+        target_month=target_month,
+        freshness_months=freshness_months,
     )
     runner = CommandRunner()
     

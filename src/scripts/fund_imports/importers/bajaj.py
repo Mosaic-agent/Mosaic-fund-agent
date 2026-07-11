@@ -149,8 +149,8 @@ class BajajImporter(BaseFundImporter):
     REQUEST_DELAY = 1.0
     _DISCOVERY_DELAY = 0.3  # between the lightweight AJAX discovery calls
 
-    def __init__(self, full_reimport: bool = False) -> None:
-        super().__init__()
+    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+        super().__init__(target_month=target_month, freshness_months=freshness_months)
         self.full_reimport = full_reimport
         self._category_dates: dict[str, date] = {}
 
@@ -184,7 +184,7 @@ class BajajImporter(BaseFundImporter):
                     self._console.print(f"[yellow]Bajaj {category}: could not list years: {exc}[/yellow]")
                     continue
 
-                if not self.full_reimport:
+                if not self.full_reimport and not self._target_month and self._freshness_months == 0:
                     # Newest FY plus one fallback for the first weeks of a new
                     # financial year, when the current FY has no months yet.
                     years = years[:2]

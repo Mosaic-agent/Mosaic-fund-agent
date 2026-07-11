@@ -70,7 +70,7 @@ def run_etf_news_sentiment(max_articles: int = 3, save: bool = True) -> str:
 
 
 @tool
-def run_dsp_multi_asset_importer(full: bool = False) -> str:
+def run_dsp_multi_asset_importer(full: bool = False, month: str = "", fresh: int = 0) -> str:
     """
     Import DSP Mutual Fund portfolio holdings into ClickHouse.
 
@@ -78,16 +78,24 @@ def run_dsp_multi_asset_importer(full: bool = False) -> str:
     month from dspim.com (fast, ~5–10s). Use this for "import DSP holdings",
     "refresh DSP data", "import DSP May holdings", etc.
 
-    Set full=True to re-import the entire 32-month history. Use only when
+    Set full=True to re-import the entire history. Use only when
     asked to "backfill", "re-import all DSP history", or "full DSP import".
+
+    Set month to a specific month (YYYY-MM format) to import just that month.
+    Set fresh to N to re-import the N most recent months.
     """
+    args = ["src/main.py", "import", "--category", "dsp"]
     if full:
-        return _run_cmd(["src/scripts/dsp/import_all_dsp_equity.py"])
-    return _run_cmd(["src/scripts/dsp/import_latest_dsp.py"])
+        args.append("--full")
+    if month:
+        args.extend(["--month", month])
+    if fresh > 0:
+        args.extend(["--fresh", str(fresh)])
+    return _run_cmd_streaming(args)
 
 
 @tool
-def run_nippon_importer(full: bool = False) -> str:
+def run_nippon_importer(full: bool = False, month: str = "", fresh: int = 0) -> str:
     """
     Import Nippon India Mutual Fund portfolio holdings into ClickHouse.
 
@@ -97,15 +105,22 @@ def run_nippon_importer(full: bool = False) -> str:
 
     Set full=True to re-import the entire history. Use only when asked to
     "backfill", "re-import all Nippon history", or "full Nippon import".
+
+    Set month to a specific month (YYYY-MM format) to import just that month.
+    Set fresh to N to re-import the N most recent months.
     """
     args = ["src/main.py", "import", "--category", "nippon"]
     if full:
         args.append("--full")
+    if month:
+        args.extend(["--month", month])
+    if fresh > 0:
+        args.extend(["--fresh", str(fresh)])
     return _run_cmd_streaming(args)
 
 
 @tool
-def run_quant_importer(full: bool = False) -> str:
+def run_quant_importer(full: bool = False, month: str = "", fresh: int = 0) -> str:
     """
     Import Quant Mutual Fund portfolio holdings into ClickHouse.
 
@@ -115,10 +130,17 @@ def run_quant_importer(full: bool = False) -> str:
 
     Set full=True to re-import the entire history. Use only when asked to
     "backfill", "re-import all Quant history", or "full Quant import".
+
+    Set month to a specific month (YYYY-MM format) to import just that month.
+    Set fresh to N to re-import the N most recent months.
     """
     args = ["src/main.py", "import", "--category", "quant"]
     if full:
         args.append("--full")
+    if month:
+        args.extend(["--month", month])
+    if fresh > 0:
+        args.extend(["--fresh", str(fresh)])
     return _run_cmd_streaming(args)
 
 
@@ -346,7 +368,7 @@ def run_market_indicators() -> str:
 
 
 @tool
-def run_icici_importer(full: bool = False) -> str:
+def run_icici_importer(full: bool = False, month: str = "", fresh: int = 0) -> str:
     """
     Import ICICI Prudential Mutual Fund portfolio holdings into ClickHouse.
 
@@ -355,33 +377,47 @@ def run_icici_importer(full: bool = False) -> str:
     holdings", "refresh ICICI data", "import ICICI Pru holdings", etc.
 
     Set full=True only when asked to "re-import all ICICI history".
+
+    Set month to a specific month (YYYY-MM format) to import just that month.
+    Set fresh to N to re-import the N most recent months.
     """
-    args = ["src/scripts/fund_imports/run.py", "icici"]
+    args = ["src/main.py", "import", "--category", "icici"]
     if full:
         args.append("--full")
-    return _run_cmd(args)
+    if month:
+        args.extend(["--month", month])
+    if fresh > 0:
+        args.extend(["--fresh", str(fresh)])
+    return _run_cmd_streaming(args)
 
 
 @tool
-def run_all_multi_asset_importers() -> str:
+def run_all_multi_asset_importers(month: str = "", fresh: int = 0) -> str:
     """
     Import holdings for ALL tracked multi-asset funds in one shot.
 
-    Runs DSP, Nippon, and ICICI Prudential importers sequentially (delta
-    sync — only new months not already in ClickHouse). Use when the user
-    says "import all multi asset funds", "refresh all fund holdings",
+    Runs DSP, Nippon, Quant, and ICICI Prudential importers sequentially.
+    Use when the user says "import all multi asset funds", "refresh all fund holdings",
     "update all AMC holdings", "sync all multi asset", etc.
 
-    Returns a combined status report for all three importers.
+    Set month to a specific month (YYYY-MM format) to import just that month.
+    Set fresh to N to re-import the N most recent months.
+
+    Returns a combined status report for all four importers.
     """
     parts = []
-    for label, args in [
-        ("DSP",    ["src/scripts/dsp/import_latest_dsp.py"]),
-        ("Nippon", ["src/main.py", "import", "--category", "nippon"]),
-        ("Quant",  ["src/main.py", "import", "--category", "quant"]),
-        ("ICICI",  ["src/scripts/fund_imports/run.py", "icici"]),
+    for label, category in [
+        ("DSP",    "dsp"),
+        ("Nippon", "nippon"),
+        ("Quant",  "quant"),
+        ("ICICI",  "icici"),
     ]:
         parts.append(f"=== {label} ===")
+        args = ["src/main.py", "import", "--category", category]
+        if month:
+            args.extend(["--month", month])
+        if fresh > 0:
+            args.extend(["--fresh", str(fresh)])
         parts.append(_run_cmd_streaming(args))
     return "\n".join(parts)
 

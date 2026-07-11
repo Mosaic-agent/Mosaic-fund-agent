@@ -47,7 +47,9 @@ class MFSubAgent(_SubAgent):
         "| Import latest Nippon holdings             | `run_nippon_importer`                       |\n"
         "| Import latest Quant holdings              | `run_quant_importer`                        |\n"
         "| Import latest ICICI Pru holdings          | `run_icici_importer`                        |\n"
-        "| Import ALL multi-asset fund holdings      | `run_all_multi_asset_importers`             |\n\n"
+        "| Import ALL multi-asset fund holdings      | `run_all_multi_asset_importers`             |\n"
+        "| Retrieve breaking news for symbol/theme   | `get_stock_news`                            |\n"
+        "| Search ClickHouse database schemas/SQL    | `search_db_metadata`                        |\n\n"
         "## Routing rules\n"
         "- 'pattern across multi-asset funds', 'what are funds collectively buying', "
         "'smart money consensus' → `run_multi_asset_consensus`\n"
@@ -151,11 +153,12 @@ class MFSubAgent(_SubAgent):
             run_all_multi_asset_importers,
             query_clickhouse_db,
         )
-        from src.tools.db_tools import describe_db_table, list_db_tables, sample_db_table
+        from src.tools.db_tools import describe_db_table, list_db_tables, sample_db_table, search_db_metadata
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
         from src.tools.chart_tools import plot_fund_holdings_chart, plot_price_chart
         from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure
         from src.tools.report_publisher import publish_consolidated_pdf
+        from src.tools.news_search import get_stock_news
         return [
             run_multi_asset_holdings_mom_yoy,
             run_multi_asset_consensus,
@@ -176,6 +179,8 @@ class MFSubAgent(_SubAgent):
             describe_db_table,
             list_db_tables,
             sample_db_table,
+            search_db_metadata,
+            get_stock_news,
             publish_consolidated_pdf,
         ]
 

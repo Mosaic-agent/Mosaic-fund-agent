@@ -52,7 +52,7 @@ WHALE_FUNDS = [
     },
     {
         'name': 'ICICI Multi Asset',
-        'query_filter': "fund_name = 'ICICI_MULTI_ASSET'",
+        'query_filter': "scheme_code = '120334'",
     },
 ]
 

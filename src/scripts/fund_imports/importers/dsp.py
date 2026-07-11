@@ -18,8 +18,8 @@ class DspImporter(BaseFundImporter):
     Supports delta sync (latest month via auto-discovery) and full re-import.
     """
 
-    def __init__(self, full_reimport: bool = False) -> None:
-        super().__init__()
+    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+        super().__init__(target_month=target_month, freshness_months=freshness_months)
         self.full_reimport = full_reimport
 
     def fund_name(self) -> str:
@@ -48,9 +48,13 @@ class DspImporter(BaseFundImporter):
         """
         Return the list of (as_of_date_str, zip_url) to process.
         """
-        if self.full_reimport:
-            # Return all historical zip files
-            return [(as_of, MEDIA_BASE + suffix) for as_of, suffix in ZIP_FILES]
+        if self.full_reimport or self._target_month or self._freshness_months > 0:
+            # Return all historical zip files plus any discovered new month
+            sources = [(as_of, MEDIA_BASE + suffix) for as_of, suffix in ZIP_FILES]
+            discovered = discover_latest_zip()
+            if discovered and discovered[0] not in [s[0] for s in sources]:
+                sources.append(discovered)
+            return sources
 
         # Otherwise, try to discover the latest month
         discovered = discover_latest_zip()

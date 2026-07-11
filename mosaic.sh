@@ -19,6 +19,7 @@
 #   ./mosaic.sh live-monitor --dry-run
 #   ./mosaic.sh live-monitor --check-session-only
 #   ./mosaic.sh live-monitor -d          — detached, survives closing the terminal
+#   ./mosaic.sh mf "compare Nippon and DSP Multi Asset"
 #   ./mosaic.sh src/scripts/goldbees_report.py
 
 # Check if Docker is running
@@ -110,6 +111,9 @@ elif [[ "$FIRST_ARG" == "live-monitor" ]]; then
         # real TTY that isn't always available (e.g. scripted/CI invocation).
         docker compose run --rm live-monitor "$@"
     fi
+elif [[ "$FIRST_ARG" == "mf" ]]; then
+    echo "Running Mutual Fund Sub-Agent in Docker..."
+    docker compose run --rm mosaic "$@"
 elif [[ "$FIRST_ARG" == "chat" ]]; then
     # Run interactive chat with args (e.g. -t <thread_id>)
     docker compose run --rm -it mosaic "$@"
