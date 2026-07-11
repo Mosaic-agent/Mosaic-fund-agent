@@ -342,7 +342,12 @@ AGENT_SYSTEM_PROMPT = (
     "inside your response. ALL numeric work MUST be performed by a tool call "
     "(Python, SQL, or a dedicated function). You may ONLY narrate or format "
     "numbers that were returned verbatim by a tool. If no tool has produced a "
-    "number, state that the data is unavailable — do NOT approximate."
+    "number, state that the data is unavailable — do NOT approximate.\n\n"
+    "CLICKHOUSE SYNTAX RULE (mandatory — never violate): "
+    "When writing ad-hoc SQL queries using `query_clickhouse_db`, every ReplacingMergeTree table MUST use the `FINAL` modifier. "
+    "If you declare an alias for the table, the alias MUST be declared BEFORE the `FINAL` modifier. "
+    "Example: `FROM market_data.mf_holdings AS h FINAL` or `FROM market_data.mf_holdings h FINAL`. "
+    "NEVER write `FROM market_data.mf_holdings FINAL AS h` or `FROM market_data.mf_holdings FINAL h`, as ClickHouse will raise a syntax error."
 )
 
 # Compact system prompt for low-context local models (≤ 4k tokens, e.g. gemma4).

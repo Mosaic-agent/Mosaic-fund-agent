@@ -22,7 +22,7 @@ from src.agents.sub_agents.infra import (
     _print_thinking_blocks,
     _wrap_tool_for_dedup,
 )
-from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE
+from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE, CLICKHOUSE_FINAL_ALIAS_RULE
 
 TABLE_FORMAT_RULE = (
     "\n\nTABLE FORMATTING MANDATE (apply strictly):\n"
@@ -157,7 +157,7 @@ class _SubAgent:
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE,
+                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + CLICKHOUSE_FINAL_ALIAS_RULE,
                 pre_model_hook=pre_hook,
             )
             logger.info(
@@ -339,7 +339,7 @@ class _SubAgent:
 
                         combined = "\n\n---\n\n".join(tool_sections[:10])
                         from src.utils.caveman import get_caveman_prompt
-                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + "\n\n" + (
+                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + CLICKHOUSE_FINAL_ALIAS_RULE + "\n\n" + (
                             "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
                             "- Write ONLY the sections for which you have actual tool output data.\n"
                             "- OMIT any section entirely if no tool data was collected for it.\n"
