@@ -728,7 +728,7 @@ def run_import(
 
 
     # ── AMC Fund-Holdings Importers ───────────────────────────────────────────
-    _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp") if c in categories]
+    _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp", "quant") if c in categories]
     if _amc_cats:
         from src.importer.fetchers.amc_holdings_fetcher import fetch_amc_holdings
 

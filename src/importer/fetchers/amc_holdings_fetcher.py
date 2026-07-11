@@ -24,7 +24,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Valid values for the `amc` argument — mirrors factory.REGISTRY keys.
-AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index"})
+AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "quant"})
 
 
 def fetch_amc_holdings(
@@ -39,7 +39,7 @@ def fetch_amc_holdings(
     Parameters
     ----------
     amc           : one of ``AMC_KEYS``
-    full_reimport : ignore watermarks and re-fetch all history (nippon/dsp only)
+    full_reimport : ignore watermarks and re-fetch all history (nippon/dsp/quant only)
     dry_run       : parse data but skip DB writes
 
     Raises
@@ -52,7 +52,7 @@ def fetch_amc_holdings(
     from src.scripts.fund_imports.factory import create_importer
 
     kwargs: dict = {}
-    if amc in ("nippon", "dsp"):
+    if amc in ("nippon", "dsp", "quant"):
         kwargs["full_reimport"] = full_reimport
 
     logger.info("fetch_amc_holdings: %s full=%s dry=%s", amc, full_reimport, dry_run)

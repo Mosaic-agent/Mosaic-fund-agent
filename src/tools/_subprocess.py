@@ -81,8 +81,17 @@ def _run_cmd_streaming(args: list[str]) -> str:
         proc.wait()
         rc = proc.returncode
     except Exception as exc:
-        return f"Import error: {exc}\n" + "\n".join(collected)
-    result = "\n".join(collected) if collected else "Import completed (no output)."
+        return f"Import error: {exc}\n" + "\n".join(collected[:40])
+    if len(collected) > 40:
+        truncated_count = len(collected) - 30
+        summary_lines = (
+            collected[:10]
+            + [f"\n... [{truncated_count} lines of progress logs printed to console but omitted from LLM context] ...\n"]
+            + collected[-20:]
+        )
+        result = "\n".join(summary_lines)
+    else:
+        result = "\n".join(collected) if collected else "Import completed (no output)."
     if rc != 0:
         result += f"\n[Process exited with code {rc}]"
     return result

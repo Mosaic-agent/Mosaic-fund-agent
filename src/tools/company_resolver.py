@@ -47,8 +47,22 @@ _SCREENER_BASE      = "https://www.screener.in"
 
 # ── LLM-powered symbol resolver ───────────────────────────────────────────────
 
+def _get_message_text(content: "Any") -> str:
+    """Extract string content from LangChain message content, which could be a list of blocks."""
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    texts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                texts.append(block)
+        return "\n".join(texts)
+    return str(content) if content else ""
+
 _resolver_llm: "Any" = None          # lazy singleton — built on first use
 _llm_symbol_cache: dict[str, str | None] = {}   # session-level cache
+
 
 # Session/turn level resolution maps
 _turn_query_resolutions: dict[str, dict] = {}
@@ -163,7 +177,7 @@ def _llm_resolve(query: str) -> str | None:
             "- Reply with ONLY the ticker symbol — no explanation, no punctuation.\n"
             "- If you are not sure, reply UNKNOWN."
         )
-        raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+        raw = _get_message_text(llm.invoke([HumanMessage(content=prompt)]).content).strip()
         # Take the first token, strip non-alphanumeric (except & for some Indian symbols)
         first = raw.split()[0] if raw.split() else ""
         sym = re.sub(r"[^A-Z0-9&]", "", first.upper())
@@ -673,7 +687,7 @@ def _get_llm_suggestions(query: str) -> list[dict]:
             "COMPANY_NAME | TICKER\n"
             "Do not include any other text, markdown formatting, or numbering."
         )
-        raw = str(llm.invoke([HumanMessage(content=prompt)]).content).strip()
+        raw = _get_message_text(llm.invoke([HumanMessage(content=prompt)]).content).strip()
         suggestions = []
         for line in raw.split("\n"):
             line = line.strip()

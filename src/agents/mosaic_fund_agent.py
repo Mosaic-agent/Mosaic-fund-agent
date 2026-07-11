@@ -327,8 +327,15 @@ AGENT_SYSTEM_PROMPT = (
     "1. NEVER repeat your introductory welcome message ('Hello! I am the Mosaic-fund-agent...') once you have started using tools. "
     "2. If you have called tools, your final response MUST be a synthesis of the data returned by those tools (e.g. news headlines, financial metrics, sentiment). "
     "3. If multiple tools fail or return no data, state clearly what you tried and what was missing (e.g. 'I tried to fetch news but the service was unavailable').\n"
-    "When presenting structured data, weight shifts, signals, returns, or tabular results from any tool, "
-    "ALWAYS format the output in a clean, readable Markdown table rather than using lists or bullet points.\n\n"
+    "TABLE FORMATTING RULE (mandatory — always apply):\n"
+    "Use a Markdown table whenever the response contains ANY of the following:\n"
+    "  - Multiple securities, ETFs, or funds with associated metrics (price, return, weight, score, etc.)\n"
+    "  - Signal outputs, regime labels, or ML predictions across symbols\n"
+    "  - FII/DII flows, NAV returns, or iNAV premium/discount data\n"
+    "  - MF holdings with pct_of_nav, market_value_cr, or asset allocations\n"
+    "  - Comparison of two or more values side by side (e.g. before/after, MoM delta)\n"
+    "  - Any tool result that returns rows of structured data\n"
+    "Never use bullet lists for data that has 2+ columns — use a table instead.\n\n"
     "NUMERIC COMPUTATION RULE (mandatory — never violate): "
     "NEVER compute, estimate, or derive any number (returns, ratios, averages, "
     "percentages, scores, sums, differences, CAGR, PE, Kelly fractions, etc.) "
@@ -344,7 +351,8 @@ AGENT_SYSTEM_PROMPT_COMPACT = (
     "You are Mosaic-fund-agent, a financial analyst for Indian equity markets (NSE/BSE). "
     "Answer concisely using your training knowledge. "
     "Use ₹ for Indian monetary values. Never invent figures. "
-    "NEVER compute any number yourself — only narrate numbers returned by tools."
+    "NEVER compute any number yourself — only narrate numbers returned by tools. "
+    "Always use Markdown tables for any structured data (signals, returns, holdings, flows)."
 )
 
 _CONN_TROUBLESHOOTING = (
@@ -672,11 +680,10 @@ class MosaicFundAgent:
         if self._checkpointer is not None:
             kwargs["checkpointer"] = self._checkpointer
 
-        # Attach context trimmer for local models to prevent token-overflow
-        if not settings.llm_local_disabled and settings.is_local_model:
-            from src.agents.sub_agents import _make_context_trimmer
-            kwargs["pre_model_hook"] = _make_context_trimmer(effective_window)
-            logger.info("MosaicFundAgent: context trimmer attached (window=%d tokens)", effective_window)
+        # Attach context trimmer to prevent token-overflow (for both local and cloud models)
+        from src.agents.sub_agents import _make_context_trimmer
+        kwargs["pre_model_hook"] = _make_context_trimmer(effective_window)
+        logger.info("MosaicFundAgent: context trimmer attached (window=%d tokens)", effective_window)
 
         return create_react_agent(**kwargs)
 
