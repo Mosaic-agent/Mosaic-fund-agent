@@ -357,8 +357,7 @@ def list_db_tables() -> str:
         SELECT
             name                                    AS table,
             formatReadableQuantity(total_rows)      AS rows,
-            formatReadableSize(total_bytes)         AS size,
-            max_date                                AS latest_date
+            formatReadableSize(total_bytes)         AS size
         FROM system.tables
         WHERE database = 'market_data'
           AND engine NOT IN ('View','MaterializedView')
