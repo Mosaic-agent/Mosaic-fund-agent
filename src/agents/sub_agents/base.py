@@ -24,6 +24,15 @@ from src.agents.sub_agents.infra import (
 )
 from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE
 
+TABLE_FORMAT_RULE = (
+    "\n\nTABLE FORMATTING MANDATE (apply strictly):\n"
+    "When presenting structured data (allocations, consensus moves, flow metrics), ALWAYS use clean Markdown tables.\n"
+    "Specifically:\n"
+    "- Unified Macro Theme Allocations: Present exactly as a table with columns `Macro Theme | Combined Prev Weight | Combined Latest Weight | Net Flow Change`.\n"
+    "- High-Conviction Equity Cross-Ownership: Present exactly as a table with columns `Security Name | Funds Count | Combined Prev % | Combined Latest % | Net Change | Conviction Rating`.\n"
+    "Do NOT use bullet lists or prose for these datasets."
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,7 +157,7 @@ class _SubAgent:
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE,
+                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE,
                 pre_model_hook=pre_hook,
             )
             logger.info(
@@ -330,7 +339,7 @@ class _SubAgent:
 
                         combined = "\n\n---\n\n".join(tool_sections[:10])
                         from src.utils.caveman import get_caveman_prompt
-                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + "\n\n" + (
+                        sys_prompt = self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + "\n\n" + (
                             "PARTIAL DATA SYNTHESIS RULES (apply strictly):\n"
                             "- Write ONLY the sections for which you have actual tool output data.\n"
                             "- OMIT any section entirely if no tool data was collected for it.\n"
