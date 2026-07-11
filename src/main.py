@@ -66,6 +66,9 @@ def _setup_logging() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("yfinance").setLevel(logging.WARNING)
+    
+    # Suppress verbose debug loggers by default, setting them to INFO
+    logging.getLogger("src.agents").setLevel(logging.INFO)
 
 
 def _check_config(require_llm: bool = True) -> bool:
@@ -92,6 +95,7 @@ def main(
     if verbose:
         import os
         os.environ["VERBOSE"] = "1"
+        logging.getLogger("src.agents").setLevel(logging.DEBUG)
 
     # Initialize the global SQLite LLM response cache
     try:
@@ -294,6 +298,7 @@ def config() -> None:
         ("LLM Base URL", settings.llm_base_url if settings.llm_base_url else "(cloud default)", "No"),
         ("LLM Context Window (tokens)", str(settings.llm_context_window), "No"),
         ("LLM Token Budget (output)", str(settings.llm_token_budget), "No"),
+        ("LLM Temperature", f"{settings.llm_temperature:.1f}", "No"),
         ("Kite MCP URL", settings.kite_mcp_url, "No"),
         ("Kite MCP Timeout (s)", str(settings.kite_mcp_timeout), "No"),
         ("News Articles/Stock", str(settings.news_articles_per_stock), "No"),
@@ -882,7 +887,7 @@ def import_data(
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, "
             "earnings, insider, valuation, "
             "world_bank, imf_weo, tijori_macro, tijori_macro_indicators, "
-            "icici, nippon, icici-index, dsp, all. "
+            "icici, nippon, icici-index, dsp, quant, all. "
             "Default: all."
         ),
     ),

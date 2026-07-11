@@ -133,13 +133,17 @@ class _SubAgent:
             from src.utils.caveman import get_caveman_prompt
             from config.settings import settings
 
-            pre_hook = None
-            if llm_override is None and settings.is_local_model:
-                pre_hook = _make_context_trimmer(settings.llm_context_window)
-                logger.info(
-                    "%s: context trimmer attached (window=%d tokens)",
-                    self.__class__.__name__, settings.llm_context_window,
-                )
+            # Always attach context trimmer using the appropriate context window size (local vs cloud)
+            window = (
+                settings.llm_cloud_context_window
+                if (llm_override is not None or not settings.is_local_model)
+                else settings.llm_context_window
+            )
+            pre_hook = _make_context_trimmer(window)
+            logger.info(
+                "%s: context trimmer attached (window=%d tokens)",
+                self.__class__.__name__, window,
+            )
 
             self._agent = create_react_agent(
                 model=self._llm,
@@ -318,7 +322,7 @@ class _SubAgent:
                         # all collected tool data before writing the research note.
                         synth_llm = self._llm
                         try:
-                            if hasattr(synth_llm, "model") and "claude" in str(getattr(synth_llm, "model", "")).lower():
+                            if synth_llm.__class__.__name__ == "ChatAnthropic" and hasattr(synth_llm, "model") and "claude" in str(getattr(synth_llm, "model", "")).lower():
                                 synth_llm = synth_llm.bind(thinking={"type": "enabled", "budget_tokens": 8000})
                                 logger.info("%s: extended thinking enabled for synthesis", self.__class__.__name__)
                         except Exception:

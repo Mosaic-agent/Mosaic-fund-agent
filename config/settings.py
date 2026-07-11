@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # (qwen3, deepseek-r1). Passes think=true in the request body. Has no effect on cloud models.
     llm_think: bool = Field(default=False, description="Enable Ollama native thinking mode (qwen3, deepseek-r1)")
 
+    # [NON-SENSITIVE] Default temperature parameter for LLM generations
+    llm_temperature: float = Field(default=0.0, description="Default LLM temperature")
+
     # ── Timeouts ─────────────────────────────────────────────────────────────────
     # Local LLMs (Ollama) need generous timeouts — GARCH + news + tool chains
     # can take 3-5 minutes. Cloud LLMs should respond in seconds.
@@ -573,3 +576,173 @@ class Settings(BaseSettings):
 
 # Singleton instance – import this throughout the app
 settings = Settings()
+
+
+# ── Monkey patch LLM classes for central temperature and Claude 5 Sonnet settings ──
+# Setting temperature, top_p, or top_k to non-default values on claude-sonnet-5
+# returns HTTP 400. We dynamically strip these parameters when building the client.
+# For other models, we enforce settings.llm_temperature (unless it is a resolver call).
+try:
+    import langchain_anthropic
+    _orig_anthropic_init = langchain_anthropic.chat_models.ChatAnthropic.__init__
+    
+    def _patched_anthropic_init(self, *args, **kwargs):
+        model = kwargs.get("model") or (args[0] if args else None)
+        is_resolver = kwargs.get("max_tokens") == 20
+        
+        # Enforce central temperature (unless resolver)
+        if not is_resolver and "temperature" in kwargs:
+            kwargs["temperature"] = settings.llm_temperature
+            
+        # Claude 5 Sonnet constraints
+        if model and "sonnet-5" in str(model).lower():
+            kwargs.pop("temperature", None)
+            kwargs.pop("top_p", None)
+            kwargs.pop("top_k", None)
+            
+        # Claude Thinking configuration control
+        if not settings.llm_think:
+            kwargs.pop("thinking", None)
+            kwargs["thinking"] = None
+            kwargs.pop("effort", None)
+            kwargs["effort"] = None
+            if "extra_body" in kwargs and isinstance(kwargs["extra_body"], dict):
+                kwargs["extra_body"].pop("thinking", None)
+                kwargs["extra_body"].pop("thinking_budget", None)
+                kwargs["extra_body"].pop("thinking_effort", None)
+            if "model_kwargs" in kwargs and isinstance(kwargs["model_kwargs"], dict):
+                kwargs["model_kwargs"].pop("thinking", None)
+                kwargs["model_kwargs"].pop("thinking_budget", None)
+                kwargs["model_kwargs"].pop("thinking_effort", None)
+        else:
+            # If thinking is enabled and model supports it, configure it
+            is_thinking_supported = model and any(x in str(model) for x in ["3-7", "3.7"])
+            if is_thinking_supported:
+                if kwargs.get("thinking") is None:
+                    kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2048}
+                # Anthropic API requires temperature=1.0 when thinking is enabled
+                kwargs["temperature"] = 1.0
+                kwargs.pop("top_p", None)
+                kwargs.pop("top_k", None)
+            
+        _orig_anthropic_init(self, *args, **kwargs)
+        
+    langchain_anthropic.chat_models.ChatAnthropic.__init__ = _patched_anthropic_init
+
+    # ── Tool message cleanup monkey patch ─────────────────────────────────────
+    # Ensures every tool_use in AIMessage has a matching ToolMessage immediately after.
+    # Prevents HTTP 400 bad request errors due to orphaned tool calls in history.
+    def _clean_messages_for_anthropic(messages):
+        try:
+            from langchain_core.messages import ToolMessage, AIMessage
+        except ImportError:
+            ToolMessage, AIMessage = None, None
+
+        new_messages = []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            new_messages.append(msg)
+            
+            tool_calls = getattr(msg, "tool_calls", None)
+            
+            is_ai_msg = False
+            if (AIMessage is not None and isinstance(msg, AIMessage)) or msg.__class__.__name__ == "AIMessage":
+                is_ai_msg = True
+            elif getattr(msg, "type", "") == "ai" or getattr(msg, "role", "") == "assistant":
+                is_ai_msg = True
+
+            if is_ai_msg and tool_calls:
+                expected_ids = [tc["id"] for tc in tool_calls if tc.get("id")]
+                if expected_ids:
+                    found_tool_msgs = []
+                    j = i + 1
+                    while j < len(messages):
+                        m = messages[j]
+                        is_tool_msg = False
+                        if (ToolMessage is not None and isinstance(m, ToolMessage)) or m.__class__.__name__ == "ToolMessage":
+                            is_tool_msg = True
+                        elif getattr(m, "type", "") == "tool" or getattr(m, "role", "") == "tool" or getattr(m, "tool_call_id", None) is not None:
+                            is_tool_msg = True
+                            
+                        if is_tool_msg:
+                            found_tool_msgs.append(m)
+                            j += 1
+                        else:
+                            break
+                    
+                    found_ids = {m.tool_call_id for m in found_tool_msgs if getattr(m, "tool_call_id", None)}
+                    missing_ids = [tid for tid in expected_ids if tid not in found_ids]
+                    
+                    if missing_ids:
+                        for missing_id in missing_ids:
+                            # Construct ToolMessage dynamically
+                            try:
+                                if ToolMessage is not None:
+                                    dummy_msg = ToolMessage(
+                                        content="Tool execution was interrupted or failed to return a result.",
+                                        tool_call_id=missing_id,
+                                        status="error"
+                                    )
+                                else:
+                                    raise ImportError
+                            except Exception:
+                                from langchain_core.messages import ChatMessage
+                                dummy_msg = ChatMessage(
+                                    content="Tool execution was interrupted or failed to return a result.",
+                                    role="tool",
+                                    additional_kwargs={"tool_call_id": missing_id}
+                                )
+                                setattr(dummy_msg, "tool_call_id", missing_id)
+                            found_tool_msgs.append(dummy_msg)
+                    
+                    new_messages.extend(found_tool_msgs)
+                    i = j
+                    continue
+            i += 1
+        return new_messages
+
+    _orig_generate = langchain_anthropic.chat_models.ChatAnthropic._generate
+    _orig_agenerate = langchain_anthropic.chat_models.ChatAnthropic._agenerate
+    
+    def _patched_generate(self, messages, stop=None, run_manager=None, **kwargs):
+        cleaned = _clean_messages_for_anthropic(messages)
+        return _orig_generate(self, cleaned, stop, run_manager, **kwargs)
+        
+    async def _patched_agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        cleaned = _clean_messages_for_anthropic(messages)
+        return await _orig_agenerate(self, cleaned, stop, run_manager, **kwargs)
+        
+    langchain_anthropic.chat_models.ChatAnthropic._generate = _patched_generate
+    langchain_anthropic.chat_models.ChatAnthropic._agenerate = _patched_agenerate
+
+except ImportError:
+    pass
+
+try:
+    import langchain_openai
+    _orig_openai_init = langchain_openai.chat_models.ChatOpenAI.__init__
+    
+    def _patched_openai_init(self, *args, **kwargs):
+        is_resolver = kwargs.get("max_tokens") == 20
+        if not is_resolver and "temperature" in kwargs:
+            kwargs["temperature"] = settings.llm_temperature
+        _orig_openai_init(self, *args, **kwargs)
+        
+    langchain_openai.chat_models.ChatOpenAI.__init__ = _patched_openai_init
+except ImportError:
+    pass
+
+try:
+    import langchain_google_genai
+    _orig_google_init = langchain_google_genai.chat_models.ChatGoogleGenerativeAI.__init__
+    
+    def _patched_google_init(self, *args, **kwargs):
+        is_resolver = kwargs.get("max_output_tokens") == 20
+        if not is_resolver and "temperature" in kwargs:
+            kwargs["temperature"] = settings.llm_temperature
+        _orig_google_init(self, *args, **kwargs)
+        
+    langchain_google_genai.chat_models.ChatGoogleGenerativeAI.__init__ = _patched_google_init
+except ImportError:
+    pass

@@ -73,7 +73,7 @@ def _build_llm(context: Context) -> Any:
         from config.settings import settings
 
         is_resolver = context == "resolver"
-        temperature = 0
+        temperature = 0 if is_resolver else settings.llm_temperature
         max_tokens = 20 if is_resolver else settings.llm_token_budget
 
         # Determine active provider, respecting llm_local_disabled for resolver
@@ -91,6 +91,9 @@ def _build_llm(context: Context) -> Any:
             model = settings.llm_model
 
         kwargs: dict[str, Any] = {"temperature": temperature, "max_tokens": max_tokens}
+        # Anthropic's claude-sonnet-5 does not allow custom temperature settings
+        if provider == "anthropic" and "sonnet-5" in model.lower():
+            kwargs.pop("temperature", None)
 
         # ── Local / custom OpenAI-compatible endpoint ─────────────────────────
         if use_local:

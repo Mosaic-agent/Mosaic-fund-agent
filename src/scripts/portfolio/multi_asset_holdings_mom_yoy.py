@@ -319,11 +319,44 @@ def main() -> int:
         return 1
 
     months = get_month_list(fund_name)
-    if len(months) < 2:
-        console.print(
-            f"[red]Insufficient history for {fund_name}: only {len(months)} month(s).[/red]"
-        )
+    if len(months) == 0:
+        console.print(f"[red]No holdings data found for {fund_name}.[/red]")
         return 1
+
+    if len(months) == 1:
+        # Single month loaded — show snapshot, no MoM diff possible
+        curr_month = months[0]
+        console.print(Panel.fit(
+            f"[bold cyan]{fund_name}[/bold cyan]  ·  "
+            f"Only 1 month loaded: [bold]{curr_month}[/bold]\n"
+            "[yellow]⚠ MoM/YoY comparison requires ≥2 months. "
+            "Run the importer monthly to build history.[/yellow]",
+            title="Multi-Asset Holdings — Snapshot Only",
+            border_style="yellow",
+        ))
+        curr_snap = get_snapshot(fund_name, curr_month)
+        if curr_snap.empty:
+            console.print("[red]No holding rows returned for this month.[/red]")
+            return 1
+        t = Table(
+            title=f"Current Holdings ({curr_month})",
+            box=box.ROUNDED,
+            header_style="bold magenta",
+        )
+        t.add_column("Security", min_width=30, overflow="fold")
+        t.add_column("Asset", width=10)
+        t.add_column("Weight %", justify="right", width=10)
+        t.add_column("Value (₹Cr)", justify="right", width=12)
+        snap_sorted = curr_snap.sort_values("pct_of_nav", ascending=False).head(args.top)
+        for _, r in snap_sorted.iterrows():
+            t.add_row(
+                r["security_name"],
+                str(r.get("asset_type") or "—"),
+                f"{r['pct_of_nav']:.2f}%",
+                f"{r['market_value_cr']:.1f}",
+            )
+        console.print(t)
+        return 0
 
     curr_month = months[-1]
     prev_month = months[-2]
