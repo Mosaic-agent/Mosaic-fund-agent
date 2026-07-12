@@ -203,7 +203,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 | [Architecture](docs/architecture.md) | How it works under the hood |
 | [Agent Architecture](docs/agent-architecture.md) | AI routing and workflow design |
 | [Anomaly Detection](docs/anomaly-detection.md) | 5-step pipeline, Correlation Engine, Qdrant integration |
-| [OU Mean-Reversion](docs/ou-mean-reversion.md) | Ornstein-Uhlenbeck premium strategy for international ETFs — buy/sell zones, forward path |
+| [ETF Premium Strategy](docs/etf-premium-strategy.md) | Ornstein-Uhlenbeck premium strategy for international ETFs — buy/sell zones, forward path |
 
 ---
 
