@@ -226,7 +226,10 @@ class CompositeAnomalyPipeline:
             hi_vol_hmm  = df["p_institutional"] > self.volume_hmm_threshold
             hi_z_vol    = df["z_volume"].abs() > 5.0
             lo_price_z  = df["final_z_abs"] <= self.z_threshold
-            base_flag = base_flag | (hi_vol_hmm & hi_z_vol & lo_price_z)
+            vol_hmm_flag = hi_vol_hmm & hi_z_vol & lo_price_z
+            base_flag = base_flag | vol_hmm_flag
+            df.loc[vol_hmm_flag, "regime"] = "📊 Volume Anomaly (Institutional Block)"
+
 
         is_etf = self.category.lower() in ("etfs", "etf")
         if is_etf:
