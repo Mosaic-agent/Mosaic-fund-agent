@@ -114,7 +114,7 @@ class CompositeAnomalyPipeline:
         category: str = "",
         garch_z_threshold: float | None = None,
         volume_z_threshold: float | None = None,
-        volume_hmm_threshold: float | None = 0.70,
+        volume_hmm_threshold: float | None = 0.90,
     ):
         self.z_threshold  = z_threshold
         self.cp_boost     = cp_boost
@@ -136,8 +136,8 @@ class CompositeAnomalyPipeline:
         # None = disabled (no change to existing flag-rate).
         self.volume_z_threshold = volume_z_threshold
         # Opt-in: when set, days with p_institutional > this threshold are also
-        # flagged, independently of price z-score. Default 0.70 means the GMM
-        # gives >70% posterior probability to the institutional cluster.
+        # flagged, independently of price z-score. Default 0.90 means the GMM
+        # gives >90% posterior probability to the institutional cluster.
         # None = disabled (p_institutional still computed and in output, just
         # does not drive the is_anomaly flag).
         self.volume_hmm_threshold = volume_hmm_threshold
@@ -221,11 +221,12 @@ class CompositeAnomalyPipeline:
         if self.volume_z_threshold is not None and "z_volume" in df.columns:
             base_flag = base_flag | (df["z_volume"].abs() > self.volume_z_threshold)
         if self.volume_hmm_threshold is not None and "p_institutional" in df.columns:
-            # HMM flag: high institutional probability AND price did NOT move
-            # significantly (silent block deal, not a price-driven event)
+            # HMM flag: high institutional probability AND robust Z volume > 5.0
+            # AND price did NOT move significantly (silent block deal, not a price-driven event)
             hi_vol_hmm  = df["p_institutional"] > self.volume_hmm_threshold
+            hi_z_vol    = df["z_volume"].abs() > 5.0
             lo_price_z  = df["final_z_abs"] <= self.z_threshold
-            base_flag = base_flag | (hi_vol_hmm & lo_price_z)
+            base_flag = base_flag | (hi_vol_hmm & hi_z_vol & lo_price_z)
 
         is_etf = self.category.lower() in ("etfs", "etf")
         if is_etf:
@@ -316,13 +317,13 @@ def run_composite_anomaly(
         except Exception:
             volume_z_threshold = None
 
-    # Resolve HMM voting: omitted (sentinel) → inherit settings knob or default 0.70.
+    # Resolve HMM voting: omitted (sentinel) → inherit settings knob or default 0.90.
     if volume_hmm_threshold is _GARCH_THRESH_UNSET:
         try:
             from config.settings import settings
-            volume_hmm_threshold = getattr(settings, "anomaly_volume_hmm_threshold", 0.70)
+            volume_hmm_threshold = getattr(settings, "anomaly_volume_hmm_threshold", 0.90)
         except Exception:
-            volume_hmm_threshold = 0.70
+            volume_hmm_threshold = 0.90
 
     cache_key = None
     if symbol:
