@@ -164,6 +164,7 @@ def search_anomaly_events(
     max_news_per_date: int = 3,
     z_threshold: float = 3.0,
     contamination: float = 0.03,
+    volume_z_threshold: float | None = 4.0,
 ) -> str:
     """
     Internet search agent: detects price anomaly dates for any NSE/BSE stock
@@ -179,14 +180,16 @@ def search_anomaly_events(
       - "What happened on the flagged dates for HDFCBANK?"
 
     Args:
-        symbol:           NSE/BSE trading symbol (e.g. MSUMI, RELIANCE, HDFCBANK)
-        days:             Look-back window in calendar days for anomaly filtering
-                          (default 90). GARCH/PELT always fit on full history.
-        category:         ClickHouse category filter (etfs / stocks / indices).
-                          Leave blank to auto-detect.
-        max_news_per_date: Max news articles to surface per anomaly date (default 3).
-        z_threshold:      |Final Z| cutoff for flagging anomalies (default 3.0).
-        contamination:    Isolation Forest contamination fraction (default 0.03).
+        symbol:               NSE/BSE trading symbol (e.g. MSUMI, RELIANCE, HDFCBANK)
+        days:                 Look-back window in calendar days for anomaly filtering
+                              (default 90). GARCH/PELT always fit on full history.
+        category:             ClickHouse category filter (etfs / stocks / indices).
+                              Leave blank to auto-detect.
+        max_news_per_date:    Max news articles to surface per anomaly date (default 3).
+        z_threshold:          |Final Z| cutoff for flagging anomalies (default 3.0).
+        contamination:        Isolation Forest contamination fraction (default 0.03).
+        volume_z_threshold:   |z_volume| cutoff for volume-only block-deal anomalies
+                              (default 4.0). Set None to disable volume voting.
     """
     symbol_upper = symbol.strip().upper()
 
@@ -266,6 +269,7 @@ def search_anomaly_events(
             df_corp_actions=df_corp,
             symbol=symbol_upper,
             category=category,
+            volume_z_threshold=volume_z_threshold,
         )
     except Exception as exc:
         return f"Anomaly pipeline failed for {symbol_upper}: {exc}"

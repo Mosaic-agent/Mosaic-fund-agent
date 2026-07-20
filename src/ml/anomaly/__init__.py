@@ -6,7 +6,7 @@ All existing callers of `from src.ml.anomaly import X` continue to work.
 """
 from __future__ import annotations
 
-from ._features import robust_zscore, repair_decimal_glitches, build_features
+from ._features import robust_zscore, repair_decimal_glitches, build_features, fit_volume_regime
 from ._garch import fit_garch_residuals, _GARCH_CACHE
 from ._isolation import fit_isolation_forest, _IF_CACHE
 from ._changepoint import fit_change_points
@@ -19,6 +19,7 @@ from ._pipeline import (
     GarchResidualStrategy,
     IsolationForestStrategy,
     PeltChangePointStrategy,
+    VolumeHMMStrategy,
     CompositeAnomalyPipeline,
     run_composite_anomaly,
 )
@@ -26,6 +27,7 @@ from ._pipeline import (
 __all__ = [
     "robust_zscore",
     "build_features",
+    "fit_volume_regime",
     "fit_garch_residuals",
     "fit_isolation_forest",
     "fit_change_points",
@@ -37,5 +39,6 @@ __all__ = [
     "GarchResidualStrategy",
     "IsolationForestStrategy",
     "PeltChangePointStrategy",
+    "VolumeHMMStrategy",
     "CompositeAnomalyPipeline",
 ]

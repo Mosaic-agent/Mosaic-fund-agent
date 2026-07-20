@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from ._features import build_features, robust_zscore
+from ._features import build_features, robust_zscore, fit_volume_regime
 from ._garch import fit_garch_residuals
 from ._isolation import fit_isolation_forest
 from ._changepoint import fit_change_points
@@ -82,6 +82,22 @@ class PeltChangePointStrategy(AnomalyDetectorStrategy):
         )
 
 
+class VolumeHMMStrategy(AnomalyDetectorStrategy):
+    """
+    Fits a 2-component Gaussian Mixture Model on log(volume) to compute
+    ``p_institutional`` — the posterior probability that each day's volume
+    belongs to the institutional (block-deal) cluster rather than normal
+    retail/market-maker flow.
+
+    Output column: ``p_institutional`` (float64, 0–1).
+    Values > 0.70 indicate the day is more consistent with institutional
+    block-deal activity than normal trading.
+    """
+
+    def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        return fit_volume_regime(df)
+
+
 # ── Pipeline orchestrator ─────────────────────────────────────────────────────
 
 class CompositeAnomalyPipeline:
@@ -97,6 +113,8 @@ class CompositeAnomalyPipeline:
         symbol: str = "",
         category: str = "",
         garch_z_threshold: float | None = None,
+        volume_z_threshold: float | None = None,
+        volume_hmm_threshold: float | None = 0.70,
     ):
         self.z_threshold  = z_threshold
         self.cp_boost     = cp_boost
@@ -111,6 +129,18 @@ class CompositeAnomalyPipeline:
         # misses — and makes the Flash Crash regime reachable in df_flagged.
         # None = disabled (original z_robust×IF behaviour, no flag-rate change).
         self.garch_z_threshold = garch_z_threshold
+        # Opt-in: when set, a large |z_volume| also flags a day independently of
+        # price z-score. Classic trigger for institutional crossed block deals
+        # (Bectors/Abakkus pattern: 7.7x average volume, +1% price on filing day).
+        # Recommended value: 4.0 (top ~5% of volume distribution).
+        # None = disabled (no change to existing flag-rate).
+        self.volume_z_threshold = volume_z_threshold
+        # Opt-in: when set, days with p_institutional > this threshold are also
+        # flagged, independently of price z-score. Default 0.70 means the GMM
+        # gives >70% posterior probability to the institutional cluster.
+        # None = disabled (p_institutional still computed and in output, just
+        # does not drive the is_anomaly flag).
+        self.volume_hmm_threshold = volume_hmm_threshold
         self.garch_loglik: float = 0.0
 
         # Pre-compute date sets so the full df_corp_actions DataFrame is not retained
@@ -145,6 +175,7 @@ class CompositeAnomalyPipeline:
             GarchResidualStrategy(),
             IsolationForestStrategy(contamination=contamination),
             PeltChangePointStrategy(penalty=cp_penalty, proximity_days=cp_proximity_days),
+            VolumeHMMStrategy(),
         ]
 
         for strategy in strategies:
@@ -187,6 +218,14 @@ class CompositeAnomalyPipeline:
         base_flag = df["final_z_abs"] > self.z_threshold
         if self.garch_z_threshold is not None and "z_resid_abs" in df.columns:
             base_flag = base_flag | (df["z_resid_abs"] > self.garch_z_threshold)
+        if self.volume_z_threshold is not None and "z_volume" in df.columns:
+            base_flag = base_flag | (df["z_volume"].abs() > self.volume_z_threshold)
+        if self.volume_hmm_threshold is not None and "p_institutional" in df.columns:
+            # HMM flag: high institutional probability AND price did NOT move
+            # significantly (silent block deal, not a price-driven event)
+            hi_vol_hmm  = df["p_institutional"] > self.volume_hmm_threshold
+            lo_price_z  = df["final_z_abs"] <= self.z_threshold
+            base_flag = base_flag | (hi_vol_hmm & lo_price_z)
 
         is_etf = self.category.lower() in ("etfs", "etf")
         if is_etf:
@@ -238,6 +277,8 @@ def run_composite_anomaly(
     store: bool = True,
     publish_event: bool = False,
     garch_z_threshold: "float | None | object" = _GARCH_THRESH_UNSET,
+    volume_z_threshold: "float | None | object" = _GARCH_THRESH_UNSET,
+    volume_hmm_threshold: "float | None | object" = _GARCH_THRESH_UNSET,
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """
     End-to-end composite anomaly detection.
@@ -266,6 +307,23 @@ def run_composite_anomaly(
         except Exception:
             garch_z_threshold = None
 
+    # Resolve volume voting: omitted (sentinel) → inherit the settings knob;
+    # explicit None/float → honour it.
+    if volume_z_threshold is _GARCH_THRESH_UNSET:
+        try:
+            from config.settings import settings
+            volume_z_threshold = getattr(settings, "anomaly_volume_z_threshold", None)
+        except Exception:
+            volume_z_threshold = None
+
+    # Resolve HMM voting: omitted (sentinel) → inherit settings knob or default 0.70.
+    if volume_hmm_threshold is _GARCH_THRESH_UNSET:
+        try:
+            from config.settings import settings
+            volume_hmm_threshold = getattr(settings, "anomaly_volume_hmm_threshold", 0.70)
+        except Exception:
+            volume_hmm_threshold = 0.70
+
     cache_key = None
     if symbol:
         cache_key = (
@@ -273,7 +331,7 @@ def run_composite_anomaly(
             round(contamination, 6), round(z_threshold, 6), z_window,
             df_cot is not None, df_fx is not None, df_corp_actions is not None,
             cp_penalty, cp_proximity_days, round(cp_boost, 6),
-            garch_z_threshold,
+            garch_z_threshold, volume_z_threshold, volume_hmm_threshold,
         )
         cached = _RESULT_CACHE.get(cache_key)
         if cached is not None:
@@ -288,6 +346,8 @@ def run_composite_anomaly(
         symbol=symbol,
         category=category,
         garch_z_threshold=garch_z_threshold,
+        volume_z_threshold=volume_z_threshold,
+        volume_hmm_threshold=volume_hmm_threshold,
     )
     df_res, df_flagged = pipeline.run(
         df,

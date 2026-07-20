@@ -14,11 +14,12 @@ def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
     making them robust to different asset price scales.
 
     Regime priority (checked top-to-bottom):
-        ⚠️  Crowded Long (Squeeze Risk) — NEW: high COT crowding + high price Z
-        🧨  Blow-off Top (Weak)          — high Z, low volume, positive return
-        📈  Strong Trend (HODL)          — high Z, low residual Z
-        ⚡  Flash Crash / Black Swan     — low Z, high residual Z  ← key GARCH signal
-        🔥  Volatile Breakout            — both high
+        📊  Volume Anomaly (Institutional Block) — NEW: high volume Z + low price Z
+        ⚠️  Crowded Long (Squeeze Risk)          — high COT crowding + high price Z
+        🧨  Blow-off Top (Weak)                  — high Z, low volume, positive return
+        📈  Strong Trend (HODL)                  — high Z, low residual Z
+        ⚡  Flash Crash / Black Swan             — low Z, high residual Z  ← key GARCH signal
+        🔥  Volatile Breakout                    — both high
         ✅  Normal
 
     Added columns: final_z, final_z_abs, regime.
@@ -31,6 +32,7 @@ def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
     # (median thresholds give 50% rates → too noisy for actionable alerts)
     z_med      = float(df["z_robust"].abs().quantile(0.80))
     res_med    = float(df["z_resid_abs"].quantile(0.80))
+    z_vol_hi   = float(df["z_volume"].abs().quantile(0.80))   # "hi_vol" = top 20%
     z_vol_med  = float(df["z_volume"].abs().quantile(0.20))   # "lo_vol" = bottom 20%
     # COT crowding threshold: top quartile of historical cot_pct_oi
     has_cot = "cot_pct_oi" in df.columns
@@ -40,6 +42,14 @@ def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
         hi_z   = abs(row["z_robust"]) > z_med
         hi_res = row["z_resid_abs"]   > res_med
         lo_vol = abs(row["z_volume"]) < z_vol_med
+        hi_vol = abs(row["z_volume"]) > z_vol_hi
+
+        # ── Volume-priority regime (catches crossed block deals before price moves) ──
+        # Volume Anomaly: extraordinary volume with no commensurate price move.
+        # Classic signature of an institutional crossed bulk/block deal that will
+        # be disclosed the next day via exchange filing, triggering a price reaction.
+        if hi_vol and not hi_z and not hi_res:
+            return "📊 Volume Anomaly (Institutional Block)"
 
         # ── Shock-priority regimes (GARCH residual drives classification) ──
         # Flash Crash: unexpected large move regardless of trend/COT context

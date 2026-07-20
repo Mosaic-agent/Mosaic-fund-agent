@@ -109,3 +109,77 @@ def build_features(df: pd.DataFrame, rf_lags: int = 5) -> pd.DataFrame:
     df["range_pct"] = (df["high"] - df["low"]) / df["close"] * 100
     df["vol_lag1"]  = df["volume"].shift(1)
     return df
+
+
+def fit_volume_regime(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fit a 2-component Gaussian Mixture Model on log(volume) to identify
+    the latent *institutional* trading state and add a ``p_institutional``
+    posterior probability column (float 0–1) to every row.
+
+    Model intuition
+    ---------------
+    Volume on any given day is drawn from one of two regimes:
+
+    * **State 0 — Normal trading**: retail order flow, market-makers, index
+      rebalancing.  Emission is a narrow Gaussian around the stock's typical
+      daily ADV.
+    * **State 1 — Institutional**: crossed bulk/block deals, large MF
+      portfolio additions, FII rebalancing.  Emission is a wider Gaussian
+      centred well above ADV.
+
+    The GMM is fit on the full history (no rolling window) so it captures the
+    stock's lifetime volume distribution.  p_institutional > 0.70 is a
+    calibrated signal that the day's volume is more consistent with the
+    institutional cluster than normal trading.
+
+    Fallback
+    --------
+    If fewer than 60 non-zero-volume rows are available, or if sklearn is
+    not installed, ``p_institutional`` is set to 0.0 for all rows.
+
+    Added columns: ``p_institutional`` (float64)
+    """
+    df = df.copy()
+    df["p_institutional"] = 0.0
+
+    nz_mask = df["volume"].fillna(0) > 0
+    n_nz = nz_mask.sum()
+    if n_nz < 60:
+        log.debug("fit_volume_regime: only %d non-zero volume rows — skipping GMM", n_nz)
+        return df
+
+    try:
+        from sklearn.mixture import GaussianMixture
+    except ImportError:
+        log.debug("fit_volume_regime: sklearn not available — skipping GMM")
+        return df
+
+    try:
+        log_vol = np.log1p(df.loc[nz_mask, "volume"].values).reshape(-1, 1)
+        gmm = GaussianMixture(
+            n_components=2,
+            covariance_type="full",
+            n_init=5,
+            random_state=42,
+        )
+        gmm.fit(log_vol)
+
+        # Identify which component has the higher mean log-volume
+        means = gmm.means_.flatten()
+        high_idx = int(np.argmax(means))
+
+        # Posterior probability of the high-volume (institutional) component
+        probs = gmm.predict_proba(log_vol)[:, high_idx]
+        df.loc[nz_mask, "p_institutional"] = probs
+
+        log.debug(
+            "fit_volume_regime: normal_mean_vol=%.0f  instit_mean_vol=%.0f  boundary=%.0f",
+            np.expm1(means[1 - high_idx]),
+            np.expm1(means[high_idx]),
+            np.expm1((means[0] + means[1]) / 2.0),
+        )
+    except Exception as exc:
+        log.warning("fit_volume_regime: GMM fit failed (%s) — p_institutional set to 0.0", exc)
+
+    return df
