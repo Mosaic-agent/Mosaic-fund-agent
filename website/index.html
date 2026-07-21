@@ -496,6 +496,31 @@
     .surface-pill { background: #fff; border: 1.5px solid var(--border); border-radius: 22px; padding: 9px 20px; font-size: 14px; font-weight: 500; color: var(--text-2); display: flex; align-items: center; gap: 8px; box-shadow: var(--sh-xs); }
     .surface-pill.primary { border-color: var(--gold-bd); color: #92400e; background: var(--gold-lt); font-weight: 600; }
 
+    /* ── Tabbed Interactive Gallery Styles ───────────────────────── */
+    .gallery-tab-nav {
+      display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+      margin: 28px 0 24px;
+    }
+    .gtab-btn {
+      background: var(--bg1); border: 1.5px solid var(--border);
+      border-radius: 20px; padding: 8px 18px; font-size: 13.5px; font-weight: 600;
+      color: var(--text-2); cursor: pointer; transition: all .2s ease;
+    }
+    .gtab-btn:hover { background: var(--bg2); color: var(--text); border-color: var(--teal); }
+    .gtab-btn.active {
+      background: #1e3a5f; color: #fff; border-color: #1e3a5f;
+      box-shadow: 0 4px 12px rgba(30,58,95,0.25);
+    }
+    .gallery-carousel-viewport {
+      position: relative; min-height: 480px; margin-top: 12px;
+    }
+    .gallery-slide {
+      display: none; opacity: 0; transition: opacity .35s ease-in-out;
+    }
+    .gallery-slide.active {
+      display: block; opacity: 1;
+    }
+
     /* ── Agents ─────────────────────────────────────────────────── */
     .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 48px; }
     .agent-card { background: #fff; border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px; display: flex; gap: 14px; align-items: flex-start; box-shadow: var(--sh-xs); transition: box-shadow .2s, transform .2s; }
@@ -861,51 +886,63 @@
     <h2 class="section-title">Everything else, running live</h2>
     <p class="section-body">Every screen runs against live ClickHouse data. No demo mode, no sample data, no mockups.</p>
 
-    <!-- Full-width featured: the CLI showing it's conversational -->
-    <div class="gallery-featured">
-      <div class="gallery-item reveal">
-        <img src="screenshots/cli.png" alt="Mosaic interactive CLI chat" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">💬 Interactive CLI — just type, it shows its work</div>
-          <div class="gc-desc">Ask "analyse gold bees anomaly" — Mosaic resolves the symbol (and confirms it), then prints a live plan: fetch price, NAV, earnings, MF holdings, and news all in parallel, plot the chart, synthesise. Runs on local Ollama or any cloud LLM.</div>
-        </div>
-      </div>
+    <!-- Interactive Tabbed Gallery Switcher (Zero Scroll Friction) -->
+    <div class="gallery-tab-nav">
+      <button class="gtab-btn active" data-tab="0">💬 Interactive CLI</button>
+      <button class="gtab-btn" data-tab="1">🎛️ Signal Dashboard</button>
+      <button class="gtab-btn" data-tab="2">🏢 Company Deep Dive</button>
+      <button class="gtab-btn" data-tab="3">📦 MF Holdings</button>
+      <button class="gtab-btn" data-tab="4">🤖 Workflows</button>
     </div>
 
-    <!-- Signal Dashboard + Company Deep Dive -->
-    <div class="gallery-grid">
-      <div class="gallery-item reveal">
-        <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">🎛️ Signal Dashboard — your daily BUY / HOLD / AVOID</div>
-          <div class="gc-desc">18 NSE ETFs scored 0–100 across 6 pillars (macro, sentiment, valuation, FII/DII flows, ML, anomaly). Colour-coded, ranked, with a per-pillar breakdown table below.</div>
+    <div class="gallery-carousel-viewport">
+      <div class="gallery-slide active" data-slide="0">
+        <div class="gallery-item">
+          <img src="screenshots/cli.png" alt="Mosaic interactive CLI chat" loading="lazy" />
+          <div class="gallery-caption">
+            <div class="gc-title">💬 Interactive CLI — just type, it shows its work</div>
+            <div class="gc-desc">Ask "analyse gold bees anomaly" — Mosaic resolves the symbol, fetches prices, NAV, MF holdings, and news in parallel, plots the chart, and synthesises. Runs on Ollama or cloud LLMs.</div>
+          </div>
         </div>
       </div>
 
-      <div class="gallery-item reveal">
-        <img src="screenshots/deep_dive.png" alt="Company Deep Dive — SEC filings, financials, hiring" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">🏢 Company Deep Dive — US stock research</div>
-          <div class="gc-desc">SEC filings, XBRL financials, exec comp, 10-K sections, and live hiring trends (678 open ADSK roles across 9 functions). Cached to ClickHouse — repeat runs are instant.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- MF tracking + workflows (Streamlit tabs) -->
-    <div class="gallery-grid">
-      <div class="gallery-item light reveal">
-        <img src="screenshots/mf_holdings.png" alt="Multi-Asset Fund Holdings Tracker" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">📦 MF Holdings — what the funds are buying</div>
-          <div class="gc-desc">Asset allocation across DSP, Nippon, Quant, ICICI, Bajaj multi-asset funds — live from monthly disclosures, month-by-month.</div>
+      <div class="gallery-slide" data-slide="1">
+        <div class="gallery-item">
+          <img src="screenshots/signals.png" alt="Signal Dashboard — composite ETF scores" loading="lazy" />
+          <div class="gallery-caption">
+            <div class="gc-title">🎛️ Signal Dashboard — your daily BUY / HOLD / AVOID</div>
+            <div class="gc-desc">18 NSE ETFs scored 0–100 across 6 pillars (macro, sentiment, valuation, FII/DII flows, ML, anomaly). Colour-coded, ranked, with a per-pillar breakdown table below.</div>
+          </div>
         </div>
       </div>
 
-      <div class="gallery-item light reveal">
-        <img src="screenshots/workflows.png" alt="Workflows tab" loading="lazy" />
-        <div class="gallery-caption">
-          <div class="gc-title">🤖 Workflows — token-efficient deep research</div>
-          <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens than ReAct agents, with adversarial verification before every final report.</div>
+      <div class="gallery-slide" data-slide="2">
+        <div class="gallery-item">
+          <img src="screenshots/deep_dive.png" alt="Company Deep Dive — SEC filings, financials, hiring" loading="lazy" />
+          <div class="gallery-caption">
+            <div class="gc-title">🏢 Company Deep Dive — US stock research</div>
+            <div class="gc-desc">SEC filings, XBRL financials, exec comp, 10-K sections, and live hiring trends (678 open ADSK roles across 9 functions). Cached to ClickHouse — repeat runs are instant.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gallery-slide" data-slide="3">
+        <div class="gallery-item light">
+          <img src="screenshots/mf_holdings.png" alt="Multi-Asset Fund Holdings Tracker" loading="lazy" />
+          <div class="gallery-caption">
+            <div class="gc-title">📦 MF Holdings — what the funds are buying</div>
+            <div class="gc-desc">Asset allocation across DSP, Nippon, Quant, ICICI, Bajaj multi-asset funds — live from monthly disclosures, month-by-month.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="gallery-slide" data-slide="4">
+        <div class="gallery-item light">
+          <img src="screenshots/workflows.png" alt="Workflows tab" loading="lazy" />
+          <div class="gallery-caption">
+            <div class="gc-title">🤖 Workflows — token-efficient deep research</div>
+            <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens than ReAct agents, with adversarial verification before every final report.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -2011,6 +2048,18 @@ window.addEventListener('scroll', () => {
 
 backTopBtn.addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+/* ── Interactive Tabbed Gallery JS ──────────────────────────────── */
+const gtabBtns = document.querySelectorAll('.gtab-btn');
+const gtabSlides = document.querySelectorAll('.gallery-slide');
+
+gtabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const targetTab = btn.dataset.tab;
+    gtabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
+    gtabSlides.forEach(slide => slide.classList.toggle('active', slide.dataset.slide === targetTab));
+  });
 });
 </script>
 
