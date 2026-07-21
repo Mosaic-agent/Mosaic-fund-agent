@@ -85,7 +85,22 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    a { color: var(--teal); text-decoration: none; }
+    nav .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    
+    /* ── Back to Top Button ─────────────────────────────────────── */
+    .back-to-top {
+      position: fixed; bottom: 28px; right: 28px; z-index: 99;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(30, 58, 95, 0.85); color: #fff;
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; cursor: pointer; opacity: 0; visibility: hidden;
+      transition: opacity .25s ease, visibility .25s ease, transform .18s ease, background .18s;
+    }
+    .back-to-top.show { opacity: 1; visibility: visible; }
+    .back-to-top:hover { transform: translateY(-3px); background: #2563eb; color: #fff; }
     a:hover { color: var(--teal-dk); text-decoration: underline; }
     code, pre, .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
 
@@ -101,6 +116,11 @@
       border-bottom: none;
       box-shadow: 0 2px 16px rgba(30,58,95,.25);
       padding: 8px 0;
+    }
+    #scroll-progress {
+      position: absolute; top: 0; left: 0; height: 3px;
+      background: linear-gradient(90deg, var(--gold), #2dd4bf, var(--blue));
+      width: 0%; z-index: 101; transition: width .1s ease-out;
     }
     .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
     .nav-logo  { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; color: #fff; }
@@ -572,8 +592,9 @@
 <body>
 
 <!-- ── NAV ──────────────────────────────────────────────────────── -->
-<nav>
-  <div class="nav-inner">
+  <nav>
+    <div id="scroll-progress"></div>
+    <div class="nav-inner">
     <div class="nav-logo">
       <img src="logo.png" alt="Mosaic Fund Agent" style="height:104px;width:auto;flex-shrink:0" />
     </div>
@@ -1917,6 +1938,29 @@ const navObs = new IntersectionObserver((entries) => {
   });
 }, { rootMargin: '-45% 0px -50% 0px' });
 sections.forEach(s => navObs.observe(s));
+
+/* ── Scroll Progress & Back-to-top Button ───────────────────────── */
+const progressEl = document.getElementById('scroll-progress');
+const backTopBtn = document.createElement('button');
+backTopBtn.className = 'back-to-top';
+backTopBtn.setAttribute('aria-label', 'Back to top');
+backTopBtn.innerHTML = '↑';
+document.body.appendChild(backTopBtn);
+
+window.addEventListener('scroll', () => {
+  const winScroll = document.documentElement.scrollTop || document.body.scrollTop;
+  const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  const scrolled = (winScroll / height) * 100;
+  if (progressEl) progressEl.style.width = scrolled + '%';
+  if (backTopBtn) {
+    if (winScroll > 400) backTopBtn.classList.add('show');
+    else backTopBtn.classList.remove('show');
+  }
+});
+
+backTopBtn.addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
 </script>
 
 </body>
