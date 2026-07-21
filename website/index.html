@@ -1464,127 +1464,61 @@
       <div class="feature-card gold">
         <span class="feat-tag gold">Signals</span>
         <h3>6-Pillar Composite Scoring</h3>
-        <p>18+ ETFs scored 0–100 daily across six independent pillars run in parallel via ThreadPoolExecutor.</p>
-        <ul class="feat-bullets">
-          <li>Macro themes (8 live-news event clusters)</li>
-          <li>Capital flows (FII/DII 5-day rolling net)</li>
-          <li>Valuation (iNAV Z-score premium/discount)</li>
-          <li>Sentiment (NewsAPI + GNews ratio)</li>
-          <li>ML forecast (LightGBM expected return)</li>
-          <li>GARCH anomaly regime booster/dampener</li>
-        </ul>
+        <p>18+ ETFs scored daily (0–100) combining macro, valuation, sentiment, flows, ML, and volatility.</p>
       </div>
 
-      <div class="feature-card">
+      <div class="feature-card teal">
         <span class="feat-tag teal">Anomaly</span>
-        <h3>6-Step Composite Anomaly Engine</h3>
-        <p>Detects price shocks &amp; silent institutional block deals while filtering out false positives.</p>
-        <ul class="feat-bullets">
-          <li><strong>MAD Robust Z-score:</strong> Median-based outlier detection resisting trend inflation</li>
-          <li><strong>GARCH(1,1) Student-t:</strong> Dynamic conditional volatility regime scaling</li>
-          <li><strong>Isolation Forest &amp; PELT:</strong> Cross-asset FX/COT crowding &amp; structural regime breaks</li>
-          <li><strong>Volume HMM Strategy:</strong> 2-component GMM on log(volume) flagging block deals (<code>p_institutional &gt; 0.70</code>)</li>
-          <li><strong>Corporate Action Suppression:</strong> Company events auto-classified to prevent false alarms</li>
-        </ul>
+        <h3>6-Step Anomaly Engine</h3>
+        <p>MAD-Z, GARCH(1,1), Isolation Forest, PELT, and Volume HMM detect real price shocks &amp; silent block deals.</p>
       </div>
 
-      <div class="feature-card">
-        <span class="feat-tag gold">Correlation</span>
-        <h3>News-RAG Attribution Engine</h3>
-        <p>Attributes market shocks to earnings, insider leaks, macro events, or cross-asset moves.</p>
-        <ul class="feat-bullets">
-          <li><strong>Post-Macro Shock:</strong> Scores idiosyncratic excess return over NIFTY benchmark</li>
-          <li><strong>Pre-Event Leak:</strong> Flags 3-day abnormal return preceding earnings &amp; corporate events</li>
-          <li><strong>Cross-Asset Co-Movement:</strong> USDINR &amp; commodity shock penalty filters</li>
-          <li><strong>News-RAG Semantic Vector Match:</strong> Qdrant cosine similarity search over ±7-day window</li>
-        </ul>
+      <div class="feature-card gold">
+        <span class="feat-tag gold">Attribution</span>
+        <h3>News-RAG Attribution</h3>
+        <p>Correlates price moves with earnings leaks, macro shocks, or cross-asset moves via Qdrant similarity.</p>
       </div>
 
       <div class="feature-card blue">
         <span class="feat-tag blue">ML</span>
         <h3>LightGBM 5-Day Forecast</h3>
-        <p>Walk-forward time-series CV with quantile regression for calibrated uncertainty bands.</p>
-        <ul class="feat-bullets">
-          <li>25+ alpha features (momentum, vol, COT, FX, seasonality)</li>
-          <li>80% confidence band via quantile regression</li>
-          <li>AUC + hit-ratio from walk-forward CV</li>
-          <li>Kelly Criterion position sizing from prob_up</li>
-          <li>Model cache auto-invalidated on new data</li>
-        </ul>
+        <p>Walk-forward CV quantile regression predicting 5-day returns with 80% confidence bands &amp; Kelly sizing.</p>
       </div>
 
-      <div class="feature-card">
+      <div class="feature-card red">
         <span class="feat-tag red">Risk</span>
-        <h3>Volatility-Aware Position Sizing</h3>
-        <p>Real-time GARCH vol feeds an inverse-vol + Kelly blend. Regime overrides cut size during stress.</p>
-        <ul class="feat-bullets">
-          <li>w(t) = vol_target / σ_t × regime_mult × score_gate</li>
-          <li>blended_50: 50% RG + 50% Kelly (recommended)</li>
-          <li>blended_30: conservative (70% RG + 30% Kelly)</li>
-          <li>Grid-search parameter optimizer included</li>
-        </ul>
+        <h3>Volatility Position Sizing</h3>
+        <p>GARCH(1,1) inverse-volatility scaling blended 50/50 with Kelly Criterion for optimal capital allocation.</p>
       </div>
 
-      <div class="feature-card">
+      <div class="feature-card teal">
         <span class="feat-tag teal">Research</span>
         <h3>Indian &amp; US Equity Deep-Dives</h3>
-        <p>One command pulls price, earnings, cashflow, promoter trends, MF cross-ownership, and news in parallel.</p>
-        <ul class="feat-bullets">
-          <li>NSE/BSE: 3yr cashflow, QoQ shareholding delta</li>
-          <li>DSP/Nippon/ICICI AMC conviction cross-check</li>
-          <li>US: SEC 10-K/10-Q, XBRL, exec comp, job trends</li>
-          <li>Auto-symbol resolution with QIP dilution check</li>
-        </ul>
+        <p>Parallel research pulling 3-year cashflows, promoter trend checks, QIP dilution audits, and SEC 10-K filings.</p>
       </div>
 
       <div class="feature-card gold">
         <span class="feat-tag gold">Flows</span>
         <h3>Institutional Whale Tracking</h3>
-        <p>Reverse-engineer AMC tactical pivots from monthly portfolio disclosures across 7 multi-asset funds.</p>
-        <ul class="feat-bullets">
-          <li>DSP: 31-month history, 60+ funds</li>
-          <li>Nippon India: dynamic URL discovery 2024+</li>
-          <li>CFTC COT: COMEX gold + silver speculator positioning</li>
-          <li>FII/DII: daily cash + F&O participant flows</li>
-        </ul>
+        <p>Tracks monthly portfolio disclosures across 7 multi-asset funds (DSP, Nippon, ICICI, Quant, Bajaj) &amp; CFTC COT.</p>
       </div>
 
       <div class="feature-card red">
         <span class="feat-tag red">Alerts</span>
-        <h3>Real-Time Alerts &amp; Intraday Tracking</h3>
-        <p>Live intraday order flow monitoring and 15-minute iNAV premium/discount arbitrage alerts across 32 tracked ETFs.</p>
-        <ul class="feat-bullets">
-          <li><strong>iNAV Premium Alerts:</strong> 15-min live iNAV check for all 32 ETFs — alerts on scarcity premiums vs. discount arbitrage</li>
-          <li><strong>Intraday Signal Monitor:</strong> Real-time bid/ask delta order flow, VWAP deviation bands (±1σ, ±2σ), and intraday MACD alerts</li>
-          <li><strong>Whale Accumulation Alerts:</strong> Cross-AMC consensus alerts when 2+ funds add single-name positions for ≥24 months</li>
-          <li><strong>GARCH Anomaly Alerts:</strong> Real-time alerts when GARCH(1,1) standardized residuals breach |e_t| > 2.8</li>
-        </ul>
+        <h3>Real-Time Intraday &amp; iNAV Alerts</h3>
+        <p>15-minute iNAV premium/discount arbitrage alerts and live order-flow bid/ask VWAP deviation monitors.</p>
       </div>
 
-      <div class="feature-card">
+      <div class="feature-card teal">
         <span class="feat-tag teal">Reports</span>
         <h3>PDF Report Export</h3>
-        <p>Every analysis (anomaly breakdown, ML forecast, signal report, or equity deep-dive) can be exported as a shareable PDF with one command.</p>
-        <ul class="feat-bullets">
-          <li>Full anomaly report with GARCH chart, regime table, and news correlation</li>
-          <li>GOLDBEES signal report with Kelly sizing and confidence band</li>
-          <li>Equity deep-dive: earnings, promoter trends, MF cross-ownership</li>
-          <li>Saved to <code style="background:var(--bg2);padding:1px 6px;border-radius:4px">output/reports/</code>, ready to share or archive</li>
-        </ul>
+        <p>Generates institutional-grade PDF intelligence reports with GARCH charts, regime tables, and thesis summaries.</p>
       </div>
 
       <div class="feature-card blue">
         <span class="feat-tag blue">Vector</span>
         <h3>Qdrant Semantic Memory</h3>
-        <p>Five vector collections keep a persistent semantic memory of every anomaly, fund holding, and news article, enabling cross-asset and cross-time similarity search that SQL cannot do.</p>
-        <ul class="feat-bullets">
-          <li><strong>market_anomalies:</strong> every flagged regime date embedded as text — ask "what historical events looked like this flash crash?"</li>
-          <li><strong>mf_holdings:</strong> 22k+ fund positions (809 funds, latest month) — "which funds hold HDFC Bank or gold ETFs?"</li>
-          <li><strong>mf_fund_profiles:</strong> per-fund equity/gold/bond/cash fingerprint — "find multi-asset funds similar to DSP_MULTI_ASSET"</li>
-          <li><strong>news_articles:</strong> semantic news retrieval powering the Correlation Engine's PostMacroShockStrategy</li>
-          <li><strong>Tenant-indexed:</strong> <code>is_tenant=True</code> on symbol/isin/fund_name — O(1) per-tenant reads at any scale</li>
-          <li><strong>Auto-populated:</strong> every import and anomaly pipeline run writes to Qdrant in a background thread — zero overhead</li>
-        </ul>
+        <p>5 vector collections storing embedded representations of anomalies, fund holdings, profiles, and news.</p>
       </div>
 
     </div>
