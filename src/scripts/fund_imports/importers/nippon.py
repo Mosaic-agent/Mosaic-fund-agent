@@ -316,11 +316,13 @@ class NipponImporter(BaseFundImporter):
                 name = str(vals[2]).strip()
                 industry = str(vals[3]).strip()
                 try:
-                    mv_lacs = float(vals[5])
+                    val5 = vals[5]
+                    mv_lacs = float(val5) if not pd.isna(val5) else 0.0
                 except (TypeError, ValueError):
                     mv_lacs = 0.0
                 try:
-                    pct_raw = float(vals[6])
+                    val6 = vals[6]
+                    pct_raw = float(val6) if not pd.isna(val6) else 0.0
                 except (TypeError, ValueError):
                     pct_raw = 0.0
                 raw_rows.append((isin, name, industry, mv_lacs, pct_raw))

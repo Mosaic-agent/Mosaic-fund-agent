@@ -22,6 +22,7 @@ from src.tools.newsapi_search import get_newsapi_stock_news
 from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar
 from src.tools.market.equity import search_anomaly_events
 from src.tools.market.correlation_tools import find_anomaly_correlations
+from src.tools.nse_announcements import get_nse_announcements
 
 def make_markdown_table(df):
     headers = list(df.columns)
@@ -174,6 +175,226 @@ def sc_bar(val, max_val):
     length = int(min(40, max(1, (val / max_val) * 40)))
     return "██" * (length // 2) + ("■" if length % 2 else "")
 
+_DSP_ACTIVE_FUNDS = [
+    "DSP_SMALL_CAP", "DSP_MID_CAP", "DSP_LARGE_AND_MID_CAP", "DSP_FLEXI_CAP",
+    "DSP_MULTICAP", "DSP_FOCUSED", "DSP_VALUE", "DSP_TIGER", "DSP_BUSINESS_CYCLE",
+    "DSP_ELSS_TAX_SAVER", "DSP_HEALTHCARE", "DSP_BANKING_FINANCIAL_SERVICES", "DSP_QUANT",
+]
+
+
+def _run_dsp_mom_trend(sym: str, cn: str) -> str:
+    """Query mf_holdings for DSP active-fund cross-ownership and the 6-month MoM
+    trend for the highest-conviction holder. All numbers from ClickHouse — no LLM math."""
+    try:
+        fund_list_sql = ", ".join(f"'{f}'" for f in _DSP_ACTIVE_FUNDS)
+        # Fuzzy-match the company name (first two tokens) and also try exact symbol match
+        name_tokens = cn.split()[:2]
+        like_clause = " OR ".join(f"security_name ILIKE '%{t}%'" for t in name_tokens if len(t) > 3)
+        df = query_df(
+            f"""
+            SELECT fund_name,
+                   as_of_month,
+                   security_name,
+                   pct_of_nav,
+                   market_value_cr
+            FROM market_data.mf_holdings FINAL
+            WHERE fund_name IN ({fund_list_sql})
+              AND ({like_clause})
+            ORDER BY fund_name, as_of_month DESC
+            """
+        )
+    except Exception as e:
+        return f"\n*DSP MF Holdings query failed: {e}*"
+
+    if df.empty:
+        return f"\n*No DSP active-fund holdings found for {cn} ({sym}).*"
+
+    latest_month = df["as_of_month"].max()
+    df_latest = (
+        df[df["as_of_month"] == latest_month]
+        .sort_values("market_value_cr", ascending=False)
+    )
+
+    lines = [f"### 🏛️ DSP Active-Fund Institutional Conviction\n"]
+    lines.append(f"**Latest Positions (as of {latest_month}):**\n")
+    for _, r in df_latest.iterrows():
+        pct = r["pct_of_nav"]
+        mv = r["market_value_cr"]
+        pct_str = f"{pct:.2f}% of NAV" if pct and pct == pct else ""
+        mv_str = f"₹{mv:.2f} Cr" if mv and mv == mv else ""
+        lines.append(f"- **{r['fund_name']}**: {pct_str} (Market Value: {mv_str})")
+
+    # 6-month MoM trend for the top holder
+    if not df_latest.empty:
+        top_fund = df_latest.iloc[0]["fund_name"]
+        df_trend = (
+            df[df["fund_name"] == top_fund]
+            .sort_values("as_of_month")
+            .tail(6)
+        )
+        if len(df_trend) >= 2:
+            lines.append(f"\n**{top_fund} MoM Conviction Trend (last {len(df_trend)} months):**\n")
+            for _, r in df_trend.iterrows():
+                pct = r["pct_of_nav"]
+                mv = r["market_value_cr"]
+                month_str = str(r["as_of_month"])[:7]
+                pct_str = f"{pct:.2f}% NAV" if pct and pct == pct else "N/A"
+                mv_str = f"(₹{mv:.2f} Cr)" if mv and mv == mv else ""
+                lines.append(f"  {month_str} : {pct_str} {mv_str}")
+
+            first_pct = float(df_trend.iloc[0]["pct_of_nav"] or 0)
+            last_pct = float(df_trend.iloc[-1]["pct_of_nav"] or 0)
+            if last_pct > first_pct:
+                direction = f"↑ Active accumulation (+{last_pct - first_pct:.2f}pp over {len(df_trend)} months)"
+            elif last_pct < first_pct:
+                direction = f"↓ Trimming ({first_pct - last_pct:.2f}pp reduction over {len(df_trend)} months)"
+            else:
+                direction = "→ Stable position"
+            lines.append(f"\n**Trend:** {direction}")
+
+    return "\n".join(lines)
+
+
+def _run_rag_news_clusters(sym: str) -> str:
+    """Retrieve vectorized news articles from Qdrant news_articles collection
+    and produce a cluster summary grouped by category. Falls back gracefully if
+    Qdrant is unavailable."""
+    try:
+        from src.ml.correlation.news_rag import get_qdrant_client, ensure_collection, _EMBED_DIM
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        client = get_qdrant_client()
+        if not client:
+            return "\n*Qdrant unavailable — RAG news cluster skipped.*"
+
+        if not ensure_collection(client, "news_articles", _EMBED_DIM):
+            return "\n*news_articles collection not found in Qdrant.*"
+
+        points, _ = client.scroll(
+            collection_name="news_articles",
+            scroll_filter=Filter(
+                must=[FieldCondition(key="symbol", match=MatchValue(value=sym))]
+            ),
+            limit=300,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as e:
+        return f"\n*RAG news cluster query failed: {e}*"
+
+    if not points:
+        return f"\n*No vectorized news articles found for {sym} in Qdrant news_articles collection.*"
+
+    # Group by category field in the payload
+    from collections import defaultdict
+    clusters: dict[str, list[str]] = defaultdict(list)
+    sentiments: dict[str, list[str]] = defaultdict(list)
+    for pt in points:
+        payload = pt.payload or {}
+        cat = str(payload.get("category") or "General").strip() or "General"
+        title = str(payload.get("title") or "").strip()
+        sentiment = str(payload.get("sentiment") or "NEUTRAL").upper()
+        if title:
+            clusters[cat].append(title)
+        sentiments[cat].append(sentiment)
+
+    # Sort clusters by article count descending
+    sorted_clusters = sorted(clusters.items(), key=lambda x: -len(x[1]))
+
+    lines = [
+        f"### 🧠 Vector RAG Semantic News Clusters (Qdrant `news_articles`)\n",
+        f"**{len(points)} vectorized articles** found for {sym} in 768-dim COSINE collection.\n",
+    ]
+    for cat, titles in sorted_clusters[:6]:
+        count = len(titles)
+        cat_sentiments = sentiments.get(cat, [])
+        bullish = cat_sentiments.count("POSITIVE") + cat_sentiments.count("BULLISH")
+        bearish = cat_sentiments.count("NEGATIVE") + cat_sentiments.count("BEARISH")
+        sentiment_label = (
+            "🟢 Bullish" if bullish > bearish
+            else "🔴 Bearish" if bearish > bullish
+            else "⚪ Neutral"
+        )
+        lines.append(f"**{cat}** ({count} articles) — {sentiment_label}")
+        for title in titles[:3]:
+            lines.append(f"  • {title}")
+        if count > 3:
+            lines.append(f"  *...and {count - 3} more*")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _run_promoter_dilution_audit(sym: str, shareholding_raw: str, cashflow_raw: str) -> str:
+    """Apply the QIP/dilution check rule: compare promoter % drop vs absolute
+    share count expansion. All data comes from already-fetched tool outputs —
+    no additional network calls."""
+    lines = ["### 🔍 Promoter Shareholding & Dilution Audit\n"]
+
+    # Extract promoter % series from shareholding string (look for lines like
+    # "Promoter: 34.78%" or table rows). Use simple regex; graceful fallback.
+    import re
+    promoter_matches = re.findall(
+        r"(?:Promoter[s]?[:\s|]+)([\d.]+)\s*%", shareholding_raw, re.IGNORECASE
+    )
+    if len(promoter_matches) >= 2:
+        latest_pct = float(promoter_matches[0])
+        oldest_pct = float(promoter_matches[-1])
+        delta = latest_pct - oldest_pct
+        if abs(delta) >= 1.0:
+            direction = "dropped" if delta < 0 else "rose"
+            lines.append(
+                f"**Observed Promoter % Change:** {oldest_pct:.2f}% → {latest_pct:.2f}% "
+                f"({direction} {abs(delta):.2f}pp)\n"
+            )
+            if delta < 0:
+                lines.append(
+                    "**Dilution Audit (AGENTS.md QIP Rule):**\n"
+                    "A promoter-% drop does NOT confirm a sell-down. "
+                    "Verify whether the denominator (total shares outstanding) expanded via:\n"
+                    "  • **QIP** (Qualified Institutional Placement)\n"
+                    "  • **Preferential allotment** to investors\n"
+                    "  • **Rights/bonus issue** (bonus rarely dilutes %)\n"
+                    "  • **ESOP exercise** (minor dilution)\n\n"
+                    "> Rule: Promoter-% drop with **unchanged absolute share count** = dilution (not a sale). "
+                    "Promoter-% drop with **lower absolute share count** = actual sale (red flag).\n"
+                    "> Cross-check the balance sheet 'Equity Capital' line for total shares outstanding.\n"
+                )
+        else:
+            lines.append(f"**Promoter % Stable:** {latest_pct:.2f}% (change < 1pp — no dilution audit needed)\n")
+    else:
+        lines.append("*Promoter shareholding pattern data not parsed — check the Shareholding section above.*\n")
+
+    return "\n".join(lines)
+
+
+def _format_nse_events(nse_raw: str, sym: str) -> str:
+    """Reformat the raw nse_announcements output into a clean Markdown table."""
+    import ast
+    lines = ["### 🏛️ Official SEBI / NSE Corporate Events (Last 365 Days)\n"]
+
+    try:
+        data = ast.literal_eval(nse_raw)
+        announcements = data.get("announcements", []) if isinstance(data, dict) else []
+    except Exception:
+        # String output fallback — just include verbatim
+        return f"### 🏛️ Official SEBI / NSE Corporate Events\n\n{nse_raw}"
+
+    if not announcements:
+        return f"### 🏛️ Official SEBI / NSE Corporate Events\n\n*No material NSE announcements found for {sym} in the last 365 days.*"
+
+    lines.append("| Date | Category | Summary |")
+    lines.append("| :--- | :--- | :--- |")
+    for ann in sorted(announcements, key=lambda x: x.get("published_at", ""), reverse=True)[:15]:
+        date_str = str(ann.get("published_at", ""))[:10]
+        cat = str(ann.get("category", "")).strip()
+        desc = str(ann.get("description") or ann.get("title") or "").strip()
+        desc = desc[:120].replace("|", "–")
+        lines.append(f"| {date_str} | {cat} | {desc} |")
+
+    return "\n".join(lines)
+
+
 def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
     print(f"Resolving company info for: {query_or_symbol}...")
     info = resolve_company_info(query_or_symbol)
@@ -209,6 +430,7 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
         "price_chart":  lambda: plot_price_chart.invoke({"symbol": sym, "days": 365}),
         "anomalies":    lambda: search_anomaly_events.invoke({"symbol": sym, "days": 365}),
         "correlations": lambda: find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365}),
+        "nse_events":   lambda: str(get_nse_announcements.invoke({"input_str": sym})),
     }
     
     fetched_data = {}
@@ -223,7 +445,25 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
                 fetched_data[name] = f"Error: {e}"
                 print(f" ✗ Failed: {name} ({e})")
                 
-    # 2. Run MA Crossover Backtest (20d vs 50d SMA)
+    # 2a. DSP MoM conviction trend (ClickHouse mf_holdings)
+    print("\nQuerying DSP active-fund MoM conviction trend...")
+    dsp_mom_summary = _run_dsp_mom_trend(sym, cn)
+
+    # 2b. Qdrant RAG news cluster (news_articles collection)
+    print("Querying Qdrant news_articles RAG cluster...")
+    rag_cluster_summary = _run_rag_news_clusters(sym)
+
+    # 2c. Promoter dilution audit (QIP check)
+    promoter_dilution_summary = _run_promoter_dilution_audit(
+        sym,
+        fetched_data.get("shareholding", ""),
+        fetched_data.get("cashflow", ""),
+    )
+
+    # 2d. NSE events formatted table
+    nse_events_summary = _format_nse_events(fetched_data.get("nse_events", ""), sym)
+
+    # 3. Run MA Crossover Backtest (20d vs 50d SMA)
     print("\nRunning 20d vs 50d SMA Crossover Backtest...")
     try:
         metrics = run_crossover_backtest(sym, fast=20, slow=50, ma_type="sma", plot=True)
@@ -239,11 +479,11 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
     except Exception as e:
         crossover_summary = f"\n*Crossover Backtest failed: {e}*"
     
-    # 3. Compute Intrinsic Value DCF Sizing
+    # 4. Compute Intrinsic Value DCF Sizing
     print("\nRunning DCF Valuation Model...")
     dcf_valuation_summary = run_dcf_valuation_helper(sym, exc, cn)
     
-    # 4. Fetch Sector/Industry Peers from ClickHouse
+    # 5. Fetch Sector/Industry Peers from ClickHouse
     print("\nQuerying Peer Valuations from ClickHouse...")
     peer_summary = ""
     try:
@@ -276,7 +516,7 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
     except Exception as e:
         peer_summary = f"\n*Peer Comparison failed: {e}*"
         
-    # 5. Save Combined Report as Artifact
+    # 6. Save Combined Report as Artifact
     print("\nSaving raw data report to artifacts...")
     
     base_report_data = "\n\n---\n\n".join(
@@ -293,6 +533,22 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
 ---
 
 {base_report_data}
+
+---
+
+{dsp_mom_summary}
+
+---
+
+{promoter_dilution_summary}
+
+---
+
+{rag_cluster_summary}
+
+---
+
+{nse_events_summary}
 
 ---
 

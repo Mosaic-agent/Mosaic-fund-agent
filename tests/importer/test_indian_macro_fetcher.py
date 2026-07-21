@@ -2,7 +2,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
-from src.importer.fetchers.tijori_macro_fetcher import TijoriMacroFetcher
+from src.importer.fetchers.indian_macro_fetcher import IndianMacroFetcher
 
 # Mock HTML page with one table containing a single metric row and date headers.
 MOCK_HTML = """
@@ -38,8 +38,8 @@ MOCK_HTML = """
 </html>
 """
 
-def test_tijori_macro_fetcher_parses_valid_row():
-    fetcher = TijoriMacroFetcher()
+def test_indian_macro_fetcher_parses_valid_row():
+    fetcher = IndianMacroFetcher()
 
     with patch("urllib.request.urlopen") as mock_urlopen:
         mock_response = MagicMock()
@@ -61,8 +61,8 @@ def test_tijori_macro_fetcher_parses_valid_row():
         assert record["unit"] == "%"
 
 
-def test_tijori_macro_fetcher_filters_by_date():
-    fetcher = TijoriMacroFetcher()
+def test_indian_macro_fetcher_filters_by_date():
+    fetcher = IndianMacroFetcher()
 
     with patch("urllib.request.urlopen") as mock_urlopen:
         mock_response = MagicMock()
@@ -74,8 +74,8 @@ def test_tijori_macro_fetcher_filters_by_date():
         assert len(rows) == 0
 
 
-def test_tijori_macro_max_date():
-    fetcher = TijoriMacroFetcher()
+def test_indian_macro_max_date():
+    fetcher = IndianMacroFetcher()
     rows = [
         {"as_of_date": date(2026, 5, 1), "value": 3.9},
         {"as_of_date": date(2026, 4, 1), "value": 3.5},
@@ -84,3 +84,4 @@ def test_tijori_macro_max_date():
 
     with pytest.raises(ValueError):
         fetcher.max_date([])
+

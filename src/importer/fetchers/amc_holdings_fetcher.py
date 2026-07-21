@@ -25,7 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Valid values for the `amc` argument — mirrors factory.REGISTRY keys.
-AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant"})
+AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant", "amfi"})
 
 
 def fetch_amc_holdings(
@@ -42,7 +42,7 @@ def fetch_amc_holdings(
     Parameters
     ----------
     amc              : one of ``AMC_KEYS``
-    full_reimport    : ignore watermarks and re-fetch all history (nippon/dsp/quant/bajaj only)
+    full_reimport    : ignore watermarks and re-fetch all history
     dry_run          : parse data but skip DB writes
     target_month     : specific month to import (format: YYYY-MM)
     freshness_months : number of most recent months to re-import
@@ -53,7 +53,7 @@ def fetch_amc_holdings(
     from src.scripts.fund_imports.factory import create_importer
 
     kwargs: dict = {}
-    if amc in ("nippon", "dsp", "bajaj", "quant"):
+    if amc in ("nippon", "dsp", "bajaj", "quant", "amfi"):
         kwargs["full_reimport"] = full_reimport
 
     if target_month:

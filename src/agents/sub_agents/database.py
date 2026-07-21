@@ -63,7 +63,7 @@ class DatabaseSubAgent(_SubAgent):
         "| cot_gold | report_date, mm_long, mm_short, mm_net, open_interest |\n"
         "| fx_rates | trade_date, symbol('USDINR=X' etc.), close |\n"
         "| macro_indicators | ref_year, country_code, indicator_code, value |\n"
-        "| tijori_macro_indicators | as_of_date, indicator_code, indicator_name, parent_code, value, unit |\n"
+        "| indian_macro_indicators | as_of_date, indicator_code, indicator_name, parent_code, value, unit |\n"
         "| news_articles | fetched_at, category, sentiment, impact_tier, title |\n"
         "| import_watermarks | source, symbol, last_date |\n"
         "| corporate_actions | symbol, ex_date, action_type('split'/'bonus'/'dividend'/'demerger'/'rights'), ratio, purpose |\n"

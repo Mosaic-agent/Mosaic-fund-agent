@@ -1,7 +1,7 @@
 """
-src/importer/fetchers/tijori_macro_fetcher.py
+src/importer/fetchers/indian_macro_fetcher.py
 ─────────────────────────────────────────────
-Fetches and parses macro and industry indicators from Tijori Finance
+Fetches and parses macro and industry indicators (source: Tijori Finance).
 (https://www.tijorifinance.com/in/macro).
 
 Stores monthly, quarterly, and annual indicators into ClickHouse.
@@ -69,22 +69,21 @@ def _is_locked_direct(td: Any) -> bool:
     return False
 
 
-class TijoriMacroFetcher(Fetcher):
+class IndianMacroFetcher(Fetcher):
     """
-    Scrapes and parses macro/industry indicator tables from Tijori Finance.
+    Scrapes and parses macro/industry indicator tables.
     """
 
-    source_name = "tijori_macro"
+    source_name = "indian_macro"
     symbol_key = "INDIA"
-    description = "Tijori Finance Macro Indicators"
+    description = "Indian Macro Indicators"
     overlap_days = 30  # Re-fetch recent months to catch revisions
 
     def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
         """
-        Scrapes https://www.tijorifinance.com/in/macro, parses all visible tables,
-        and filters rows by date.
+        Scrapes data, parses all visible tables, and filters rows by date.
         """
-        log.info("Fetching Tijori macro indicators page...")
+        log.info("Fetching Indian macro indicators page...")
         req = urllib.request.Request(_TIJORI_MACRO_URL, headers=_HEADERS)
         try:
             with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
@@ -203,14 +202,14 @@ class TijoriMacroFetcher(Fetcher):
                     })
 
         log.info(
-            "Tijori macro fetch: parsed %d data points in range %s to %s",
+            "Indian macro fetch: parsed %d data points in range %s to %s",
             len(all_records), from_date, to_date
         )
         return all_records
 
     def insert(self, rows: list[dict[str, Any]], ch) -> int:
         """Insert records into ClickHouse."""
-        return ch.insert_tijori_macro_indicators(rows)
+        return ch.insert_indian_macro_indicators(rows)
 
     def max_date(self, rows: list[dict[str, Any]]) -> date:
         """Extract the latest as_of_date from rows for watermark update."""
@@ -218,4 +217,4 @@ class TijoriMacroFetcher(Fetcher):
         if dates:
             latest = max(dates)
             return latest if isinstance(latest, date) else latest.date()
-        raise ValueError("TijoriMacroFetcher: cannot determine max date from rows")
+        raise ValueError("IndianMacroFetcher: cannot determine max date from rows")

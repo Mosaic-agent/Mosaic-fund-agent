@@ -279,6 +279,22 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (trade_date)
 """
 
+_DDL_AMFI_CATEGORY_FLOWS = """
+CREATE TABLE IF NOT EXISTS market_data.amfi_category_flows (
+    report_month        Date,                        -- First day of month (YYYY-MM-01)
+    category_name       String,                      -- Verbatim from AMFI: "Large Cap Fund", etc.
+    subcategory_group   LowCardinality(String),      -- Normalised: Equity | Debt | Hybrid | Passive | FoF | Solution | Other
+    gross_purchase_cr   Float64,                     -- Gross purchases (₹ Crore)
+    gross_redemption_cr Float64,                     -- Gross redemptions (₹ Crore)
+    net_flow_cr         Float64,                     -- gross_purchase - gross_redemption
+    closing_aum_cr      Float64,                     -- Closing AUM (₹ Crore)
+    flow_pct_of_aum     Float64,                     -- net_flow_cr / closing_aum_cr * 100
+    imported_at         DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (report_month, category_name)
+"""
+
 _DDL_FII_DII_MONTHLY = """
 CREATE TABLE IF NOT EXISTS market_data.fii_dii_monthly (
     month_date         Date,        -- First day of month (YYYY-MM-01)
@@ -576,8 +592,8 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (ref_year, country_code, indicator_code, source)
 """
 
-_DDL_TIJORI_MACRO_INDICATORS = """
-CREATE TABLE IF NOT EXISTS market_data.tijori_macro_indicators (
+_DDL_INDIAN_MACRO_INDICATORS = """
+CREATE TABLE IF NOT EXISTS market_data.indian_macro_indicators (
     as_of_date      Date,
     indicator_code  String,
     indicator_name  String,
@@ -709,9 +725,9 @@ class ClickHouseImporter:
             _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
-            _DDL_MACRO_INDICATORS, _DDL_TIJORI_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
+            _DDL_MACRO_INDICATORS, _DDL_INDIAN_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
             _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
-            _DDL_LIVE_QUOTES, _DDL_LIVE_ALERTS,
+            _DDL_LIVE_QUOTES, _DDL_LIVE_ALERTS, _DDL_AMFI_CATEGORY_FLOWS,
         ):
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)
@@ -1243,11 +1259,11 @@ class ClickHouseImporter:
         vectorize_macro(rows)
         return len(rows)
 
-    # ── Bulk insert: tijori_macro_indicators ──────────────────────────────────
+    # ── Bulk insert: indian_macro_indicators ──────────────────────────────────
 
-    def insert_tijori_macro_indicators(self, rows: list[dict[str, Any]]) -> int:
+    def insert_indian_macro_indicators(self, rows: list[dict[str, Any]]) -> int:
         """
-        Insert Tijori macro indicator rows into market_data.tijori_macro_indicators.
+        Insert Indian macro indicator rows into market_data.indian_macro_indicators.
 
         Each dict must have keys:
             as_of_date (date or str), indicator_code, indicator_name, parent_code,
@@ -1274,7 +1290,7 @@ class ClickHouseImporter:
             ])
             
         self._client.insert(
-            "market_data.tijori_macro_indicators",
+            "market_data.indian_macro_indicators",
             parsed_rows,
             column_names=[
                 "as_of_date", "indicator_code", "indicator_name", "parent_code",
@@ -1282,7 +1298,7 @@ class ClickHouseImporter:
             ],
             settings={"max_partitions_per_insert_block": 300},
         )
-        logger.info("Inserted %d Tijori macro indicator rows", len(rows))
+        logger.info("Inserted %d Indian macro indicator rows", len(rows))
         return len(rows)
 
     # ── Bulk insert: etf_aum ─────────────────────────────────────────────────
@@ -1415,6 +1431,50 @@ class ClickHouseImporter:
                 "month_date", "fii_buy_cr", "fii_sell_cr", "fii_net_cr",
                 "dii_buy_cr", "dii_sell_cr", "dii_net_cr",
                 "nifty_close", "nifty_change_pct",
+            ],
+        )
+        return len(rows)
+
+    def insert_amfi_category_flows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """
+        Bulk-insert AMFI category-wise monthly flows into amfi_category_flows.
+
+        Each row dict must have keys:
+            report_month (date), category_name, subcategory_group,
+            gross_purchase_cr, gross_redemption_cr, net_flow_cr,
+            closing_aum_cr, flow_pct_of_aum
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        if dry_run:
+            logger.info("[dry-run] Would insert %d AMFI category flow rows.", len(rows))
+            return len(rows)
+        self._client.insert(
+            "market_data.amfi_category_flows",
+            [
+                [
+                    r["report_month"],
+                    r["category_name"],
+                    r["subcategory_group"],
+                    r["gross_purchase_cr"],
+                    r["gross_redemption_cr"],
+                    r["net_flow_cr"],
+                    r["closing_aum_cr"],
+                    r["flow_pct_of_aum"],
+                ]
+                for r in rows
+            ],
+            column_names=[
+                "report_month", "category_name", "subcategory_group",
+                "gross_purchase_cr", "gross_redemption_cr", "net_flow_cr",
+                "closing_aum_cr", "flow_pct_of_aum",
             ],
         )
         return len(rows)

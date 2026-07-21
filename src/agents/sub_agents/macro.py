@@ -25,7 +25,7 @@ class MacroSubAgent(_SubAgent):
         "Call `get_dxy_context` whenever the user asks about the dollar, DXY, USD strength, "
         "or its impact on gold / USDINR. "
         "Use `query_clickhouse_db` to read `market_data.fii_dii_flows FINAL`, "
-        "`market_data.cot_gold FINAL`, and `market_data.tijori_macro_indicators FINAL` for institutional and macroeconomic trend data. "
+        "`market_data.cot_gold FINAL`, and `market_data.indian_macro_indicators FINAL` for institutional and macroeconomic trend data. "
         "Net article flow index interpretation: ≥+16 = strong bullish | +8 to +15 = moderate bullish "
         "| ≤−16 = strong bearish.\n\n"
         "## Index stats (valuation & breadth)\n"

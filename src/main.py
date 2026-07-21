@@ -929,9 +929,9 @@ def import_data(
         help=(
             "Comma-separated categories to import: "
             "stocks, etfs, commodities, indices, mf, inav, nse_eod, "
-            "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, "
+            "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, amfi_flows, "
             "earnings, insider, valuation, "
-            "world_bank, imf_weo, tijori_macro, tijori_macro_indicators, "
+            "world_bank, imf_weo, indian_macro, indian_macro_indicators, "
             "icici, nippon, icici-index, dsp, quant, all. "
             "Default: all."
         ),
@@ -1611,6 +1611,64 @@ def scan_trends() -> None:
     _console = Console()
     report = scan_etf_trends.func()
     _console.print(Markdown(report))
+
+
+@app.command(name="scan-whales")
+def scan_whales(
+    amc: str = typer.Option(
+        "all",
+        "--amc", "-a",
+        help="AMC group to scan: all | dsp | nippon | bajaj | icici | quant (default: all)",
+    ),
+    months: int = typer.Option(
+        3,
+        "--months", "-m",
+        help="Lookback months for MoM weight delta (default: 3)",
+    ),
+    min_amcs: int = typer.Option(
+        2,
+        "--min-amcs",
+        help="Minimum distinct AMC groups for consensus signal (default: 2)",
+    ),
+    save: bool = typer.Option(
+        False,
+        "--save", "-s",
+        help="Save Markdown report to output/whale_accumulation_report.md",
+    ),
+) -> None:
+    """
+    Cross-AMC institutional whale accumulation scanner.
+
+    Scans market_data.mf_holdings for stocks where multiple independent
+    active AMC funds are simultaneously building positions — the consensus
+    signal that is hardest to manufacture.
+
+    consensus_score = num_amcs × avg_weight_delta_pp
+
+    \\b
+    Examples:
+      mosaic scan-whales                       # full scan, all AMCs, 3M window
+      mosaic scan-whales --amc dsp --months 6  # DSP funds, 6M window
+      mosaic scan-whales --min-amcs 3          # only 3+ AMC consensus picks
+      mosaic scan-whales --save                # save Markdown report
+    """
+    _setup_logging()
+    from src.scripts.portfolio.whale_accumulation_scanner import run_whale_scan, print_whale_report
+
+    console.print(
+        Panel(
+            "[bold]🐋 Cross-AMC Whale Accumulation Scanner[/bold]\n"
+            "[dim]consensus_score = num_amcs × avg_weight_delta_pp  ·  "
+            "Active equity funds only[/dim]",
+            border_style="cyan",
+        )
+    )
+
+    with console.status("[cyan]Scanning mf_holdings…[/cyan]"):
+        results = run_whale_scan(amc=amc, lookback_months=months, min_amcs=min_amcs)
+
+    print_whale_report(results, console, save=save)
+    console.rule("[dim]End of Whale Accumulation Scan[/dim]")
 
 
 @app.command(name="studio")

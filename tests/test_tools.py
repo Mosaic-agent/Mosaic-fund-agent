@@ -1151,12 +1151,12 @@ def test_rag_planner_templates():
     # 2. Test monthly macro indicators matching
     intent, plan = _build_rag_plan("check latest India macro indicators")
     assert intent == "macro"
-    assert "tijori_macro_indicators" in plan
+    assert "indian_macro_indicators" in plan
 
     # 3. Test macro importer matching
-    intent, plan = _build_rag_plan("refresh Tijori macro data")
+    intent, plan = _build_rag_plan("refresh Indian macro data")
     assert intent == "main"
-    assert "tijori_macro" in plan
+    assert "indian_macro" in plan
 
     print("  ✓ RAG Planner template matching checks passed")
 
@@ -1167,7 +1167,7 @@ def test_category_normalization():
     print("="*60)
 
     from src.importer.registry import ALL_CATEGORIES
-    assert "tijori_macro_indicators" in ALL_CATEGORIES
+    assert "indian_macro_indicators" in ALL_CATEGORIES
 
     print("  ✓ Category normalization checks passed")
 
