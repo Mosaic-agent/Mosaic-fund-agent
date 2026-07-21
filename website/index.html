@@ -449,48 +449,77 @@
 
     /* ── Flow diagram ───────────────────────────────────────────── */
     .flow { margin: 48px 0 8px; }
-    .flow-layer { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; box-shadow: var(--sh-xs); }
-    .flow-tag { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-3); margin-bottom: 12px; }
+    .flow-layer {
+      background: #0f172a; color: #e2e8f0;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius-lg); padding: 24px 28px;
+      box-shadow: 0 12px 40px rgba(15,23,42,0.35);
+    }
+    .flow-tag { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gold); margin-bottom: 16px; }
     .flow-lake { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
     .flow-sources { flex: 1; min-width: 200px; }
-    .flow-sources .src-list { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-2); line-height: 1.9; }
-    .flow-store { flex: 1.4; min-width: 240px; background: var(--gold-lt); border: 1.5px solid var(--gold-bd); border-radius: var(--radius); padding: 16px 20px; }
-    .flow-store .store-title  { font-size: 13px; font-weight: 700; color: #92400e; margin-bottom: 8px; }
-    .flow-store .store-tables { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2); line-height: 1.7; }
-    .flow-store .store-meta   { font-size: 11px; color: var(--text-3); margin-top: 8px; }
+    .flow-sources .src-list { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #94a3b8; line-height: 1.9; }
+    .flow-store {
+      flex: 1.4; min-width: 240px; background: rgba(245,158,11,0.08);
+      border: 1.5px solid rgba(245,158,11,0.4); border-radius: var(--radius); padding: 18px 22px;
+      box-shadow: 0 4px 20px rgba(245,158,11,0.1);
+    }
+    .flow-store .store-title  { font-size: 14px; font-weight: 700; color: #fbbf24; margin-bottom: 8px; }
+    .flow-store .store-tables { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #cbd5e1; line-height: 1.7; }
+    .flow-store .store-meta   { font-size: 11px; color: #94a3b8; margin-top: 8px; }
+    
+    .flow-store.qdrant {
+      background: rgba(220,36,76,0.08); border-color: rgba(220,36,76,0.4);
+      box-shadow: 0 4px 20px rgba(220,36,76,0.1);
+    }
+    .flow-store.qdrant .store-title { color: #f43f5e; }
 
-    .flow-conn { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; padding: 10px 0 6px; color: var(--text-3); letter-spacing: .5px; }
+    .flow-conn { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; padding: 12px 0 8px; color: var(--text-3); letter-spacing: .5px; }
     .flow-conn .arr { color: var(--gold-dk); font-size: 20px; display: block; line-height: 1; }
-    .conn-label { font-size: 12px; color: var(--text-3); letter-spacing: .5px; }
+    .conn-label { font-size: 12px; color: var(--text-3); letter-spacing: .5px; font-weight: 600; }
 
-    .wire { position: relative; width: 2px; height: 34px; background: var(--border); border-radius: 2px; overflow: visible; }
-    .wire .pulse { position: absolute; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold-dk); box-shadow: 0 0 8px 2px rgba(217,119,6,.4); animation: flowDown 2.2s linear infinite; }
-    .wire .pulse.p2 { animation-delay: 1.1s; }
-    @keyframes flowDown { 0% { top: -6px; opacity: 0; } 18% { opacity: 1; } 82% { opacity: 1; } 100% { top: 34px; opacity: 0; } }
+    .wire { position: relative; width: 3px; height: 38px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: visible; }
+    .wire .pulse { position: absolute; left: -3.5px; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px 3px rgba(245,158,11,0.8); animation: flowDown 2.2s linear infinite; }
+    .wire .pulse.p2 { animation-delay: 1.1s; background: #0d9488; box-shadow: 0 0 12px 3px rgba(13,148,136,0.8); }
+    @keyframes flowDown { 0% { top: -6px; opacity: 0; } 18% { opacity: 1; } 82% { opacity: 1; } 100% { top: 38px; opacity: 0; } }
 
-    .wire-h { position: relative; width: 46px; height: 2px; background: var(--border); border-radius: 2px; flex-shrink: 0; }
-    .wire-h .pulse-h { position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold-dk); box-shadow: 0 0 8px 2px rgba(217,119,6,.4); animation: flowRight 1.9s linear infinite; }
-    .wire-h .pulse-h.p2 { animation-delay: .95s; }
+    .wire-h { position: relative; width: 46px; height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; flex-shrink: 0; }
+    .wire-h .pulse-h { position: absolute; top: -3.5px; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px 3px rgba(245,158,11,0.8); animation: flowRight 1.9s linear infinite; }
+    .wire-h .pulse-h.p2 { animation-delay: .95s; background: #3b82f6; box-shadow: 0 0 12px 3px rgba(59,130,246,0.8); }
     @keyframes flowRight { 0% { left: -6px; opacity: 0; } 18% { opacity: 1; } 82% { opacity: 1; } 100% { left: 46px; opacity: 0; } }
 
-    .flow-engines { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-    .engine { background: #fff; border: 1.5px solid var(--border); border-top: 3px solid var(--teal); border-radius: var(--radius); padding: 18px 16px; box-shadow: var(--sh-xs); transition: box-shadow .2s, transform .2s; position: relative; overflow: hidden; }
-    .engine:hover { box-shadow: var(--sh-md); transform: translateY(-3px); }
+    .flow-engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+    .engine {
+      background: #1e293b; color: #f8fafc;
+      border: 1px solid rgba(255,255,255,0.1); border-top: 3.5px solid var(--teal);
+      border-radius: var(--radius); padding: 20px 18px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      transition: box-shadow .25s, transform .25s; position: relative; overflow: hidden;
+    }
+    .engine:hover { box-shadow: 0 12px 32px rgba(13,148,136,0.25); transform: translateY(-4px); border-color: rgba(255,255,255,0.25); }
     .engine.e1 { border-top-color: var(--gold); }
     .engine.e2 { border-top-color: var(--blue); }
-    .engine.e3 { border-top-color: var(--teal); }
+    .engine.e3 { border-top-color: #10b981; }
     .engine.e4 { border-top-color: var(--red); }
-    .engine .e-ico { font-size: 22px; margin-bottom: 8px; }
-    .engine h4 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
-    .engine p  { font-size: 12px; color: var(--text-2); line-height: 1.5; }
+    .engine .e-ico { font-size: 26px; margin-bottom: 10px; }
+    .engine h4 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    .engine p  { font-size: 12.5px; color: #94a3b8; line-height: 1.5; }
 
-    .flow-orch-row { display: flex; gap: 14px; align-items: stretch; }
-    .flow-orch { flex: 1; background: var(--gold-lt); border: 1.5px solid var(--gold-bd); border-radius: var(--radius); padding: 20px; text-align: center; }
-    .flow-orch h4 { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-    .flow-orch p  { font-size: 13px; color: var(--text-2); }
-    .flow-cache { flex: 0 0 210px; background: var(--teal-lt); border: 1.5px solid rgba(13,148,136,.3); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; justify-content: center; text-align: left; }
-    .flow-cache .cache-title { font-size: 13px; font-weight: 700; color: var(--teal-dk); }
-    .flow-cache .cache-meta  { font-size: 11px; color: var(--text-2); margin-top: 5px; line-height: 1.5; }
+    .flow-orch-row { display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap; }
+    .flow-orch {
+      flex: 1; min-width: 280px; background: rgba(13,148,136,0.1);
+      border: 1.5px solid rgba(13,148,136,0.4); border-radius: var(--radius); padding: 22px; text-align: center;
+      box-shadow: 0 4px 20px rgba(13,148,136,0.15);
+    }
+    .flow-orch h4 { font-size: 16px; font-weight: 700; color: #2dd4bf; margin-bottom: 6px; }
+    .flow-orch p  { font-size: 13.5px; color: #cbd5e1; }
+    .flow-cache {
+      flex: 0 0 220px; background: rgba(245,158,11,0.1);
+      border: 1.5px solid rgba(245,158,11,0.4); border-radius: var(--radius); padding: 18px 20px;
+      display: flex; flex-direction: column; justify-content: center; text-align: left;
+    }
+    .flow-cache .cache-title { font-size: 14px; font-weight: 700; color: #fbbf24; }
+    .flow-cache .cache-meta  { font-size: 12px; color: #cbd5e1; margin-top: 5px; line-height: 1.5; }
 
     .flow-surfaces { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
     .surface-pill { background: #fff; border: 1.5px solid var(--border); border-radius: 22px; padding: 9px 20px; font-size: 14px; font-weight: 500; color: var(--text-2); display: flex; align-items: center; gap: 8px; box-shadow: var(--sh-xs); }
@@ -1023,6 +1052,14 @@
       converges in a multi-agent orchestrator backed by a SQLite LLM cache so repeat questions
       are free, and surfaces wherever you work.
     </p>
+
+    <!-- Architecture Live Feature Badges -->
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:20px 0 32px">
+      <span class="badge" style="background:#1e293b;border-color:rgba(245,158,11,0.4);color:#fbbf24">🗄️ 27 ClickHouse Tables</span>
+      <span class="badge" style="background:#1e293b;border-color:rgba(220,36,76,0.4);color:#f43f5e">🧬 5 Qdrant Collections (768d)</span>
+      <span class="badge" style="background:#1e293b;border-color:rgba(13,148,136,0.4);color:#2dd4bf">🧠 10 Specialist AI Sub-Agents</span>
+      <span class="badge" style="background:#1e293b;border-color:rgba(59,130,246,0.4);color:#60a5fa">⚡ 100% Offline with Ollama</span>
+    </div>
 
     <div class="flow">
 
