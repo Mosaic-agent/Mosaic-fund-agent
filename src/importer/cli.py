@@ -153,13 +153,13 @@ def run_import(
     if "all" in categories:
         categories = ALL_CATEGORIES
 
-    # Normalize category list to map aliases (e.g. tijori_macro_indicators -> tijori_macro)
+    # Normalize category list to map aliases (e.g. indian_macro_indicators -> indian_macro)
     normalized_categories = []
     for cat in categories:
         c_clean = cat.strip().lower()
-        if c_clean == "tijori_macro_indicators":
-            if "tijori_macro" not in normalized_categories:
-                normalized_categories.append("tijori_macro")
+        if c_clean == "indian_macro_indicators":
+            if "indian_macro" not in normalized_categories:
+                normalized_categories.append("indian_macro")
         elif c_clean:
             if c_clean not in normalized_categories:
                 normalized_categories.append(c_clean)
@@ -633,14 +633,14 @@ def run_import(
             summary_rows.append(("imf_weo", "imf_weo", inserted,
                                   str(imf_from_year), str(imf_to_year)))
 
-    # ── Tijori Macro Indicators ───────────────────────────────────────────────
-    if "tijori_macro" in categories:
-        from src.importer.fetchers.tijori_macro_fetcher import TijoriMacroFetcher
+    # ── Indian Macro Indicators ───────────────────────────────────────────────
+    if "indian_macro" in categories:
+        from src.importer.fetchers.indian_macro_fetcher import IndianMacroFetcher
 
-        console.print("\n[bold cyan]▶ Tijori Finance — Macro Indicators[/bold cyan]")
-        console.print("  [dim]Scrapes industry and macro indicators from Tijori Finance[/dim]")
+        console.print("\n[bold cyan]▶ Indian Macro Indicators[/bold cyan]")
+        console.print("  [dim]Scrapes industry and macro indicators (source: Tijori Finance)[/dim]")
 
-        fetcher = TijoriMacroFetcher()
+        fetcher = IndianMacroFetcher()
         from_date = _resolve_from_date(
             ch, fetcher.source_name, fetcher.symbol_key,
             lookback_days=lookback_days, full_reimport=full_reimport,
@@ -651,7 +651,7 @@ def run_import(
         rows = fetcher.fetch_with_retry(from_date, today)
 
         if not rows:
-            console.print("  [yellow]⚠ No Tijori macro data returned.[/yellow]")
+            console.print("  [yellow]⚠ No Indian macro data returned.[/yellow]")
         else:
             inserted = fetcher.insert(rows, ch) if not dry_run else len(rows)
             console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'stored'}")
@@ -660,8 +660,8 @@ def run_import(
                     max_dt = fetcher.max_date(rows)
                     ch.set_watermark(fetcher.source_name, fetcher.symbol_key, max_dt)
                 except Exception as e:
-                    logger.warning("Failed to update watermark for tijori_macro: %s", e)
-            summary_rows.append(("tijori_macro", "tijori", inserted,
+                    logger.warning("Failed to update watermark for indian_macro: %s", e)
+            summary_rows.append(("indian_macro", "tijori", inserted,
                                   from_date.isoformat(), today.isoformat()))
 
     if "fii_dii" in categories:
@@ -727,6 +727,53 @@ def run_import(
             console.print(f"  [green]✓[/green] {inserted} monthly aggregate rows stored")
         else:
             console.print("  [yellow]⚠ No monthly rows returned.[/yellow]")
+
+    if "amfi_flows" in categories:
+        from src.importer.fetchers.amfi_flows_fetcher import fetch_amfi_category_flows
+
+        console.print("\n[bold cyan]▶ AMFI Category-Wise Monthly Flows + AUM[/bold cyan]")
+        console.print(
+            "  [dim]AMFI industry data — monthly net flows & AUM by fund category[/dim]"
+        )
+
+        amfi_wm = ch.get_watermark("amfi_category_flows", "INDUSTRY", dataset="flows")
+        months_back = 120 if full_reimport else 24
+        if amfi_wm is not None and not full_reimport:
+            today_m = date.today().replace(day=1)
+            wm_m = amfi_wm.replace(day=1)
+            diff_months = (today_m.year - wm_m.year) * 12 + (today_m.month - wm_m.month)
+            months_back = max(2, diff_months + 1)
+
+        console.print(f"  [dim]Fetching last {months_back} months[/dim]")
+
+        amfi_rows = fetch_amfi_category_flows(months_back=months_back)
+        if amfi_rows:
+            inserted = ch.insert_amfi_category_flows(amfi_rows, dry_run=dry_run)
+            console.print(f"  [green]✓[/green] {inserted} category flow rows stored")
+            if not dry_run:
+                latest_month = max(r["report_month"] for r in amfi_rows)
+                ch.set_watermark("amfi_category_flows", "INDUSTRY", latest_month, dataset="flows")
+            latest_m = max(r["report_month"] for r in amfi_rows)
+            latest_rows = [r for r in amfi_rows if r["report_month"] == latest_m]
+            latest_rows.sort(key=lambda r: r["net_flow_cr"], reverse=True)
+            console.print(f"  Latest month: [bold]{latest_m.strftime('%b %Y')}[/bold]")
+            for r in latest_rows[:3]:
+                sign = "+" if r["net_flow_cr"] >= 0 else ""
+                console.print(
+                    f"    {r['category_name'][:30]:<30} "
+                    f"Net: ₹{sign}{r['net_flow_cr']:,.0f} Cr  |  "
+                    f"AUM: ₹{r['closing_aum_cr']:,.0f} Cr"
+                )
+            summary_rows.append((
+                "amfi_flows", "amfi", inserted,
+                str(min(r["report_month"] for r in amfi_rows)),
+                str(max(r["report_month"] for r in amfi_rows)),
+            ))
+        else:
+            console.print(
+                "  [yellow]⚠ No AMFI category flow rows returned. "
+                "Set AMFI_EXCEL_URL in .env as manual fallback.[/yellow]"
+            )
 
 
     # ── AMC Fund-Holdings Importers ───────────────────────────────────────────

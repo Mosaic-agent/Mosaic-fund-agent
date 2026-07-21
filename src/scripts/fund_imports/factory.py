@@ -23,6 +23,7 @@ from src.scripts.fund_imports.importers.icici_index import IciciIndexImporter
 from src.scripts.fund_imports.importers.dsp import DspImporter
 from src.scripts.fund_imports.importers.bajaj import BajajImporter
 from src.scripts.fund_imports.importers.quant import QuantImporter
+from src.scripts.fund_imports.importers.amfi import AmfiImporter
 
 REGISTRY: dict[str, type[BaseFundImporter]] = {
     "icici":       IciciMFImporter,
@@ -31,6 +32,7 @@ REGISTRY: dict[str, type[BaseFundImporter]] = {
     "dsp":         DspImporter,
     "bajaj":       BajajImporter,
     "quant":       QuantImporter,
+    "amfi":        AmfiImporter,
 }
 
 

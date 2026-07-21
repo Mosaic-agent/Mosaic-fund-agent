@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mosaic · Your AI Research Desk for Indian Markets</title>
-  <meta name="description" content="Daily buy/sell signals for GOLDBEES and 18 NSE ETFs. Track what DSP, Nippon, and Bajaj mutual funds are buying. Analyze your Zerodha portfolio with AI. Free, open-source, runs locally — your data never leaves." />
+  <meta name="description" content="Daily buy/sell signals for GOLDBEES and 18 NSE ETFs. Track what DSP, Nippon, and Bajaj mutual funds are buying. Analyze your Zerodha portfolio with AI. Free, open-source, runs locally. Your data never leaves." />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png" />
@@ -582,7 +582,7 @@
 
     <p class="hero-sub">
       Today's ETF signal. What smart money is buying.
-      Why your stock moved. Ask in plain English — answers backed by live data, not guesswork.
+      Why your stock moved. Ask in plain English and get answers backed by live data, not guesswork.
     </p>
 
     <div class="hero-actions">
@@ -663,13 +663,13 @@
   <div class="container">
     <div class="section-label">Who it's for</div>
     <h2 class="section-title">Quant-grade tools, built for retail investors</h2>
-    <p class="section-body">Hedge-fund techniques — ML forecasts, GARCH volatility, institutional flow tracking — packaged so you can use them without a quant degree.</p>
+    <p class="section-body">Hedge-fund techniques (ML forecasts, GARCH volatility, institutional flow tracking) packaged so you can use them without a quant degree.</p>
 
     <div class="paths-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
       <a href="#gallery" class="path-card">
         <div class="path-num">🎯</div>
         <h3>ETF traders</h3>
-        <p>"I trade GOLDBEES, SILVERBEES, NIFTYBEES. I want a daily signal — not gut feel." Composite 0–100 score across 6 pillars, iNAV premium alert, and a clear BUY / HOLD / AVOID with recommended position weight.</p>
+        <p>"I trade GOLDBEES, SILVERBEES, NIFTYBEES. I want a daily signal, not gut feel." Composite 0–100 score across 6 pillars, iNAV premium alert, and a clear BUY / HOLD / AVOID with recommended position weight.</p>
         <span class="path-go">See today's signals →</span>
       </a>
       <a href="#gallery" class="path-card">
@@ -856,7 +856,7 @@
       <div class="why-card">
         <div class="why-icon">🔬</div>
         <h3>Forensic anomaly explanation</h3>
-        <p>Every flagged date gets a full report: GARCH regime + Final-Z, news sentiment correlation, COMEX futures context, COT speculator positioning, and what the ML model predicted that day — all point-in-time, no future leakage.</p>
+        <p>Every flagged date gets a full report: GARCH regime + Final-Z, news sentiment correlation, COMEX futures context, COT speculator positioning, and what the ML model predicted that day, all point-in-time, no future leakage.</p>
       </div>
       <div class="why-card">
         <div class="why-icon">🐋</div>
@@ -1011,7 +1011,7 @@
 <section class="rag-section" id="rag">
   <div class="container">
     <div class="section-label">Vector Intelligence</div>
-    <h2 class="section-title">Qdrant RAG — semantic memory, not just SQL</h2>
+    <h2 class="section-title">Qdrant RAG: semantic memory, not just SQL</h2>
     <p class="section-body">
       Five 768-dimensional collections store embedded representations of every anomaly, fund holding,
       news article, and portfolio fingerprint. Vector similarity finds cross-asset correlations
@@ -1025,7 +1025,7 @@
         <div class="rag-card-head">
           <div class="rag-card-tag news">News RAG · macro correlation</div>
           <h3>Macro event → price shock correlation</h3>
-          <p>When an anomaly fires, PostMacroShockStrategy embeds the event text and queries <code style="color:#f59e0b;background:rgba(245,158,11,.1);padding:1px 5px;border-radius:3px">news_articles</code> for semantically related headlines in the ±7-day window — no date exact-match required.</p>
+          <p>When an anomaly fires, PostMacroShockStrategy embeds the event text and queries <code style="color:#f59e0b;background:rgba(245,158,11,.1);padding:1px 5px;border-radius:3px">news_articles</code> for semantically related headlines in the ±7-day window, no date exact-match required.</p>
         </div>
         <div class="rag-flow">
           <div class="rag-q">
@@ -1077,7 +1077,7 @@
         <div class="rag-card-head">
           <div class="rag-card-tag anom">Anomaly RAG · historical precedents</div>
           <h3>Historical precedent lookup for any regime</h3>
-          <p>Every flagged anomaly date is auto-stored on pipeline run. Ask what past events looked like today's shock — ranked by embedding similarity, excluding a ±30-day self-match window.</p>
+          <p>Every flagged anomaly date is auto-stored on pipeline run. Ask what past events looked like today's shock, ranked by embedding similarity, excluding a ±30-day self-match window.</p>
         </div>
         <div class="rag-flow">
           <div class="rag-q">
@@ -1185,7 +1185,7 @@
       <div class="feature-card">
         <span class="feat-tag gold">Correlation</span>
         <h3>News-RAG Correlation Engine</h3>
-        <p>Four parallel strategies attribute each anomaly to a likely cause — earnings, leak, macro shock, or cross-asset move — with calibrated confidence and direction-consistency checks. No LLM in the scoring loop.</p>
+        <p>Four parallel strategies attribute each anomaly to a likely cause (earnings, leak, macro shock, or cross-asset move) with calibrated confidence and direction-consistency checks. No LLM in the scoring loop.</p>
         <ul class="feat-bullets">
           <li><strong>Post-Macro Shock:</strong> scores on <em>idiosyncratic</em> return (stock − benchmark), not raw move — a 5% drop on a -5% NIFTY day gets zero credit</li>
           <li><strong>Pre-Event Leak:</strong> cumulative abnormal return in the 3 days before earnings/dividends/bonuses flags suspicious pre-positioning</li>
@@ -1248,19 +1248,19 @@
       <div class="feature-card">
         <span class="feat-tag teal">Reports</span>
         <h3>PDF Report Export</h3>
-        <p>Every analysis — anomaly breakdown, ML forecast, signal report, or equity deep-dive — can be exported as a shareable PDF with one command.</p>
+        <p>Every analysis (anomaly breakdown, ML forecast, signal report, or equity deep-dive) can be exported as a shareable PDF with one command.</p>
         <ul class="feat-bullets">
           <li>Full anomaly report with GARCH chart, regime table, and news correlation</li>
           <li>GOLDBEES signal report with Kelly sizing and confidence band</li>
           <li>Equity deep-dive: earnings, promoter trends, MF cross-ownership</li>
-          <li>Saved to <code style="background:var(--bg2);padding:1px 6px;border-radius:4px">output/reports/</code> — ready to share or archive</li>
+          <li>Saved to <code style="background:var(--bg2);padding:1px 6px;border-radius:4px">output/reports/</code>, ready to share or archive</li>
         </ul>
       </div>
 
       <div class="feature-card blue">
         <span class="feat-tag blue">Vector</span>
         <h3>Qdrant Semantic Memory</h3>
-        <p>Five vector collections keep a persistent semantic memory of every anomaly, fund holding, and news article — enabling cross-asset and cross-time similarity search that SQL cannot do.</p>
+        <p>Five vector collections keep a persistent semantic memory of every anomaly, fund holding, and news article, enabling cross-asset and cross-time similarity search that SQL cannot do.</p>
         <ul class="feat-bullets">
           <li><strong>market_anomalies:</strong> every flagged regime date embedded as text — ask "what historical events looked like this flash crash?"</li>
           <li><strong>mf_holdings:</strong> 22k+ fund positions (809 funds, latest month) — "which funds hold HDFC Bank or gold ETFs?"</li>
@@ -1346,7 +1346,7 @@
         <div class="agent-icon">🏦</div>
         <div>
           <h4>MFSubAgent</h4>
-          <p>DSP, Nippon, Bajaj, Quant, ICICI fund holdings — MoM changes, cross-fund consensus, NAV returns.</p>
+          <p>DSP, Nippon, Bajaj, Quant, ICICI fund holdings: MoM changes, cross-fund consensus, NAV returns.</p>
         </div>
       </div>
       <div class="agent-card">
@@ -1526,7 +1526,7 @@ http://localhost:8501
       <div class="nav-logo">
         <img src="logo.png" alt="Mosaic Fund Agent" style="height:120px;width:auto;flex-shrink:0" />
       </div>
-      <p>Your AI research desk for Indian markets — signals, smart-money tracking, and portfolio intelligence on your own machine.</p>
+      <p>Your AI research desk for Indian markets: signals, smart-money tracking, and portfolio intelligence on your own machine.</p>
     </div>
     <div class="footer-links">
       <div class="footer-col">
@@ -1571,7 +1571,7 @@ const QUERIES = {
     out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> (confidence 0.98)…</div>
 <br/>
 <div class="section-header">🔍 Price Anomaly &amp; News Correlation: GOLDBEES</div>
-<div class="out">Detected <span class="hi">2 anomalies</span> — GARCH composite (Final Z &gt; 2.5)</div>
+<div class="out">Detected <span class="hi">2 anomalies</span>: GARCH composite (Final Z &gt; 2.5)</div>
 <br/>
 <div class="out dim">┌──────────┬─────────┬─────────┬──────────────────────┬─────────┐</div>
 <div class="out dim">│ Date     │ Return  │ Vol 20d │ Regime               │ Final Z │</div>
@@ -1585,8 +1585,8 @@ const QUERIES = {
 <div class="out hi-red">  ⚠ Divergence: neutral sentiment on +5.72% move → policy surprise / pre-positioning</div>
 <div class="out">📡 ML: <span class="hi-green">WATCH_LONG</span> prob_up=64% · Composite: <span class="hi-red">HOLD → ⚠️ signal contradicted by shock</span></div>
 <br/>
-<div class="section-header">📈 Correlated COMEX Futures — GC=F (30d)</div>
-<div class="ascii-chart"><span class="title">GC=F — 30d price  |  -0.3%  |  <span class="spark">▃▄▇███▇█▇▄▄▂▃▃▃▂▁▂▄▂▂▁▂</span></span>
+<div class="section-header">📈 Correlated COMEX Futures: GC=F (30d)</div>
+<div class="ascii-chart"><span class="title">GC=F: 30d price  |  -0.3%  |  <span class="spark">▃▄▇███▇█▇▄▄▂▃▃▃▂▁▂▄▂▂▁▂</span></span>
 <span class="ax">      ┌────────────────────────────────────────────────────────────────┐</span>
 <span class="ax">4720.4┤</span> ▞▞ GC=F    ▗▄▞▀▀▀▀▚▖                                        <span class="ax">│</span>
 <span class="ax">      │</span>       ▗▄▞▀▘        ▝▚▖  ▄▄▚▄▖                                 <span class="ax">│</span>
@@ -1597,7 +1597,7 @@ const QUERIES = {
 <span class="ax">      └┬──────────────┬──────────────┬──────────────┬──────────────┬──┘</span>
 <span class="ax">    05-04         05-08         05-14  <span class="marker">↑duty</span>     05-20         06-04</span></div>
 <br/>
-<div class="section-header">📊 GARCH Annualised Volatility — GOLDBEES</div>
+<div class="section-header">📊 GARCH Annualised Volatility: GOLDBEES</div>
 <div class="ascii-chart"><span class="title">GARCH vol  |  <span class="spark">▆▄█▁</span>  avg 28.7%</span>
 <span class="ax">     ┌────────────────────────────────────────────────────────────────┐</span>
 <span class="ax">44.2%┤</span> ▞▞ GARCH vol (avg 28.7%)             ▄▞▄                      <span class="ax">│</span>
@@ -1612,13 +1612,13 @@ const QUERIES = {
   },
   prompts: {
     cmd: '/prompts',
-    out: `<div class="out dim">Browsing prompt library — 8 categories · type any prompt to run it</div>
+    out: `<div class="out dim">Browsing prompt library: 8 categories · type any prompt to run it</div>
 <br/>
 <div class="ascii-chart"><span class="title">SIGNAL</span>
 <span class="ax">┌──────────────────────────────────────────┬──────────────────────────────────────────┐</span>
 <span class="ax">│ Prompt                                   │ What it does                             │</span>
 <span class="ax">├──────────────────────────────────────────┼──────────────────────────────────────────┤</span>
-<span class="ax">│</span> <span class="hi-green">goldbees signal</span>                          <span class="ax">│</span> Full ML pipeline — prob_up, Kelly, regime<span class="ax"> │</span>
+<span class="ax">│</span> <span class="hi-green">goldbees signal</span>                          <span class="ax">│</span> Full ML pipeline: prob_up, Kelly, regime<span class="ax"> │</span>
 <span class="ax">│</span> composite score for all etfs             <span class="ax">│</span> Signal aggregator: 18 ETFs scored 0–100  <span class="ax">│</span>
 <span class="ax">│</span> inav premium alert                       <span class="ax">│</span> Scarcity premium Z-score alerts          <span class="ax">│</span>
 <span class="ax">│</span> plot signal breakdown GOLDBEES           <span class="ax">│</span> Pillar weights: macro/sentiment/flow/ML  <span class="ax">│</span>
@@ -1680,7 +1680,7 @@ const QUERIES = {
 <span class="ax">MON100     </span><span class="hi-red"> -15  BEARISH   vvvvvvvvvvvvvvv</span>
 <span class="ax dim">≥+12 = strong bullish  |  ≥+6 = moderate  |  ≤-12 = strong bearish</span></div>
 <br/>
-<div class="section-header">📐 Quant Overlay — ClickHouse ground truth 2026-06-04</div>
+<div class="section-header">📐 Quant Overlay: ClickHouse ground truth 2026-06-04</div>
 <div class="out">GOLDBEES ₹<span class="hi">127.64</span>  -1.09% (5d)  EMA50: <span class="hi-green">above</span>  GARCH vol: <span class="hi">11.5%</span></div>
 <div class="out">Nifty 50: PE <span class="hi">20.0</span> | PB 2.83 | A50d 50% | A200d 44%  FII 5d: <span class="hi">+0 Cr</span>  DII: +0 Cr</div>
 <div class="out dim">India macro: GDP +7.6% (2025) · CPI +2.1% · IMF 2026 forecast: GDP +6.5%</div>
@@ -1691,7 +1691,7 @@ const QUERIES = {
     cmd: './mosaic.sh ask "which ETFs trade at a premium?"',
     out: `<div class="out term-thinking">Routing → <span class="hi">signal agent</span> · live iNAV snapshots…</div>
 <br/>
-<div class="section-header">🌍 International ETF — Scarcity Premium Alerts</div>
+<div class="section-header">🌍 International ETF: Scarcity Premium Alerts</div>
 <div class="out dim">RBI $7B overseas cap creates structural premiums. Trade the Z-score, not the level.</div>
 <div class="out dim">Lookback 30d · Z threshold −1.5</div>
 <br/>
@@ -1706,14 +1706,14 @@ const QUERIES = {
 <div class="out">│ MASPTOP50  │ <span class="hi">+20.19%</span>      │ +19.28%      │ +0.808  │ 🔴 NO ACTION │</div>
 <div class="out dim">└────────────┴─────────────┴──────────────┴─────────┴──────────────┘</div>
 <br/>
-<div class="out">All 6 ETFs carry structural premiums of <span class="hi">15–20%+</span> — this is the RBI overseas-cap effect, not mispricing.</div>
-<div class="out hi-green">Strategy: wait for a Z-score dip below <span class="hi">−1.5σ</span> (premium drops below its own mean) — that's the entry signal.</div>`
+<div class="out">All 6 ETFs carry structural premiums of <span class="hi">15–20%+</span> because of the RBI overseas-cap effect, not mispricing.</div>
+<div class="out hi-green">Strategy: wait for a Z-score dip below <span class="hi">−1.5σ</span> (premium drops below its own mean); that's the entry signal.</div>`
   },
   dsp: {
     cmd: './mosaic.sh ask "what is DSP multi asset buying this month?"',
     out: `<div class="out term-thinking">Routing → <span class="hi">mf agent</span> (confidence 0.97)…</div>
 <br/>
-<div class="section-header">🏦 DSP Multi Asset — MoM Position Changes (Jun 2026)</div>
+<div class="section-header">🏦 DSP Multi Asset: MoM Position Changes (Jun 2026)</div>
 <div class="out dim">Cross-fund consensus active: 7 funds tracked · min 2 funds · min Δ 0.10%</div>
 <br/>
 <div class="out dim">┌─────────────────────────────┬──────────┬──────────┬──────────┬────────┐</div>
@@ -1726,27 +1726,27 @@ const QUERIES = {
 <div class="out">│ Mankind Pharma              │ <span class="hi-red">❌ EXIT</span>   │ 0.42%    │ 0.00%    │ <span class="hi-red">−0.42%</span> │</div>
 <div class="out dim">└─────────────────────────────┴──────────┴──────────┴──────────┴────────┘</div>
 <br/>
-<div class="section-header">🔗 Cross-Fund Consensus — Top Buys (3+ funds agree)</div>
-<div class="out"><span class="hi-green">★ Muthoot Finance</span>  +0.41%  — <span class="hi">4 / 7 funds adding</span>  avg Δ +0.38%  <span class="hi-green">[STRONG CONVICTION]</span></div>
-<div class="out"><span class="hi-green">★ Gold allocation</span>   +0.28%  — <span class="hi">5 / 7 funds adding</span>  avg Δ +0.22%  <span class="hi-green">[STRONG CONVICTION]</span></div>
+<div class="section-header">🔗 Cross-Fund Consensus: Top Buys (3+ funds agree)</div>
+<div class="out"><span class="hi-green">★ Muthoot Finance</span>  +0.41%  | <span class="hi">4 / 7 funds adding</span>  avg Δ +0.38%  <span class="hi-green">[STRONG CONVICTION]</span></div>
+<div class="out"><span class="hi-green">★ Gold allocation</span>   +0.28%  | <span class="hi">5 / 7 funds adding</span>  avg Δ +0.22%  <span class="hi-green">[STRONG CONVICTION]</span></div>
 <br/>
 <div class="section-header">📐 Asset-Class Rotation (all 7 multi-asset funds)</div>
 <div class="out">Gold / Silver   <span class="hi-green">↑ UP</span>   5/7 funds increased allocation this month</div>
-<div class="out">Equity          <span class="ax">→ FLAT</span>  Mixed — adds in BFSI, trims in pharma/consumer</div>
-<div class="out">Cash / Debt     <span class="hi-red">↓ DOWN</span>  3/7 funds reduced cash — risk-on rotation signal</div>
+<div class="out">Equity          <span class="ax">→ FLAT</span>  Mixed, adds in BFSI, trims in pharma/consumer</div>
+<div class="out">Cash / Debt     <span class="hi-red">↓ DOWN</span>  3/7 funds reduced cash, risk-on rotation signal</div>
 <br/>
-<div class="out dim">What this signals: Multi-asset funds collectively moving risk-on — reducing cash, adding gold and</div>
+<div class="out dim">What this signals: Multi-asset funds collectively moving risk-on, reducing cash, adding gold and</div>
 <div class="out dim">financial names. Muthoot Finance at 4/7 fund consensus for 2+ months = highest-conviction name.</div>`
   },
   signal: {
     cmd: './mosaic.sh src/scripts/goldbees_report.py',
     out: `<div class="out term-thinking">Reading ml_predictions · weight_checkpoints · signal_composite…</div>
 <br/>
-<div class="section-header">🥇 GOLDBEES Signal Report — 2026-06-04</div>
+<div class="section-header">🥇 GOLDBEES Signal Report: 2026-06-04</div>
 <br/>
 <div class="out">Regime      <span class="hi">🔥 Volatile Breakout</span>     GARCH vol: <span class="hi">11.5%</span></div>
 <div class="out">Price       ₹<span class="hi">127.64</span> vs EMA50 ₹126.49 → <span class="hi-green">ABOVE</span></div>
-<div class="out">iNAV        <span class="hi">+0.96%</span>  <span class="hi-red">⚠ BORDERLINE PREMIUM (&gt;0.8%) — monitor drag</span></div>
+<div class="out">iNAV        <span class="hi">+0.96%</span>  <span class="hi-red">⚠ BORDERLINE PREMIUM (&gt;0.8%): monitor drag</span></div>
 <br/>
 <div class="out dim">─ ML Signal (5-day LightGBM) ────────────────────────────</div>
 <div class="out">prob_up         <span class="hi">0.5138</span>    <span class="dim">slightly favours up</span></div>
@@ -1756,7 +1756,7 @@ const QUERIES = {
 <br/>
 <div class="out dim">─ Position weights ──────────────────────────────────────</div>
 <div class="out">Rule-based (RG)       <span class="dim">75.0%</span>   <span class="dim">(vol-target sizing)</span></div>
-<div class="out">Kelly only            <span class="hi-red">0.0%</span>    <span class="dim">(disabled — no model skill)</span></div>
+<div class="out">Kelly only            <span class="hi-red">0.0%</span>    <span class="dim">(disabled: no model skill)</span></div>
 <div class="out">▶ <span class="hi">blended_50 (recommended)</span>  <span class="hi-green">37.5%</span></div>
 <div class="out">  blended_70/30 (conservative) 52.5%</div>
 <br/>

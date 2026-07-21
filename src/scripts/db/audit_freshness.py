@@ -55,6 +55,22 @@ def audit_freshness():
     except Exception as e:
         results.append(("iNAV", "market_data.inav_snapshots", f"Error: {e}"))
 
+    # 4. Check indian_macro category
+    try:
+        res = client.query("SELECT max(as_of_date) FROM market_data.indian_macro_indicators FINAL")
+        max_date = res.result_rows[0][0] if res.result_rows else None
+        results.append(("Indian_Macro", "market_data.indian_macro_indicators", max_date))
+    except Exception as e:
+        results.append(("Indian_Macro", "market_data.indian_macro_indicators", f"Error: {e}"))
+
+    # 5. Check fii_dii category
+    try:
+        res = client.query("SELECT max(trade_date) FROM market_data.fii_dii_flows FINAL")
+        max_date = res.result_rows[0][0] if res.result_rows else None
+        results.append(("FII_DII", "market_data.fii_dii_flows", max_date))
+    except Exception as e:
+        results.append(("FII_DII", "market_data.fii_dii_flows", f"Error: {e}"))
+
     # Print results
     table = Table(title="Category Freshness Audit", show_header=True, header_style="bold magenta")
     table.add_column("Category", style="cyan")
@@ -89,6 +105,12 @@ def audit_freshness():
         if cat == "iNAV":
             is_stale = (max_date < today)
             threshold_desc = "Today"
+        elif cat == "Indian_Macro":
+            # Indian macro indicators are monthly (e.g. auto sales, insurance).
+            # Consider stale if older than 60 days.
+            limit_date = today - timedelta(days=60)
+            is_stale = (max_date < limit_date)
+            threshold_desc = f"On/After {limit_date}"
         else:
             # Older than 1 business day
             # If today is Thursday, 1 business day ago is Wednesday.
@@ -117,6 +139,8 @@ def audit_freshness():
             elif import_name == "us_stocks": import_name = "us_stocks"
             elif import_name == "fx_rates": import_name = "fx_rates"
             elif import_name == "inav": import_name = "inav"
+            elif import_name == "indian_macro": import_name = "indian_macro"
+            elif import_name == "fii_dii": import_name = "fii_dii"
             stale_categories.append(import_name)
 
         table.add_row(cat, tbl_name, str(max_date), status)

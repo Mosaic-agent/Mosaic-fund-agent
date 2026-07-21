@@ -184,7 +184,7 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_workflows, tab_reports = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "🤖 Workflows", "📁 Reports"])
+tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_workflows, tab_whale, tab_reports = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "🤖 Workflows", "🐋 Whale Scanner", "📁 Reports"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -6223,6 +6223,197 @@ with tab_intl_etf:
             except Exception as _bt_e:
                 _bt_status.empty()
                 st.error(f"Error: {_bt_e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — WHALE SCANNER (Cross-AMC Institutional Accumulation)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_whale:
+    st.header("🐋 Cross-AMC Whale Accumulation Scanner")
+    st.caption(
+        "Scans `market_data.mf_holdings` for stocks where **multiple independent active AMC funds** "
+        "are simultaneously building positions.  \n"
+        "**consensus\_score** = num\_amcs × avg\_weight\_delta\_pp  ·  "
+        "Higher = more AMC groups all adding weight to the same stock."
+    )
+
+    if not ok:
+        st.warning("ClickHouse not connected.")
+    else:
+        _wh_col1, _wh_col2, _wh_col3 = st.columns(3)
+        with _wh_col1:
+            _wh_amc = st.selectbox(
+                "AMC Filter",
+                options=["all", "dsp", "nippon", "bajaj", "icici", "quant"],
+                index=0,
+                key="whale_amc",
+            )
+        with _wh_col2:
+            _wh_months = st.slider("Lookback (months)", 1, 12, 3, key="whale_months")
+        with _wh_col3:
+            _wh_min_amcs = st.number_input(
+                "Min AMC groups", min_value=1, max_value=6, value=2, step=1, key="whale_min_amcs"
+            )
+
+        _run_whale = st.button("▶ Run Accumulation Scan", type="primary", key="whale_run")
+
+        if _run_whale:
+            with st.spinner("Scanning mf_holdings across all active equity funds…"):
+                try:
+                    from src.scripts.portfolio.whale_accumulation_scanner import run_whale_scan
+                    _wh_results = run_whale_scan(
+                        amc=_wh_amc,
+                        lookback_months=_wh_months,
+                        min_amcs=int(_wh_min_amcs),
+                    )
+                    st.session_state["whale_results"] = _wh_results
+                except Exception as _wh_err:
+                    st.error(f"Scan failed: {_wh_err}")
+                    _wh_results = None
+        else:
+            _wh_results = st.session_state.get("whale_results")
+
+        if _wh_results and "error" not in _wh_results:
+            _w_as_of = _wh_results["as_of"]
+            _w_prev  = _wh_results["prev_month"]
+            _acc     = _wh_results["top_accumulators"]
+            _fresh   = _wh_results["fresh_entries"]
+            _top_v   = _wh_results["top_by_value"]
+
+            # ── KPI row ────────────────────────────────────────────────────────
+            _kc1, _kc2, _kc3, _kc4 = st.columns(4)
+            _kc1.metric("Latest Month",       _w_as_of)
+            _kc2.metric("Comparison Month",   _w_prev)
+            _kc3.metric("Consensus Picks",    len(_acc))
+            _kc4.metric("Zero-to-Hero Entries", len(_fresh))
+            st.divider()
+
+            # ── Tab 1: Top Accumulators ────────────────────────────────────────
+            _wh_t1, _wh_t2, _wh_t3 = st.tabs(
+                ["🔺 Top Accumulators", "🆕 Fresh Entries", "🏆 Largest Bets (₹ Value)"]
+            )
+
+            with _wh_t1:
+                if _acc:
+                    import plotly.express as _px_wh  # noqa: F811
+                    _acc_df = pd.DataFrame(_acc)[
+                        ["security_name", "num_amcs", "total_value_cr",
+                         "avg_delta_pp", "consensus_score", "amcs"]
+                    ].copy()
+                    _acc_df["amcs"] = _acc_df["amcs"].apply(", ".join)
+                    _acc_df.columns = [
+                        "Security", "AMCs", "Value (₹ Cr)",
+                        "Avg Δ (pp)", "Consensus Score", "AMC Groups",
+                    ]
+
+                    # Bar chart — top 15 by score
+                    _fig_wh = _px_wh.bar(
+                        _acc_df.head(15),
+                        x="Security",
+                        y="Consensus Score",
+                        color="AMCs",
+                        color_continuous_scale="Blues",
+                        title=f"Top Accumulators by Consensus Score (as of {_w_as_of})",
+                        labels={"Security": "", "Consensus Score": "Score"},
+                        text="AMC Groups",
+                    )
+                    _fig_wh.update_traces(textposition="outside")
+                    _fig_wh.update_layout(
+                        height=420, xaxis_tickangle=-35,
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                    )
+                    st.plotly_chart(_fig_wh, use_container_width=True)
+
+                    # Table
+                    st.dataframe(
+                        _acc_df.style
+                            .format({"Value (₹ Cr)": "{:,.2f}", "Avg Δ (pp)": "{:+.3f}",
+                                     "Consensus Score": "{:.3f}"})
+                            .background_gradient(subset=["Consensus Score"], cmap="Blues")
+                            .background_gradient(subset=["Avg Δ (pp)"], cmap="RdYlGn"),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    with st.expander("📋 Per-AMC Breakup for top pick"):
+                        if _acc:
+                            _top_pick = _acc[0]
+                            st.markdown(f"**{_top_pick['security_name']}**")
+                            _bp_rows = []
+                            for _amc_k, _amc_v in _top_pick["breakup"].items():
+                                _bp_rows.append({
+                                    "AMC": _amc_k,
+                                    "Wt % NAV": _amc_v["pct_nav"],
+                                    "Δ (pp)": _amc_v["delta_pp"],
+                                    "Value (₹ Cr)": _amc_v["value_cr"],
+                                })
+                            st.dataframe(
+                                pd.DataFrame(_bp_rows)
+                                    .style.format({"Wt % NAV": "{:.3f}", "Δ (pp)": "{:+.3f}",
+                                                   "Value (₹ Cr)": "{:,.2f}"}),
+                                use_container_width=True, hide_index=True,
+                            )
+                else:
+                    st.info(
+                        f"No stocks found with ≥{_wh_min_amcs} AMC groups adding weight. "
+                        "Try reducing **Min AMC groups** to 1."
+                    )
+
+            with _wh_t2:
+                if _fresh:
+                    _fresh_df = pd.DataFrame(_fresh)[
+                        ["security_name", "num_amcs", "total_value_cr",
+                         "total_pct", "amcs_entered"]
+                    ].copy()
+                    _fresh_df["amcs_entered"] = _fresh_df["amcs_entered"].apply(", ".join)
+                    _fresh_df.columns = [
+                        "Security", "AMCs", "Value (₹ Cr)", "Combined Wt %", "AMC Groups"
+                    ]
+                    st.caption(
+                        f"Stocks with **0% weight {_wh_months} months ago**, "
+                        f"now held by ≥{_wh_min_amcs} active AMC groups."
+                    )
+                    st.dataframe(
+                        _fresh_df.style
+                            .format({"Value (₹ Cr)": "{:,.2f}", "Combined Wt %": "{:.3f}"})
+                            .background_gradient(subset=["Value (₹ Cr)"], cmap="Greens"),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info(
+                        f"No zero-to-hero entries found in the last {_wh_months} months "
+                        f"with ≥{_wh_min_amcs} AMC groups."
+                    )
+
+            with _wh_t3:
+                if _top_v:
+                    _tv_df = pd.DataFrame(_top_v)[
+                        ["security_name", "num_amcs", "total_value_cr", "amcs"]
+                    ].copy()
+                    _tv_df["amcs"] = _tv_df["amcs"].apply(", ".join)
+                    _tv_df.columns = ["Security", "AMCs", "Total (₹ Cr)", "AMC Groups"]
+                    st.caption("Largest aggregate institutional bets — regardless of MoM direction.")
+                    st.dataframe(
+                        _tv_df.style
+                            .format({"Total (₹ Cr)": "{:,.2f}"})
+                            .background_gradient(subset=["Total (₹ Cr)"], cmap="Oranges"),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+        elif _wh_results and "error" in _wh_results:
+            st.error(_wh_results["error"])
+        else:
+            st.info(
+                "Click **▶ Run Accumulation Scan** to scan all active equity fund holdings.  \n\n"
+                "**How consensus\_score works:**  \n"
+                "> `consensus_score = num_amcs × avg_weight_delta_pp`  \n\n"
+                "A stock where **DSP + Nippon + Bajaj** all added weight in the same month "
+                "scores higher than a stock where only one fund made a large bet. "
+                "This cross-AMC independence is what makes it an unfakeable conviction signal."
+            )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
