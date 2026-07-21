@@ -447,13 +447,59 @@
     .feat-bullets li { font-size: 13px; color: var(--text-2); padding: 4px 0; padding-left: 18px; position: relative; }
     .feat-bullets li::before { content: '→'; position: absolute; left: 0; color: var(--gold-dk); font-size: 12px; }
 
-    /* ── Flow diagram ───────────────────────────────────────────── */
-    .flow { margin: 48px 0 8px; }
+    /* ── 3D Isometric Architecture Styles ────────────────────────── */
+    .flow-3d-viewport {
+      perspective: 1200px;
+      perspective-origin: 50% 30%;
+      margin: 48px 0 8px;
+    }
+    .flow {
+      transform: rotateX(14deg) rotateY(-4deg) rotateZ(1deg) translateZ(0);
+      transform-style: preserve-3d;
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s ease;
+      box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.45), 0 18px 36px -18px rgba(13, 148, 136, 0.3);
+      border-radius: var(--radius-lg);
+      padding: 12px;
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(12px);
+    }
+    .flow-3d-viewport:hover .flow {
+      transform: rotateX(5deg) rotateY(-1deg) rotateZ(0deg) translateZ(12px);
+      box-shadow: 0 45px 90px -20px rgba(0, 0, 0, 0.6), 0 25px 50px -20px rgba(245, 158, 11, 0.35);
+    }
     .flow-layer {
       background: #0f172a; color: #e2e8f0;
       border: 1px solid rgba(255,255,255,0.12);
       border-radius: var(--radius-lg); padding: 24px 28px;
       box-shadow: 0 12px 40px rgba(15,23,42,0.35);
+      transform: translateZ(15px);
+      transform-style: preserve-3d;
+      transition: transform 0.4s ease;
+    }
+    .flow-layer:hover {
+      transform: translateZ(28px);
+    }
+    .flow-store {
+      flex: 1.4; min-width: 240px; background: rgba(245,158,11,0.08);
+      border: 1.5px solid rgba(245,158,11,0.4); border-radius: var(--radius); padding: 18px 22px;
+      box-shadow: 0 4px 20px rgba(245,158,11,0.1);
+      transform: translateZ(20px);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .flow-store:hover {
+      transform: translateZ(35px) scale(1.02);
+    }
+    .engine {
+      background: #1e293b; color: #f8fafc;
+      border: 1px solid rgba(255,255,255,0.1); border-top: 3.5px solid var(--teal);
+      border-radius: var(--radius); padding: 20px 18px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+      transition: box-shadow .25s, transform .25s; position: relative; overflow: hidden;
+      transform: translateZ(20px);
+    }
+    .engine:hover {
+      transform: translateZ(40px) translateY(-4px);
+      box-shadow: 0 12px 32px rgba(13,148,136,0.25);
     }
     .flow-tag { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gold); margin-bottom: 16px; }
     .flow-lake { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
@@ -1061,10 +1107,12 @@
       <span class="badge" style="background:#1e293b;border-color:rgba(59,130,246,0.4);color:#60a5fa">⚡ 100% Offline with Ollama</span>
     </div>
 
-    <div class="flow">
+    <!-- 3D Perspective Architecture Viewport -->
+    <div class="flow-3d-viewport">
+      <div class="flow">
 
-      <!-- Layer 1 data lake -->
-      <div class="flow-layer">
+        <!-- Layer 1 data lake -->
+        <div class="flow-layer">
         <div class="flow-tag">① Ingest &amp; Store</div>
         <div class="flow-lake">
           <div class="flow-sources">
@@ -1158,15 +1206,16 @@
         <div class="conn-label">surface</div>
       </div>
 
-      <!-- Layer 4 surfaces -->
-      <div class="flow-surfaces">
-        <div class="surface-pill primary">📊 Streamlit Dashboard</div>
-        <div class="surface-pill">💬 Conversational ask</div>
-        <div class="surface-pill">⚡ ./mosaic.sh CLI</div>
-        <div class="surface-pill">🔌 Claude / Gemini MCP</div>
-        <div class="surface-pill">📄 PDF Report Export</div>
-      </div>
+        <!-- Layer 4 surfaces -->
+        <div class="flow-surfaces">
+          <div class="surface-pill primary">📊 Streamlit Dashboard</div>
+          <div class="surface-pill">💬 Conversational ask</div>
+          <div class="surface-pill">⚡ ./mosaic.sh CLI</div>
+          <div class="surface-pill">🔌 Claude / Gemini MCP</div>
+          <div class="surface-pill">📄 PDF Report Export</div>
+        </div>
 
+      </div>
     </div>
 
     <div class="stack-row" style="margin-top:40px">
@@ -2156,6 +2205,25 @@ const galleryObs = new IntersectionObserver((entries) => {
 
 const gallerySec = document.getElementById('gallery');
 if (gallerySec) galleryObs.observe(gallerySec);
+
+/* ── 3D Architecture Mouse Tilt JS ─────────────────────────────── */
+const flowViewport = document.querySelector('.flow-3d-viewport');
+const flowContainer = document.querySelector('.flow');
+
+if (flowViewport && flowContainer) {
+  flowViewport.addEventListener('mousemove', (e) => {
+    const rect = flowViewport.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    const rotX = (y / (rect.height / 2)) * -8 + 10;
+    const rotY = (x / (rect.width / 2)) * 8 - 4;
+    flowContainer.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg) translateZ(10px)`;
+  });
+
+  flowViewport.addEventListener('mouseleave', () => {
+    flowContainer.style.transform = 'rotateX(14deg) rotateY(-4deg) rotateZ(1deg) translateZ(0)';
+  });
+}
 </script>
 
 </body>
