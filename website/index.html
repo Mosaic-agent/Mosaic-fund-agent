@@ -520,6 +520,16 @@
     .gallery-slide.active {
       display: block; opacity: 1;
     }
+    .gallery-nav-arrow {
+      position: absolute; top: 40%; transform: translateY(-50%); z-index: 10;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: rgba(30, 58, 95, 0.75); color: #fff; border: 1px solid rgba(255,255,255,0.25);
+      backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center;
+      font-size: 18px; cursor: pointer; transition: all .2s ease; opacity: 0.6;
+    }
+    .gallery-nav-arrow:hover { opacity: 1; background: #2563eb; transform: translateY(-50%) scale(1.1); }
+    .gallery-nav-arrow.prev { left: -16px; }
+    .gallery-nav-arrow.next { right: -16px; }
 
     /* ── Agents ─────────────────────────────────────────────────── */
     .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 48px; }
@@ -896,6 +906,9 @@
     </div>
 
     <div class="gallery-carousel-viewport">
+      <button class="gallery-nav-arrow prev" id="gprevBtn" aria-label="Previous slide">‹</button>
+      <button class="gallery-nav-arrow next" id="gnextBtn" aria-label="Next slide">›</button>
+
       <div class="gallery-slide active" data-slide="0">
         <div class="gallery-item">
           <img src="screenshots/cli.png" alt="Mosaic interactive CLI chat" loading="lazy" />
@@ -2050,17 +2063,62 @@ backTopBtn.addEventListener('click', () => {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-/* ── Interactive Tabbed Gallery JS ──────────────────────────────── */
+/* ── Auto-Rotating Interactive Gallery JS (Pause on Hover) ──────── */
 const gtabBtns = document.querySelectorAll('.gtab-btn');
 const gtabSlides = document.querySelectorAll('.gallery-slide');
+const galleryViewport = document.querySelector('.gallery-carousel-viewport');
+const gprevBtn = document.getElementById('gprevBtn');
+const gnextBtn = document.getElementById('gnextBtn');
 
-gtabBtns.forEach(btn => {
+let currentSlideIdx = 0;
+let autoRotateTimer = null;
+const ROTATE_INTERVAL = 4000; // 4 seconds per slide
+
+function showSlide(idx) {
+  currentSlideIdx = (idx + gtabBtns.length) % gtabBtns.length;
+  gtabBtns.forEach((b, i) => b.classList.toggle('active', i === currentSlideIdx));
+  gtabSlides.forEach((slide, i) => slide.classList.toggle('active', i === currentSlideIdx));
+}
+
+function startAutoRotate() {
+  stopAutoRotate();
+  autoRotateTimer = setInterval(() => {
+    showSlide(currentSlideIdx + 1);
+  }, ROTATE_INTERVAL);
+}
+
+function stopAutoRotate() {
+  if (autoRotateTimer) {
+    clearInterval(autoRotateTimer);
+    autoRotateTimer = null;
+  }
+}
+
+gtabBtns.forEach((btn, idx) => {
   btn.addEventListener('click', () => {
-    const targetTab = btn.dataset.tab;
-    gtabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
-    gtabSlides.forEach(slide => slide.classList.toggle('active', slide.dataset.slide === targetTab));
+    showSlide(idx);
+    startAutoRotate();
   });
 });
+
+if (gprevBtn) gprevBtn.addEventListener('click', () => { showSlide(currentSlideIdx - 1); startAutoRotate(); });
+if (gnextBtn) gnextBtn.addEventListener('click', () => { showSlide(currentSlideIdx + 1); startAutoRotate(); });
+
+if (galleryViewport) {
+  galleryViewport.addEventListener('mouseenter', stopAutoRotate);
+  galleryViewport.addEventListener('mouseleave', startAutoRotate);
+}
+
+const galleryObs = new IntersectionObserver((entries) => {
+  if (entries[0].isIntersecting) {
+    startAutoRotate();
+  } else {
+    stopAutoRotate();
+  }
+}, { threshold: 0.2 });
+
+const gallerySec = document.getElementById('gallery');
+if (gallerySec) galleryObs.observe(gallerySec);
 </script>
 
 </body>
