@@ -1044,101 +1044,181 @@
             <div class="gc-title">🤖 Workflows — token-efficient deep research</div>
             <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens than ReAct agents, with adversarial verification before every final report.</div>
           </div>
-        <div class="flow-tag">① Ingest &amp; Store</div>
-        <div class="flow-lake">
-          <div class="flow-sources">
-            <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:8px">14+ data sources</div>
-            <div class="src-list">
-              Yahoo · NSE · CFTC COT<br/>
-              MFAPI · AMFI Flows · NewsAPI<br/>
-              Zerodha Kite · World Bank · IMF
-            </div>
-          </div>
-          <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
-          <div class="flow-dual-stores">
-            <div class="flow-store">
-              <div class="store-title">🗄️ Local ClickHouse Lake · 27 tables</div>
-              <div class="store-tables">
-                daily_prices · mf_holdings · amfi_category_flows<br/>
-                cot_gold · fx_rates · ml_predictions<br/>
-                signal_composite · inav_snapshots
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:48px">
+      <a href="#quickstart" class="btn-primary">🚀 Get started in 5 minutes</a>
+      <p style="font-size:13px;color:var(--text-3);margin-top:12px">Free &amp; open source · runs on your laptop · no signup</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── WHY ───────────────────────────────────────────────────────── -->
+<section class="section arch-bg" id="why">
+  <div class="container">
+    <div class="section-label">The Problem</div>
+    <h2 class="section-title">Why another tool?</h2>
+    <p class="section-body">
+      Serious decisions need clean cross-asset data, models that quantify edge and risk,
+      and context that explains <em>why</em> something moved. Retail tools give you charts.
+      Terminals give you feeds. Neither gives you all three in one place on your own machine.
+    </p>
+
+    <div class="why-grid">
+      <div class="why-card">
+        <div class="why-icon">🏠</div>
+        <h3>Your data, your machine</h3>
+        <p>All market data stays in a local ClickHouse instance. No third-party cloud sync, no API leakage your portfolio intelligence is private.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🤖</div>
+        <h3>LLM-grounded, not hallucinated</h3>
+        <p>Every number the agent reports is first computed in Python or SQL. The LLM only narrates never calculates. A hard architectural rule, enforced everywhere.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🌐</div>
+        <h3>Works offline with Ollama</h3>
+        <p>Runs fully locally via Ollama (Gemma 4). The orchestrator auto-switches to compact prompts and data injection paths for low-context local models.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🔬</div>
+        <h3>Forensic anomaly explanation</h3>
+        <p>Every flagged date gets a full report: GARCH regime + Final-Z, news sentiment correlation, COMEX futures context, COT speculator positioning, and what the ML model predicted that day, all point-in-time, no future leakage.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">🐋</div>
+        <h3>Institutional flow intelligence</h3>
+        <p>Reverse-engineer DSP, Nippon, and ICICI AMC conviction from monthly portfolio disclosures. 24+ months of cross-fund ownership = highest-quality single-name signal.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-icon">⚖️</div>
+        <h3>Volatility-aware sizing</h3>
+        <p>GARCH(1,1) conditional vol feeds inverse-vol + Kelly position sizing. High-stress regimes automatically reduce position weights before you need to think about it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── HOW IT WORKS ──────────────────────────────────────────────── -->
+<section class="section" id="how">
+  <div class="container">
+    <div class="section-label">Architecture</div>
+    <h2 class="section-title">How it works</h2>
+    <p class="section-body">
+      Data lands in a dual local lake (ClickHouse + Qdrant), fans out to five quant engines,
+      converges in a multi-agent orchestrator backed by a SQLite LLM cache so repeat questions
+      are free, and surfaces wherever you work.
+    </p>
+
+    <!-- Architecture Live Feature Badges & Simulator Control Bar -->
+    <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;margin:20px 0 28px">
+      <button class="btn-primary" id="simFlowBtn" style="padding:9px 22px;font-size:13.5px;background:linear-gradient(135deg,#2563eb,#0d9488);border:none;box-shadow:0 4px 16px rgba(37,99,235,0.4)">▶ Simulate Data Flow</button>
+      <span style="font-size:13px;color:var(--text-3);font-weight:500">💡 Click any component node below to inspect live schema & DDL</span>
+    </div>
+
+    <!-- Dark Glassmorphic Node Swimlane Canvas -->
+    <div class="flow-canvas">
+      <div class="flow">
+
+        <!-- Layer 1 data lake -->
+        <div class="flow-layer" id="flowLayer1">
+          <div class="flow-tag">① Ingest &amp; Store</div>
+          <div class="flow-lake">
+            <div class="flow-sources">
+              <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:8px">14+ data sources</div>
+              <div class="src-list">
+                Yahoo · NSE · CFTC COT<br/>
+                MFAPI · AMFI Flows · NewsAPI<br/>
+                Zerodha Kite · World Bank · IMF
               </div>
-              <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
             </div>
-            <div class="flow-store qdrant">
-              <div class="store-title">🧬 Qdrant Vector DB · 5 collections</div>
-              <div class="store-tables">
-                market_anomalies · mf_holdings<br/>
-                mf_fund_profiles · news_articles<br/>
-                clickhouse_metadata
+            <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
+            <div class="flow-dual-stores">
+              <div class="flow-store flow-node" data-inspect="clickhouse">
+                <div class="store-title">🗄️ Local ClickHouse Lake · 27 tables 🔍</div>
+                <div class="store-tables">
+                  daily_prices · mf_holdings · amfi_category_flows<br/>
+                  cot_gold · fx_rates · ml_predictions<br/>
+                  signal_composite · inav_snapshots
+                </div>
+                <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
               </div>
-              <div class="store-meta" style="color:#6b7888">768-dim nomic-embed-text · COSINE · is_tenant indexes</div>
+              <div class="flow-store qdrant flow-node" data-inspect="qdrant">
+                <div class="store-title">🧬 Qdrant Vector DB · 5 collections 🔍</div>
+                <div class="store-tables">
+                  market_anomalies · mf_holdings<br/>
+                  mf_fund_profiles · news_articles<br/>
+                  clickhouse_metadata
+                </div>
+                <div class="store-meta" style="color:#6b7888">768-dim nomic-embed-text · COSINE · is_tenant indexes</div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="flow-conn">
-        <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-        <div class="conn-label">fan-out · read through one typed repository · embeddings written to Qdrant in background threads</div>
-      </div>
+        <div class="flow-conn">
+          <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
+          <div class="conn-label">fan-out · read through MarketDataRepository singleton</div>
+        </div>
 
-      <!-- Layer 2 engine fan-out -->
-      <div class="flow-layer">
-        <div class="flow-tag">② Compute four quant engines</div>
-        <div class="flow-engines">
-          <div class="engine e1">
-            <div class="e-ico">🎛️</div>
-            <h4>Signals</h4>
-            <p>6 pillars → 0–100 composite score, run in parallel</p>
-          </div>
-          <div class="engine e2">
-            <div class="e-ico">📈</div>
-            <h4>ML Forecast</h4>
-            <p>LightGBM 5-day return + quantile confidence band</p>
-          </div>
-          <div class="engine e3">
-            <div class="e-ico">⚖️</div>
-            <h4>Volatility</h4>
-            <p>GARCH(1,1) vol → inverse-vol + Kelly sizing</p>
-          </div>
-          <div class="engine e4">
-            <div class="e-ico">🔬</div>
-            <h4>Anomaly</h4>
-            <p>MAD-Z → GARCH(1,1) → Isolation Forest → PELT · 8 regime labels · auto-stores flagged dates in Qdrant</p>
-          </div>
-          <div class="engine" style="border-top-color:#dc244c">
-            <div class="e-ico">🧬</div>
-            <h4>Vector RAG</h4>
-            <p>nomic-embed-text 768-dim · semantic similarity across anomalies, fund holdings, and news · 5 Qdrant collections</p>
+        <!-- Layer 2 engine fan-out -->
+        <div class="flow-layer" id="flowLayer2">
+          <div class="flow-tag">② Compute five quant engines</div>
+          <div class="flow-engines">
+            <div class="engine e1 flow-node" data-inspect="signals">
+              <div class="e-ico">🎛️</div>
+              <h4>Signals 🔍</h4>
+              <p>6 pillars → 0–100 composite score</p>
+            </div>
+            <div class="engine e2 flow-node" data-inspect="ml">
+              <div class="e-ico">📈</div>
+              <h4>ML Forecast 🔍</h4>
+              <p>LightGBM 5-day return + quantile bounds</p>
+            </div>
+            <div class="engine e3 flow-node" data-inspect="volatility">
+              <div class="e-ico">⚖️</div>
+              <h4>Volatility 🔍</h4>
+              <p>GARCH(1,1) vol → Kelly sizing</p>
+            </div>
+            <div class="engine e4 flow-node" data-inspect="anomaly">
+              <div class="e-ico">🔬</div>
+              <h4>Anomaly 🔍</h4>
+              <p>MAD-Z → GARCH → Isolation Forest → PELT</p>
+            </div>
+            <div class="engine flow-node" style="border-top-color:#dc244c" data-inspect="rag">
+              <div class="e-ico">🧬</div>
+              <h4>Vector RAG 🔍</h4>
+              <p>768d nomic-embed-text cosine memory</p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="flow-conn">
-        <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-        <div class="conn-label">converge</div>
-      </div>
-
-      <!-- Layer 3 orchestrator -->
-      <div class="flow-orch-row">
-        <div class="flow-orch">
-          <h4>🧠 Multi-Agent Orchestrator <span style="color:var(--text-muted);font-weight:400">(LangGraph ReAct)</span></h4>
-          <p>LLM intent router → specialist sub-agent guild (10 agents) · budget + tracing middleware auto-attached</p>
+        <div class="flow-conn">
+          <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
+          <div class="conn-label">converge</div>
         </div>
-        <div class="flow-cache">
-          <div class="cache-title">⚡ SQLite LLM cache</div>
-          <div class="cache-meta">output/.cache · 24h TTL<br/>repeat questions return instantly</div>
-        </div>
-      </div>
 
-      <div class="flow-conn">
-        <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-        <div class="conn-label">surface</div>
-      </div>
+        <!-- Layer 3 orchestrator -->
+        <div class="flow-orch-row" id="flowLayer3">
+          <div class="flow-orch flow-node" data-inspect="agent">
+            <h4>🧠 Multi-Agent Orchestrator <span style="color:#94a3b8;font-weight:400">(LangGraph ReAct) 🔍</span></h4>
+            <p>LLM intent router → specialist sub-agent guild (10 agents) · budget + tracing middleware auto-attached</p>
+          </div>
+          <div class="flow-cache flow-node" data-inspect="cache">
+            <div class="cache-title">⚡ SQLite LLM cache 🔍</div>
+            <div class="cache-meta">output/.cache · 24h TTL<br/>repeat questions return instantly</div>
+          </div>
+        </div>
+
+        <div class="flow-conn">
+          <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
+          <div class="conn-label">surface</div>
+        </div>
 
         <!-- Layer 4 surfaces -->
-        <div class="flow-surfaces">
+        <div class="flow-surfaces" id="flowLayer4">
           <div class="surface-pill primary">📊 Streamlit Dashboard</div>
           <div class="surface-pill">💬 Conversational ask</div>
           <div class="surface-pill">⚡ ./mosaic.sh CLI</div>
@@ -1146,6 +1226,15 @@
           <div class="surface-pill">📄 PDF Report Export</div>
         </div>
 
+      </div>
+
+      <!-- Node Inspector Output Drawer -->
+      <div class="node-inspector-panel" id="nodeInspector">
+        <div class="nip-head">
+          <span class="nip-title" id="nipTitle">Inspection Drawer</span>
+          <button class="nip-close" id="nipClose">&times;</button>
+        </div>
+        <div class="nip-code" id="nipCode">Select any node above to inspect table DDL, mathematical formulas, or agent configuration.</div>
       </div>
     </div>
 
