@@ -269,7 +269,7 @@ def run_data_engineering_importer(
 
     Args:
         category: Comma-separated list of categories to import.
-                  Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav, world_bank, imf_weo, tijori_macro, tijori_macro_indicators.
+                  Valid values: etfs, stocks, mf, fii_dii, cot, fx_rates, inav, world_bank, imf_weo, indian_macro, indian_macro_indicators.
         full: If True, performs a full backfill ignoring watermarks.
         symbol: (optional) If a specific symbol is provided, redirects to import_symbol_data.
         data_source: Required when importing stocks or ETFs. Ask the user to choose:

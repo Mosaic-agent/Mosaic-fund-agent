@@ -188,7 +188,7 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 - **18 NSE ETFs** — GOLDBEES, SILVERBEES, NIFTYBEES, BANKBEES, HNGSNGBEES, MAFANG, MON100, and more
 - **50+ NSE stocks** — blue-chips and mid-caps across sectors
 - **7 multi-asset MFs** — DSP, Nippon, Bajaj, Quant, ICICI with 24+ months of holdings history
-- **13 data sources** — Yahoo Finance, NSE, CFTC COT, AMFI NAVs, FII/DII flows, COMEX metals, IMF/World Bank macro, and more
+- **14 data sources** — Yahoo Finance, NSE, CFTC COT, AMFI NAVs, AMFI Category Flows & AUM, FII/DII flows, COMEX metals, IMF/World Bank macro, and more
 - **Corporate actions** — splits, bonuses, demergers automatically detected
 - **Qdrant vector memory** — 5 collections: anomaly history (`market_anomalies`), MF holding similarity (`mf_holdings`, `mf_fund_profiles`), news RAG (`news_articles`), DB schema (`clickhouse_metadata`); enables semantic search across 22k+ fund positions and all flagged anomaly dates
 

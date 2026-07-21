@@ -78,6 +78,7 @@ STOCKS: list[tuple[str, str]] = [
     ("NEWGEN",      "NEWGEN.NS"),        # Newgen Software — BPM / ECM platforms
     ("CHOLAFIN",    "CHOLAFIN.NS"),      # Cholamandalam Investment & Finance (Murugappa)
     ("ALKYLAMINE",  "ALKYLAMINE.NS"),    # Alkyl Amines Chemicals — specialty amines
+    ("BECTORFOOD",  "BECTORFOOD.NS"),    # Mrs. Bectors Food Specialities Limited
 ]
 
 ETFS: list[tuple[str, str]] = [
@@ -286,9 +287,9 @@ INAV_SYMBOLS: list[str] = [
 
 ALL_CATEGORIES = list(CATEGORY_MAP.keys()) + [
     "mf", "inav", "nse_eod", "cot", "cb_reserves", "etf_aum", "mf_holdings",
-    "fii_dii", "earnings", "insider", "valuation",
+    "fii_dii", "amfi_flows", "earnings", "insider", "valuation",
     # Macro fundamentals (annual, free public APIs — no auth required)
-    "world_bank", "imf_weo", "tijori_macro", "tijori_macro_indicators",
+    "world_bank", "imf_weo", "indian_macro", "indian_macro_indicators",
     # AMC fund-holdings importers (factory pattern in src/scripts/fund_imports/)
     "icici", "nippon", "icici-index", "dsp", "bajaj", "quant",
 ]

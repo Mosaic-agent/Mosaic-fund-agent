@@ -156,7 +156,7 @@ _INTENT_STEPS: dict[str, list] = {
             "Fetch COMEX gold / silver / copper pre-market",
             "Query FII/DII institutional flows  [7 days]",
             "Fetch DXY (US Dollar Index) trend  [get_dxy_context(30)]",
-            "Query India macro indicators from ClickHouse  [macro_indicators, tijori_macro_indicators]",
+            "Query India macro indicators from ClickHouse  [macro_indicators, indian_macro_indicators]",
         ], "all fire in parallel"),
         "Plot FII/DII flow trend → plot_fii_dii_chart(30)",
         "Plot DXY trend chart → plot_dxy_chart(days)  [use days=365 for 1-year]",
@@ -419,7 +419,7 @@ ClickHouse schema (database = market_data, all tables use ReplacingMergeTree —
   cot_gold            : report_date(Date), mm_long, mm_short, mm_net, open_interest
   fx_rates            : trade_date(Date), symbol, close(Float64)
   macro_indicators    : ref_year, country_code, indicator_code, indicator_name, value
-  tijori_macro_indicators : as_of_date(Date), indicator_code, indicator_name, parent_code, value(Float64), unit
+  indian_macro_indicators : as_of_date(Date), indicator_code, indicator_name, parent_code, value(Float64), unit
   news_articles       : fetched_at(DateTime), category, sentiment, impact_tier, title, source
   import_watermarks   : source, symbol, last_date(Date), updated_at
   stock_valuation     : symbol, snapshot_date(Date), trailing_pe, forward_pe, price_to_book, market_cap
@@ -642,7 +642,7 @@ _RAG_PLAN_TEMPLATES = [
     (
         "check latest India macro indicators / monthly CPI, WPI, and GST from ClickHouse",
         "macro",
-        ["Query recent monthly indicators from market_data.tijori_macro_indicators FINAL"]
+        ["Query recent monthly indicators from market_data.indian_macro_indicators FINAL"]
     ),
     (
         "latest news on RELIANCE",
@@ -675,9 +675,9 @@ _RAG_PLAN_TEMPLATES = [
         ["run_data_engineering_importer(category='mf_holdings')"]
     ),
     (
-        "import India macro indicators / refresh Tijori macro data",
+        "import India macro indicators / refresh Indian macro data",
         "main",
-        ["run_data_engineering_importer(category='tijori_macro')"]
+        ["run_data_engineering_importer(category='indian_macro')"]
     ),
 ]
 
