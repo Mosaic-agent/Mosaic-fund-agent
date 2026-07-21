@@ -1127,11 +1127,12 @@
           <div class="flow-tag">① Ingest &amp; Store</div>
           <div class="flow-lake">
             <div class="flow-sources">
-              <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:8px">14+ data sources</div>
+              <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:8px">15 Fetcher Adapters (14 Data Sources)</div>
               <div class="src-list">
                 Yahoo · NSE · CFTC COT<br/>
-                MFAPI · AMFI Flows · NewsAPI<br/>
-                Zerodha Kite · World Bank · IMF
+                MFAPI · AMFI Category Flows · NewsAPI<br/>
+                Zerodha Kite · WGC Goldhub · World Bank · IMF<br/>
+                Sensibull FII/DII · Morningstar mstarpy
               </div>
             </div>
             <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
@@ -1140,7 +1141,7 @@
                 <div class="store-title">🗄️ Local ClickHouse Lake · 27 tables 🔍</div>
                 <div class="store-tables">
                   daily_prices · mf_holdings · amfi_category_flows<br/>
-                  cot_gold · fx_rates · ml_predictions<br/>
+                  corporate_actions · cot_gold · fx_rates · ml_predictions<br/>
                   signal_composite · inav_snapshots
                 </div>
                 <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
@@ -1160,7 +1161,7 @@
 
         <div class="flow-conn">
           <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-          <div class="conn-label">fan-out · read through MarketDataRepository singleton</div>
+          <div class="conn-label">⚡ EventBus: DataImportedEvent → Auto-Invalidate Cache → Re-predict ML → Refresh Signals</div>
         </div>
 
         <!-- Layer 2 engine fan-out -->
@@ -1203,8 +1204,8 @@
         <!-- Layer 3 orchestrator -->
         <div class="flow-orch-row" id="flowLayer3">
           <div class="flow-orch flow-node" data-inspect="agent">
-            <h4>🧠 Multi-Agent Orchestrator <span style="color:#94a3b8;font-weight:400">(LangGraph ReAct) 🔍</span></h4>
-            <p>LLM intent router → specialist sub-agent guild (10 agents) · budget + tracing middleware auto-attached</p>
+            <h4>🧠 Multi-Agent Orchestrator &amp; StateGraph Workflows <span style="color:#94a3b8;font-weight:400">(LangGraph ReAct) 🔍</span></h4>
+            <p>LLM intent router → 10 specialist sub-agents + StateGraph parallel pipelines (80-90% token savings)</p>
           </div>
           <div class="flow-cache flow-node" data-inspect="cache">
             <div class="cache-title">⚡ SQLite LLM cache 🔍</div>
