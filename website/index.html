@@ -818,8 +818,7 @@
     <h1>Know <span>before</span> you invest.</h1>
 
     <p class="hero-sub">
-      Today's ETF signal. What smart money is buying.
-      Why your stock moved. Ask in plain English and get answers backed by live data, not guesswork.
+      Daily ETF composite signals, institutional whale tracking, and price anomaly forensics. Open-source, 100% local &amp; private.
     </p>
 
     <div class="hero-actions">
@@ -1478,30 +1477,26 @@
 
       <div class="feature-card">
         <span class="feat-tag teal">Anomaly</span>
-        <h3>4-Step Composite Anomaly Pipeline</h3>
-        <p>Fires on ~8% of days vs. 21% for a naive Random Forest. Four independent methods vote; corporate actions and company events are classified as Price Driven by Company Events so they do not pollute regular market signals.</p>
+        <h3>6-Step Composite Anomaly Engine</h3>
+        <p>Detects price shocks &amp; silent institutional block deals while filtering out false positives.</p>
         <ul class="feat-bullets">
-          <li><strong>Step 1 — MAD Robust Z-score:</strong> rolling median + MAD resists outlier inflation that standard Z misses during trends</li>
-          <li><strong>Step 2 — GARCH(1,1) Student-t:</strong> models conditional volatility σ_t so only moves extreme <em>relative to current regime</em> are flagged</li>
-          <li><strong>Step 3 — Isolation Forest:</strong> cross-asset enrichment with USDINR FX + CFTC COT speculator crowding; boosts days suspicious to both algorithms</li>
-          <li><strong>Step 4 — PELT change-point:</strong> detects structural vol-regime shifts (calm → turbulent), not just point shocks; confirmed breaks get a 1.15× Final-Z boost</li>
-          <li><strong>8 regime labels:</strong> Flash Crash · Volatile Breakout · Crowded Long · Blow-off Top · Strong Trend · Regime Shift · Price Driven by Company Event · Normal</li>
-          <li><strong>Explanation layer:</strong> each flagged date correlated with news, COMEX futures, and point-in-time ML prediction — no future leakage</li>
-          <li><strong>Qdrant memory:</strong> flagged dates auto-stored in <code>market_anomalies</code> collection; <code>find_similar_anomaly_events</code> retrieves top-k historical precedents by cosine similarity</li>
+          <li><strong>MAD Robust Z-score:</strong> Median-based outlier detection resisting trend inflation</li>
+          <li><strong>GARCH(1,1) Student-t:</strong> Dynamic conditional volatility regime scaling</li>
+          <li><strong>Isolation Forest &amp; PELT:</strong> Cross-asset FX/COT crowding &amp; structural regime breaks</li>
+          <li><strong>Volume HMM Strategy:</strong> 2-component GMM on log(volume) flagging block deals (<code>p_institutional &gt; 0.70</code>)</li>
+          <li><strong>Corporate Action Suppression:</strong> Company events auto-classified to prevent false alarms</li>
         </ul>
       </div>
 
       <div class="feature-card">
         <span class="feat-tag gold">Correlation</span>
-        <h3>News-RAG Correlation Engine</h3>
-        <p>Four parallel strategies attribute each anomaly to a likely cause (earnings, leak, macro shock, or cross-asset move) with calibrated confidence and direction-consistency checks. No LLM in the scoring loop.</p>
+        <h3>News-RAG Attribution Engine</h3>
+        <p>Attributes market shocks to earnings, insider leaks, macro events, or cross-asset moves.</p>
         <ul class="feat-bullets">
-          <li><strong>Post-Macro Shock:</strong> scores on <em>idiosyncratic</em> return (stock − benchmark), not raw move — a 5% drop on a -5% NIFTY day gets zero credit</li>
-          <li><strong>Pre-Event Leak:</strong> cumulative abnormal return in the 3 days before earnings/dividends/bonuses flags suspicious pre-positioning</li>
-          <li><strong>Cross-Asset Co-Movement:</strong> USDINR &amp; commodity shocks; same-direction co-movement on negative-beta pairs is penalised 70% as a likely false positive</li>
-          <li><strong>News-RAG:</strong> publisher-quality + event-type hierarchy weights; blocked opinion sources auto-filtered</li>
-          <li><strong>Lag-weighted decay:</strong> peak weight at lag = +1 day (textbook next-session reaction); same-day matches penalised for coincidence risk</li>
-          <li><strong>Clustering dedup:</strong> multiple strategies firing on the same anomaly merge into one finding, primary strategy = highest score</li>
+          <li><strong>Post-Macro Shock:</strong> Scores idiosyncratic excess return over NIFTY benchmark</li>
+          <li><strong>Pre-Event Leak:</strong> Flags 3-day abnormal return preceding earnings &amp; corporate events</li>
+          <li><strong>Cross-Asset Co-Movement:</strong> USDINR &amp; commodity shock penalty filters</li>
+          <li><strong>News-RAG Semantic Vector Match:</strong> Qdrant cosine similarity search over ±7-day window</li>
         </ul>
       </div>
 
