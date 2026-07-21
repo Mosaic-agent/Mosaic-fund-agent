@@ -1162,30 +1162,41 @@
               </div>
             </div>
             <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
-            <div class="flow-dual-stores">
-              <div class="flow-store flow-node" data-inspect="clickhouse">
+            <div class="flow-dual-stores" style="display:flex;gap:12px;flex:1.8;flex-wrap:wrap">
+              <div class="flow-store flow-node" data-inspect="clickhouse" style="flex:1;min-width:180px">
                 <div class="store-title" style="display:flex;justify-content:space-between">
                   <span>🗄️ ClickHouse Lake</span>
                   <span style="font-size:11px;background:rgba(245,158,11,0.2);padding:2px 6px;border-radius:4px;color:#fbbf24">27 Tables</span>
                 </div>
                 <div class="store-tables">
                   daily_prices · mf_holdings · amfi_category_flows<br/>
-                  corporate_actions · cot_gold · fx_rates · ml_predictions<br/>
-                  signal_composite · inav_snapshots
+                  corporate_actions · cot_gold · fx_rates · ml_predictions
                 </div>
-                <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
+                <div class="store-meta">ReplacingMergeTree · watermark delta-sync</div>
               </div>
-              <div class="flow-store qdrant flow-node" data-inspect="qdrant">
+
+              <div class="flow-store qdrant flow-node" data-inspect="qdrant" style="flex:1;min-width:180px">
                 <div class="store-title" style="display:flex;justify-content:space-between">
                   <span>🧬 Qdrant Vector DB</span>
                   <span style="font-size:11px;background:rgba(220,36,76,0.2);padding:2px 6px;border-radius:4px;color:#f43f5e">5 Collections</span>
                 </div>
                 <div class="store-tables">
                   market_anomalies · mf_holdings<br/>
-                  mf_fund_profiles · news_articles<br/>
-                  clickhouse_metadata
+                  mf_fund_profiles · news_articles
                 </div>
-                <div class="store-meta" style="color:#6b7888">768-dim nomic-embed-text · COSINE · is_tenant indexes</div>
+                <div class="store-meta" style="color:#6b7888">768-dim nomic-embed-text · COSINE</div>
+              </div>
+
+              <div class="flow-store flow-node" data-inspect="shoonya" style="flex:1;min-width:180px;background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.4)">
+                <div class="store-title" style="display:flex;justify-content:space-between;color:#34d399">
+                  <span>⚡ Shoonya Live Tick</span>
+                  <span style="font-size:11px;background:rgba(16,185,129,0.2);padding:2px 6px;border-radius:4px;color:#34d399">WS + REST 🔍</span>
+                </div>
+                <div class="store-tables" style="color:#a7f3d0">
+                  N2 WebSocket Broadcast · get_quotes<br/>
+                  L2 5-level Depth · VWAP · 52wk H/L
+                </div>
+                <div class="store-meta" style="color:#6ee7b7">Real-time WebSocket tick stream</div>
               </div>
             </div>
           </div>
