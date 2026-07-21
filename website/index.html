@@ -447,60 +447,73 @@
     .feat-bullets li { font-size: 13px; color: var(--text-2); padding: 4px 0; padding-left: 18px; position: relative; }
     .feat-bullets li::before { content: '→'; position: absolute; left: 0; color: var(--gold-dk); font-size: 12px; }
 
-    /* ── 3D Isometric Architecture Styles ────────────────────────── */
-    .flow-3d-viewport {
-      perspective: 1200px;
-      perspective-origin: 50% 30%;
-      margin: 48px 0 8px;
-    }
-    .flow {
-      transform: rotateX(14deg) rotateY(-4deg) rotateZ(1deg) translateZ(0);
-      transform-style: preserve-3d;
-      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s ease;
-      box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.45), 0 18px 36px -18px rgba(13, 148, 136, 0.3);
-      border-radius: var(--radius-lg);
-      padding: 12px;
-      background: rgba(15, 23, 42, 0.4);
-      backdrop-filter: blur(12px);
-    }
-    .flow-3d-viewport:hover .flow {
-      transform: rotateX(5deg) rotateY(-1deg) rotateZ(0deg) translateZ(12px);
-      box-shadow: 0 45px 90px -20px rgba(0, 0, 0, 0.6), 0 25px 50px -20px rgba(245, 158, 11, 0.35);
+    /* ── Dark Glassmorphic Node Swimlanes CSS ───────────────────── */
+    .flow-canvas {
+      background: #0b0f19; color: #e2e8f0;
+      border: 1.5px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius-lg); padding: 28px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+      margin: 24px 0 8px;
     }
     .flow-layer {
-      background: #0f172a; color: #e2e8f0;
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: var(--radius-lg); padding: 24px 28px;
-      box-shadow: 0 12px 40px rgba(15,23,42,0.35);
-      transform: translateZ(15px);
-      transform-style: preserve-3d;
-      transition: transform 0.4s ease;
+      background: #111827; color: #e2e8f0;
+      border: 1.5px solid rgba(255,255,255,0.08);
+      border-radius: var(--radius-lg); padding: 22px 26px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      transition: all 0.35s ease;
     }
-    .flow-layer:hover {
-      transform: translateZ(28px);
+    .flow-layer.sim-active {
+      border-color: #3b82f6; box-shadow: 0 0 30px rgba(59,130,246,0.4);
     }
+    .flow-tag { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gold); margin-bottom: 16px; }
+    .flow-lake { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+    .flow-sources { flex: 1; min-width: 200px; }
+    .flow-sources .src-list { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #94a3b8; line-height: 1.9; }
+    .flow-node { cursor: pointer; transition: all 0.25s ease; }
+    .flow-node:hover { transform: translateY(-3px) scale(1.01); }
+    
     .flow-store {
       flex: 1.4; min-width: 240px; background: rgba(245,158,11,0.08);
       border: 1.5px solid rgba(245,158,11,0.4); border-radius: var(--radius); padding: 18px 22px;
       box-shadow: 0 4px 20px rgba(245,158,11,0.1);
-      transform: translateZ(20px);
-      transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
-    .flow-store:hover {
-      transform: translateZ(35px) scale(1.02);
+    .flow-store:hover { border-color: #fbbf24; box-shadow: 0 8px 30px rgba(245,158,11,0.3); }
+    .flow-store .store-title  { font-size: 14px; font-weight: 700; color: #fbbf24; margin-bottom: 8px; }
+    .flow-store .store-tables { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #cbd5e1; line-height: 1.7; }
+    .flow-store .store-meta   { font-size: 11px; color: #94a3b8; margin-top: 8px; }
+    
+    .flow-store.qdrant {
+      background: rgba(220,36,76,0.08); border-color: rgba(220,36,76,0.4);
+      box-shadow: 0 4px 20px rgba(220,36,76,0.1);
     }
+    .flow-store.qdrant:hover { border-color: #f43f5e; box-shadow: 0 8px 30px rgba(220,36,76,0.3); }
+    .flow-store.qdrant .store-title { color: #f43f5e; }
+
     .engine {
       background: #1e293b; color: #f8fafc;
       border: 1px solid rgba(255,255,255,0.1); border-top: 3.5px solid var(--teal);
       border-radius: var(--radius); padding: 20px 18px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-      transition: box-shadow .25s, transform .25s; position: relative; overflow: hidden;
-      transform: translateZ(20px);
+      transition: all 0.25s ease; position: relative; overflow: hidden;
     }
-    .engine:hover {
-      transform: translateZ(40px) translateY(-4px);
-      box-shadow: 0 12px 32px rgba(13,148,136,0.25);
+    .engine:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(13,148,136,0.3); border-color: rgba(255,255,255,0.3); }
+    .engine.e1 { border-top-color: var(--gold); }
+    .engine.e2 { border-top-color: var(--blue); }
+    .engine.e3 { border-top-color: #10b981; }
+    .engine.e4 { border-top-color: var(--red); }
+
+    /* Node Inspector Panel */
+    .node-inspector-panel {
+      margin-top: 24px; background: #070a12; border: 1.5px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius); padding: 18px 22px; display: none;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.6);
     }
+    .node-inspector-panel.open { display: block; animation: fadeIn .3s ease; }
+    .nip-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 12px; }
+    .nip-title { font-size: 14px; font-weight: 700; color: #fbbf24; font-family: 'JetBrains Mono', monospace; }
+    .nip-close { background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer; }
+    .nip-close:hover { color: #fff; }
+    .nip-code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #38bdf8; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
     .flow-tag { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--gold); margin-bottom: 16px; }
     .flow-lake { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
     .flow-sources { flex: 1; min-width: 200px; }
@@ -1031,88 +1044,6 @@
             <div class="gc-title">🤖 Workflows — token-efficient deep research</div>
             <div class="gc-desc">StateGraph pipelines: 80–90% fewer tokens than ReAct agents, with adversarial verification before every final report.</div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div style="text-align:center;margin-top:48px">
-      <a href="#quickstart" class="btn-primary">🚀 Get started in 5 minutes</a>
-      <p style="font-size:13px;color:var(--text-3);margin-top:12px">Free &amp; open source · runs on your laptop · no signup</p>
-    </div>
-  </div>
-</section>
-
-<!-- ── WHY ───────────────────────────────────────────────────────── -->
-<section class="section arch-bg" id="why">
-  <div class="container">
-    <div class="section-label">The Problem</div>
-    <h2 class="section-title">Why another tool?</h2>
-    <p class="section-body">
-      Serious decisions need clean cross-asset data, models that quantify edge and risk,
-      and context that explains <em>why</em> something moved. Retail tools give you charts.
-      Terminals give you feeds. Neither gives you all three in one place on your own machine.
-    </p>
-
-    <div class="why-grid">
-      <div class="why-card">
-        <div class="why-icon">🏠</div>
-        <h3>Your data, your machine</h3>
-        <p>All market data stays in a local ClickHouse instance. No third-party cloud sync, no API leakage your portfolio intelligence is private.</p>
-      </div>
-      <div class="why-card">
-        <div class="why-icon">🤖</div>
-        <h3>LLM-grounded, not hallucinated</h3>
-        <p>Every number the agent reports is first computed in Python or SQL. The LLM only narrates never calculates. A hard architectural rule, enforced everywhere.</p>
-      </div>
-      <div class="why-card">
-        <div class="why-icon">🌐</div>
-        <h3>Works offline with Ollama</h3>
-        <p>Runs fully locally via Ollama (Gemma 4). The orchestrator auto-switches to compact prompts and data injection paths for low-context local models.</p>
-      </div>
-      <div class="why-card">
-        <div class="why-icon">🔬</div>
-        <h3>Forensic anomaly explanation</h3>
-        <p>Every flagged date gets a full report: GARCH regime + Final-Z, news sentiment correlation, COMEX futures context, COT speculator positioning, and what the ML model predicted that day, all point-in-time, no future leakage.</p>
-      </div>
-      <div class="why-card">
-        <div class="why-icon">🐋</div>
-        <h3>Institutional flow intelligence</h3>
-        <p>Reverse-engineer DSP, Nippon, and ICICI AMC conviction from monthly portfolio disclosures. 24+ months of cross-fund ownership = highest-quality single-name signal.</p>
-      </div>
-      <div class="why-card">
-        <div class="why-icon">⚖️</div>
-        <h3>Volatility-aware sizing</h3>
-        <p>GARCH(1,1) conditional vol feeds inverse-vol + Kelly position sizing. High-stress regimes automatically reduce position weights before you need to think about it.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ── HOW IT WORKS ──────────────────────────────────────────────── -->
-<section class="section" id="how">
-  <div class="container">
-    <div class="section-label">Architecture</div>
-    <h2 class="section-title">How it works</h2>
-    <p class="section-body">
-      Data lands in a dual local lake (ClickHouse + Qdrant), fans out to five quant engines,
-      converges in a multi-agent orchestrator backed by a SQLite LLM cache so repeat questions
-      are free, and surfaces wherever you work.
-    </p>
-
-    <!-- Architecture Live Feature Badges -->
-    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:20px 0 32px">
-      <span class="badge" style="background:#1e293b;border-color:rgba(245,158,11,0.4);color:#fbbf24">🗄️ 27 ClickHouse Tables</span>
-      <span class="badge" style="background:#1e293b;border-color:rgba(220,36,76,0.4);color:#f43f5e">🧬 5 Qdrant Collections (768d)</span>
-      <span class="badge" style="background:#1e293b;border-color:rgba(13,148,136,0.4);color:#2dd4bf">🧠 10 Specialist AI Sub-Agents</span>
-      <span class="badge" style="background:#1e293b;border-color:rgba(59,130,246,0.4);color:#60a5fa">⚡ 100% Offline with Ollama</span>
-    </div>
-
-    <!-- 3D Perspective Architecture Viewport -->
-    <div class="flow-3d-viewport">
-      <div class="flow">
-
-        <!-- Layer 1 data lake -->
-        <div class="flow-layer">
         <div class="flow-tag">① Ingest &amp; Store</div>
         <div class="flow-lake">
           <div class="flow-sources">
@@ -2206,22 +2137,131 @@ const galleryObs = new IntersectionObserver((entries) => {
 const gallerySec = document.getElementById('gallery');
 if (gallerySec) galleryObs.observe(gallerySec);
 
-/* ── 3D Architecture Mouse Tilt JS ─────────────────────────────── */
-const flowViewport = document.querySelector('.flow-3d-viewport');
-const flowContainer = document.querySelector('.flow');
+/* ── Node Inspector & Data Flow Simulation JS ──────────────────── */
+const inspectData = {
+  clickhouse: {
+    title: '🗄️ ClickHouse Lake (ReplacingMergeTree DDL)',
+    code: `CREATE TABLE market_data.amfi_category_flows (
+    report_month Date,
+    category_name String,
+    net_flow_cr Float64,
+    closing_aum_cr Float64,
+    flow_pct_of_aum Float64
+) ENGINE = ReplacingMergeTree()
+ORDER BY (category_name, report_month);
 
-if (flowViewport && flowContainer) {
-  flowViewport.addEventListener('mousemove', (e) => {
-    const rect = flowViewport.getBoundingClientRect();
-    const x = e.clientX - rect.left - rect.width / 2;
-    const y = e.clientY - rect.top - rect.height / 2;
-    const rotX = (y / (rect.height / 2)) * -8 + 10;
-    const rotY = (x / (rect.width / 2)) * 8 - 4;
-    flowContainer.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg) translateZ(10px)`;
+-- Read Query:
+SELECT category_name, sum(net_flow_cr) FROM market_data.amfi_category_flows FINAL GROUP BY category_name;`
+  },
+  qdrant: {
+    title: '🧬 Qdrant Vector Store (768d COSINE)',
+    code: `Collection: market_anomalies (768 dimensions, COSINE distance)
+Embedding Model: nomic-embed-text
+Index: HNSW M=16 ef_construct=100
+Payload Indexes: is_tenant (keyword), symbol (keyword), regime_label (keyword)
+Collections: [market_anomalies, mf_holdings, mf_fund_profiles, news_articles, clickhouse_metadata]`
+  },
+  signals: {
+    title: '🎛️ 6-Pillar Composite Quant Aggregator',
+    code: `Pillars:
+1. Macro Overlay (20%)
+2. News Sentiment (15%)
+3. Valuation & iNAV Z-Score (20%)
+4. Institutional Flows (20%)
+5. LightGBM ML Return Forecast (15%)
+6. Anomaly Regime Scale (10%)
+Output: Composite Score 0–100 -> Regime (BUY / WATCH_LONG / HOLD / WATCH_SHORT / SELL)`
+  },
+  ml: {
+    title: '📈 LightGBM Walk-Forward Forecast',
+    code: `Model: LightGBM Regressor + Classifier
+Features: 24 technical & cross-asset indicators (GOLDBEES vs USDINR, US10Y, COMEX COT)
+Horizon: 5-Day Log Return (%) + prob_up (0.0 - 1.0)
+Evaluation: Walk-Forward CV (Skill > 0.05 required for Kelly allocation trigger)`
+  },
+  volatility: {
+    title: '⚖️ GARCH(1,1) Volatility & Risk Governor',
+    code: `Model: GARCH(1,1) Constant Mean, Student-t Residual Distribution
+Equation: σ_t^2 = ω + α * ε_{t-1}^2 + β * σ_{t-1}^2
+Position Sizing:
+- Kelly Fraction: w_kelly = max(0, (2 * prob_up - 1) / variance)
+- Blended Weight: 50% Risk Governor + 50% Kelly (weights.blended_50)`
+  },
+  anomaly: {
+    title: '🔬 5-Step Composite Anomaly Pipeline',
+    code: `Pipeline Steps:
+1. Robust MAD Z-Score (|Z| > 2.5)
+2. GARCH(1,1) Standardized Residual Spike (|e_t| > 2.8)
+3. Isolation Forest Outlier Mult (contamination=0.03)
+4. Ruptures PELT Change-Point Detection (RBF Cost)
+5. Corporate Event Suppression (NSE Split/Bonus ex-date filter)`
+  },
+  rag: {
+    title: '🧬 Vector RAG Retrieval Engine',
+    code: `Two-Pass Symbol Scoped Search:
+Pass 1: Qdrant vector similarity search over news_articles for target symbol.
+Pass 2: Fallback date-window search (+/- 7d) for cross-asset macro correlation.
+Output: Contextually grounded explanations without LLM hallucination.`
+  },
+  agent: {
+    title: '🧠 Multi-Agent LangGraph Router',
+    code: `Orchestrator: LangGraph StateGraph ReAct Router
+Agents (10): Macro Strategy, Quant DeepDive, Whale Tracker, ETF News, Intraday Monitor, Anomaly Explainer...
+Guardrail: LLM Grounding Rule — numbers computed strictly by Python/SQL tools.`
+  },
+  cache: {
+    title: '⚡ SQLite LLM Cache Middleware',
+    code: `Location: output/.cache/llm_cache.db
+TTL: 24 Hours
+Hit Policy: Exact prompt + symbol hash match returns pre-computed JSON response instantly (0 token cost).`
+  }
+};
+
+const nodeInspector = document.getElementById('nodeInspector');
+const nipTitle = document.getElementById('nipTitle');
+const nipCode = document.getElementById('nipCode');
+const nipClose = document.getElementById('nipClose');
+
+document.querySelectorAll('.flow-node').forEach(node => {
+  node.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const key = node.dataset.inspect;
+    if (inspectData[key]) {
+      nipTitle.textContent = inspectData[key].title;
+      nipCode.textContent = inspectData[key].code;
+      nodeInspector.classList.add('open');
+      nodeInspector.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   });
+});
 
-  flowViewport.addEventListener('mouseleave', () => {
-    flowContainer.style.transform = 'rotateX(14deg) rotateY(-4deg) rotateZ(1deg) translateZ(0)';
+if (nipClose) {
+  nipClose.addEventListener('click', () => nodeInspector.classList.remove('open'));
+}
+
+// Data Flow Simulation Runner
+const simBtn = document.getElementById('simFlowBtn');
+if (simBtn) {
+  simBtn.addEventListener('click', () => {
+    const l1 = document.getElementById('flowLayer1');
+    const l2 = document.getElementById('flowLayer2');
+    const l3 = document.getElementById('flowLayer3');
+    const l4 = document.getElementById('flowLayer4');
+
+    simBtn.disabled = true;
+    simBtn.textContent = '⏳ Simulating...';
+
+    [l1, l2, l3, l4].forEach(l => l.classList.remove('sim-active'));
+
+    setTimeout(() => l1.classList.add('sim-active'), 100);
+    setTimeout(() => { l1.classList.remove('sim-active'); l2.classList.add('sim-active'); }, 1200);
+    setTimeout(() => { l2.classList.remove('sim-active'); l3.classList.add('sim-active'); }, 2400);
+    setTimeout(() => { l3.classList.remove('sim-active'); l4.classList.add('sim-active'); }, 3600);
+    setTimeout(() => {
+      l4.classList.remove('sim-active');
+      simBtn.disabled = false;
+      simBtn.textContent = '▶ Simulate Data Flow';
+    }, 4800);
   });
 }
 </script>
