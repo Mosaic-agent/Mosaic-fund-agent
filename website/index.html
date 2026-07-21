@@ -109,38 +109,39 @@
     .section    { padding: 96px 0; }
     .section-sm { padding: 64px 0; }
 
-    /* ── Navigation ─────────────────────────────────────────────── */
+    /* ── Navigation (Frosted Glassmorphic) ─────────────────────── */
     nav {
       position: sticky; top: 0; z-index: 100;
-      background: #1e3a5f;
-      border-bottom: none;
-      box-shadow: 0 2px 16px rgba(30,58,95,.25);
-      padding: 8px 0;
+      background: rgba(11, 15, 25, 0.88);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      padding: 10px 0;
     }
     #scroll-progress {
       position: absolute; top: 0; left: 0; height: 3px;
-      background: linear-gradient(90deg, var(--gold), #2dd4bf, var(--blue));
+      background: linear-gradient(90deg, var(--gold), #2dd4bf, var(--blue), #f43f5e);
       width: 0%; z-index: 101; transition: width .1s ease-out;
     }
     .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
-    .nav-logo  { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; color: #fff; }
-    .nav-logo .coin { font-size: 22px; }
+    .nav-logo  { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+    .nav-logo .coin { font-size: 22px; filter: drop-shadow(0 0 8px rgba(245,158,11,0.5)); }
     .nav-links { display: flex; gap: 28px; align-items: center; }
     .nav-links a { color: rgba(255,255,255,.75); font-size: 14px; font-weight: 500; transition: color .18s; }
     .nav-links a:hover { color: #fff; text-decoration: none; }
     .nav-links a.active { color: #fff; font-weight: 600; }
     .nav-cta {
-      background: var(--gold); color: #000 !important;
-      padding: 7px 18px; border-radius: 6px;
+      background: linear-gradient(135deg, var(--gold), var(--gold-dk)); color: #000 !important;
+      padding: 8px 20px; border-radius: 8px;
       font-weight: 700 !important; font-size: 13px !important;
-      transition: background .18s, box-shadow .18s !important;
-      box-shadow: 0 1px 6px rgba(245,158,11,.5) !important;
+      transition: all .2s ease !important;
+      box-shadow: 0 2px 10px rgba(245,158,11,.4) !important;
     }
-    .nav-cta:hover { background: var(--gold-dk) !important; color: #000 !important; text-decoration: none !important; }
+    .nav-cta:hover { transform: translateY(-1px) !important; box-shadow: 0 4px 16px rgba(245,158,11,.6) !important; text-decoration: none !important; }
 
-    /* ── Hero ───────────────────────────────────────────────────── */
+    /* ── Hero (Ambient Lighting Grid) ─────────────────────────── */
     .hero {
-      padding: 110px 0 88px;
+      padding: 115px 0 90px;
       text-align: center;
       background: var(--bg);
       position: relative;
@@ -149,52 +150,56 @@
     .hero::before {
       content: '';
       position: absolute; inset: 0;
-      background: radial-gradient(ellipse 70% 45% at 50% -5%, rgba(245,158,11,.07) 0%, transparent 68%);
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245,158,11,.14) 0%, rgba(56,189,248,.06) 50%, transparent 80%),
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 100% 100%, 40px 40px, 40px 40px;
       pointer-events: none;
     }
 
     .badge {
       display: inline-flex; align-items: center; gap: 8px;
-      background: var(--gold-lt); border: 1px solid var(--gold-bd);
-      border-radius: 20px; padding: 5px 14px;
-      font-size: 13px; font-weight: 600; color: #92400e;
-      margin-bottom: 28px;
+      background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 20px; padding: 6px 16px;
+      font-size: 13px; font-weight: 600; color: #d97706;
+      margin-bottom: 28px; box-shadow: 0 2px 10px rgba(245,158,11,0.15);
     }
-    .badge .dot { width: 7px; height: 7px; background: var(--gold); border-radius: 50%; }
+    .badge .dot { width: 7px; height: 7px; background: var(--gold); border-radius: 50%; box-shadow: 0 0 8px var(--gold); }
 
     .hero h1 {
-      font-size: clamp(40px, 6.5vw, 76px);
+      font-size: clamp(42px, 6.8vw, 78px);
       font-weight: 800; line-height: 1.05;
       color: var(--text); letter-spacing: -2.5px;
       margin-bottom: 24px;
     }
-    .hero h1 span { color: var(--gold-dk); }
+    .hero h1 span { color: var(--gold-dk); text-shadow: 0 0 20px rgba(245,158,11,0.25); }
 
     .hero-sub {
       font-size: clamp(17px, 2.2vw, 20px);
-      color: var(--text-2); max-width: 600px;
+      color: var(--text-2); max-width: 620px;
       margin: 0 auto 40px; line-height: 1.65;
     }
 
-    .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
     .btn-primary {
-      background: var(--gold); color: #000;
-      padding: 13px 28px; border-radius: 8px;
+      background: linear-gradient(135deg, #f59e0b, #d97706); color: #000;
+      padding: 14px 30px; border-radius: 10px;
       font-weight: 700; font-size: 15px;
-      box-shadow: 0 2px 8px rgba(245,158,11,.4);
-      transition: background .18s, transform .12s, box-shadow .18s;
+      box-shadow: 0 4px 20px rgba(245,158,11,.4);
+      transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
       display: inline-flex; align-items: center; gap: 8px;
     }
-    .btn-primary:hover { background: var(--gold-dk); color: #000; text-decoration: none; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(245,158,11,.45); }
+    .btn-primary:hover { background: linear-gradient(135deg, #d97706, #b45309); color: #000; text-decoration: none; transform: translateY(-2px); box-shadow: 0 8px 28px rgba(245,158,11,.55); }
     .btn-outline {
-      background: #fff; border: 1.5px solid var(--border);
-      color: var(--text); padding: 13px 28px; border-radius: 8px;
-      font-weight: 500; font-size: 15px;
-      box-shadow: var(--sh-xs);
-      transition: border-color .18s, box-shadow .18s;
+      background: rgba(255,255,255,0.05); border: 1.5px solid var(--border);
+      color: var(--text); padding: 14px 30px; border-radius: 10px;
+      font-weight: 600; font-size: 15px;
+      box-shadow: var(--sh-xs); backdrop-filter: blur(8px);
+      transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
       display: inline-flex; align-items: center; gap: 8px;
     }
-    .btn-outline:hover { border-color: var(--text-2); box-shadow: var(--sh-sm); color: var(--text); text-decoration: none; }
+    .btn-outline:hover { border-color: var(--gold-dk); box-shadow: 0 4px 16px rgba(0,0,0,0.1); color: var(--text); text-decoration: none; transform: translateY(-2px); }
 
     .hero-stats {
       display: flex; justify-content: center; gap: 48px;
