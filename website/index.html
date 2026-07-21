@@ -455,6 +455,18 @@
       box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
       margin: 24px 0 8px;
     }
+    
+    /* ── Ingestion Layer Enhancements ───────────────────────────── */
+    .ingest-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px;
+    }
+    .ingest-cat-pill {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px; padding: 10px 12px; font-size: 12px; transition: border-color .2s;
+    }
+    .ingest-cat-pill:hover { border-color: rgba(59,130,246,0.5); }
+    .ingest-cat-title { font-weight: 700; color: #60a5fa; font-size: 11.5px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ingest-cat-items { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #94a3b8; line-height: 1.4; }
     .flow-layer {
       background: #111827; color: #e2e8f0;
       border: 1.5px solid rgba(255,255,255,0.08);
@@ -1124,21 +1136,38 @@
 
         <!-- Layer 1 data lake -->
         <div class="flow-layer" id="flowLayer1">
-          <div class="flow-tag">① Ingest &amp; Store</div>
+          <div class="flow-tag">① Ingest &amp; Store <span style="font-size:11px;color:#94a3b8;font-weight:400;margin-left:8px">💧 Watermark Delta-Sync Engine</span></div>
           <div class="flow-lake">
-            <div class="flow-sources">
-              <div style="font-size:13px;font-weight:600;color:var(--white);margin-bottom:8px">15 Fetcher Adapters (14 Data Sources)</div>
-              <div class="src-list">
-                Yahoo · NSE · CFTC COT<br/>
-                MFAPI · AMFI Category Flows · NewsAPI<br/>
-                Zerodha Kite · WGC Goldhub · World Bank · IMF<br/>
-                Sensibull FII/DII · Morningstar mstarpy
+            <div class="flow-sources" style="flex:1.2">
+              <div style="font-size:13px;font-weight:700;color:var(--white);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                <span>⚡ 15 Fetcher Adapters (14 Live Data Feeds)</span>
+              </div>
+              <div class="ingest-grid">
+                <div class="ingest-cat-pill">
+                  <div class="ingest-cat-title">📈 Equities &amp; ETFs</div>
+                  <div class="ingest-cat-items">NSE Direct · Yahoo · Zerodha Kite</div>
+                </div>
+                <div class="ingest-cat-pill">
+                  <div class="ingest-cat-title" style="color:#fbbf24">📦 Fund &amp; Flows</div>
+                  <div class="ingest-cat-items">AMFI Flows · Morningstar · MFAPI · Sensibull FII/DII</div>
+                </div>
+                <div class="ingest-cat-pill">
+                  <div class="ingest-cat-title" style="color:#34d399">🌍 Macro &amp; Metals</div>
+                  <div class="ingest-cat-items">CFTC COT · WGC Goldhub · World Bank · IMF</div>
+                </div>
+                <div class="ingest-cat-pill">
+                  <div class="ingest-cat-title" style="color:#f472b6">📰 News &amp; Sentiment</div>
+                  <div class="ingest-cat-items">Google News RSS · NewsAPI</div>
+                </div>
               </div>
             </div>
             <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
             <div class="flow-dual-stores">
               <div class="flow-store flow-node" data-inspect="clickhouse">
-                <div class="store-title">🗄️ Local ClickHouse Lake · 27 tables 🔍</div>
+                <div class="store-title" style="display:flex;justify-content:space-between">
+                  <span>🗄️ ClickHouse Lake</span>
+                  <span style="font-size:11px;background:rgba(245,158,11,0.2);padding:2px 6px;border-radius:4px;color:#fbbf24">27 Tables</span>
+                </div>
                 <div class="store-tables">
                   daily_prices · mf_holdings · amfi_category_flows<br/>
                   corporate_actions · cot_gold · fx_rates · ml_predictions<br/>
@@ -1147,7 +1176,10 @@
                 <div class="store-meta">ReplacingMergeTree · watermark delta-sync · idempotent inserts</div>
               </div>
               <div class="flow-store qdrant flow-node" data-inspect="qdrant">
-                <div class="store-title">🧬 Qdrant Vector DB · 5 collections 🔍</div>
+                <div class="store-title" style="display:flex;justify-content:space-between">
+                  <span>🧬 Qdrant Vector DB</span>
+                  <span style="font-size:11px;background:rgba(220,36,76,0.2);padding:2px 6px;border-radius:4px;color:#f43f5e">5 Collections</span>
+                </div>
                 <div class="store-tables">
                   market_anomalies · mf_holdings<br/>
                   mf_fund_profiles · news_articles<br/>
