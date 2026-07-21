@@ -559,6 +559,19 @@
     .wire-h .pulse-h.p2 { animation-delay: .95s; background: #3b82f6; box-shadow: 0 0 12px 3px rgba(59,130,246,0.8); }
     @keyframes flowRight { 0% { left: -6px; opacity: 0; } 18% { opacity: 1; } 82% { opacity: 1; } 100% { left: 46px; opacity: 0; } }
 
+    /* ── Hyper-Speed Particle Stream & Staggered Node Animation ── */
+    .flow-canvas.sim-running .wire .pulse { animation: flowDown 0.45s linear infinite !important; background: #38bdf8; box-shadow: 0 0 16px 5px rgba(56,189,248,0.9); }
+    .flow-canvas.sim-running .wire .pulse.p2 { animation-delay: 0.22s !important; background: #34d399; box-shadow: 0 0 16px 5px rgba(52,211,153,0.9); }
+    .flow-canvas.sim-running .wire-h .pulse-h { animation: flowRight 0.4s linear infinite !important; background: #fbbf24; box-shadow: 0 0 16px 5px rgba(251,191,36,0.9); }
+    .flow-canvas.sim-running .wire-h .pulse-h.p2 { animation-delay: 0.2s !important; background: #f43f5e; box-shadow: 0 0 16px 5px rgba(244,63,94,0.9); }
+
+    .sim-node-active {
+      border-color: #38bdf8 !important;
+      box-shadow: 0 0 25px rgba(56,189,248,0.5), inset 0 0 12px rgba(56,189,248,0.2) !important;
+      transform: translateY(-4px) scale(1.03) !important;
+      transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    }
+
     .flow-engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
     .engine {
       background: #1e293b; color: #f8fafc;
@@ -2391,29 +2404,75 @@ if (nipClose) {
   nipClose.addEventListener('click', () => nodeInspector.classList.remove('open'));
 }
 
-// Data Flow Simulation Runner
+// Enhanced Data Flow Simulation Runner
 const simBtn = document.getElementById('simFlowBtn');
 if (simBtn) {
   simBtn.addEventListener('click', () => {
+    const canvas = document.querySelector('.flow-canvas');
     const l1 = document.getElementById('flowLayer1');
     const l2 = document.getElementById('flowLayer2');
     const l3 = document.getElementById('flowLayer3');
     const l4 = document.getElementById('flowLayer4');
 
+    const l1Nodes = l1 ? l1.querySelectorAll('.ingest-cat-pill, .flow-store') : [];
+    const l2Nodes = l2 ? l2.querySelectorAll('.engine') : [];
+    const l3Nodes = l3 ? l3.querySelectorAll('.flow-orch, .flow-cache') : [];
+    const l4Nodes = l4 ? l4.querySelectorAll('.surface-pill') : [];
+
     simBtn.disabled = true;
-    simBtn.textContent = '⏳ Simulating...';
+    if (canvas) canvas.classList.add('sim-running');
 
-    [l1, l2, l3, l4].forEach(l => l.classList.remove('sim-active'));
+    const clearAll = () => {
+      [l1, l2, l3, l4].forEach(l => l && l.classList.remove('sim-active'));
+      document.querySelectorAll('.sim-node-active').forEach(n => n.classList.remove('sim-node-active'));
+    };
 
-    setTimeout(() => l1.classList.add('sim-active'), 100);
-    setTimeout(() => { l1.classList.remove('sim-active'); l2.classList.add('sim-active'); }, 1200);
-    setTimeout(() => { l2.classList.remove('sim-active'); l3.classList.add('sim-active'); }, 2400);
-    setTimeout(() => { l3.classList.remove('sim-active'); l4.classList.add('sim-active'); }, 3600);
+    clearAll();
+
+    // Step 1: Ingest & Store
+    simBtn.textContent = '⚡ 1. Ingesting 14 Live Feeds...';
+    if (l1) l1.classList.add('sim-active');
+    l1Nodes.forEach((node, i) => {
+      setTimeout(() => node.classList.add('sim-node-active'), i * 150);
+    });
+
+    // Step 2: Compute 5 Quant Engines
     setTimeout(() => {
-      l4.classList.remove('sim-active');
+      clearAll();
+      simBtn.textContent = '⚡ 2. Computing 5 Quant Engines...';
+      if (l2) l2.classList.add('sim-active');
+      l2Nodes.forEach((node, i) => {
+        setTimeout(() => node.classList.add('sim-node-active'), i * 140);
+      });
+    }, 1400);
+
+    // Step 3: Multi-Agent Orchestrator
+    setTimeout(() => {
+      clearAll();
+      simBtn.textContent = '⚡ 3. Routing 10 Sub-Agents & Cache...';
+      if (l3) l3.classList.add('sim-active');
+      l3Nodes.forEach((node, i) => {
+        setTimeout(() => node.classList.add('sim-node-active'), i * 200);
+      });
+    }, 2800);
+
+    // Step 4: User Interfaces & Output
+    setTimeout(() => {
+      clearAll();
+      simBtn.textContent = '⚡ 4. Rendering Interfaces & Reports...';
+      if (l4) l4.classList.add('sim-active');
+      l4Nodes.forEach((node, i) => {
+        setTimeout(() => node.classList.add('sim-node-active'), i * 120);
+      });
+    }, 4200);
+
+    // Complete Simulation
+    setTimeout(() => {
+      clearAll();
+      if (canvas) canvas.classList.remove('sim-running');
       simBtn.disabled = false;
       simBtn.textContent = '▶ Simulate Data Flow';
-    }, 4800);
+    }, 5600);
   });
 }
 </script>
