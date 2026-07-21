@@ -160,6 +160,7 @@ For `stocks` and `us_stocks` categories, the import manager redirects standard s
 | `mfapi_fetcher` | MFAPI.in (AMFI) | `mf_nav` | Daily |
 | `cot_fetcher` | CFTC Socrata API + ZIP archives | `cot_gold` | Weekly (Fri) |
 | `nse_inav_fetcher` | NSE website | `inav_snapshots` | Every 15 min (market hours) |
+| `shoonya_fetcher` | Finvasia Shoonya REST & WebSocket | `daily_prices`, `shoonya_session` | Real-time tick & Intraday |
 | `fii_dii_fetcher` | Sensibull oxide API | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily` | Daily |
 | `imf_reserves_fetcher` | WGC Goldhub (primary) + World Bank WDI REST API (fallback) | `cb_gold_reserves` | Monthly |
 | `etf_aum_fetcher` | Yahoo Finance | `etf_aum` | Daily |
