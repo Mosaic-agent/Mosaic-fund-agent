@@ -93,9 +93,10 @@ python tests/_backtest_anomaly.py
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings from `.env` |
 | UI | `src/ui/app.py` | Streamlit hub (5 tabs over ClickHouse) |
 
-**14 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`,
+**15 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`,
 `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`,
-`yahoo_snapshot`, `expert_tweets`, `nse_corporate_actions` (NSE equity splits/bonuses/demergers/rights/dividends), plus news tools.
+`yahoo_snapshot`, `expert_tweets`, `nse_corporate_actions` (NSE equity splits/bonuses/demergers/rights/dividends),
+`amfi_flows` (AMFI category-wise net flows & AUM), plus news tools.
 
 **Whale Tracker funds** (`src/scripts/market/whale_tracker.py`) — all 7 multi-asset funds:
 
@@ -126,7 +127,8 @@ CLI → MosaicFundAgent.run()
 `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`,
 `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`,
 `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`,
-`corporate_actions` (symbol, ex_date, action_type, ratio, purpose — NSE fetched; price-impacting ex-dates suppress anomaly detection).
+`corporate_actions` (symbol, ex_date, action_type, ratio, purpose — NSE fetched; price-impacting ex-dates suppress anomaly detection),
+`amfi_category_flows` (report_month, category_name, subcategory_group, gross_purchase_cr, gross_redemption_cr, net_flow_cr, closing_aum_cr, flow_pct_of_aum).
 All use `ReplacingMergeTree` — always query with `FINAL` to deduplicate.
 
 ### Important Patterns
