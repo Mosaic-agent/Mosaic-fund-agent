@@ -281,8 +281,52 @@
     }
     .anom-step .anom-check { color: var(--green); font-weight: 800; opacity: 0; transition: opacity .3s ease; }
     .anom-step.done { opacity: 1; color: var(--text); border-color: var(--gold-bd); box-shadow: var(--sh-sm); transform: translateY(-1px); }
-    .anom-step.done .anom-check { opacity: 1; }
-    .anom-arrow { color: var(--gold-dk); font-size: 16px; opacity: .5; }
+    .anom-step.done .anom-check { opacity: 1; transform: scale(1); }
+    .anom-arrow { color: var(--border); font-size: 18px; font-weight: 700; }
+    
+    /* ── Anomaly Section Image Animation Enhancements ──────────────── */
+    .anomaly-showcase .gallery-item {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease, border-color 0.4s ease;
+    }
+    
+    .anomaly-showcase .gallery-item::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 50%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+      transform: skewX(-20deg);
+      z-index: 2;
+      pointer-events: none;
+      transition: left 0.75s ease-in-out;
+    }
+    
+    .anomaly-showcase .gallery-item:hover::before {
+      left: 150%;
+    }
+    
+    .anomaly-showcase .gallery-item img {
+      width: 100%;
+      height: auto;
+      display: block;
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.4s ease;
+    }
+    
+    .anomaly-showcase .gallery-item:hover {
+      transform: translateY(-5px) scale(1.01);
+      box-shadow: 0 20px 48px rgba(13, 148, 136, 0.18), 0 0 0 2px rgba(245, 158, 11, 0.4);
+      border-color: var(--teal);
+    }
+    
+    .anomaly-showcase .gallery-item:hover img {
+      transform: scale(1.035);
+      filter: brightness(1.03);
+    }
     .anom-step.active { color: var(--text); border-color: var(--gold-dk); box-shadow: 0 0 0 3px var(--gold-bd); }
     /* Charts revealed in sync with the stepper phases */
     .anom-chart { opacity: 0; transform: translateY(22px); transition: opacity .6s ease, transform .6s ease; }
