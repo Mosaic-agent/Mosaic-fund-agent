@@ -10,6 +10,7 @@ row insert, watermark update) lives here in run().
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -21,6 +22,8 @@ import clickhouse_connect
 import httpx
 from rich.console import Console
 from rich.progress import Progress
+
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.getcwd())
 from config.settings import settings
@@ -163,6 +166,13 @@ class BaseFundImporter(ABC):
     def ensure_schema(self, client) -> None:
         """Run DDL before the first insert. Default: noop."""
 
+    def pre_insert_hook(self, all_rows: list[dict]) -> list[dict]:
+        """Hook executed right before database insert. Subclasses can mutate/filter rows."""
+        return all_rows
+
+    def post_insert_hook(self, all_rows: list[dict], client: Any) -> None:
+        """Hook executed right after database insert and watermark update."""
+
     def filter_sources(self, sources: list, client) -> list:
         """Remove already-imported sources (delta sync). Default: import all."""
         return sources
@@ -228,17 +238,22 @@ class BaseFundImporter(ABC):
                     f"[cyan]Importing {self.fund_name()}...", total=len(sources)
                 )
                 for i, source in enumerate(sources):
-                    rows = self.parse_source(source, http)
-                    if rows:
-                        all_rows.extend(rows)
-                    else:
+                    try:
+                        rows = self.parse_source(source, http)
+                        if rows:
+                            all_rows.extend(rows)
+                        else:
+                            failed.append(source)
+                    except Exception as exc:
+                        logger.error("Failed to parse source %s in %s: %s", source, self.fund_name(), exc)
+                        console.print(f"[yellow]⚠ Skipped source {source}: {exc}[/yellow]")
                         failed.append(source)
                     if i < len(sources) - 1:
                         time.sleep(self.REQUEST_DELAY)
                     progress.advance(task)
 
         if failed:
-            console.print(f"[yellow]Warning: {len(failed)} source(s) returned no rows.[/yellow]")
+            console.print(f"[yellow]Warning: {len(failed)} source(s) failed or returned no rows.[/yellow]")
 
         if dry_run:
             console.print(
@@ -253,6 +268,7 @@ class BaseFundImporter(ABC):
                 client.close()
             return
 
+        all_rows = self.pre_insert_hook(all_rows)
         cols = self.column_names()
         insert_tuples = [tuple(r[c] for c in cols) for r in all_rows]
         client.insert(self.table_name(), insert_tuples, column_names=cols)
@@ -262,8 +278,8 @@ class BaseFundImporter(ABC):
             try:
                 from src.db.mf_vector import vectorize_holdings
                 vectorize_holdings(all_rows)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Vector RAG indexing skipped/failed for %s: %s", self.fund_name(), exc)
 
         wm = self.watermark_rows(all_rows)
         if wm:
@@ -274,4 +290,5 @@ class BaseFundImporter(ABC):
             )
             console.print(f"[dim]Watermarks set for {len(wm)} entries.[/dim]")
 
+        self.post_insert_hook(all_rows, client)
         client.close()

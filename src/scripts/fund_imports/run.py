@@ -34,6 +34,7 @@ def main() -> None:
             "  icici        ICICI Prudential MF via Morningstar API (snapshot)",
             "  nippon       Nippon India AMC monthly XLS files (2017–present)",
             "  icici-index  ICICI Prudential index constituents (Azure Blob)",
+            "  hdfc         HDFC Asset Management Company fund holdings",
             "  all          Run all importers in sequence",
         ]),
     )
@@ -47,17 +48,17 @@ def main() -> None:
                         help="Parse and print counts; skip DB insert")
     parser.add_argument("--test", action="store_true",
                         help="Process first source only; implies --dry-run behaviour")
-    parser.add_argument("--from-year", type=int, default=2017,
-                        help="[nippon] Earliest year to import (default: 2017)")
+    parser.add_argument("--from-year", type=int, default=2020,
+                        help="Earliest year to import (default: 2020)")
     parser.add_argument("--full", action="store_true",
-                        help="[nippon] Reimport all months, ignoring watermarks")
+                        help="Reimport all months, ignoring watermarks")
     args = parser.parse_args()
 
     names = list(REGISTRY) if args.name == "all" else [args.name]
 
     for name in names:
         kwargs: dict = {}
-        if name == "nippon":
+        if name in ("nippon", "icici", "dsp", "quant", "bajaj", "hdfc"):
             kwargs = {"from_year": args.from_year, "full_reimport": args.full}
         importer = create_importer(name, **kwargs)
         importer.run(dry_run=args.dry_run, test=args.test)
