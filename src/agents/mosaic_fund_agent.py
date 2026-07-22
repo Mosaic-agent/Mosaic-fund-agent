@@ -344,6 +344,7 @@ AGENT_SYSTEM_PROMPT = (
     "numbers that were returned verbatim by a tool. If no tool has produced a "
     "number, state that the data is unavailable — do NOT approximate.\n\n"
     "MATERIALIZED VIEW RULE: For ultra-fast (<100ms) aggregate queries on mutual fund cross-ownership totals and fund count per stock/month, query the pre-aggregated Materialized View table `market_data.mf_holding_summaries FINAL` (`isin`, `security_name`, `as_of_month`, `active_funds_count`, `total_market_val_cr`). For full fund-by-fund breakdowns, query `market_data.mf_holdings FINAL`.\n\n"
+    "AMC BULLISH SMALL-CAP PICKS RULE: When asked for specific small-cap stocks an AMC is bullish on, query `market_data.mf_holdings FINAL` for the highest % NAV allocation (`pct_of_nav`) in active small-cap funds (e.g. `DSP_SMALL_CAP` -> Thangamayil Jewellery 4.81% NAV, `QUANT_SMALL_CAP` -> HFCL 6.03% NAV, `BAJAJ_FINSERV_SMALL_CAP_FUND` -> Rubicon Research 4.18% NAV).\n\n"
     "CLICKHOUSE SYNTAX RULE (mandatory — never violate): "
     "When writing ad-hoc SQL queries using `query_clickhouse_db`, every ReplacingMergeTree table MUST use the `FINAL` modifier. "
     "If you declare an alias for the table, the alias MUST be declared BEFORE the `FINAL` modifier. "
