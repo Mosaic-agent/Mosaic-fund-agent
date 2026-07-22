@@ -1011,7 +1011,11 @@ def test_explain_price_anomalies():
     with patch("src.db.pool.query_df", return_value=mock_df), \
          patch("src.ml.anomaly.run_composite_anomaly",
                side_effect=Exception("arch not installed")), \
-         patch("src.tools.news_search.search_financial_news") as mock_search2:
+         patch("src.tools.news_search.search_financial_news") as mock_search2, \
+         patch("src.db.repository.MarketDataRepository.ml_prediction_asof",
+               return_value=None), \
+         patch("src.db.repository.MarketDataRepository.signal_composite_asof",
+               return_value=None):
 
         mock_search2.invoke.return_value = "Mocked fallback news"
 
