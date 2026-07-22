@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -79,17 +80,21 @@ class BudgetCallbackHandler(BaseCallbackHandler):
         )
         self.tool_caps = {**DEFAULT_TOOL_CAPS, **(tool_caps or {})}
 
-        # Counters
+        # Counters — guarded by _lock since workflow fetch nodes run tools
+        # concurrently via ThreadPoolExecutor (see src/workflows/base.py _par()).
+        self._lock = threading.Lock()
         self.total_tool_calls = 0
         self.total_tokens = 0
         self._per_tool_counts: dict[str, int] = {}
         self._start_time = time.monotonic()
         self._deadline = self._start_time + self.max_wall_clock_s
 
-        # raise_on_error=True causes LangGraph to catch and log BudgetExceededError as
-        # a warning then CONTINUE execution — the opposite of what we want.  Keep False
-        # so the exception propagates naturally through the graph's tool-execution node.
-        self.raise_on_error = False
+        # LangChain's callback manager only re-raises a callback handler's exception
+        # when the handler's `raise_error` attribute is True — otherwise it logs the
+        # exception as a warning and continues, which defeats budget enforcement.
+        # (This must be named exactly `raise_error`; BaseCallbackHandler defines it
+        # as a class attribute the manager reads directly.)
+        self.raise_error = True
 
     # ── Guards ────────────────────────────────────────────────────────────────
 
@@ -127,9 +132,10 @@ class BudgetCallbackHandler(BaseCallbackHandler):
     ) -> None:
         self._check_wall_clock()
         tool_name = serialized.get("name", "unknown")
-        self._check_tool_calls(tool_name)
-        self.total_tool_calls += 1
-        self._per_tool_counts[tool_name] = self._per_tool_counts.get(tool_name, 0) + 1
+        with self._lock:
+            self._check_tool_calls(tool_name)
+            self.total_tool_calls += 1
+            self._per_tool_counts[tool_name] = self._per_tool_counts.get(tool_name, 0) + 1
         logger.debug(
             "Budget: tool_call #%d (%s, %d/%s)",
             self.total_tool_calls,
@@ -155,9 +161,10 @@ class BudgetCallbackHandler(BaseCallbackHandler):
                     u.get("input_tokens", 0) + u.get("output_tokens", 0)
                 )
             if tokens:
-                self.total_tokens += tokens
+                with self._lock:
+                    self.total_tokens += tokens
+                    self._check_tokens()
                 logger.debug("Budget: tokens so far %d/%d", self.total_tokens, self.max_tokens)
-                self._check_tokens()
         except BudgetExceededError:
             raise
         except Exception:
