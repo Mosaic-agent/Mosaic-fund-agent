@@ -265,9 +265,19 @@ def route_intent_llm(question: str) -> str:
     """
     Classify a question into a sub-agent intent using an LLM.
 
-    Returns one of the VALID_INTENTS strings.
+    Returns one of the VALID_INTENTS strings or 'fast_path' if handled deterministically.
     Falls back to regex-based route_intent() on any failure.
     """
+    # 0. Check Zero-Latency Deterministic Fast Path
+    try:
+        from src.agents.fast_path_router import try_fast_path
+        fast_res = try_fast_path(question)
+        if fast_res and fast_res.get("handled"):
+            logger.info("Fast-path router intercepted query: %r → %s", question[:60], fast_res.get("intent"))
+            return "fast_path"
+    except Exception as exc:
+        logger.debug("Fast-path check skipped: %s", exc)
+
     key = _cache_key(question)
 
     # Check cache first
