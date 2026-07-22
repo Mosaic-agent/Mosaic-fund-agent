@@ -43,6 +43,7 @@ class MFSubAgent(_SubAgent):
         "| Find funds with similar portfolio mix     | `find_similar_funds`                        |\n"
         "| Find funds by asset category exposure     | `search_mf_exposure`                        |\n"
         "| Ad-hoc holdings query                     | `query_clickhouse_db` on `mf_holdings FINAL`|\n"
+        "| Fast multi-fund holding count/value totals| `query_clickhouse_db` on `mf_holding_summaries FINAL` (Materialized View <100ms)|\n"
         "| Import latest DSP holdings                | `run_dsp_multi_asset_importer`              |\n"
         "| Import latest Nippon holdings             | `run_nippon_importer`                       |\n"
         "| Import latest Quant holdings              | `run_quant_importer`                        |\n"

@@ -387,13 +387,13 @@ class Settings(BaseSettings):
     clickhouse_password: str = Field(default="", description="ClickHouse password")
 
     # [NON-SENSITIVE] Connection pool — min warm connections kept alive
-    clickhouse_pool_min: int = Field(default=2, description="CH pool min size")
+    clickhouse_pool_min: int = Field(default=5, description="CH pool min size")
 
     # [NON-SENSITIVE] Connection pool — hard cap on total live connections
-    clickhouse_pool_max: int = Field(default=10, description="CH pool max size")
+    clickhouse_pool_max: int = Field(default=30, description="CH pool max size")
 
     # [NON-SENSITIVE] Seconds to block waiting for a free pool slot
-    clickhouse_pool_timeout: float = Field(default=10.0, description="CH pool checkout timeout")
+    clickhouse_pool_timeout: float = Field(default=30.0, description="CH pool checkout timeout")
 
     # ── Qdrant (vector database) ─────────────────────────────────────────────
 

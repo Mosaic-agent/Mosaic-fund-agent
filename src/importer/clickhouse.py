@@ -264,6 +264,34 @@ PARTITION BY toYYYYMM(as_of_month)
 ORDER BY (scheme_code, as_of_month, isin)
 """
 
+_DDL_MF_HOLDING_SUMMARIES = """
+CREATE TABLE IF NOT EXISTS market_data.mf_holding_summaries (
+    isin               String,
+    security_name      String,
+    as_of_month        Date,
+    active_funds_count UInt16,
+    total_market_val_cr Float64,
+    updated_at         DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(updated_at)
+PRIMARY KEY (isin, as_of_month)
+ORDER BY (isin, as_of_month)
+"""
+
+_DDL_MV_MF_HOLDING_SUMMARIES = """
+CREATE MATERIALIZED VIEW IF NOT EXISTS market_data.mv_mf_holding_summaries
+TO market_data.mf_holding_summaries AS
+SELECT 
+    isin,
+    any(security_name) as security_name,
+    as_of_month,
+    count(DISTINCT fund_name) as active_funds_count,
+    sum(market_value_cr) as total_market_val_cr,
+    max(imported_at) as updated_at
+FROM market_data.mf_holdings
+GROUP BY isin, as_of_month
+"""
+
 _DDL_FII_DII_FLOWS = """
 CREATE TABLE IF NOT EXISTS market_data.fii_dii_flows (
     trade_date         Date,
@@ -728,6 +756,7 @@ class ClickHouseImporter:
             _DDL_MACRO_INDICATORS, _DDL_INDIAN_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
             _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
             _DDL_LIVE_QUOTES, _DDL_LIVE_ALERTS, _DDL_AMFI_CATEGORY_FLOWS,
+            _DDL_MF_HOLDING_SUMMARIES, _DDL_MV_MF_HOLDING_SUMMARIES,
         ):
             self._client.command(ddl)
         # Column migrations: ADD COLUMN IF NOT EXISTS / MODIFY COLUMN (all idempotent)

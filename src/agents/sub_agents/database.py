@@ -52,6 +52,7 @@ class DatabaseSubAgent(_SubAgent):
         "## Key tables and columns\n"
         "| table | key columns |\n|---|---|\n"
         "| daily_prices | symbol, category('etfs'/'stocks'), trade_date, open, high, low, close, volume |\n"
+        "| mf_holding_summaries | isin, security_name, as_of_month, active_funds_count, total_market_val_cr (Materialized View — ultra-fast <100ms aggregate totals) |\n"
         "| mf_holdings | scheme_code, fund_name, as_of_month, security_name, pct_of_nav, market_value_cr |\n"
         "| mf_nav | scheme_code, nav_date, nav |\n"
         "| fii_dii_flows | trade_date, fii_net_cr, dii_net_cr |\n"

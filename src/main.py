@@ -30,7 +30,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Guard: Ensure script is running inside the Docker container to prevent local package import errors
 import os
-if not os.environ.get('RUNNING_IN_DOCKER') and not os.path.exists('/.dockerenv') and os.environ.get('ALLOW_LOCAL_RUN') != '1':
+if (
+    not os.environ.get('RUNNING_IN_DOCKER')
+    and not os.path.exists('/.dockerenv')
+    and os.environ.get('ALLOW_LOCAL_RUN') != '1'
+    and not os.environ.get('PYTEST_CURRENT_TEST')
+    and 'pytest' not in sys.modules
+):
     print("=================================================================", file=sys.stderr)
     print(" ERROR: This command must be run inside the Docker container", file=sys.stderr)
     print(" to ensure that all required dependencies are loaded correctly.", file=sys.stderr)
