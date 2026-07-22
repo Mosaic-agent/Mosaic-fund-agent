@@ -1,15 +1,77 @@
 ---
 name: mf-tracker
-description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, DSP active-fund cross-ownership conviction signals, AMFI category flows, MoM NAV returns, and multi-asset institutional Whale Tracking across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", or invokes /mf-tracker.
+description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, and multi-asset institutional Whale Tracking across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", or invokes /mf-tracker.
 ---
 
 # Complete Mutual Fund (MF) & AMC Research Suite (`/mf-tracker`)
 
-This skill is the single unified reference and execution guide for **ALL Mutual Fund capabilities** across Indian AMCs (DSP, Nippon India, ICICI Prudential, Quant, Bajaj Finserv, AMFI category flows).
+This skill is the single unified reference and execution guide for **ALL Mutual Fund capabilities** across Indian AMCs (DSP, Nippon India, ICICI Prudential, Quant, Bajaj Finserv, AMFI category flows) with a special focus on **Small-Cap & Mid-Cap Cross-Ownership Conviction Screening**.
 
 ---
 
-## 🏛️ 1. AMC Holdings Importers (Canonical & Factory Layers)
+## 🎯 1. Small-Cap & Mid-Cap Cross-Ownership Conviction Screening
+
+Cross-fund ownership (same stock held by 2+ active Small/Mid-Cap funds for multiple consecutive months) is the **highest-conviction long-term alpha marker** in Indian equities.
+
+### High-Conviction Small-Cap Cross-Ownership Query (<100ms MV)
+Finds small-cap stocks held by 2+ active funds with expanding total allocation:
+```sql
+SELECT 
+    s.security_name,
+    s.isin,
+    s.as_of_month,
+    s.active_funds_count,
+    s.total_market_val_cr
+FROM market_data.mf_holding_summaries s FINAL
+WHERE s.as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holding_summaries)
+  AND s.active_funds_count >= 2
+  AND s.total_market_val_cr >= 20.0
+ORDER BY s.active_funds_count DESC, s.total_market_val_cr DESC
+LIMIT 25;
+```
+
+### Full Fund Breakdown for Small/Mid-Cap Stock (e.g., Thangamayil / Bectorfood)
+```sql
+SELECT 
+    fund_name,
+    as_of_month,
+    pct_of_nav,
+    market_value_cr,
+    holding_shares
+FROM market_data.mf_holdings FINAL
+WHERE (security_name LIKE '%THANGAMAYIL%' OR security_name LIKE '%BECTOR%')
+  AND fund_name NOT LIKE '%INDEX%'
+  AND fund_name NOT LIKE '%ETF%'
+ORDER BY as_of_month DESC, market_value_cr DESC;
+```
+
+### Top Active Small/Mid-Cap Fund Accumulation Scanner (MoM Expansion)
+Finds small/mid-cap stocks where active funds expanded allocation (% NAV or value) MoM:
+```sql
+SELECT 
+    curr.security_name,
+    curr.isin,
+    count(DISTINCT curr.fund_name) AS active_funds_curr,
+    sum(curr.market_value_cr) AS val_curr_cr,
+    sum(prev.market_value_cr) AS val_prev_cr,
+    round(sum(curr.market_value_cr) - sum(prev.market_value_cr), 2) AS net_val_delta_cr
+FROM market_data.mf_holdings curr FINAL
+LEFT JOIN market_data.mf_holdings prev FINAL 
+  ON curr.isin = prev.isin 
+ AND curr.scheme_code = prev.scheme_code
+ AND prev.as_of_month = subtractMonths(curr.as_of_month, 1)
+WHERE curr.as_of_month = (SELECT max(as_of_month) FROM market_data.mf_holdings)
+  AND (curr.fund_name LIKE '%SMALL%' OR curr.fund_name LIKE '%MID%')
+  AND curr.fund_name NOT LIKE '%INDEX%'
+GROUP BY curr.security_name, curr.isin
+HAVING active_funds_curr >= 2 AND net_val_delta_cr > 5.0
+ORDER BY net_val_delta_cr DESC
+LIMIT 20;
+```
+
+---
+
+## 🏛️ 2. AMC Holdings Importers (Canonical & Factory Layers)
 
 ### Canonical Importer Layer (`amc_holdings_fetcher.py`)
 ```bash
@@ -41,7 +103,7 @@ python src/scripts/dsp/import_latest_dsp.py       # Latest month disclosures onl
 
 ---
 
-## 🐳 2. Institutional Whale Tracker (7 Multi-Asset Funds)
+## 🐳 3. Institutional Whale Tracker (7 Multi-Asset Funds)
 
 Runs the multi-asset fund allocation scanner and single-name cross-ownership conviction index:
 ```bash
@@ -61,7 +123,7 @@ python src/scripts/market/whale_tracker.py
 
 ---
 
-## 📈 3. MoM NAV Returns Analysis
+## 📈 4. MoM NAV Returns Analysis
 
 Compute Month-over-Month NAV returns for any Direct Growth scheme using `mfapi`:
 ```bash
@@ -87,7 +149,7 @@ python src/scripts/portfolio/fund_mom_returns.py --scheme <SCHEME_CODE>
 
 ---
 
-## 🔍 4. DSP Active-Fund Conviction Signal (Single-Name Research)
+## 🔍 5. DSP Active-Fund Conviction Signal (Single-Name Research)
 
 DSP active-fund holdings in `market_data.mf_holdings` are the primary institutional single-name conviction signal.
 
@@ -97,26 +159,9 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary institutio
 ### Passive Funds (Ignore — Index Tracking):
 `DSP_NIFTY_*_INDEX`, `DSP_NIFTY_*_ETF`, `DSP_BSE_*_ETF`, `DSP_*_QUALITY_50_INDEX`.
 
-### ClickHouse Query Pattern for Active DSP Cross-Ownership:
-```sql
-SELECT 
-    security_name,
-    isin,
-    count(DISTINCT fund_name) AS active_dsp_funds,
-    sum(market_value_cr) AS total_market_val_cr,
-    max(as_of_month) AS latest_month
-FROM market_data.mf_holdings FINAL
-WHERE fund_name LIKE 'DSP%'
-  AND fund_name NOT LIKE '%INDEX%'
-  AND fund_name NOT LIKE '%ETF%'
-GROUP BY security_name, isin
-ORDER BY total_market_val_cr DESC
-LIMIT 20;
-```
-
 ---
 
-## ⚡ 5. Ultra-Fast Pre-Aggregated Queries (<100ms)
+## ⚡ 6. Ultra-Fast Pre-Aggregated Queries (<100ms)
 
 Use `market_data.mf_holding_summaries` Materialized View for instant aggregate stock counts and totals:
 ```sql
@@ -133,7 +178,7 @@ ORDER BY as_of_month DESC;
 
 ---
 
-## 📊 6. AMFI Category Flows & Sector AUM Tracking
+## 📊 7. AMFI Category Flows & Sector AUM Tracking
 
 `market_data.amfi_category_flows` contains monthly category-level gross purchases, redemptions, net flows, and closing AUM.
 
