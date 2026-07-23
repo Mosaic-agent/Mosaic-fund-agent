@@ -47,7 +47,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest pytest-mock
 
       - name: Run Unit Tests
         env:
@@ -60,6 +60,7 @@ jobs:
           SEC_API_KEY: ${{ secrets.SEC_API_KEY }}
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
         run: |
+          python -m pytest tests/test_amc_design_patterns.py tests/test_hdfc_importer.py tests/test_dsp_importer.py tests/test_fund_imports_integration.py -v
           python tests/test_tools.py
           python tests/test_quant_signals.py
           python tests/test_news_sentiment.py

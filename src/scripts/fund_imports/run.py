@@ -35,6 +35,7 @@ def main() -> None:
             "  nippon       Nippon India AMC monthly XLS files (2017–present)",
             "  icici-index  ICICI Prudential index constituents (Azure Blob)",
             "  kotak        Kotak Mahindra AMC fund holdings",
+            "  hdfc         HDFC Asset Management Company fund holdings",
             "  all          Run all importers in sequence",
         ]),
     )
@@ -58,7 +59,7 @@ def main() -> None:
 
     for name in names:
         kwargs: dict = {}
-        if name in ("nippon", "icici", "dsp", "quant", "bajaj", "kotak"):
+        if name in ("nippon", "icici", "dsp", "quant", "bajaj", "kotak", "hdfc"):
             kwargs = {"from_year": args.from_year, "full_reimport": args.full}
         importer = create_importer(name, **kwargs)
         importer.run(dry_run=args.dry_run, test=args.test)

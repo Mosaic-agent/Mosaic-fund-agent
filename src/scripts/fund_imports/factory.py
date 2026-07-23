@@ -24,6 +24,7 @@ from src.scripts.fund_imports.importers.dsp import DspImporter
 from src.scripts.fund_imports.importers.bajaj import BajajImporter
 from src.scripts.fund_imports.importers.quant import QuantImporter
 from src.scripts.fund_imports.importers.amfi import AmfiImporter
+from src.scripts.fund_imports.importers.hdfc import HdfcImporter
 from src.scripts.fund_imports.importers.kotak import KotakImporter
 
 REGISTRY: dict[str, type[BaseFundImporter]] = {
@@ -35,7 +36,16 @@ REGISTRY: dict[str, type[BaseFundImporter]] = {
     "quant":       QuantImporter,
     "amfi":        AmfiImporter,
     "kotak":       KotakImporter,
+    "hdfc":        HdfcImporter,
 }
+
+
+def register_importer(name: str):
+    """Decorator to register a BaseFundImporter subclass in REGISTRY."""
+    def decorator(cls: type[BaseFundImporter]):
+        REGISTRY[name] = cls
+        return cls
+    return decorator
 
 
 def create_importer(name: str, **kwargs) -> BaseFundImporter:

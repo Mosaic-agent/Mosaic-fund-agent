@@ -18,9 +18,10 @@ class DspImporter(BaseFundImporter):
     Supports delta sync (latest month via auto-discovery) and full re-import.
     """
 
-    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+    def __init__(self, full_reimport: bool = False, from_year: int = 2020, target_month: date | None = None, freshness_months: int = 0) -> None:
         super().__init__(target_month=target_month, freshness_months=freshness_months)
         self.full_reimport = full_reimport
+        self.from_year = from_year
 
     def fund_name(self) -> str:
         return "DSP Mutual Fund"
