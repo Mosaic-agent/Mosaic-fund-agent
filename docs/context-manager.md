@@ -76,35 +76,35 @@ The sequence diagram below demonstrates how worker threads safely interact with 
 sequenceDiagram
     autonumber
     participant Node as Workflow Node
-    participant Par as _par_datasets()
+    participant Par as _par_datasets
     participant Pool as ThreadPoolExecutor
     participant CM as ContextManager
-    participant Run as ContextRun (contextvars)
+    participant Run as ContextRun Scope
     participant LLM as Synthesis Node
 
-    Node->>Par: Invoke _par_datasets({key: fetcher})
-    Par->>CM: Initialize / Bind ContextRun scope
+    Node->>Par: Invoke _par_datasets
+    Par->>CM: Initialize ContextRun scope
     CM->>Run: Create ephemeral cache & RLock
     Par->>Pool: Submit fetchers concurrently
     
-    par Worker 1 (Parallel Fetch)
+    par Worker 1 Fetch
         Pool->>CM: Fetch Tool 1 Data
         CM->>Run: Acquire RLock & check cache
         Run-->>CM: Cache Miss
         CM-->>Pool: Execute raw fetcher
         CM->>CM: Compact result (dedup / truncate)
-        CM->>Run: Store in cache & append DatasetRef artifact
-    and Worker 2 (Parallel Fetch)
+        CM->>Run: Store cache & DatasetRef artifact
+    and Worker 2 Fetch
         Pool->>CM: Fetch Tool 2 Data
         CM->>Run: Acquire RLock & check cache
         Run-->>CM: Cache Miss
         CM-->>Pool: Execute raw fetcher
         CM->>CM: Compact result (dedup / truncate)
-        CM->>Run: Store in cache & append DatasetRef artifact
+        CM->>Run: Store cache & DatasetRef artifact
     end
 
     Pool-->>Par: Return worker results
-    Par->>Node: Return dict[str, DatasetRef]
+    Par->>Node: Return dict of DatasetRef
     Node->>Node: Update MosaicState.datasets
     Node->>LLM: Inject verbatim content into prompt
 ```
