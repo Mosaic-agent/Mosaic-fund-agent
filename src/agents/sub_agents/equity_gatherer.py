@@ -71,6 +71,20 @@ def _gather_indian_equity_data(symbol: str, exchange: str, company_name: str, ll
             r1y = round((latest - prev1y) / prev1y * 100, 2) if prev1y else 0
             sig = "BULLISH" if r30 > 5 else "BEARISH" if r30 < -5 else "NEUTRAL"
             parts.append(f"**Price Momentum:** 30d {r30:+.2f}% │ 90d {r90:+.2f}% │ 1y (YoY) {r1y:+.2f}% │ Signal: **{sig}**")
+
+            # Volume pattern analysis
+            recent_vols = [r.get("volume", 0) for r in hist if r.get("volume")]
+            if len(recent_vols) >= 20:
+                avg_vol_20d = sum(recent_vols[-20:]) / 20.0
+                latest_vol = recent_vols[-1]
+                vol_ratio = (latest_vol / avg_vol_20d) if avg_vol_20d > 0 else 1.0
+                avg_vol_30d = sum(recent_vols[-30:]) / min(len(recent_vols), 30) if recent_vols else 0
+                vol_sig = "HIGH EXPANSION" if vol_ratio >= 1.8 else "ACCUMULATION/DISTRIBUTION" if vol_ratio >= 1.3 else "NORMAL"
+                parts.append(
+                    f"**Volume Pattern:** 30d ADV: {int(avg_vol_30d):,} shares │ "
+                    f"Latest Vol vs 20d MA: {vol_ratio:.2f}x │ Activity: **{vol_sig}**"
+                )
+
             try:
                 from src.tools.chart_tools import plot_price_chart
                 chart_str = plot_price_chart(symbol, days=365)

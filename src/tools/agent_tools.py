@@ -45,7 +45,7 @@ _SYMBOL_CATEGORY: dict[str, str] = {
 # ETFs trade weekdays only — Friday close shows 3 days old on Monday, 4 on Tuesday.
 # 7 days tolerates normal weekends + Indian market holidays without false-positive imports.
 _ETF_STALE_DAYS   = 7
-_STOCK_STALE_DAYS = 4
+_STOCK_STALE_DAYS = 0
 
 
 # ── Data availability + auto-import ───────────────────────────────────────────
@@ -59,7 +59,7 @@ def check_and_refresh_symbol_data(symbol: str, auto_import: bool = True) -> str:
 
     Staleness thresholds (weekday-only sources):
       ETFs   — 7 calendar days  (covers weekends + Indian market holidays)
-      Stocks — 4 calendar days
+      Stocks — 0 calendar days  (always refresh if not current date)
 
     Call this BEFORE running price-based analysis (momentum, correlations, GARCH)
     for any symbol the user explicitly named. Do NOT call it for every ETF in a
@@ -137,10 +137,10 @@ def check_and_refresh_symbol_data(symbol: str, auto_import: bool = True) -> str:
             f"Run: `import --category {category}` to refresh."
         )
 
-    # Trigger the importer
+    # Trigger the importer for the specific symbol only
     try:
-        from src.tools.skills_tools import run_data_engineering_importer
-        run_data_engineering_importer.invoke({"category": category, "full": False})
+        from src.tools.skills_tools import import_symbol_data_impl
+        import_symbol_data_impl(sym)
 
         # Verify: re-check last_date after import
         verify_df = query_df(
