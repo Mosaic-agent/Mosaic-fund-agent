@@ -42,7 +42,7 @@ flowchart TD
         
         subgraph Compaction ["Deterministic Compaction Engine"]
             D1["summarize_dict()\nLossless JSON"]
-            D2["deduplicate_rows()\nMarkdown Table Dedup"]
+            D2["dedup_rows()\nMarkdown Table Dedup"]
             D3["truncate_text()\nHead-truncation + audit marker"]
         end
     end
