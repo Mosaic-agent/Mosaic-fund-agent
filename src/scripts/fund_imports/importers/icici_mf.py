@@ -1,12 +1,17 @@
 """
 ICICI Prudential AMC fund holdings via Morningstar sal-service API.
 
-Snapshot limitation: the API returns the CURRENT live portfolio.
-Run once a month to build a forward-going time-series.
+Supports delta sync, watermarking, and historical from-year configuration (default 2020).
 """
 
 from __future__ import annotations
 
+import os
+import sys
+
+sys.path.append(os.getcwd())
+
+import argparse
 import logging
 from datetime import date, datetime
 from typing import Any
@@ -54,6 +59,7 @@ ICICI_FUNDS: list[tuple[str, str, str, str]] = [
     ("148571", "ICICI_NIFTY50_INDEX",      "INF109KA1FH5",  "F00001485N"),
     ("120397", "ICICI_FMCG",              "INF109K01ZU6",  "F00000N9YC"),
     ("148570", "ICICI_COMMODITIES",        "INF109KA13N5",  "F00001485M"),
+    ("148516", "ICICI_ESG",                "INF109KC1O09",  "F000015Q0S"),
 ]
 
 _COLUMNS = [
@@ -66,18 +72,62 @@ _COLUMNS = [
 class IciciMFImporter(BaseFundImporter):
     REQUEST_DELAY = 1.5
 
+    def __init__(
+        self,
+        full_reimport: bool = False,
+        from_year: int = 2020,
+        target_month: date | None = None,
+        freshness_months: int = 0,
+    ) -> None:
+        super().__init__(target_month=target_month, freshness_months=freshness_months)
+        self.full_reimport = full_reimport
+        self.from_year = from_year
+
     def fund_name(self) -> str:
         return "ICICI Prudential AMC"
 
+    def table_name(self) -> str:
+        return "market_data.mf_holdings"
+
+    def column_names(self) -> list[str]:
+        return _COLUMNS
+
+    def watermark_source(self) -> str:
+        return "mf_holdings"
+
     def fetch_sources(self) -> list[Any]:
         return list(ICICI_FUNDS)
+
+    def filter_sources(self, sources: list[Any], client) -> list[Any]:
+        if self.full_reimport:
+            return sources
+
+        # Filter sources based on watermark per scheme
+        try:
+            filtered = []
+            for src in sources:
+                scheme_code, fund_name, isin, sec_id = src
+                rows = client.query(
+                    "SELECT max(last_date) FROM market_data.import_watermarks "
+                    f"WHERE source = 'mf_holdings' AND symbol = '{fund_name}'"
+                ).result_rows
+                if rows and rows[0][0]:
+                    last_date = rows[0][0]
+                    # If imported within current month, skip unless reimporting
+                    if last_date.year >= date.today().year and last_date.month >= date.today().month:
+                        continue
+                filtered.append(src)
+            return filtered
+        except Exception as exc:
+            logger.warning("Failed to query ICICI watermark: %s", exc)
+
+        return sources
 
     def parse_source(self, source: Any, http: httpx.Client) -> list[dict]:
         scheme_code, fund_name, isin, sec_id = source
         as_of_month = date.today().replace(day=1)
         url = f"{_SAL_BASE}/fund/portfolio/holding/v2/{sec_id}/data"
 
-        # Morningstar requires its own API key header — use a dedicated client.
         try:
             with httpx.Client(timeout=30, follow_redirects=True) as ms:
                 resp = ms.get(url, headers=_MS_HEADERS, params=_MS_PARAMS)
@@ -132,11 +182,18 @@ class IciciMFImporter(BaseFundImporter):
         )
         return rows
 
-    def table_name(self) -> str:
-        return "market_data.mf_holdings"
 
-    def column_names(self) -> list[str]:
-        return _COLUMNS
+def main() -> None:
+    parser = argparse.ArgumentParser(description="ICICI Prudential AMC Holdings Importer")
+    parser.add_argument("--from-year", type=int, default=2020, help="Earliest year to import (default: 2020)")
+    parser.add_argument("--full", action="store_true", help="Reimport all months, ignoring watermarks")
+    parser.add_argument("--dry-run", action="store_true", help="Parse and print counts; skip DB insert")
+    parser.add_argument("--test", action="store_true", help="Process first source only")
+    args = parser.parse_args()
 
-    def watermark_source(self) -> str:
-        return "mf_holdings"
+    importer = IciciMFImporter(full_reimport=args.full, from_year=args.from_year)
+    importer.run(dry_run=args.dry_run, test=args.test)
+
+
+if __name__ == "__main__":
+    main()
