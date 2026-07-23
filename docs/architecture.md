@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-06-23 (added LangGraph StateGraph workflows)
+> Last updated: 2026-07-24 (8 workflows, Plan-Execute-Replan, multi-harness context)
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
@@ -79,12 +79,20 @@ src/
   agents/
     signal_aggregator.py  Composite score orchestrator — parallel Strategy sources
     signal_sources.py     Strategy pattern: SignalSource ABC + 5 pillars + GARCHAnomalySource
-  workflows/              LangGraph StateGraph workflows — token-efficient fixed-structure pipelines
-    base.py               _get_llm(), _par() (ThreadPoolExecutor fan-out), SYNTH_SUFFIX
+  workflows/              LangGraph StateGraph workflows — token-efficient alternatives to ReAct (55–81% savings)
+    base.py               _get_llm(), _par()/_par_datasets(), _get_checkpointer(), _show_and_approve_plan()
+    state.py              MosaicState shared TypedDict ancestor for all workflows
+    context_manager.py    Deterministic context compression (DatasetRef, ContextRun, truncation)
+    plan_store.py         SQLite plan persistence + Jaccard similarity search (output/plans/)
     autonomous_research.py  5-node graph: resolve → fetch_all(6 parallel) → correlate → verify → synthesise (~8 800 tokens)
     india_equity.py         3-node graph: resolve → fetch_all(12 parallel, guaranteed) → synthesise (~7 000 tokens)
     multi_fund_consensus.py 3-node graph: fetch_all_funds(7 parallel) → fetch_consensus → synthesise (~4 000 tokens)
     portfolio_analysis.py   6-node graph: discover → enrich_all → score_all → verify_high → fetch_macro → synthesise
+    signal.py              4-node graph: resolve → build_plan → [approval] → fetch(6 parallel) → synthesise (~4 000 tokens)
+    macro.py               3-node graph: build_plan → [approval] → fetch(all parallel) → synthesise (~3 500 tokens)
+    news.py                4-node graph: resolve → build_plan → [approval] → fetch(3 parallel) → aggregate (~1 500 tokens)
+    mf_planner.py          Plan-Execute-Replan: plan → [approval] → executor ↺ replanner (~6 000–12 000 tokens)
+    consolidated_mf_report.py  Multi-asset allocation comparison report with matplotlib charts
     intent_router.py      LLM-based intent router (Haiku / gpt-4o-mini) with regex fallback
     sub_agents/           Façade package — 10 specialised sub-agents + routing + registry
       __init__.py         Re-exports all public + private symbols; zero call-site changes
@@ -553,6 +561,15 @@ All agent scoring paths require a configured LLM. LLM provider (OpenAI / Anthrop
 ### 12. iNAV Arbitrage Detection
 NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_discount_pct > +0.5%` triggers a premium alert; `< −0.25%` flags a discount opportunity. The SILVERBEES / GOLDBEES premium spread is a direct input to the quant scorecard valuation pillar.
 NSE iNAV snapshots are captured every 15 minutes during market hours. `premium_discount_pct > +0.5%` triggers a premium alert; `< −0.25%` flags a discount opportunity. The SILVERBEES / GOLDBEES premium spread is a direct input to the quant scorecard valuation pillar.
+
+### 13. Multi-Harness Agentic Memory
+Five agentic coding harnesses (Claude Code, Codex, Gemini CLI, Antigravity, internal LangGraph) share project context through a 5-layer memory hierarchy: (1) Global User Mandates, (2) Harness Context Files (`AGENTS.md`, `GEMINI.md`, `docs/CLAUDE.md` — ~70% shared content), (3) Subagent Definitions (`.agents/agents/`, 21 files), (4) Skill Specs & Commands (`.agents/skills/` 21 dirs + `.claude/commands/` 5 files), (5) Token-Compression Contracts (Cavecrew from `JuliusBrussee/caveman`, 60–70% token savings). Six cross-harness consistency rules are enforced at every level. See [agent-architecture.md § Agentic Memory & Harness Architecture](agent-architecture.md) for the full reference.
+
+### 14. Plan-Execute-Replan (`src/workflows/mf_planner.py`)
+A new agent pattern for open-ended queries where the data needed depends on previous results. The planner LLM decomposes the question into 2–6 steps; an executor runs each step with one tool call; a replanner assesses progress and either rewrites remaining steps or terminates. Interactive plan approval (`_show_and_approve_plan()`) gates execution. Token savings: 55–76% vs ReAct equivalent. Used by the MF Planner; extensible to any domain with dynamic data dependencies.
+
+### 15. Context Compression (`src/workflows/context_manager.py`)
+Deterministic (no-LLM) context compression for workflow fetch results. `DatasetRef` tracks per-fetch audit metadata (original vs. compacted chars, dedup, truncation). `_par_datasets()` combines parallel fetch + compress in one call. `ContextRun` provides thread-safe per-run caching via `contextvars`. `PlanStore` (`plan_store.py`) adds SQLite-backed plan persistence with Jaccard similarity search for reuse.
 
 ---
 
