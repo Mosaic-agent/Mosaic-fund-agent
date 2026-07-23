@@ -10,7 +10,27 @@ logger = logging.getLogger(__name__)
 class MacroSubAgent(_SubAgent):
     """
     Macro analysis: COMEX commodity signals, FII/DII flows, macro theme scanner.
+
+    Uses the StateGraph workflow (src/workflows/macro.py) as the primary path
+    (~71% token savings vs ReAct). Falls back to the ReAct agent on failure.
     """
+
+    def run(self, question: str, llm_override: Any = None, callbacks: list | None = None) -> str:
+        """Try the StateGraph workflow first, fall back to ReAct loop.
+
+        Set MOSAIC_USE_WORKFLOWS=0 to force the ReAct agent for debugging.
+        """
+        import os
+        if os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+            try:
+                from src.workflows.macro import run as _wf_run
+                logger.info("MacroSubAgent: routing → StateGraph workflow")
+                return _wf_run(question, callbacks=callbacks)
+            except Exception as exc:
+                logger.warning(
+                    "MacroSubAgent: workflow failed (%s), falling back to ReAct — track this", exc
+                )
+        return super().run(question, llm_override=llm_override, callbacks=callbacks)
 
     SYSTEM_PROMPT = (
         "You are a macro analyst covering Indian and global commodity markets. "

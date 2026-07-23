@@ -934,11 +934,12 @@ def import_data(
         "-c",
         help=(
             "Comma-separated categories to import: "
-            "stocks, etfs, commodities, indices, mf, inav, nse_eod, "
+            "stocks, etfs, commodities, indices, nse_indices, fx_rates, us_stocks, "
+            "mf, inav, nse_eod, "
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, amfi_flows, "
             "earnings, insider, valuation, "
             "world_bank, imf_weo, indian_macro, indian_macro_indicators, "
-            "icici, nippon, icici-index, dsp, quant, all. "
+            "icici, nippon, icici-index, dsp, bajaj, quant, all. "
             "Default: all."
         ),
     ),

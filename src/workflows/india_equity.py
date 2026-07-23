@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
 from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
@@ -46,7 +47,7 @@ class EquityState(TypedDict):
     report: str
 
 
-def _resolve_node(state: EquityState) -> dict:
+def _resolve_node(state: EquityState, config: RunnableConfig) -> dict:
     from src.tools.company_resolver import resolve_company_info
     from src.tools.agent_tools import check_and_refresh_symbol_data
     info = resolve_company_info(state["question"])
@@ -55,7 +56,7 @@ def _resolve_node(state: EquityState) -> dict:
     # empty symbol and returned an all-zeros note instead of failing loudly.
     sym = info.get("symbol") or ""
     if sym:
-        check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True})
+        check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True}, config=config)
     else:
         logger.warning(
             "india_equity: could not resolve a symbol for %r: %s",
@@ -85,7 +86,7 @@ def _unresolved_node(state: EquityState) -> dict:
     }
 
 
-def _fetch_all_node(state: EquityState) -> dict:
+def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
     """All 12 Round-2 tools in parallel — guaranteed execution, no LLM involved."""
     sym = state["symbol"]
     exc = state["exchange"]
@@ -94,19 +95,19 @@ def _fetch_all_node(state: EquityState) -> dict:
 
     def _price():
         from src.tools.yahoo_finance import get_yahoo_finance_data
-        return str(get_yahoo_finance_data.invoke({"input_str": inp}))
+        return str(get_yahoo_finance_data.invoke({"input_str": inp}, config=config))
 
     def _momentum():
         from src.tools.yahoo_finance import get_price_momentum
-        return str(get_price_momentum.invoke({"input_str": inp}))
+        return str(get_price_momentum.invoke({"input_str": inp}, config=config))
 
     def _quarterly():
         from src.tools.earnings_scraper import get_quarterly_results
-        return str(get_quarterly_results.invoke({"input_str": inp}))
+        return str(get_quarterly_results.invoke({"input_str": inp}, config=config))
 
     def _cashflow():
         from src.tools.indian_equity_tools import get_stock_cashflow
-        return str(get_stock_cashflow.invoke({"input_str": inp}))
+        return str(get_stock_cashflow.invoke({"input_str": inp}, config=config))
 
     def _shareholding():
         # plot_shareholding_bar returns only a "[CHART:shareholding]" placeholder —
@@ -114,38 +115,38 @@ def _fetch_all_node(state: EquityState) -> dict:
         # promoter/FII/DII %s. Fetch the actual pattern too and hand both to the LLM.
         from src.tools.chart_tools import plot_shareholding_bar
         from src.tools.earnings_scraper import get_shareholding_pattern
-        chart = str(plot_shareholding_bar.invoke({"symbol": sym}))
-        data = str(get_shareholding_pattern.invoke({"symbol": sym}))
+        chart = str(plot_shareholding_bar.invoke({"symbol": sym}, config=config))
+        data = str(get_shareholding_pattern.invoke({"symbol": sym}, config=config))
         return f"{chart}\n{data}"
 
     def _mf_holdings():
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
-        return str(get_mf_holdings_for_stock.invoke({"company_name_or_symbol": cn}))
+        return str(get_mf_holdings_for_stock.invoke({"company_name_or_symbol": cn}, config=config))
 
     def _db_price():
         from src.tools.indian_equity_tools import get_db_price_summary
-        return str(get_db_price_summary.invoke({"symbol": sym}))
+        return str(get_db_price_summary.invoke({"symbol": sym}, config=config))
 
     def _news_gnews():
         from src.tools.news_search import get_stock_news
         # Both news tools take a single `input_str` of the form "SYMBOL|Company".
-        return str(get_stock_news.invoke({"input_str": f"{sym}|{cn}"}))
+        return str(get_stock_news.invoke({"input_str": f"{sym}|{cn}"}, config=config))
 
     def _news_api():
         from src.tools.newsapi_search import get_newsapi_stock_news
-        return str(get_newsapi_stock_news.invoke({"input_str": f"{sym}|{cn}"}))
+        return str(get_newsapi_stock_news.invoke({"input_str": f"{sym}|{cn}"}, config=config))
 
     def _price_chart():
         from src.tools.chart_tools import plot_price_chart
-        return str(plot_price_chart.invoke({"symbol": sym, "days": 365}))
+        return str(plot_price_chart.invoke({"symbol": sym, "days": 365}, config=config))
 
     def _anomalies():
         from src.tools.market.equity import search_anomaly_events
-        return str(search_anomaly_events.invoke({"symbol": sym, "days": 365}))
+        return str(search_anomaly_events.invoke({"symbol": sym, "days": 365}, config=config))
 
     def _correlations():
         from src.tools.market.correlation_tools import find_anomaly_correlations
-        return str(find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365}))
+        return str(find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365}, config=config))
 
     return _par({
         "price":        _price,
@@ -181,7 +182,7 @@ _SYNTHESIS_PROMPT = (
 )
 
 
-def _synthesise_node(state: EquityState) -> dict:
+def _synthesise_node(state: EquityState, config: RunnableConfig) -> dict:
     """One LLM call: synthesise pre-fetched data into 8-section research note."""
     from langchain_core.messages import SystemMessage, HumanMessage
     from src.utils.caveman import get_caveman_prompt
@@ -206,7 +207,7 @@ def _synthesise_node(state: EquityState) -> dict:
     result = llm.invoke([
         SystemMessage(content=_SYNTHESIS_PROMPT + get_caveman_prompt() + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched data:\n{data}"),
-    ])
+    ], config=config)
     report = str(result.content).strip()
     # Safety net: never return an empty report. The local reasoning model
     # (gemma4 think=True) spends its whole token budget on reasoning tokens and
@@ -248,7 +249,7 @@ def _build_graph():
     return _GRAPH
 
 
-def run(question: str) -> str:
+def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the Indian equity research workflow.
 
@@ -256,6 +257,8 @@ def run(question: str) -> str:
     ----------
     question : str
         Company name, NSE symbol, or question about an Indian stock.
+    callbacks : LangChain callback handlers (e.g. BudgetCallbackHandler, tracer)
+                forwarded into every node's LLM/tool invocations.
 
     Returns
     -------
@@ -263,6 +266,9 @@ def run(question: str) -> str:
         8-section Markdown research note with guaranteed all sections populated.
     """
     graph = _build_graph()
-    config = {"configurable": {"thread_id": _thread_id("india_equity", question)}}
+    config = {
+        "configurable": {"thread_id": _thread_id("india_equity", question)},
+        "callbacks": callbacks or [],
+    }
     result = graph.invoke({"question": question}, config=config)
     return result.get("report", "*India equity workflow returned no report*")

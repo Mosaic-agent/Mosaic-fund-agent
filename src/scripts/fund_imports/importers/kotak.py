@@ -1,5 +1,5 @@
 """
-ICICI Prudential AMC fund holdings via Morningstar sal-service API.
+Kotak Mahindra Mutual Fund holdings via Morningstar sal-service API.
 
 Supports delta sync, watermarking, and historical from-year configuration (default 2020).
 """
@@ -47,19 +47,16 @@ _MS_PARAMS = {
 # ── Fund catalogue ────────────────────────────────────────────────────────────
 # (amfi_scheme_code, fund_name, isin, morningstar_sec_id)
 
-ICICI_FUNDS: list[tuple[str, str, str, str]] = [
-    ("120716", "ICICI_MULTI_ASSET",        "INF109K015K4",  "F00000PE3K"),
-    ("120586", "ICICI_BLUECHIP",           "INF109K01ZW2",  "F00000N9YF"),
-    ("120505", "ICICI_VALUE_DISCOVERY",    "INF109K01XV0",  "F0000029OM"),
-    ("120251", "ICICI_BAF",                "INF109K01ZN1",  "F00000N9YD"),
-    ("120379", "ICICI_MIDCAP",             "INF109K01373",  "F0000029ON"),
-    ("120828", "ICICI_SMALLCAP",           "INF109K01ZX0",  "F00000N9YG"),
-    ("120593", "ICICI_TECH",               "INF109K01ZV4",  "F00000N9YE"),
-    ("120380", "ICICI_INFRA",              "INF109K01375",  "F0000029OP"),
-    ("148571", "ICICI_NIFTY50_INDEX",      "INF109KA1FH5",  "F00001485N"),
-    ("120397", "ICICI_FMCG",              "INF109K01ZU6",  "F00000N9YC"),
-    ("148570", "ICICI_COMMODITIES",        "INF109KA13N5",  "F00001485M"),
-    ("148516", "ICICI_ESG",                "INF109KC1O09",  "F000015Q0S"),
+KOTAK_FUNDS: list[tuple[str, str, str, str]] = [
+    ("119803", "KOTAK_SMALL_CAP",             "INF174K01KT2",  "F00000PD3G"),
+    ("119775", "KOTAK_EMERGING_EQUITY",       "INF174K01LT0",  "F00000PE3L"),
+    ("119810", "KOTAK_FLEXICAP",              "INF174K01LS2",  "F00000PD3E"),
+    ("119796", "KOTAK_BLUECHIP",              "INF174K01LV6",  "F00000PD3D"),
+    ("119806", "KOTAK_EQUITY_OPPORTUNITIES",   "INF174K01LU8",  "F00000PE3N"),
+    ("149091", "KOTAK_MULTICAP",              "INF174KA1L08",  "F00001490P"),
+    ("148568", "KOTAK_HEALTHCARE",            "INF174KA1M15",  "F00001485L"),
+    ("120590", "KOTAK_BALANCED_ADVANTAGE",    "INF174K01LC6",  "F00000PE3O"),
+    ("148680", "KOTAK_SPECIAL_OPPORTUNITIES",  "INF174KA1M23",  "F000014868"),
 ]
 
 _COLUMNS = [
@@ -69,7 +66,7 @@ _COLUMNS = [
 ]
 
 
-class IciciMFImporter(BaseFundImporter):
+class KotakImporter(BaseFundImporter):
     REQUEST_DELAY = 1.5
 
     def __init__(
@@ -84,7 +81,7 @@ class IciciMFImporter(BaseFundImporter):
         self.from_year = from_year
 
     def fund_name(self) -> str:
-        return "ICICI Prudential AMC"
+        return "Kotak Mahindra Mutual Fund"
 
     def table_name(self) -> str:
         return "market_data.mf_holdings"
@@ -96,13 +93,12 @@ class IciciMFImporter(BaseFundImporter):
         return "mf_holdings"
 
     def fetch_sources(self) -> list[Any]:
-        return list(ICICI_FUNDS)
+        return list(KOTAK_FUNDS)
 
     def filter_sources(self, sources: list[Any], client) -> list[Any]:
         if self.full_reimport:
             return sources
 
-        # Filter sources based on watermark per scheme
         try:
             filtered = []
             for src in sources:
@@ -113,13 +109,12 @@ class IciciMFImporter(BaseFundImporter):
                 ).result_rows
                 if rows and rows[0][0]:
                     last_date = rows[0][0]
-                    # If imported within current month, skip unless reimporting
                     if last_date.year >= date.today().year and last_date.month >= date.today().month:
                         continue
                 filtered.append(src)
             return filtered
         except Exception as exc:
-            logger.warning("Failed to query ICICI watermark: %s", exc)
+            logger.warning("Failed to query Kotak watermark: %s", exc)
 
         return sources
 
@@ -184,14 +179,14 @@ class IciciMFImporter(BaseFundImporter):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ICICI Prudential AMC Holdings Importer")
+    parser = argparse.ArgumentParser(description="Kotak Mahindra Mutual Fund Importer")
     parser.add_argument("--from-year", type=int, default=2020, help="Earliest year to import (default: 2020)")
     parser.add_argument("--full", action="store_true", help="Reimport all months, ignoring watermarks")
     parser.add_argument("--dry-run", action="store_true", help="Parse and print counts; skip DB insert")
     parser.add_argument("--test", action="store_true", help="Process first source only")
     args = parser.parse_args()
 
-    importer = IciciMFImporter(full_reimport=args.full, from_year=args.from_year)
+    importer = KotakImporter(full_reimport=args.full, from_year=args.from_year)
     importer.run(dry_run=args.dry_run, test=args.test)
 
 

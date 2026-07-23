@@ -10,7 +10,7 @@ tools:
   - list_dir
 model: inherit
 temperature: 0.1
-max_turns: 20
+max_turns: 8
 ---
 
 # Skill: Shoonya Broker Session Manager

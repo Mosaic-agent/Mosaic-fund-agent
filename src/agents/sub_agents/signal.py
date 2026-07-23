@@ -11,7 +11,27 @@ logger = logging.getLogger(__name__)
 class SignalSubAgent(_SubAgent):
     """
     ETF signal pipeline: composite scores, GOLDBEES ML, Kelly weights, risk governor.
+
+    Uses the StateGraph workflow (src/workflows/signal.py) as the primary path
+    (~78% token savings vs ReAct). Falls back to the ReAct agent on failure.
     """
+
+    def run(self, question: str, llm_override: Any = None, callbacks: list | None = None) -> str:
+        """Try the StateGraph workflow first, fall back to ReAct loop.
+
+        Set MOSAIC_USE_WORKFLOWS=0 to force the ReAct agent for debugging.
+        """
+        import os
+        if os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+            try:
+                from src.workflows.signal import run as _wf_run
+                logger.info("SignalSubAgent: routing → StateGraph workflow")
+                return _wf_run(question, callbacks=callbacks)
+            except Exception as exc:
+                logger.warning(
+                    "SignalSubAgent: workflow failed (%s), falling back to ReAct — track this", exc
+                )
+        return super().run(question, llm_override=llm_override, callbacks=callbacks)
 
     SYSTEM_PROMPT = (
         "You are a quantitative signal analyst for Indian ETF markets (NSE). "

@@ -32,6 +32,7 @@ import logging
 from typing import Annotated, Literal, TypedDict
 
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from pydantic import BaseModel
 
@@ -191,7 +192,7 @@ def _get_mf_tools() -> list:
 
 # ── Node: executor ────────────────────────────────────────────────────────────
 
-def _executor_node(state: MFPlanExecute) -> dict:
+def _executor_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     """Execute the next step from the plan using a mini ReAct agent."""
     if not state["plan"]:
         # No steps left — force done
@@ -208,7 +209,7 @@ def _executor_node(state: MFPlanExecute) -> dict:
     llm = _get_llm()
     if llm is None:
         # No LLM — keyword-route the step
-        result_str = _keyword_execute(next_step)
+        result_str = _keyword_execute(next_step, config)
     else:
         from langgraph.prebuilt import create_react_agent
         tools = _get_mf_tools()
@@ -222,12 +223,12 @@ def _executor_node(state: MFPlanExecute) -> dict:
                 {"messages": [HumanMessage(
                     content=f"Execute this step: {next_step}\n\nPrevious results:{past_context}"
                 )]},
-                {"recursion_limit": 6},
+                {"recursion_limit": 6, "callbacks": config.get("callbacks", [])},
             )
             result_str = _extract_tool_result(exec_result)
         except Exception as exc:
             logger.warning("mf_planner: executor failed (%s) — keyword fallback", exc)
-            result_str = _keyword_execute(next_step)
+            result_str = _keyword_execute(next_step, config)
 
     new_past = list(state["past_steps"]) + [[next_step, result_str]]
     return {
@@ -253,20 +254,20 @@ def _extract_tool_result(agent_result: dict) -> str:
     return "*Step produced no output*"
 
 
-def _keyword_execute(step: str) -> str:
+def _keyword_execute(step: str, config: RunnableConfig) -> str:
     """Keyword-based fallback executor for local models without tool-calling."""
     s = step.lower()
     try:
         if "consensus" in s:
             from src.tools.skills_tools import run_multi_asset_consensus
             period = "yoy" if "yoy" in s else "mom"
-            return str(run_multi_asset_consensus.invoke({"period": period, "top": 15}))
+            return str(run_multi_asset_consensus.invoke({"period": period, "top": 15}, config=config))
         if "whale" in s or "theme" in s:
             from src.tools.skills_tools import run_whale_tracker
-            return str(run_whale_tracker.invoke({}))
+            return str(run_whale_tracker.invoke({}, config=config))
         if "nav" in s or "return" in s:
             from src.tools.skills_tools import run_fund_mom_returns
-            return str(run_fund_mom_returns.invoke({}))
+            return str(run_fund_mom_returns.invoke({}, config=config))
         # Default: MoM changes
         from src.tools.skills_tools import run_multi_asset_holdings_mom_yoy
         for canonical, hint in [
@@ -276,15 +277,15 @@ def _keyword_execute(step: str) -> str:
             ("QUANT_MULTI_ASSET",                        "quant"),
         ]:
             if hint in s:
-                return str(run_multi_asset_holdings_mom_yoy.invoke({"fund": canonical}))
-        return str(run_multi_asset_holdings_mom_yoy.invoke({"list_funds": True}))
+                return str(run_multi_asset_holdings_mom_yoy.invoke({"fund": canonical}, config=config))
+        return str(run_multi_asset_holdings_mom_yoy.invoke({"list_funds": True}, config=config))
     except Exception as exc:
         return f"*Keyword execution failed: {exc}*"
 
 
 # ── Node: replanner ───────────────────────────────────────────────────────────
 
-def _replanner_node(state: MFPlanExecute) -> dict:
+def _replanner_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     """Assess progress and decide: continue / revise plan / produce final answer."""
     llm = _get_llm()
     if llm is None:
@@ -307,7 +308,7 @@ def _replanner_node(state: MFPlanExecute) -> dict:
         decision: ReplanDecision = structured_llm.invoke([
             SystemMessage(content="You are a mutual fund research replanner."),
             HumanMessage(content=prompt + SYNTH_SUFFIX),
-        ])
+        ], config=config)
     except Exception as exc:
         logger.warning("mf_planner: replanner structured output failed (%s) — synthesising", exc)
         return {"response": _synthesise_past_steps(state)}
@@ -384,7 +385,7 @@ def _build_graph():
 
 # ── Outside-graph: generate plan with LLM ────────────────────────────────────
 
-def _generate_plan(question: str) -> list[str]:
+def _generate_plan(question: str, callbacks: list | None = None) -> list[str]:
     """Use LLM to decompose the question into a concrete plan. Fallback to keyword heuristics."""
     llm = _get_llm()
     if llm is None:
@@ -394,7 +395,7 @@ def _generate_plan(question: str) -> list[str]:
         result: Plan = structured_llm.invoke([
             SystemMessage(content=_PLANNER_PROMPT),
             HumanMessage(content=question),
-        ])
+        ], config={"callbacks": callbacks or []})
         if result is not None:
             steps = [s.strip() for s in result.steps if s.strip()]
             if steps:
@@ -439,7 +440,7 @@ def _keyword_plan(question: str) -> list[str]:
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-def run(question: str) -> str:
+def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the MF Plan-Execute-Replan workflow.
 
@@ -447,6 +448,8 @@ def run(question: str) -> str:
     ----------
     question : Open-ended user question about mutual fund holdings,
                NAV returns, cross-fund consensus, or theme exposure.
+    callbacks : LangChain callback handlers (e.g. BudgetCallbackHandler, tracer)
+                forwarded into plan generation and every node's LLM/tool calls.
 
     Returns
     -------
@@ -454,7 +457,7 @@ def run(question: str) -> str:
         Formatted Markdown MF research note with Markdown tables.
     """
     # ── Step 1: generate plan (1 LLM call, outside graph) ────────────────
-    plan = _generate_plan(question)
+    plan = _generate_plan(question, callbacks)
 
     # ── Step 2: save plan ─────────────────────────────────────────────────
     plan_id = save_plan("mf", question, plan)
@@ -467,7 +470,10 @@ def run(question: str) -> str:
 
     # ── Step 4: run execute-replan graph ──────────────────────────────────
     graph = _build_graph()
-    config = {"configurable": {"thread_id": _thread_id("mf_planner", question)}}
+    config = {
+        "configurable": {"thread_id": _thread_id("mf_planner", question)},
+        "callbacks": callbacks or [],
+    }
     initial_state: MFPlanExecute = {
         "input":      question,
         "question":   question,

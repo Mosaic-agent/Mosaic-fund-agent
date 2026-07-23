@@ -20,9 +20,29 @@ class MFSubAgent(_SubAgent):
     Multi-asset funds : Nippon · Nippon FoF · DSP · DSP Omni · Bajaj · Quant · ICICI
     DSP active funds  : 13 active equity funds + ELSS/Tax-saver
     NAV history       : any Indian MF via MFAPI scheme code
+
+    Uses the Plan-Execute-Replan StateGraph workflow (src/workflows/mf_planner.py)
+    as the primary path (~55-76% token savings vs ReAct). Falls back to ReAct on failure.
     """
 
     RECURSION_LIMIT = 30
+
+    def run(self, question: str, llm_override: Any = None, callbacks: list | None = None) -> str:
+        """Try the StateGraph Plan-Execute-Replan workflow first, fall back to ReAct loop.
+
+        Set MOSAIC_USE_WORKFLOWS=0 to force the ReAct agent for debugging.
+        """
+        import os
+        if os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+            try:
+                from src.workflows.mf_planner import run as _wf_run
+                logger.info("MFSubAgent: routing → Plan-Execute-Replan workflow")
+                return _wf_run(question, callbacks=callbacks)
+            except Exception as exc:
+                logger.warning(
+                    "MFSubAgent: mf_planner workflow failed (%s), falling back to ReAct — track this", exc
+                )
+        return super().run(question, llm_override=llm_override, callbacks=callbacks)
 
     SYSTEM_PROMPT = (
         "You are an Indian mutual-fund analyst covering active equity, multi-asset, "

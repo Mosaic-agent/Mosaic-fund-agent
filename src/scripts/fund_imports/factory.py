@@ -25,6 +25,7 @@ from src.scripts.fund_imports.importers.bajaj import BajajImporter
 from src.scripts.fund_imports.importers.quant import QuantImporter
 from src.scripts.fund_imports.importers.amfi import AmfiImporter
 from src.scripts.fund_imports.importers.hdfc import HdfcImporter
+from src.scripts.fund_imports.importers.kotak import KotakImporter
 
 REGISTRY: dict[str, type[BaseFundImporter]] = {
     "icici":       IciciMFImporter,
@@ -34,6 +35,7 @@ REGISTRY: dict[str, type[BaseFundImporter]] = {
     "bajaj":       BajajImporter,
     "quant":       QuantImporter,
     "amfi":        AmfiImporter,
+    "kotak":       KotakImporter,
     "hdfc":        HdfcImporter,
 }
 
