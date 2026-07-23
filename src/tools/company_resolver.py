@@ -501,7 +501,15 @@ _ALIAS: dict[str, str] = {
     "garfibres": "GARFIBRES",
     "mrs bectors food": "BECTORFOOD",
     "mrs bectors": "BECTORFOOD",
+    "mrs bector": "BECTORFOOD",
+    "mrs. bector": "BECTORFOOD",
+    "mrs. bectors": "BECTORFOOD",
+    "mrs bector food": "BECTORFOOD",
     "mrs bectors food specialities": "BECTORFOOD",
+    "bector": "BECTORFOOD",
+    "bectors": "BECTORFOOD",
+    "bector food": "BECTORFOOD",
+    "bectors food": "BECTORFOOD",
     "bectorfood": "BECTORFOOD",
     # LT Foods (Daawat)
     "lt foods": "LTFOODS",
@@ -558,6 +566,10 @@ _INTENT_WORDS = frozenset({
     "note", "report", "verdict", "recommendation", "recommend", "summary",
     "overview", "outlook", "review", "fundamentals", "valuation",
     "tell", "give", "show", "please", "about", "detailed", "full",
+    "volatility", "vol", "garch", "price", "chart", "returns", "return", "drawdown",
+    "momentum", "beta", "alpha", "anomaly", "anomalies", "volume", "rsi", "trend",
+    "earnings", "results", "quarterly", "holding", "holdings", "stock", "share",
+    "pe", "pb", "roe", "roce", "margins", "margin", "growth", "revenue", "profit",
 })
 
 
@@ -576,7 +588,9 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     Fast local lookup: returns NSE symbol if the query matches a known
     Indian company without hitting the network.  Returns None if not found.
     """
-    q = query.strip().lower()
+    # Strip noise/metric words first (e.g. "Mrs bector volatility" -> "Mrs bector")
+    stripped = _strip_intent_words(query)
+    q = (stripped if stripped else query).strip().lower()
 
     # Strip common corporate suffixes from the query for better matching
     corporate_suffixes = {
