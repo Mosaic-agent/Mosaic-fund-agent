@@ -262,11 +262,20 @@ def retrieve_cached_news_for_symbol(symbol: str, published_date: str, limit: int
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 def _get_ollama_base() -> str:
-    """Resolve Ollama base host dynamically with container-to-host fallback."""
-    candidate = None
-    env_host = os.environ.get("OLLAMA_HOST")
-    if env_host:
-        candidate = env_host.rstrip("/")
+    """Resolve Ollama base host dynamically from config/settings (.env) with container-to-host fallback."""
+    try:
+        from config.settings import settings
+        default_host = settings.ollama_host.strip().rstrip("/") if hasattr(settings, "ollama_host") and settings.ollama_host else None
+        fallback_host = settings.ollama_fallback_host.strip().rstrip("/") if hasattr(settings, "ollama_fallback_host") and settings.ollama_fallback_host else "http://localhost:11434"
+    except Exception:
+        default_host = None
+        fallback_host = "http://localhost:11434"
+
+    candidate = os.environ.get("OLLAMA_HOST")
+    if candidate:
+        candidate = candidate.strip().rstrip("/")
+    elif default_host:
+        candidate = default_host
     else:
         try:
             from config.settings import settings
@@ -279,18 +288,19 @@ def _get_ollama_base() -> str:
             pass
 
     if not candidate:
-        candidate = "http://localhost:11434"
+        candidate = fallback_host
 
     # Container-to-host resolution fallback:
-    # If the URL targets the 'ollama' docker service name (e.g. http://ollama:11434)
+    # If the candidate URL targets the 'ollama' docker service name (e.g. http://ollama:11434)
     # but DNS resolution fails (running outside Docker container on macOS host),
-    # dynamically rewrite 'ollama' -> 'localhost'.
+    # dynamically rewrite 'ollama' to fallback_host target (default: localhost).
     if "://ollama" in candidate:
         import socket
         try:
             socket.gethostbyname("ollama")
         except (socket.gaierror, TimeoutError, OSError):
-            candidate = re.sub(r"://ollama(?=[:/].*|$)", "://localhost", candidate)
+            fallback_target = fallback_host.split("://")[-1].split(":")[0] if "://" in fallback_host else "localhost"
+            candidate = re.sub(r"://ollama(?=[:/].*|$)", "://" + fallback_target, candidate)
 
     return candidate
 

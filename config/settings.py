@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # Leave blank to use the official OpenAI/Anthropic cloud endpoints.
     llm_base_url: str = Field(default="", description="Custom OpenAI-compatible base URL (local models)")
 
+    # [NON-SENSITIVE] Ollama server base URL (read from OLLAMA_HOST in .env)
+    ollama_host: str = Field(default="http://localhost:11434", description="Ollama server base URL")
+
+    # [NON-SENSITIVE] Ollama fallback base URL if container DNS resolution fails
+    ollama_fallback_host: str = Field(default="http://localhost:11434", description="Fallback Ollama base URL")
+
     # [NON-SENSITIVE] Set to true to skip the local LLM entirely and use only the cloud LLM.
     # Useful when you want to route all traffic through the cloud model (e.g. Claude Sonnet).
     llm_local_disabled: bool = Field(default=False, description="Disable local LLM; use cloud LLM for all requests")
