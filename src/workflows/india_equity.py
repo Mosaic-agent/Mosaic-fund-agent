@@ -118,7 +118,9 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         chart = str(plot_shareholding_bar.invoke({"symbol": sym}, config=config))
         data = get_shareholding_pattern.invoke({"symbol": sym}, config=config)
         if isinstance(data, dict):
-            return {"shareholding_chart": chart, **data}
+            # Spread first so an unexpected "shareholding_chart" key in `data`
+            # can never clobber the real chart placeholder.
+            return {**data, "shareholding_chart": chart}
         return {"shareholding_chart": chart, "shareholding_data": data}
 
     def _mf_holdings():

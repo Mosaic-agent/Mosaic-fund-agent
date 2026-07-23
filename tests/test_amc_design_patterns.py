@@ -186,6 +186,37 @@ class TestTemplateMethodAndFactoryPatterns:
         monkeypatch.setenv("AMC_IMPORT_MAX_WORKERS", "invalid")
         assert importer.source_workers() == importer.MAX_PARALLEL_SOURCES
 
+    def test_set_source_workers_rejects_out_of_range_values(self):
+        importer = DummyImporter()
+        with pytest.raises(ValueError):
+            importer.set_source_workers(0)
+        with pytest.raises(ValueError):
+            importer.set_source_workers(5)
+
+    @patch("src.scripts.fund_imports.base._ch_client")
+    @patch("src.scripts.fund_imports.base.time.sleep")
+    def test_parallel_submissions_are_staggered_by_request_delay(self, mock_sleep, mock_ch_client):
+        """Bounded concurrency shouldn't blast every source at once — submissions
+        stay paced by REQUEST_DELAY / workers even though fetches overlap."""
+        mock_ch_client.return_value = MagicMock()
+
+        class ParallelDummyImporter(DummyImporter):
+            MAX_PARALLEL_SOURCES = 2
+            REQUEST_DELAY = 2.0
+
+            def fetch_sources(self):
+                return ["a", "b", "c"]
+
+            def parse_source(self, source, http):
+                return []
+
+        importer = ParallelDummyImporter()
+        importer.run(dry_run=True)
+
+        # 2 stagger sleeps between 3 submissions, each REQUEST_DELAY / workers
+        assert mock_sleep.call_count == 2
+        assert all(call.args[0] == pytest.approx(1.0) for call in mock_sleep.call_args_list)
+
 
 # ── 2. Strategy Pattern Tests ────────────────────────────────────────────────
 

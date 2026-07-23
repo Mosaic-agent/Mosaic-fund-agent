@@ -264,14 +264,21 @@ class BaseFundImporter(ABC):
                     f"[cyan]Importing {self.fund_name()}...", total=len(sources)
                 )
                 if workers > 1:
+                    # Bounding concurrency to `workers` caps in-flight requests, but
+                    # submitting every source at once still opens `workers` connections
+                    # in the same instant. Stagger submissions so the AMC host sees the
+                    # same request cadence as REQUEST_DELAY intended, just overlapped.
+                    stagger = self.REQUEST_DELAY / workers
                     console.print(
-                        f"[dim]Fetching/parsing with {workers} bounded workers.[/dim]"
+                        f"[dim]Fetching/parsing with {workers} bounded workers "
+                        f"(staggered {stagger:.2f}s apart).[/dim]"
                     )
                     with ThreadPoolExecutor(max_workers=workers) as executor:
-                        futures = {
-                            executor.submit(self.parse_source, source, http): source
-                            for source in sources
-                        }
+                        futures = {}
+                        for i, source in enumerate(sources):
+                            futures[executor.submit(self.parse_source, source, http)] = source
+                            if i < len(sources) - 1:
+                                time.sleep(stagger)
                         for future in as_completed(futures):
                             source = futures[future]
                             try:

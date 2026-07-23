@@ -90,16 +90,6 @@ def dedup_rows(text: str) -> str:
     return "".join(result)
 
 
-def compress(key: str, raw: str | dict[str, Any], max_chars: int = DEFAULT_MAX_CHARS) -> str:
-    """Convert a fetch result to bounded prompt text without changing numbers."""
-    del key  # Reserved for future key-specific policies / DatasetRef metadata.
-    if isinstance(raw, dict):
-        return truncate_text(summarize_dict(raw), max_chars)
-    if not isinstance(raw, str):
-        raw = str(raw)
-    return truncate_text(dedup_rows(raw), max_chars)
-
-
 class ContextManager:
     """Shared context layer, separate from workflow execution/orchestration.
 
@@ -170,18 +160,3 @@ class ContextManager:
     @staticmethod
     def dedup_rows(text: str) -> str:
         return dedup_rows(text)
-
-
-_default_manager = ContextManager()
-
-
-@contextmanager
-def fetch_dedup_scope() -> Iterator[None]:
-    """Backward-compatible shorthand for a default ContextManager run scope."""
-    with _default_manager.run_scope():
-        yield
-
-
-def fetch_once(cache_key: str, fetcher: Callable[[], Any]) -> Any:
-    """Backward-compatible shorthand for the default manager cache."""
-    return _default_manager.fetch_once(cache_key, fetcher)
