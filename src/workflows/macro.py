@@ -22,7 +22,7 @@ import os
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan, generate_plan_llm
 from .plan_store import save_plan
 from .state import MosaicState
 
@@ -52,40 +52,50 @@ class MacroState(MosaicState):
 
 def _fetch_node(state: MacroState, config: RunnableConfig) -> dict:
     q = state["question"]
-
-    def _macro():
-        from src.tools.skills_tools import run_macro_scanner
-        return str(run_macro_scanner.invoke({"max_themes": 5}, config=config))
+    q_lower = q.lower()
 
     def _comex():
         from src.tools.skills_tools import run_comex_analysis
         return str(run_comex_analysis.invoke({}, config=config))
 
-    def _fii_dii():
-        from src.tools.chart_tools import plot_fii_dii_chart
-        return str(plot_fii_dii_chart.invoke({"days": 30}, config=config))
-
     def _dxy():
         from src.tools.market_context import get_dxy_context
         return str(get_dxy_context.invoke({"days": 30}, config=config))
 
-    def _indicators():
-        from src.tools.skills_tools import run_market_indicators
-        return str(run_market_indicators.invoke({}, config=config))
+    # Targeted query check: if user asked specifically for COMEX/metals/gold/silver/copper
+    is_comex_targeted = any(kw in q_lower for kw in ("comex", "gold futures", "silver futures", "copper futures", "metals", "bullion")) and not any(kw in q_lower for kw in ("full macro", "all themes", "fii", "breadth", "overview", "nifty"))
 
-    fetchers = {
-        "macro":      _macro,
-        "comex":      _comex,
-        "fii_dii":    _fii_dii,
-        "dxy":        _dxy,
-        "indicators": _indicators,
-    }
+    if is_comex_targeted:
+        fetchers = {
+            "comex": _comex,
+            "dxy":   _dxy,
+        }
+    else:
+        def _macro():
+            from src.tools.skills_tools import run_macro_scanner
+            return str(run_macro_scanner.invoke({"max_themes": 5}, config=config))
 
-    if state.get("geo_query"):
-        def _news():
-            from src.tools.news_search import search_financial_news
-            return str(search_financial_news.invoke({"query": q}, config=config))
-        fetchers["news"] = _news
+        def _fii_dii():
+            from src.tools.chart_tools import plot_fii_dii_chart
+            return str(plot_fii_dii_chart.invoke({"days": 30}, config=config))
+
+        def _indicators():
+            from src.tools.skills_tools import run_market_indicators
+            return str(run_market_indicators.invoke({}, config=config))
+
+        fetchers = {
+            "macro":      _macro,
+            "comex":      _comex,
+            "fii_dii":    _fii_dii,
+            "dxy":        _dxy,
+            "indicators": _indicators,
+        }
+
+        if state.get("geo_query"):
+            def _news():
+                from src.tools.news_search import search_financial_news
+                return str(search_financial_news.invoke({"query": q}, config=config))
+            fetchers["news"] = _news
 
     datasets = _par_datasets(fetchers)
     return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
@@ -109,6 +119,14 @@ _SYNTH_PROMPT = (
     "Never add FII flow amounts unless they appear in the Quant Overlay data."
 )
 
+_COMEX_TARGETED_PROMPT = (
+    "You are a metals and commodities quant analyst. "
+    "Synthesise pre-fetched COMEX and DXY data into a clean, ultra-concise pre-market metals report. "
+    "Present key futures/spot prices (Gold, Silver, Copper) and COT positioning in standard Markdown tables. "
+    "Do NOT add unasked sections like market breadth, FII flows, or general macro themes. "
+    "Keep the output clean, direct, and focused solely on metals & currency context."
+)
+
 
 def _synthesise_node(state: MacroState, config: RunnableConfig) -> dict:
     from langchain_core.messages import SystemMessage, HumanMessage
@@ -123,13 +141,18 @@ def _synthesise_node(state: MacroState, config: RunnableConfig) -> dict:
         sections = [state.get(k, "") for k in ("macro", "comex", "fii_dii", "dxy", "indicators", "news")]
         return {"report": "\n\n---\n\n".join(s for s in sections if s)}
 
+    q_lower = state["question"].lower()
+    is_comex_targeted = any(kw in q_lower for kw in ("comex", "gold futures", "silver futures", "copper futures", "metals", "bullion")) and not any(kw in q_lower for kw in ("full macro", "all themes", "fii", "breadth", "overview", "nifty"))
+
+    synth_prompt = _COMEX_TARGETED_PROMPT if is_comex_targeted else _SYNTH_PROMPT
+
     data = "\n\n---\n\n".join(
         f"### {k}\n{state.get(k, '')}" for k in
         ("macro", "comex", "fii_dii", "dxy", "indicators", "news")
         if state.get(k)
     )
     result = llm.invoke([
-        SystemMessage(content=_SYNTH_PROMPT + caveman + SYNTH_SUFFIX),
+        SystemMessage(content=synth_prompt + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched macro data:\n{data}"),
     ], config=config)
     report = str(result.content).strip() or data
@@ -167,7 +190,7 @@ def _build_plan(question: str, geo_query: bool) -> list[str]:
     ]
     if geo_query:
         steps.append(f"Search financial news: \"{question[:60]}\"")
-    return steps
+    return generate_plan_llm(question, intent="macro", default_plan=steps)
 
 
 def run(question: str, callbacks: list | None = None) -> str:

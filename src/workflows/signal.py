@@ -24,7 +24,7 @@ import re
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan, generate_plan_llm
 from .plan_store import save_plan
 from .state import MosaicState
 
@@ -182,7 +182,7 @@ def _build_graph():
 
 def _build_plan(symbol: str, question: str) -> list[str]:
     """Describe the fetch steps as a human-readable plan."""
-    return [
+    default_steps = [
         f"Fetch GOLDBEES ML pipeline (prob_up, regime_signal, blended_50)",
         f"Fetch daily signal composite scores for all tracked ETFs",
         f"Fetch GARCH risk governor position sizing for {symbol}",
@@ -190,6 +190,7 @@ def _build_plan(symbol: str, question: str) -> list[str]:
         f"Fetch ETF category news sentiment scan",
         f"Render price chart for {symbol} (90 days)",
     ]
+    return generate_plan_llm(question, intent="signal", default_plan=default_steps)
 
 
 def run(question: str, callbacks: list | None = None) -> str:

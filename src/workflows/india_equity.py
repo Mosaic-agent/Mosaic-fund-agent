@@ -20,7 +20,7 @@ import logging
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan, generate_plan_llm
 from .plan_store import save_plan
 from .state import MosaicState
 
@@ -256,7 +256,7 @@ def _build_graph():
 
 def _build_plan(question: str, symbol: str = "") -> list[str]:
     target = f" ({symbol})" if symbol else ""
-    return [
+    default_steps = [
         f"Resolve company symbol & exchange{target}",
         "Fetch live quote, price momentum & 52-week range",
         "Fetch quarterly financial results, P/E & Screener metrics",
@@ -264,6 +264,7 @@ def _build_plan(question: str, symbol: str = "") -> list[str]:
         "Detect price anomalies, volume spikes & corporate actions",
         "Fetch financial news & sentiment analysis",
     ]
+    return generate_plan_llm(question, intent="india_equity", default_plan=default_steps)
 
 
 def run(question: str, callbacks: list | None = None) -> str:

@@ -466,12 +466,16 @@ def get_comex_signals(symbols: list[str] | None = None) -> dict:
     else:
         overall_signal = "NEUTRAL"
 
+    # Fetch CFTC Managed Money COT positioning from ClickHouse
+    cot_data = _fetch_latest_cot()
+
     result = {
-        "run_time_ist":   run_time_ist,
-        "pre_market":     pre_market,
-        "commodities":    commodities,
-        "summary":        summary,
-        "overall_signal": overall_signal,
+        "run_time_ist":    run_time_ist,
+        "pre_market":      pre_market,
+        "commodities":     commodities,
+        "cot_positioning": cot_data,
+        "summary":         summary,
+        "overall_signal":  overall_signal,
     }
 
     # Persist to cache (skip when TTL=0 or all fetches failed)
@@ -480,3 +484,52 @@ def get_comex_signals(symbols: list[str] | None = None) -> dict:
         logger.info("COMEX: response cached under '%s' (TTL %dh)", _cache_key, _ttl // 3600)
 
     return result
+
+
+def _fetch_latest_cot() -> dict | None:
+    """Query the latest CFTC Managed Money COT positioning for Gold from ClickHouse."""
+    try:
+        from src.importer.freshness import check_and_auto_import_stale_categories
+        check_and_auto_import_stale_categories(["cot"])
+    except Exception:
+        pass
+
+    try:
+        from src.db.pool import query_df
+        df = query_df(
+            """
+            SELECT report_date, mm_long, mm_short, mm_net, open_interest
+            FROM market_data.cot_gold FINAL
+            ORDER BY report_date DESC
+            LIMIT 1
+            """
+        )
+        if not df.empty:
+            row = df.iloc[0]
+            oi = int(row["open_interest"]) if row["open_interest"] else 1
+            mm_net = int(row["mm_net"])
+            pct_oi = round((mm_net / oi) * 100.0, 1)
+            rep_date = str(row["report_date"])[:10]
+
+            if pct_oi >= 25.0:
+                regime = "CROWDED LONG (Extreme Speculative Risk)"
+            elif pct_oi >= 15.0:
+                regime = "BULLISH / MODERATE LONG"
+            elif pct_oi <= 0.0:
+                regime = "NET SHORT / SQUEEZE POTENTIAL"
+            else:
+                regime = "NEUTRAL"
+
+            return {
+                "report_date":   rep_date,
+                "mm_long":       int(row["mm_long"]),
+                "mm_short":      int(row["mm_short"]),
+                "mm_net":        mm_net,
+                "open_interest": oi,
+                "mm_pct_oi":     pct_oi,
+                "regime":        regime,
+            }
+    except Exception as exc:
+        logger.debug("Failed to fetch COT positioning: %s", exc)
+    return None
+

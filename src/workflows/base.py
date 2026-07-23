@@ -42,6 +42,60 @@ def _get_llm(prefer_cloud: bool = True) -> Any:
         return tmp._build_cloud_llm()
 
 
+def generate_plan_llm(
+    question: str,
+    intent: str,
+    default_plan: list[str] | None = None,
+) -> list[str]:
+    """
+    Generate a dynamic, step-by-step execution plan for a workflow using the LLM.
+
+    Called during workflow plan initialization when MOSAIC_LLM_PLANNER="1" (default).
+    Falls back gracefully to `default_plan` if LLM is unreachable or fails.
+    """
+    import os
+    import re
+
+    default_plan = default_plan or []
+
+    if os.getenv("MOSAIC_LLM_PLANNER", "1") != "1":
+        return default_plan
+
+    try:
+        llm = _get_llm(prefer_cloud=True)
+        if llm is None:
+            return default_plan
+
+        prompt = (
+            f"You are the Mosaic Quant Agent execution planner.\n"
+            f"Workflow Domain: {intent}\n"
+            f"User Question: \"{question}\"\n\n"
+            f"Default Template Steps for reference:\n"
+            + "\n".join(f"- {s}" for s in default_plan) + "\n\n"
+            f"Task: Decompose the user's question into a highly specific, numbered 3 to 6 step research plan tailored to answer this exact question.\n"
+            f"Each step must be a single concise line describing what analysis, fetch, or calculation to perform.\n"
+            f"Output ONLY the numbered steps, 1 per line (e.g. '1. Step description'), with no extra intro or outro text."
+        )
+
+        resp = llm.invoke(prompt)
+        text = resp.content if hasattr(resp, "content") else str(resp)
+
+        lines = []
+        for line in text.strip().splitlines():
+            cleaned = re.sub(r"^\s*\d+[\.\)]\s*", "", line).strip()
+            cleaned = re.sub(r"^[\-\*\•]\s*", "", cleaned).strip()
+            if cleaned and len(cleaned) > 3:
+                lines.append(cleaned)
+
+        if len(lines) >= 2:
+            return lines[:6]
+    except Exception as exc:
+        logger.warning("generate_plan_llm failed for intent=%s: %s — using default plan", intent, exc)
+
+    return default_plan
+
+
+
 # ── Parallel executor ─────────────────────────────────────────────────────────
 
 # Concurrency cap for parallel fetch. Kept low (6) because several fetchers hit
@@ -81,6 +135,13 @@ def _par(
     """
     if not fetchers:
         return {}
+
+    try:
+        from src.importer.freshness import check_global_freshness
+        check_global_freshness()
+    except Exception as exc:
+        logger.debug("Workflow auto-freshness check skipped: %s", exc)
+
     n = max_workers or min(len(fetchers), _PAR_MAX_WORKERS)
 
     def _run(fn: Any, key: str) -> Any:

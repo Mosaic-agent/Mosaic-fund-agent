@@ -45,6 +45,12 @@ def get_fii_dii_context(days: int = 5) -> dict[str, Any]:
     }
 
     try:
+        from src.importer.freshness import check_and_auto_import_stale_categories
+        check_and_auto_import_stale_categories(["fii_dii"])
+    except Exception as exc:
+        logger.debug("Auto-freshness check in get_fii_dii_context skipped: %s", exc)
+
+    try:
         from src.db.pool import get_pool as _get_ch_pool
 
         with _get_ch_pool().acquire() as client:
@@ -194,6 +200,12 @@ def get_dxy_context(days: int = 30) -> str:
         days: number of calendar days of history to fetch (default 30; min 21 for trend)
     """
     days = max(int(days), 21)
+
+    try:
+        from src.importer.freshness import check_and_auto_import_stale_categories
+        check_and_auto_import_stale_categories(["indices"])
+    except Exception as exc:
+        logger.debug("Auto-freshness check in get_dxy_context skipped: %s", exc)
 
     try:
         from src.db.pool import get_pool as _get_pool

@@ -24,7 +24,7 @@ import re
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan, generate_plan_llm
 from .plan_store import save_plan
 from .state import MosaicState
 
@@ -213,7 +213,7 @@ def _build_plan(question: str, needs_llm: bool) -> list[str]:
         steps.append("Run ETF category news sentiment scan (all 10 categories)")
     if needs_llm:
         steps.append("Synthesise headlines into sentiment analysis (1 LLM call)")
-    return steps
+    return generate_plan_llm(question, intent="news", default_plan=steps)
 
 
 def run(question: str, callbacks: list | None = None) -> str:

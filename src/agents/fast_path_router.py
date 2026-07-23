@@ -37,6 +37,16 @@ _INTRADAY_PATTERN = re.compile(
 )
 
 
+_COMEX_PATTERN = re.compile(
+    r"^(?:comex|comex\s+gold|pre\s*market\s*gold|metals\s*scorecard|gold\s*futures|silver\s*futures|copper\s*futures)$",
+    re.IGNORECASE
+)
+_GOLDBEES_PATTERN = re.compile(
+    r"^(?:goldbees|goldbees\s+signal|goldbees\s+pipeline|today's\s+goldbees|goldbees\s+report)$",
+    re.IGNORECASE
+)
+
+
 def try_fast_path(question: str) -> dict[str, Any] | None:
     """
     Attempt to fulfill the user's query deterministically without LLM calls.
@@ -47,7 +57,19 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
     """
     q_clean = question.strip().lower()
 
-    # 1. Direct Quote / LTP Lookup
+    # 1. Direct COMEX / Metals Lookup
+    if _COMEX_PATTERN.match(q_clean):
+        res = _handle_comex_lookup()
+        if res:
+            return {"handled": True, "intent": "fast_path_comex", "response": res}
+
+    # 2. Direct GOLDBEES Pipeline Signal Lookup
+    if _GOLDBEES_PATTERN.match(q_clean):
+        res = _handle_goldbees_lookup()
+        if res:
+            return {"handled": True, "intent": "fast_path_goldbees", "response": res}
+
+    # 3. Direct Quote / LTP Lookup
     match_quote = _QUOTE_PATTERN.match(q_clean)
     if match_quote:
         symbol = match_quote.group(1).upper()
@@ -55,7 +77,7 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
         if res:
             return {"handled": True, "intent": "fast_path_quote", "response": res}
 
-    # 2. Direct iNAV Lookup
+    # 4. Direct iNAV Lookup
     match_inav = _INAV_PATTERN.match(q_clean)
     if match_inav:
         symbol = match_inav.group(1).upper()
@@ -63,7 +85,7 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
         if res:
             return {"handled": True, "intent": "fast_path_inav", "response": res}
 
-    # 3. DSP Holdings Lookup
+    # 5. DSP Holdings Lookup
     match_dsp = _DSP_HOLDINGS_PATTERN.match(q_clean)
     if match_dsp:
         symbol = match_dsp.group(1).upper()
@@ -71,7 +93,7 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
         if res:
             return {"handled": True, "intent": "fast_path_dsp", "response": res}
 
-    # 4. Intraday Snapshot Lookup
+    # 6. Intraday Snapshot Lookup
     match_intra = _INTRADAY_PATTERN.match(q_clean)
     if match_intra:
         symbol = match_intra.group(1).upper()
@@ -80,6 +102,7 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
             return {"handled": True, "intent": "fast_path_intraday", "response": res}
 
     return None
+
 
 
 def _handle_quote_lookup(symbol: str) -> str | None:
@@ -215,3 +238,26 @@ def _handle_intraday_lookup(symbol: str) -> str | None:
     except Exception as exc:
         logger.debug("Fast-path intraday lookup failed for %s: %s", symbol, exc)
     return None
+
+
+def _handle_comex_lookup() -> str | None:
+    """Fetch pre-market COMEX metals scorecard (Gold, Silver, Copper) instantly."""
+    try:
+        from src.tools.skills_tools import run_comex_analysis
+        res = run_comex_analysis.invoke({})
+        return f"### **COMEX Pre-Market Metals Scorecard**\n*Source: COMEX Futures & CFTC COT (Zero-Latency Fast-Path)*\n\n{res}"
+    except Exception as exc:
+        logger.debug("Fast-path COMEX lookup failed: %s", exc)
+    return None
+
+
+def _handle_goldbees_lookup() -> str | None:
+    """Fetch GOLDBEES ML prediction & position sizing report instantly."""
+    try:
+        from src.tools.skills_tools import run_goldbees_pipeline
+        res = run_goldbees_pipeline.invoke({})
+        return f"### **GOLDBEES ML Signal & Position Sizing Report**\n*Source: GOLDBEES ML Pipeline (Zero-Latency Fast-Path)*\n\n{res}"
+    except Exception as exc:
+        logger.debug("Fast-path GOLDBEES lookup failed: %s", exc)
+    return None
+
