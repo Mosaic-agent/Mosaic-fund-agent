@@ -104,22 +104,23 @@ sequenceDiagram
     Node->>Par: Invoke _par_datasets
     Par->>CM: Initialize ContextRun scope
     CM->>Run: Create ephemeral cache & RLock
-    Par->>Pool: Submit fetchers concurrently
-    
-    par Worker 1 Fetch
-        Pool->>CM: Fetch Tool 1 Data
+    Par->>Pool: Submit worker tasks concurrently
+
+    rect rgb(240, 253, 244)
+        note over Pool,Run: Concurrent Worker Execution (ThreadPoolExecutor)
+        Pool->>CM: Worker 1: Fetch Tool 1 Data
         CM->>Run: Acquire RLock & check cache
         Run-->>CM: Cache Miss
-        CM-->>Pool: Execute raw fetcher
+        CM-->>Pool: Execute raw fetcher 1
         CM->>CM: Compact result (dedup / truncate)
-        CM->>Run: Store cache & DatasetRef artifact
-    and Worker 2 Fetch
-        Pool->>CM: Fetch Tool 2 Data
+        CM->>Run: Store cache & DatasetRef artifact 1
+
+        Pool->>CM: Worker 2: Fetch Tool 2 Data
         CM->>Run: Acquire RLock & check cache
         Run-->>CM: Cache Miss
-        CM-->>Pool: Execute raw fetcher
+        CM-->>Pool: Execute raw fetcher 2
         CM->>CM: Compact result (dedup / truncate)
-        CM->>Run: Store cache & DatasetRef artifact
+        CM->>Run: Store cache & DatasetRef artifact 2
     end
 
     Pool-->>Par: Return worker results
