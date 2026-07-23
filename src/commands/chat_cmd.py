@@ -655,7 +655,7 @@ _RAG_PLAN_TEMPLATES = [
         ["Resolve ticker for '{symbol}'", "Fetch SEC 10-K / 10-Q from EDGAR", "Parse XBRL financials & Peer comparison", "Generate deep-dive report"]
     ),
     (
-        "import GOLDBEES / refresh stock data",
+        "import symbol data / backfill stock data",
         "main",
         ["import_symbol_data(symbol='{symbol}', days={days})"]
     ),
@@ -743,22 +743,41 @@ def _build_rag_plan(question: str) -> tuple[str | None, str | None]:
     matched_template = _RAG_PLAN_TEMPLATES[best_idx]
     intent = matched_template[1]
     steps_template = matched_template[2]
+
+    # Guard: do NOT match data import/refresh templates unless question contains explicit import keywords
+    is_import_template = intent == "main" or any("import" in s or "refresh" in s for s in steps_template)
+    has_import_kw = bool(re.search(r"\b(import|sync|backfill|refresh)\b", question, re.I))
+    if is_import_template and not has_import_kw:
+        logger.info("RAG Planner: rejected import template %r because query contains no import keywords", matched_template[0])
+        return None, None
     
     # 2. Extract parameters (symbol, days)
-    symbol = "GOLDBEES"  # default
+    symbol = ""
     try:
-        from src.tools.company_resolver import _local_indian_lookup
-        words = [w.strip("?,.!") for w in question.split()]
-        for w in words:
-            if w.isupper() and len(w) >= 3:
-                symbol = w
-                break
-            sym_lookup = _local_indian_lookup(w)
-            if sym_lookup:
-                symbol = sym_lookup
-                break
+        from src.tools.company_resolver import resolve_company_info
+        info = resolve_company_info(question)
+        if info and info.get("symbol"):
+            symbol = info["symbol"]
     except Exception:
         pass
+
+    if not symbol:
+        try:
+            from src.tools.company_resolver import _local_indian_lookup
+            words = [w.strip("?,.!") for w in question.split()]
+            for w in words:
+                if w.isupper() and len(w) >= 3:
+                    symbol = w
+                    break
+                sym_lookup = _local_indian_lookup(w)
+                if sym_lookup:
+                    symbol = sym_lookup
+                    break
+        except Exception:
+            pass
+
+    if not symbol:
+        symbol = "GOLDBEES" if "GOLD" in question.upper() else "NIFTYBEES"
         
     days = 90  # default
     match = re.search(r"\b(\d+)\s*(?:day|days|month|months|year|years|d|m|y)\b", question, re.I)
@@ -830,17 +849,20 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
                             ai_intent = candidate
                         break
 
-            # Parse PLAN lines (numbered list after "PLAN:")
+            # Parse PLAN lines — accept lines starting with numbers/bullets, with or without "PLAN:" header
             steps: list[str] = []
-            in_plan = False
+            has_plan_header = any(line.upper().startswith("PLAN:") for line in raw.splitlines())
+            in_plan = not has_plan_header
             for line in raw.splitlines():
                 if line.upper().startswith("PLAN:"):
                     in_plan = True
                     continue
+                if line.upper().startswith("AGENT:"):
+                    continue
                 if in_plan:
                     stripped = line.strip()
-                    if stripped and stripped[0].isdigit():
-                        text = stripped.lstrip("0123456789. )")
+                    if stripped and (stripped[0].isdigit() or stripped.startswith(("-", "*"))):
+                        text = stripped.lstrip("0123456789. )-*")
                         if text:
                             steps.append(text)
 
