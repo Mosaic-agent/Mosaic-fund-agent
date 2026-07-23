@@ -35,6 +35,7 @@ def fetch_amc_holdings(
     dry_run: bool = False,
     target_month: str = "",
     freshness_months: int = 0,
+    max_workers: int | None = None,
 ) -> None:
     """
     Run the AMC holdings importer for *amc*.
@@ -46,6 +47,8 @@ def fetch_amc_holdings(
     dry_run          : parse data but skip DB writes
     target_month     : specific month to import (format: YYYY-MM)
     freshness_months : number of most recent months to re-import
+    max_workers      : bounded parallel source fetches per AMC (1–4); defaults
+                       to ``AMC_IMPORT_MAX_WORKERS`` or the importer default
     """
     if amc not in AMC_KEYS:
         raise ValueError(f"Unknown AMC key '{amc}'. Valid: {sorted(AMC_KEYS)}")
@@ -70,5 +73,7 @@ def fetch_amc_holdings(
         "fetch_amc_holdings: %s full=%s dry=%s target_month=%s freshness_months=%s",
         amc, full_reimport, dry_run, target_month or "None", freshness_months
     )
-    create_importer(amc, **kwargs).run(dry_run=dry_run)
-
+    importer = create_importer(amc, **kwargs)
+    if max_workers is not None:
+        importer.set_source_workers(max_workers)
+    importer.run(dry_run=dry_run)

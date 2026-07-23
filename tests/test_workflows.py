@@ -83,6 +83,52 @@ def test_par_returns_empty_string_for_none():
     assert results["none_returner"] == ""
 
 
+def test_par_compresses_native_dict_without_losing_numeric_fields():
+    from src.workflows.base import _par
+    results = _par({"price": lambda: {"latest_close": 123.45, "30d": {"change_pct": -2.5}}})
+    assert '"latest_close": 123.45' in results["price"]
+    assert '"change_pct": -2.5' in results["price"]
+
+
+# ── Context manager unit tests ───────────────────────────────────────────────
+
+def test_context_manager_truncates_with_marker_and_preserves_unicode():
+    from src.workflows.context_manager import ContextManager, truncate_text
+    assert truncate_text("₹abcdef", 3) == "₹ab\n…[4 chars trimmed — use narrower queries to fit context]"
+    assert ContextManager(max_chars=3).compress("any", "₹abcdef").startswith("₹ab")
+
+
+def test_context_manager_dedups_only_duplicate_markdown_rows():
+    from src.workflows.context_manager import dedup_rows
+    text = "Before\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 1 | 2 |\n| 3 | 4 |\nAfter\n"
+    result = dedup_rows(text)
+    assert result.count("| 1 | 2 |") == 1
+    assert "| 3 | 4 |" in result
+    assert result.startswith("Before\n") and result.endswith("After\n")
+
+
+def test_context_manager_fetch_cache_is_scoped_to_a_run():
+    from src.workflows.context_manager import ContextManager
+    calls = []
+    manager = ContextManager()
+    with manager.run_scope():
+        assert manager.fetch_once("same", lambda: calls.append(1) or "result") == "result"
+        assert manager.fetch_once("same", lambda: calls.append(2) or "other") == "result"
+    assert calls == [1]
+
+
+def test_context_manager_records_compaction_artifact():
+    from src.workflows.context_manager import ContextManager
+    manager = ContextManager(max_chars=3)
+    with manager.run_scope():
+        manager.compress("price", {"close": 123.45})
+        artifact = manager.artifacts[0]
+    assert artifact.key == "price"
+    assert artifact.source_type == "dict"
+    assert artifact.truncated
+    assert artifact.content.startswith("{\n ")
+
+
 # ── _get_llm() smoke test ──────────────────────────────────────────────────────
 
 def test_get_llm_returns_none_or_llm_without_error():

@@ -116,8 +116,10 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         from src.tools.chart_tools import plot_shareholding_bar
         from src.tools.earnings_scraper import get_shareholding_pattern
         chart = str(plot_shareholding_bar.invoke({"symbol": sym}, config=config))
-        data = str(get_shareholding_pattern.invoke({"symbol": sym}, config=config))
-        return f"{chart}\n{data}"
+        data = get_shareholding_pattern.invoke({"symbol": sym}, config=config)
+        if isinstance(data, dict):
+            return {"shareholding_chart": chart, **data}
+        return {"shareholding_chart": chart, "shareholding_data": data}
 
     def _mf_holdings():
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
@@ -125,7 +127,7 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
 
     def _db_price():
         from src.tools.indian_equity_tools import get_db_price_summary
-        return str(get_db_price_summary.invoke({"symbol": sym}, config=config))
+        return get_db_price_summary.invoke({"symbol": sym}, config=config)
 
     def _news_gnews():
         from src.tools.news_search import get_stock_news

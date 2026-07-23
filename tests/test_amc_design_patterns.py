@@ -13,6 +13,7 @@ Run:
 """
 
 from datetime import date
+import threading
 from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
@@ -156,6 +157,34 @@ class TestTemplateMethodAndFactoryPatterns:
         inserted_rows = mock_client.insert.call_args_list[0][0][1]
         assert len(inserted_rows) == 1
         assert inserted_rows[0][1] == "GOOD_FUND"
+
+    def test_sources_parse_concurrently_with_bounded_workers(self):
+        """Independent monthly files may parse concurrently; inserts remain batched."""
+        class ParallelDummyImporter(DummyImporter):
+            MAX_PARALLEL_SOURCES = 2
+
+            def fetch_sources(self):
+                return ["a", "b"]
+
+            def parse_source(self, source, http):
+                started.append(source)
+                if len(started) == 2:
+                    both_started.set()
+                assert both_started.wait(timeout=2)
+                return []
+
+        started: list[str] = []
+        both_started = threading.Event()
+        importer = ParallelDummyImporter()
+        importer.run(dry_run=True)
+        assert set(started) == {"a", "b"}
+
+    def test_source_workers_honours_bounded_environment_override(self, monkeypatch):
+        importer = DummyImporter()
+        monkeypatch.setenv("AMC_IMPORT_MAX_WORKERS", "99")
+        assert importer.source_workers() == 4
+        monkeypatch.setenv("AMC_IMPORT_MAX_WORKERS", "invalid")
+        assert importer.source_workers() == importer.MAX_PARALLEL_SOURCES
 
 
 # ── 2. Strategy Pattern Tests ────────────────────────────────────────────────

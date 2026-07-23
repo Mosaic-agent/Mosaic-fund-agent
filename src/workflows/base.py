@@ -8,10 +8,13 @@ Shared utilities for all StateGraph workflows:
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+
+from .context_manager import ContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ def _get_llm(prefer_cloud: bool = True) -> Any:
 # burst intermittently trips their throttles and returns empty data. 6 keeps the
 # fan-out fast while staying under the burst threshold.
 _PAR_MAX_WORKERS = 6
+_context_manager = ContextManager()
 
 
 def _par(
@@ -71,11 +75,11 @@ def _par(
         return {}
     n = max_workers or min(len(fetchers), _PAR_MAX_WORKERS)
 
-    def _run(fn: Any, key: str) -> str:
+    def _run(fn: Any, key: str) -> str | dict[str, Any]:
         last: Exception | None = None
         for attempt in range(retries):
             try:
-                return fn() or ""
+                return _context_manager.fetch_once(key, fn) or ""
             except Exception as exc:  # noqa: BLE001 — fetchers are plug-ins
                 last = exc
                 if attempt < retries - 1:
@@ -84,14 +88,21 @@ def _par(
         return f"*{key} unavailable: {last}*"
 
     results: dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=n) as pool:
-        futures = {pool.submit(_run, fn, key): key for key, fn in fetchers.items()}
-        for f in as_completed(futures):
-            key = futures[f]
-            try:
-                results[key] = f.result()
-            except Exception as exc:  # safety — _run should never raise
-                results[key] = f"*{key} unavailable: {exc}*"
+    # A ContextVar is intentionally scoped to one fan-out.  Each worker receives
+    # its own copied context because Python does not propagate ContextVars into
+    # ThreadPoolExecutor workers automatically.
+    with _context_manager.run_scope():
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            futures = {
+                pool.submit(contextvars.copy_context().run, _run, fn, key): key
+                for key, fn in fetchers.items()
+            }
+            for f in as_completed(futures):
+                key = futures[f]
+                try:
+                    results[key] = _context_manager.compress(key, f.result())
+                except Exception as exc:  # safety — _run should never raise
+                    results[key] = f"*{key} unavailable: {exc}*"
     return results
 
 
