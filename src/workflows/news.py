@@ -22,6 +22,7 @@ import logging
 import re
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
 from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
@@ -74,7 +75,7 @@ def _resolve_node(state: NewsState) -> dict:
 
 # ── Node 2: fetch all news sources in parallel ────────────────────────────────
 
-def _fetch_node(state: NewsState) -> dict:
+def _fetch_node(state: NewsState, config: RunnableConfig) -> dict:
     sym = state["symbol"]
     cn  = state["company_name"]
     q   = state["question"]
@@ -82,16 +83,16 @@ def _fetch_node(state: NewsState) -> dict:
 
     def _gnews():
         from src.tools.news_search import get_stock_news
-        return str(get_stock_news.invoke({"input_str": inp}))
+        return str(get_stock_news.invoke({"input_str": inp}, config=config))
 
     def _newsapi():
         from src.tools.newsapi_search import get_newsapi_stock_news
-        return str(get_newsapi_stock_news.invoke({"input_str": inp}))
+        return str(get_newsapi_stock_news.invoke({"input_str": inp}, config=config))
 
     def _db_news():
         from src.tools.news_search import get_db_news
         cat = _infer_category(q)
-        return str(get_db_news.invoke({"category": cat, "sentiment": ""}))
+        return str(get_db_news.invoke({"category": cat, "sentiment": ""}, config=config))
 
     fetchers = {
         "gnews":   _gnews,
@@ -103,7 +104,7 @@ def _fetch_node(state: NewsState) -> dict:
     if not sym or any(kw in q.lower() for kw in ("etf", "market", "category", "latest")):
         def _etf_scan():
             from src.tools.skills_tools import run_etf_news_sentiment
-            return str(run_etf_news_sentiment.invoke({"save": False}))
+            return str(run_etf_news_sentiment.invoke({"save": False}, config=config))
         fetchers["etf_scan"] = _etf_scan
 
     return _par(fetchers)
@@ -131,7 +132,7 @@ def _infer_category(question: str) -> str:
 
 # ── Node 3: aggregate and format ─────────────────────────────────────────────
 
-def _aggregate_node(state: NewsState) -> dict:
+def _aggregate_node(state: NewsState, config: RunnableConfig) -> dict:
     """
     Pure-Python merge + deduplicate + Markdown table.
     Optional 1 LLM call when question asks for analysis/sentiment/why.
@@ -174,7 +175,7 @@ def _aggregate_node(state: NewsState) -> dict:
     result = llm.invoke([
         SystemMessage(content=synth_prompt + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nNews data:\n{combined[:6000]}"),
-    ])
+    ], config=config)
     report = str(result.content).strip() or combined
     return {"report": report}
 
@@ -217,13 +218,15 @@ def _build_plan(question: str, needs_llm: bool) -> list[str]:
     return steps
 
 
-def run(question: str) -> str:
+def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the news aggregation workflow.
 
     Parameters
     ----------
     question : User question about news — company, ETF, broad market, or sentiment.
+    callbacks : LangChain callback handlers (e.g. BudgetCallbackHandler, tracer)
+                forwarded into every node's LLM/tool invocations.
 
     Returns
     -------
@@ -245,7 +248,10 @@ def run(question: str) -> str:
 
     # ── Run graph ──────────────────────────────────────────────────────────
     graph = _build_graph()
-    config = {"configurable": {"thread_id": _thread_id("news", question)}}
+    config = {
+        "configurable": {"thread_id": _thread_id("news", question)},
+        "callbacks": callbacks or [],
+    }
     initial_state: NewsState = {
         "question":     question,
         "symbol":       "",

@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
 from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
@@ -49,7 +50,7 @@ class ResearchState(TypedDict):
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
-def _resolve_node(state: ResearchState) -> dict:
+def _resolve_node(state: ResearchState, config: RunnableConfig) -> dict:
     """Resolve company name/symbol and ensure price data is fresh."""
     from src.tools.company_resolver import resolve_company_info
     from src.tools.agent_tools import check_and_refresh_symbol_data
@@ -65,7 +66,7 @@ def _resolve_node(state: ResearchState) -> dict:
             state["question"], info.get("error", "resolver returned no symbol"),
         )
     else:
-        status = check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True})
+        status = check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True}, config=config)
         logger.info("autonomous_research: resolved %s — data status: %s", sym, status[:40])
     return {
         "symbol":       sym,
@@ -92,7 +93,7 @@ def _unresolved_node(state: ResearchState) -> dict:
     }
 
 
-def _fetch_all_node(state: ResearchState) -> dict:
+def _fetch_all_node(state: ResearchState, config: RunnableConfig) -> dict:
     """Fan-out all data sources in parallel — zero LLM calls."""
     sym = state["symbol"]
     exc = state["exchange"]
@@ -101,47 +102,47 @@ def _fetch_all_node(state: ResearchState) -> dict:
     def _price():
         from src.tools.yahoo_finance import get_yahoo_finance_data, get_price_momentum
         from src.tools.indian_equity_tools import get_db_price_summary
-        yf  = get_yahoo_finance_data.invoke({"input_str": inp})
-        mom = get_price_momentum.invoke({"input_str": inp})
-        db  = get_db_price_summary.invoke({"symbol": sym})
+        yf  = get_yahoo_finance_data.invoke({"input_str": inp}, config=config)
+        mom = get_price_momentum.invoke({"input_str": inp}, config=config)
+        db  = get_db_price_summary.invoke({"symbol": sym}, config=config)
         return f"## Valuation\n{yf}\n\n## Momentum\n{mom}\n\n## DB Price Summary\n{db}"
 
     def _fundamentals():
         from src.tools.earnings_scraper import get_quarterly_results
         from src.tools.indian_equity_tools import get_stock_cashflow
-        qr = get_quarterly_results.invoke({"input_str": inp})
-        cf = get_stock_cashflow.invoke({"input_str": inp})
+        qr = get_quarterly_results.invoke({"input_str": inp}, config=config)
+        cf = get_stock_cashflow.invoke({"input_str": inp}, config=config)
         return f"## Quarterly Results\n{qr}\n\n## Cash Flow\n{cf}"
 
     def _institutional():
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_fii_dii_summary
         from src.tools.chart_tools import plot_shareholding_bar
-        mf  = get_mf_holdings_for_stock.invoke({"company_name_or_symbol": state["company_name"]})
-        fii = get_fii_dii_summary.invoke({"days": 7})
-        sh  = plot_shareholding_bar.invoke({"symbol": sym})
+        mf  = get_mf_holdings_for_stock.invoke({"company_name_or_symbol": state["company_name"]}, config=config)
+        fii = get_fii_dii_summary.invoke({"days": 7}, config=config)
+        sh  = plot_shareholding_bar.invoke({"symbol": sym}, config=config)
         return f"## MF Holdings\n{mf}\n\n## FII/DII Summary\n{fii}\n\n## Shareholding\n{sh}"
 
     def _macro():
         from src.tools.runners import run_macro_scanner
         from src.tools.market_context import get_dxy_context
-        macro = run_macro_scanner.invoke({"max_themes": 3})
-        dxy   = get_dxy_context.invoke({"days": 30})
+        macro = run_macro_scanner.invoke({"max_themes": 3}, config=config)
+        dxy   = get_dxy_context.invoke({"days": 30}, config=config)
         return f"## Macro Themes\n{macro}\n\n## DXY Context\n{dxy}"
 
     def _news():
         from src.tools.news_search import get_stock_news, search_financial_news
         from src.tools.newsapi_search import get_newsapi_stock_news
-        gn  = get_stock_news.invoke({"company_name": state["company_name"], "days": 14})
-        na  = get_newsapi_stock_news.invoke({"symbol": sym})
-        sf  = search_financial_news.invoke({"query": f"{sym} {state['company_name']} India"})
+        gn  = get_stock_news.invoke({"company_name": state["company_name"], "days": 14}, config=config)
+        na  = get_newsapi_stock_news.invoke({"symbol": sym}, config=config)
+        sf  = search_financial_news.invoke({"query": f"{sym} {state['company_name']} India"}, config=config)
         return f"## GNews\n{gn}\n\n## NewsAPI\n{na}\n\n## Financial News\n{sf}"
 
     def _volatility():
         from src.tools.market.gold import run_risk_governor_analysis
         from src.tools.chart_tools import plot_price_chart, plot_macd_chart
-        rg   = run_risk_governor_analysis.invoke({"symbol": sym})
-        pc   = plot_price_chart.invoke({"symbol": sym, "days": 365})
-        macd = plot_macd_chart.invoke({"symbol": sym, "days": 180})
+        rg   = run_risk_governor_analysis.invoke({"symbol": sym}, config=config)
+        pc   = plot_price_chart.invoke({"symbol": sym, "days": 365}, config=config)
+        macd = plot_macd_chart.invoke({"symbol": sym, "days": 180}, config=config)
         return f"## Risk Governor\n{rg}\n\n## Price Chart\n{pc}\n\n## MACD\n{macd}"
 
     results = _par({
@@ -155,17 +156,17 @@ def _fetch_all_node(state: ResearchState) -> dict:
     return results
 
 
-def _correlate_node(state: ResearchState) -> dict:
+def _correlate_node(state: ResearchState, config: RunnableConfig) -> dict:
     """Anomaly detection + FX correlation — sequential after price data is in."""
     from src.tools.market.equity import search_anomaly_events
     from src.tools.market.correlation_tools import find_anomaly_correlations
     sym = state["symbol"]
-    anomalies = search_anomaly_events.invoke({"symbol": sym, "days": 365})
-    corr      = find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365})
+    anomalies = search_anomaly_events.invoke({"symbol": sym, "days": 365}, config=config)
+    corr      = find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365}, config=config)
     return {"correlation": f"## Anomaly Events\n{anomalies}\n\n## Correlation Analysis\n{corr}"}
 
 
-def _verify_node(state: ResearchState) -> dict:
+def _verify_node(state: ResearchState, config: RunnableConfig) -> dict:
     """One LLM call: generate 3 bear cases that could invalidate a bullish thesis."""
     from langchain_core.messages import SystemMessage, HumanMessage
     llm = _get_llm()
@@ -188,7 +189,7 @@ def _verify_node(state: ResearchState) -> dict:
             f"Stock: {state['symbol']} ({state['company_name']})\n\n"
             f"Data:\n{data_snapshot}"
         )),
-    ])
+    ], config=config)
     return {"bear_cases": str(result.content)}
 
 
@@ -209,7 +210,7 @@ _SYNTHESIS_PROMPT = (
 )
 
 
-def _synthesise_node(state: ResearchState) -> dict:
+def _synthesise_node(state: ResearchState, config: RunnableConfig) -> dict:
     """One LLM call: synthesise pre-collected data into an 8-section research note."""
     from langchain_core.messages import SystemMessage, HumanMessage
     from src.utils.caveman import get_caveman_prompt
@@ -233,7 +234,7 @@ def _synthesise_node(state: ResearchState) -> dict:
             f"Bear cases from adversarial analysis:\n{state.get('bear_cases', '')}\n\n"
             f"Pre-collected data:\n{all_data}"
         )),
-    ])
+    ], config=config)
     report = str(result.content).strip()
     # A thinking model can burn its token budget on reasoning and return empty
     # final content on a large synthesis prompt — never return an empty report;
@@ -281,7 +282,7 @@ def _build_graph():
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def run(question: str) -> str:
+def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the autonomous research workflow for a given question.
 
@@ -290,6 +291,8 @@ def run(question: str) -> str:
     question : str
         Free-text question, e.g. "comprehensive research on ADANIENT" or
         "why is Reliance Industries rising?"
+    callbacks : LangChain callback handlers (e.g. BudgetCallbackHandler, tracer)
+                forwarded into every node's LLM/tool invocations.
 
     Returns
     -------
@@ -297,6 +300,9 @@ def run(question: str) -> str:
         8-section Markdown research note.
     """
     graph = _build_graph()
-    config = {"configurable": {"thread_id": _thread_id("autonomous_research", question)}}
+    config = {
+        "configurable": {"thread_id": _thread_id("autonomous_research", question)},
+        "callbacks": callbacks or [],
+    }
     result = graph.invoke({"question": question}, config=config)
     return result.get("report", "*Research workflow returned no report*")

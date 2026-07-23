@@ -22,6 +22,7 @@ import os
 import re
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
 from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
@@ -78,32 +79,32 @@ def _resolve_node(state: SignalState) -> dict:
 
 # ── Node 2: fetch all data in parallel ───────────────────────────────────────
 
-def _fetch_node(state: SignalState) -> dict:
+def _fetch_node(state: SignalState, config: RunnableConfig) -> dict:
     sym = state["symbol"]
 
     def _goldbees():
         from src.tools.skills_tools import run_goldbees_pipeline
-        return str(run_goldbees_pipeline.invoke({}))
+        return str(run_goldbees_pipeline.invoke({}, config=config))
 
     def _composite():
         from src.tools.skills_tools import run_daily_signal_composite
-        return str(run_daily_signal_composite.invoke({"save": False}))
+        return str(run_daily_signal_composite.invoke({"save": False}, config=config))
 
     def _risk_gov():
         from src.tools.skills_tools import run_risk_governor_analysis
-        return str(run_risk_governor_analysis.invoke({"symbol": sym}))
+        return str(run_risk_governor_analysis.invoke({"symbol": sym}, config=config))
 
     def _inav():
         from src.tools.skills_tools import run_premium_alerts
-        return str(run_premium_alerts.invoke({}))
+        return str(run_premium_alerts.invoke({}, config=config))
 
     def _etf_news():
         from src.tools.skills_tools import run_etf_news_sentiment
-        return str(run_etf_news_sentiment.invoke({"save": False}))
+        return str(run_etf_news_sentiment.invoke({"save": False}, config=config))
 
     def _chart():
         from src.tools.chart_tools import plot_price_chart
-        return str(plot_price_chart.invoke({"symbol": sym, "days": 90}))
+        return str(plot_price_chart.invoke({"symbol": sym, "days": 90}, config=config))
 
     return _par({
         "goldbees":  _goldbees,
@@ -131,7 +132,7 @@ _SYNTH_PROMPT = (
 )
 
 
-def _synthesise_node(state: SignalState) -> dict:
+def _synthesise_node(state: SignalState, config: RunnableConfig) -> dict:
     from langchain_core.messages import SystemMessage, HumanMessage
     try:
         from src.utils.caveman import get_caveman_prompt
@@ -153,7 +154,7 @@ def _synthesise_node(state: SignalState) -> dict:
     result = llm.invoke([
         SystemMessage(content=_SYNTH_PROMPT + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched signal data:\n{data}"),
-    ])
+    ], config=config)
     report = str(result.content).strip() or data
     return {"report": report}
 
@@ -193,13 +194,15 @@ def _build_plan(symbol: str, question: str) -> list[str]:
     ]
 
 
-def run(question: str) -> str:
+def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the ETF signal workflow.
 
     Parameters
     ----------
     question : User question about ETF signals, GOLDBEES, or the signal dashboard.
+    callbacks : LangChain callback handlers (e.g. BudgetCallbackHandler, tracer)
+                forwarded into every node's LLM/tool invocations.
 
     Returns
     -------
@@ -232,7 +235,10 @@ def run(question: str) -> str:
 
     # ── Step 5: run the fetch + synthesise graph ──────────────────────────
     graph = _build_graph()
-    config = {"configurable": {"thread_id": _thread_id("signal", question)}}
+    config = {
+        "configurable": {"thread_id": _thread_id("signal", question)},
+        "callbacks": callbacks or [],
+    }
     initial_state: SignalState = {
         "question": question, "symbol": symbol,
         "plan": plan, "plan_id": plan_id,
