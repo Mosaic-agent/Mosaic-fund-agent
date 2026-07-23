@@ -2,7 +2,8 @@
 
 > **Last updated:** 2026-07-24  
 > **Target Audience:** Developers building or extending Mosaic StateGraph workflows.  
-> **Source Module:** `src/workflows/context_manager.py`
+> **Source Module:** `src/workflows/context_manager.py`  
+> **Related Issue:** [#156 (Runtime Roadmap — Group B: Dataset & Artifact Retrofit)](https://github.com/Mosaic-agent/Mosaic-fund-agent/issues/156)
 
 ---
 
