@@ -1,29 +1,47 @@
 # ContextManager Architecture & Design
 
-> Last updated: 2026-07-24
-> Reference for deterministic context compression, thread-safe per-run caching, and prompt compaction in Mosaic StateGraph workflows.
+> **Last updated:** 2026-07-24  
+> **Target Audience:** Developers building or extending Mosaic StateGraph workflows.  
+> **Source Module:** `src/workflows/context_manager.py`
 
 ---
 
-## Overview & Design Philosophy
+## What is ContextManager?
 
-The **ContextManager** (`src/workflows/context_manager.py`) is the deterministic context compression and token-optimization engine for Mosaic's [StateGraph Workflows](agent-architecture.md#workflows-stategraph).
+When running multi-step quantitative workflows—like fetching live iNAV prices, news sentiment, macro indicators, or FII/DII flows—passing raw tool responses directly into an LLM prompt can quickly consume tens of thousands of context tokens.
 
-### Core Mandates
+Common naive solutions try using LLM passes to summarize raw data before sending it to the main prompt. However, **summarizing numerical market data with an LLM risks hallucinating or altering raw figures** (such as NAV prices, Z-scores, or position weights).
 
-1. **Zero-LLM-Distortion Mandate**:
-   - **Never ask an LLM to summarize numerical workflow inputs**.
-   - All financial numbers (prices, NAV, returns, ratios, Z-scores, FII flows) must reach the synthesis prompt **verbatim** from source tools. LLM summarization of intermediate data introduces hallucination risk and violates the project's **No LLM Calculations** rule.
-2. **Rule-Based Compaction**:
-   - Context budget reduction is achieved via deterministic text truncation, whitespace/header normalization, and Markdown table row deduplication.
-3. **Thread-Safe Ephemeral Caching**:
-   - Prevents redundant tool calls during parallel fan-out nodes using thread-safe, `contextvars`-scoped caching.
-4. **Full Auditability**:
-   - Every compacted dataset is wrapped in a `DatasetRef` metadata ledger tracking exact pre- and post-compaction character counts and truncation flags.
+The **ContextManager** solves this problem by providing **rule-based, zero-LLM context compression**. It cleans, deduplicates, and bounds tool data deterministically using pure Python logic, ensuring that every financial figure reaches the final LLM prompt verbatim while keeping token costs down by **55% to 81%**.
+
+---
+
+## Core Principles
+
+> [!IMPORTANT]
+> **1. Zero-LLM-Distortion Mandate**  
+> Never use an LLM to summarize intermediate numerical data. All market numbers (OHLCV prices, iNAV premiums, Kelly weights, GARCH volatilities) must reach synthesis prompts exactly as returned by database queries or tool APIs.
+
+> [!NOTE]
+> **2. Rule-Based Compaction**  
+> Context reduction relies entirely on deterministic algorithms:
+> - **Markdown Table Deduplication**: Strips duplicate body rows from contiguous tables while preserving headers.
+> - **Unicode-Safe Head Truncation**: Bounds oversized payloads while adding clear audit markers.
+> - **Lossless JSON Serialization**: Formats dictionaries cleanly without dropping or modifying fields.
+
+> [!TIP]
+> **3. Thread-Safe Ephemeral Caching**  
+> When multiple worker threads run concurrently during parallel fetch steps, `ContextManager` uses Python's `contextvars` and thread `RLock` locks to cache results safely for the duration of a single workflow run.
+
+> [!NOTE]
+> **4. Verifiable Compaction Audit Ledger**  
+> Every compressed dataset returns a `DatasetRef` metadata object containing exact character counts before and after compression, so you can audit compaction performance.
 
 ---
 
 ## Architecture & Data Flow
+
+Here is how data flows from a workflow node through parallel worker threads into the `ContextManager` compaction engine, and finally into the workflow's state ledger (`MosaicState.datasets`):
 
 ```mermaid
 flowchart TD
@@ -68,9 +86,9 @@ flowchart TD
 
 ---
 
-## Execution Sequence
+## Execution Lifecycle
 
-The sequence diagram below demonstrates how worker threads safely interact with the `ContextManager` during a parallel fetch node:
+The sequence below illustrates how concurrent worker threads safely query tool APIs and pass outputs through the `ContextManager` without thread interference:
 
 ```mermaid
 sequenceDiagram
@@ -111,27 +129,27 @@ sequenceDiagram
 
 ---
 
-## Data Structures
+## Key Data Structures
 
 ### 1. `DatasetRef` (Compaction Audit Ledger)
 
-A frozen dataclass representing a prompt-ready fetch output along with metadata needed to audit compaction quality:
+When raw data is processed, `ContextManager` wraps it into an immutable `DatasetRef`. This dataclass holds both the clean prompt text and diagnostic metadata:
 
 ```python
 @dataclass(frozen=True)
 class DatasetRef:
-    key: str                   # Dataset identifier (e.g. "price_summary", "macro_themes")
-    content: str               # Prompt-ready compacted text
-    source_type: str           # Source category ("dict", "dataframe", "str")
-    original_chars: int        # Raw character count before compaction
-    compacted_chars: int       # Final character count passed to prompt
-    rows_deduplicated: bool    # True if duplicate rows were stripped
+    key: str                   # Unique identifier (e.g. "price_summary", "macro_themes")
+    content: str               # Clean, compacted text ready for the prompt
+    source_type: str           # Original shape ("dict", "dataframe", "str")
+    original_chars: int        # Raw character count before processing
+    compacted_chars: int       # Character count after processing
+    rows_deduplicated: bool    # True if duplicate table rows were stripped
     truncated: bool            # True if head-truncation was applied
 ```
 
 ### 2. `ContextRun` (Thread-Safe Execution Scope)
 
-An ephemeral state container bound to the active thread context via Python's `contextvars`:
+During a workflow's data-gathering phase, `ContextRun` acts as a thread-safe container for the active run:
 
 ```python
 @dataclass
@@ -141,16 +159,23 @@ class ContextRun:
     lock: RLock = field(default_factory=RLock, repr=False)
 ```
 
-- **Thread-Safety**: Protected by an internal `RLock` so concurrent worker threads inside a `ThreadPoolExecutor` can safely read/write cache entries and append artifacts.
-- **Context Isolation**: Uses `contextvars.ContextVar("_workflow_context_run")` so parallel or nested workflow executions never leak state into each other.
+- **Thread-Safety**: Worker threads inside `ThreadPoolExecutor` acquire `lock` before writing to `cache` or `artifacts`.
+- **Context Isolation**: Scoped via `contextvars.ContextVar("_workflow_context_run")`, ensuring concurrent workflow runs remain isolated.
 
 ---
 
-## Core Compaction Mechanics
+## How Data is Compacted
 
-### Text Truncation (`truncate_text`)
+### 1. Markdown Table Deduplication (`dedup_rows`)
+When scrapers or API tools return tables with repeated entries (e.g., duplicate news headlines or market snapshots), `dedup_rows()` removes identical body rows while keeping headers intact:
 
-Head-truncates oversized text outputs while preserving Unicode safety and injecting an explicit audit marker:
+```python
+def dedup_rows(text: str) -> str:
+    """Removes duplicate rows from contiguous Markdown tables without affecting prose or headers."""
+```
+
+### 2. Unicode-Safe Truncation (`truncate_text`)
+If a tool output exceeds max capacity, `truncate_text()` head-truncates the text and appends an explicit marker showing how many characters were trimmed:
 
 ```python
 DEFAULT_MAX_CHARS = 12_000
@@ -162,9 +187,8 @@ def truncate_text(text: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     return f"{text[:max_chars]}\n…[{trimmed} chars trimmed — use narrower queries to fit context]"
 ```
 
-### Lossless Serialization (`summarize_dict`)
-
-Serializes structured dicts into clean JSON without dropping or deriving fields:
+### 3. Lossless Dict Formatting (`summarize_dict`)
+Formats dictionary objects into indented JSON, ensuring no key-value pairs are dropped:
 
 ```python
 def summarize_dict(raw: dict[str, Any]) -> str:
@@ -173,58 +197,32 @@ def summarize_dict(raw: dict[str, Any]) -> str:
 
 ---
 
-## Workflow Integration (`src/workflows/base.py`)
+## How Workflows Use ContextManager
 
-### Parallel Fetch with Automatic Compaction (`_par_datasets`)
-
-`_par_datasets()` is the primary entry point for workflows (`signal.py`, `macro.py`, `news.py`). It combines `ThreadPoolExecutor` fan-out with automatic `ContextManager` compaction:
+Workflows trigger compaction using the `_par_datasets()` utility function in `src/workflows/base.py`:
 
 ```python
-def _par_datasets(
-    fetchers: dict[str, Any],
-    max_chars: int = 12_000,
-    max_workers: int | None = None,
-) -> dict[str, DatasetRef]:
-    """Execute fetchers concurrently and compact results into DatasetRef objects."""
+# In src/workflows/signal.py
+datasets = _par_datasets({
+    "macro": lambda: run_macro_scanner(),
+    "inav": lambda: get_live_inav("GOLDBEES"),
+    "flows": lambda: get_fii_dii_summary(),
+}, max_chars=12_000)
 ```
 
-### Flow inside `_par_datasets`:
+### Injecting into Prompts
 
-1. Executes all callables in `fetchers` concurrently via `ThreadPoolExecutor` (capped at `_PAR_MAX_WORKERS = 6`).
-2. Retries failed fetchers up to 2 times with linear backoff.
-3. Passes each result through `ContextManager.compact()`:
-   - Dicts → formatted via `summarize_dict()`
-   - Strings / DataFrames → line-deduplicated + truncated via `truncate_text()`
-4. Wraps outputs into `DatasetRef` objects and returns `dict[str, DatasetRef]`.
-
----
-
-## Workflow State Binding (`MosaicState`)
-
-All workflows inherit from the shared `MosaicState` TypedDict ancestor in `src/workflows/state.py`:
+The resulting `datasets` dictionary is stored in the workflow state (`MosaicState.datasets`) and read directly inside synthesis nodes:
 
 ```python
-class MosaicState(TypedDict, total=False):
-    question: str
-    plan: list[str]
-    plan_id: str
-    datasets: dict[str, DatasetRef]
-```
-
-### Synthesis Prompt Usage
-
-During the synthesis node of a workflow, prompt templates extract `content` directly from `datasets`:
-
-```python
-# Example from src/workflows/signal.py
-datasets = state.get("datasets", {})
-macro_text = datasets.get("macro", DatasetRef("macro", "", "", 0, 0, False, False)).content
-inav_text  = datasets.get("inav",  DatasetRef("inav",  "", "", 0, 0, False, False)).content
+# Extracting verbatim content in synthesis prompt
+macro_text = state["datasets"]["macro"].content
+inav_text  = state["datasets"]["inav"].content
 
 prompt = f"""
-Evaluate ETF signals using the following raw verbatim data:
+Evaluate ETF signals using the following verbatim market data:
 
---- MACRO OVERLAY ---
+--- MACRO DATA ---
 {macro_text}
 
 --- iNAV SNAPSHOTS ---
@@ -236,29 +234,26 @@ Evaluate ETF signals using the following raw verbatim data:
 
 ---
 
-## Performance & Token Savings
+## Token Reduction Benchmarks
 
-| Workflow | ReAct Token Cost | StateGraph + ContextManager Cost | Token Savings |
+By replacing multi-turn ReAct loops with `StateGraph` workflows backed by `ContextManager`, Mosaic achieves dramatic token savings across major query intents:
+
+| Workflow | Legacy ReAct Token Cost | StateGraph + ContextManager | Token Reduction |
 |---|---|---|---|
-| `run_news` | ~8,000 | ~1,500 | **81%** |
-| `run_signal` | ~18,000 | ~4,000 | **78%** |
-| `run_mf_planner` | ~25,000 | ~6,000–12,000 | **55–76%** |
-| `run_macro` | ~12,000 | ~3,500 | **71%** |
+| `run_news` | ~8,000 tokens | ~1,500 tokens | **81% reduction** |
+| `run_signal` | ~18,000 tokens | ~4,000 tokens | **78% reduction** |
+| `run_macro` | ~12,000 tokens | ~3,500 tokens | **71% reduction** |
+| `run_mf_planner` | ~25,000 tokens | ~6,000–12,000 tokens | **55–76% reduction** |
 
 ---
 
 ## Testing & Verification
 
-The `ContextManager` is covered by 44 unit tests in `tests/test_context_manager.py` and `tests/test_workflows.py`:
+`ContextManager` behaviour is thoroughly verified across unit tests:
 
 ```bash
-# Run context manager tests
-python -m pytest tests/test_context_manager.py -v
+# Run unit test suite
 python -m pytest tests/test_workflows.py -v
 ```
 
-Tests cover:
-- Ephemeral cache isolation across contextvars
-- `DatasetRef` metadata character auditing
-- Unicode-safe head truncation
-- Thread-safe concurrent writes under high worker contention
+Tests verify thread isolation across `contextvars`, character-audit accuracy in `DatasetRef`, lossless formatting, and table deduplication logic.
