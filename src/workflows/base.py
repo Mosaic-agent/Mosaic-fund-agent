@@ -195,36 +195,88 @@ def _show_and_approve_plan(
         The (possibly edited) plan to execute, or None if the user aborted.
     """
     import os
-    import re as _re
+    import re
 
     if os.getenv("MOSAIC_PLAN_APPROVAL", "1") != "1":
         return plan   # auto-approve in non-interactive / headless mode
 
-    # Show similar past plans for context
-    hint = ""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    # ── Model & agent info for the Panel header ─────────────────────────────
+    from config.settings import settings
+    _backend = "ollama" if "11434" in settings.llm_base_url else (
+        "local" if settings.llm_base_url else settings.llm_provider)
+    _model = settings.llm_model
+    _ctx = settings.llm_context_window
+
+    _EMOJI_MAP = {
+        "macro":        "🌍", "signal":      "📊", "news":         "📰",
+        "mf":           "🏦", "research":    "🔬", "india_equity": "🇮🇳",
+        "deepdive":     "🇺🇸", "intl_etf":    "🌐", "database":     "🗄️",
+        "code":         "💻", "main":        "🤖",
+    }
+    _intent_emoji = _EMOJI_MAP.get(intent, "❓")
+
+    _STEP_KEYWORDS = [
+        (re.compile(r"\b(?:scanner|scan|theme|geopolit)\b", re.I), "🌍"),
+        (re.compile(r"\b(?:comex|gold|silver|copper|bullion)\b", re.I), "🪙"),
+        (re.compile(r"\b(?:fii|dii|flow|institutional)\b", re.I), "💰"),
+        (re.compile(r"\b(?:dxy|dollar|usd|inr)\b", re.I), "💵"),
+        (re.compile(r"\b(?:indicator|breadth|valuation|stress)\b", re.I), "📈"),
+        (re.compile(r"\b(?:news|headline|sentiment)\b", re.I), "📰"),
+        (re.compile(r"\b(?:goldbees|signal|pipeline|regime|ml)\b", re.I), "📊"),
+        (re.compile(r"\b(?:chart|plot|trend|visual)\b", re.I), "📉"),
+        (re.compile(r"\b(?:fund|mutual|holdings|consensus|nav)\b", re.I), "🏦"),
+        (re.compile(r"\b(?:consensus|mom|yoy|change)\b", re.I), "🔄"),
+        (re.compile(r"\b(?:research|fundamental|deepdive|10-k)\b", re.I), "🔬"),
+        (re.compile(r"\b(?:stock|equity|share|company)\b", re.I), "🇮🇳"),
+        (re.compile(r"\b(?:anomaly|regime|crash|spike)\b", re.I), "🚨"),
+    ]
+
+    def _step_emoji(step: str) -> str:
+        for pattern, emoji in _STEP_KEYWORDS:
+            if pattern.search(step):
+                return emoji
+        return _intent_emoji
+
+    # ── Build the step list ──────────────────────────────────────────────────
+    step_lines = "\n".join(
+        f"  {_step_emoji(s)} [bold]{i + 1}.[/bold] {s}"
+        for i, s in enumerate(plan)
+    )
+
+    body = f"  📋 [bold]Plan:[/bold] [dim]\"{question[:80]}\"[/dim]\n\n{step_lines}"
+
+    # ── Similar plan hint (inside Panel, dim) ────────────────────────────────
     try:
         from src.workflows.plan_store import find_similar_plans
         similar = find_similar_plans(question, intent=intent, top_k=1)
         if similar:
             prev = similar[0]
-            short_steps = " → ".join(prev["steps"][:2])
+            short = " → ".join(prev["steps"][:2])
             if len(prev["steps"]) > 2:
-                short_steps += " ..."
-            hint = (
-                f"\n[mosaic] 💡 Similar plan ({prev['created_at']}, "
-                f"sim={prev['similarity']}): {short_steps}"
+                short += " ..."
+            body += (
+                f"\n\n  💡 [dim]Similar plan ({prev['created_at']}, "
+                f"sim={prev['similarity']}):[/dim] {short}"
             )
     except Exception:
         pass
 
-    numbered = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(plan))
-    prompt = (
-        f"\n[mosaic] 📋 Plan for: \"{question[:80]}\"\n"
-        f"{numbered}{hint}\n"
-        f"[mosaic] Approve plan? [Y/n/edit]: "
-    )
+    _LABEL = intent.replace("_", " ").title()
+    Console().print(Panel(
+        body,
+        title=(
+            f"{_intent_emoji} [bold]Plan[/bold]  "
+            f"[dim]{_model} @ {_backend} ({_ctx} ctx)  →  {_LABEL}[/dim]"
+        ),
+        border_style="cyan",
+        padding=(1, 2),
+    ))
 
-    user_input = _cli_prompt(prompt)
+    # ── Approval prompt (plain text, outside Panel) ──────────────────────────
+    user_input = _cli_prompt("[mosaic] Approve plan? [Y/n/edit]: ")
 
     if user_input.lower() in ("", "y", "yes"):
         return plan
@@ -233,7 +285,7 @@ def _show_and_approve_plan(
         return None   # signal cancellation
 
     # Treat anything else as edited steps (comma or newline separated)
-    edited = [s.strip() for s in _re.split(r"[,\n]", user_input) if s.strip()]
+    edited = [s.strip() for s in re.split(r"[,\n]", user_input) if s.strip()]
     if not edited:
         return plan   # empty edit → keep original
     _cli_prompt(

@@ -194,6 +194,17 @@ All signals, charts, and data imports work without any LLM. The AI is only neede
 
 ---
 
+## Use it with AI coding agents
+
+Mosaic ships pre-built agent/skill definitions covering the full capability surface (signals, MF tracking, macro strategy, DB freshness, and more) so an AI coding agent can drive the platform directly instead of you looking up CLI commands:
+
+- **Claude Code** — `.agents/skills/*/SKILL.md`, invoked as `/goldbees-pipeline`, `/mf-tracker`, `/macro-strategy`, `/db-freshness`, and 17 more (full table in [docs/CLAUDE.md](docs/CLAUDE.md)).
+- **Antigravity (`agy`)** — `.agents/agents/*.md`, the same 21 capabilities with agent-specific `tools`/`model`/`max_turns` config for AGY's runtime.
+
+Both stay in sync automatically — `python scripts/sync_agy_agents.py` regenerates every Antigravity agent file from its source Claude skill, so an update to one never silently drifts out of sync with the other.
+
+---
+
 ## Documentation
 
 | | |

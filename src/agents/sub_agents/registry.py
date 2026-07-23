@@ -6,6 +6,7 @@ import logging
 from .base import _SubAgent
 from .prompts import _fix_indicator_typos
 from .routing import _needs_cloud
+from src.agents.budget import BudgetExceededError
 from .deepdive import DeepDiveSubAgent
 from .india_equity import IndianEquityResearchSubAgent
 from .signal import SignalSubAgent
@@ -73,62 +74,6 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
         except Exception as exc:
             logger.debug("run_subagent_for: quick-stat fast path failed (%s) — using full agent", exc)
 
-    # research intent: bypass ReAct loop and use StateGraph workflow (80% fewer tokens).
-    # Set MOSAIC_USE_WORKFLOWS=0 to fall back to the ReAct agent for debugging.
-    if intent == "research" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
-        try:
-            from src.workflows.autonomous_research import run as _wf_run
-            logger.info("run_subagent_for: routing 'research' → StateGraph workflow")
-            return _wf_run(question)
-        except Exception as _wf_exc:
-            logger.warning(
-                "run_subagent_for: workflow failed, falling back to ReAct agent: %s", _wf_exc
-            )
-
-    # signal intent: parallel-fetch StateGraph (~78% fewer tokens vs ReAct).
-    if intent == "signal" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
-        try:
-            from src.workflows.signal import run as _sig_run
-            logger.info("run_subagent_for: routing 'signal' → StateGraph workflow")
-            return _sig_run(question)
-        except Exception as _sig_exc:
-            logger.warning(
-                "run_subagent_for: signal workflow failed, falling back to ReAct: %s", _sig_exc
-            )
-
-    # macro intent: parallel-fetch StateGraph (~71% fewer tokens vs ReAct).
-    if intent == "macro" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
-        try:
-            from src.workflows.macro import run as _mac_run
-            logger.info("run_subagent_for: routing 'macro' → StateGraph workflow")
-            return _mac_run(question)
-        except Exception as _mac_exc:
-            logger.warning(
-                "run_subagent_for: macro workflow failed, falling back to ReAct: %s", _mac_exc
-            )
-
-    # news intent: parallel-fetch StateGraph (~81% fewer tokens vs ReAct).
-    if intent == "news" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
-        try:
-            from src.workflows.news import run as _news_run
-            logger.info("run_subagent_for: routing 'news' → StateGraph workflow")
-            return _news_run(question)
-        except Exception as _news_exc:
-            logger.warning(
-                "run_subagent_for: news workflow failed, falling back to ReAct: %s", _news_exc
-            )
-
-    # mf intent: Plan-Execute-Replan StateGraph with self-improving plan (~55-76% fewer tokens).
-    if intent == "mf" and os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
-        try:
-            from src.workflows.mf_planner import run as _mf_run
-            logger.info("run_subagent_for: routing 'mf' → Plan-Execute-Replan workflow")
-            return _mf_run(question)
-        except Exception as _mf_exc:
-            logger.warning(
-                "run_subagent_for: mf_planner workflow failed, falling back to ReAct: %s", _mf_exc
-            )
-
     cloud_llm = None
     if _needs_cloud(question) or intent in ("deepdive", "research"):
         try:
@@ -162,7 +107,14 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     )
 
     start = time.monotonic()
-    result = get_subagent(intent).run(question, llm_override=cloud_llm, callbacks=callbacks)
+    try:
+        result = get_subagent(intent).run(question, llm_override=cloud_llm, callbacks=callbacks)
+    except BudgetExceededError as exc:
+        logger.warning("run_subagent_for: budget exceeded for %r: %s", intent, exc)
+        result = (
+            f"⚠️ Response budget exceeded ({exc}) — try narrowing your question "
+            "or asking for one section at a time."
+        )
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
     # Log completion

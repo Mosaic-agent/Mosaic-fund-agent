@@ -20,6 +20,7 @@ import logging
 import os
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
 from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
@@ -52,28 +53,28 @@ class MacroState(TypedDict):
 
 # ── Node: fetch all macro data in parallel ────────────────────────────────────
 
-def _fetch_node(state: MacroState) -> dict:
+def _fetch_node(state: MacroState, config: RunnableConfig) -> dict:
     q = state["question"]
 
     def _macro():
         from src.tools.skills_tools import run_macro_scanner
-        return str(run_macro_scanner.invoke({"max_themes": 5}))
+        return str(run_macro_scanner.invoke({"max_themes": 5}, config=config))
 
     def _comex():
         from src.tools.skills_tools import run_comex_analysis
-        return str(run_comex_analysis.invoke({}))
+        return str(run_comex_analysis.invoke({}, config=config))
 
     def _fii_dii():
         from src.tools.chart_tools import plot_fii_dii_chart
-        return str(plot_fii_dii_chart.invoke({"days": 30}))
+        return str(plot_fii_dii_chart.invoke({"days": 30}, config=config))
 
     def _dxy():
         from src.tools.market_context import get_dxy_context
-        return str(get_dxy_context.invoke({"days": 30}))
+        return str(get_dxy_context.invoke({"days": 30}, config=config))
 
     def _indicators():
         from src.tools.skills_tools import run_market_indicators
-        return str(run_market_indicators.invoke({}))
+        return str(run_market_indicators.invoke({}, config=config))
 
     fetchers = {
         "macro":      _macro,
@@ -86,7 +87,7 @@ def _fetch_node(state: MacroState) -> dict:
     if state.get("geo_query"):
         def _news():
             from src.tools.news_search import search_financial_news
-            return str(search_financial_news.invoke({"query": q}))
+            return str(search_financial_news.invoke({"query": q}, config=config))
         fetchers["news"] = _news
 
     return _par(fetchers)
@@ -111,7 +112,7 @@ _SYNTH_PROMPT = (
 )
 
 
-def _synthesise_node(state: MacroState) -> dict:
+def _synthesise_node(state: MacroState, config: RunnableConfig) -> dict:
     from langchain_core.messages import SystemMessage, HumanMessage
     try:
         from src.utils.caveman import get_caveman_prompt
@@ -132,7 +133,7 @@ def _synthesise_node(state: MacroState) -> dict:
     result = llm.invoke([
         SystemMessage(content=_SYNTH_PROMPT + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched macro data:\n{data}"),
-    ])
+    ], config=config)
     report = str(result.content).strip() or data
     return {"report": report}
 
@@ -171,13 +172,15 @@ def _build_plan(question: str, geo_query: bool) -> list[str]:
     return steps
 
 
-def run(question: str) -> str:
+def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the macro theme scanner workflow.
 
     Parameters
     ----------
     question : User question about macro trends, gold, FII flows, geopolitics, etc.
+    callbacks : LangChain callback handlers (e.g. BudgetCallbackHandler, tracer)
+                forwarded into every node's LLM/tool invocations.
 
     Returns
     -------
@@ -199,7 +202,10 @@ def run(question: str) -> str:
 
     # ── Run fetch + synthesise graph ───────────────────────────────────────
     graph = _build_graph()
-    config = {"configurable": {"thread_id": _thread_id("macro", question)}}
+    config = {
+        "configurable": {"thread_id": _thread_id("macro", question)},
+        "callbacks": callbacks or [],
+    }
     initial_state: MacroState = {
         "question":   question,
         "plan":       plan,

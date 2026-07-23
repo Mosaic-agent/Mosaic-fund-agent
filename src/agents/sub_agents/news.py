@@ -25,7 +25,27 @@ class NewsSubAgent(_SubAgent):
     3. Historical/saved → get_db_news (ClickHouse news_articles table)
     4. ETF category → run_etf_news_sentiment
     Synthesise: Markdown table + 2-3 sentence sentiment summary.
+
+    Uses the StateGraph workflow (src/workflows/news.py) as the primary path
+    (~81% token savings vs ReAct). Falls back to the ReAct agent on failure.
     """
+
+    def run(self, question: str, llm_override: Any = None, callbacks: list | None = None) -> str:
+        """Try the StateGraph workflow first, fall back to ReAct loop.
+
+        Set MOSAIC_USE_WORKFLOWS=0 to force the ReAct agent for debugging.
+        """
+        import os
+        if os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+            try:
+                from src.workflows.news import run as _wf_run
+                logger.info("NewsSubAgent: routing → StateGraph workflow")
+                return _wf_run(question, callbacks=callbacks)
+            except Exception as exc:
+                logger.warning(
+                    "NewsSubAgent: workflow failed (%s), falling back to ReAct — track this", exc
+                )
+        return super().run(question, llm_override=llm_override, callbacks=callbacks)
 
     SYSTEM_PROMPT = (
         "You are the Mosaic News Agent — an Indian financial news aggregator.\n\n"

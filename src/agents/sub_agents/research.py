@@ -14,10 +14,30 @@ class AutonomousResearchAgent(_SubAgent):
     Combines: fundamental data, ML / GARCH volatility, macro intelligence,
     news with agent-chosen date windows, MF holding pattern analysis,
     institutional flows, ClickHouse queries, and custom Python execution.
+
+    Uses the StateGraph workflow (src/workflows/autonomous_research.py) as the
+    primary path (~80% token savings vs ReAct). Falls back to ReAct on failure.
     """
 
     # 10-layer framework + optional delegation calls + synthesis
     RECURSION_LIMIT = 50
+
+    def run(self, question: str, llm_override: Any = None, callbacks: list | None = None) -> str:
+        """Try the StateGraph workflow first, fall back to ReAct loop.
+
+        Set MOSAIC_USE_WORKFLOWS=0 to force the ReAct agent for debugging.
+        """
+        import os
+        if os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+            try:
+                from src.workflows.autonomous_research import run as _wf_run
+                logger.info("AutonomousResearchAgent: routing → StateGraph workflow")
+                return _wf_run(question, callbacks=callbacks)
+            except Exception as exc:
+                logger.warning(
+                    "AutonomousResearchAgent: workflow failed (%s), falling back to ReAct — track this", exc
+                )
+        return super().run(question, llm_override=llm_override, callbacks=callbacks)
 
     SYSTEM_PROMPT = """\
 You are the Mosaic Autonomous Research Agent — a self-directed, multi-domain analyst
