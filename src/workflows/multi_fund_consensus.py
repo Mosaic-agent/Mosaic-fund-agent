@@ -16,11 +16,11 @@ Total: ~4 000 tokens. Richer than current: per-fund context + synthesis.
 from __future__ import annotations
 
 import logging
-from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ _FUNDS = [
 ]
 
 
-class ConsensusState(TypedDict):
+class ConsensusState(MosaicState):
     period: str           # 'mom' | 'yoy'
     fund_reports: dict    # {fund_name: str}
     consensus_report: str
@@ -56,8 +56,9 @@ def _fetch_all_funds_node(state: ConsensusState) -> dict:
             })
         return _fetch
 
-    reports = _par({fund: _make_fetcher(fund) for fund in _FUNDS})
-    return {"fund_reports": reports}
+    datasets = _par_datasets({fund: _make_fetcher(fund) for fund in _FUNDS})
+    reports = {k: v.content for k, v in datasets.items()}
+    return {"fund_reports": reports, "datasets": datasets}
 
 
 def _fetch_consensus_node(state: ConsensusState) -> dict:
@@ -144,5 +145,8 @@ def run(period: str = "mom") -> str:
     """
     graph = _build_graph()
     config = {"configurable": {"thread_id": _thread_id("multi_fund_consensus", period)}}
-    result = graph.invoke({"period": period, "fund_reports": {}, "consensus_report": "", "synthesis": ""}, config=config)
+    result = graph.invoke(
+        {"period": period, "fund_reports": {}, "consensus_report": "", "synthesis": "", "datasets": {}},
+        config=config,
+    )
     return result.get("synthesis", "*Multi-fund consensus workflow returned no report*")

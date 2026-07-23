@@ -20,13 +20,13 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
 from .plan_store import save_plan
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,8 @@ _NOT_TICKERS = frozenset({
 })
 
 
-class SignalState(TypedDict):
-    question:  str
+class SignalState(MosaicState):
     symbol:    str      # resolved ETF ticker, e.g. "GOLDBEES"
-    plan:      list     # step descriptions (for display)
-    plan_id:   str      # PlanStore reference ID
     # ── fetched data sections ──────────────────────────────────────────────
     goldbees:  str      # run_goldbees_pipeline
     composite: str      # run_daily_signal_composite
@@ -106,7 +103,7 @@ def _fetch_node(state: SignalState, config: RunnableConfig) -> dict:
         from src.tools.chart_tools import plot_price_chart
         return str(plot_price_chart.invoke({"symbol": sym, "days": 90}, config=config))
 
-    return _par({
+    datasets = _par_datasets({
         "goldbees":  _goldbees,
         "composite": _composite,
         "risk_gov":  _risk_gov,
@@ -114,6 +111,7 @@ def _fetch_node(state: SignalState, config: RunnableConfig) -> dict:
         "etf_news":  _etf_news,
         "chart":     _chart,
     })
+    return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
 
 # ── Node 3: synthesise ────────────────────────────────────────────────────────
@@ -244,6 +242,7 @@ def run(question: str, callbacks: list | None = None) -> str:
         "plan": plan, "plan_id": plan_id,
         "goldbees": "", "composite": "", "risk_gov": "",
         "inav": "", "etf_news": "", "chart": "",
+        "datasets": {},
         "report": "",
     }
     result = graph.invoke(initial_state, config=config)

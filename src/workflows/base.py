@@ -14,7 +14,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from .context_manager import ContextManager
+from .context_manager import ContextManager, DatasetRef
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +57,23 @@ def _par(
     max_workers: int | None = None,
     retries: int = 2,
     backoff: float = 1.5,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """
     Execute a dict of {key: callable} concurrently via ThreadPoolExecutor.
 
     Each fetcher is retried up to ``retries`` times with linear backoff on an
     exception (transient network / rate-limit blips), so a single throttle
-    doesn't drop a whole section. Returns {key: result_str}; a fetcher that
-    still fails yields a '*key unavailable: ...*' placeholder so downstream
-    synthesis always receives a complete dict.
+    doesn't drop a whole section. Returns {key: result}, where result is
+    whatever the fetcher returned (str, dict, ...) untouched; a fetcher that
+    still fails yields a '*key unavailable: ...*' placeholder string so
+    downstream callers always receive a complete dict.
+
+    Use `_par_datasets()` instead when the caller wants compressed, prompt-ready
+    text (dedup/truncation/audit metadata) rather than the raw fetcher output —
+    e.g. a fetch-then-synthesize workflow whose TypedDict field is read directly
+    by a synthesis prompt. Plain `_par()` is for callers that need the fetcher's
+    raw return value untouched, such as a per-item dict a later node reads by
+    field (see `portfolio_analysis._enrich_all_node`).
 
     Note: this retries on *raised* errors. A scraper that returns empty/zero
     data instead of raising (e.g. yfinance under throttle) can't be detected
@@ -75,7 +83,7 @@ def _par(
         return {}
     n = max_workers or min(len(fetchers), _PAR_MAX_WORKERS)
 
-    def _run(fn: Any, key: str) -> str | dict[str, Any]:
+    def _run(fn: Any, key: str) -> Any:
         last: Exception | None = None
         for attempt in range(retries):
             try:
@@ -87,7 +95,7 @@ def _par(
         logger.warning("_par: %s failed after %d attempt(s): %s", key, retries, last)
         return f"*{key} unavailable: {last}*"
 
-    results: dict[str, str] = {}
+    results: dict[str, Any] = {}
     # A ContextVar is intentionally scoped to one fan-out.  Each worker receives
     # its own copied context because Python does not propagate ContextVars into
     # ThreadPoolExecutor workers automatically.
@@ -100,10 +108,27 @@ def _par(
             for f in as_completed(futures):
                 key = futures[f]
                 try:
-                    results[key] = _context_manager.compress(key, f.result())
+                    results[key] = f.result()
                 except Exception as exc:  # safety — _run should never raise
                     results[key] = f"*{key} unavailable: {exc}*"
     return results
+
+
+def _par_datasets(
+    fetchers: dict[str, Any],
+    max_workers: int | None = None,
+    retries: int = 2,
+    backoff: float = 1.5,
+) -> dict[str, DatasetRef]:
+    """
+    Like `_par()`, but compresses each raw result into a `DatasetRef` — bounded,
+    deduplicated, prompt-ready text (`.content`) plus the metadata needed to
+    audit compaction. Use this for fetch-then-synthesize workflows: assign
+    `.content` to the workflow's existing named fields (unchanged synthesis
+    prompts) and stash the full dict on `state["datasets"]` for audit.
+    """
+    raw = _par(fetchers, max_workers=max_workers, retries=retries, backoff=backoff)
+    return {key: _context_manager.to_dataset_ref(key, value) for key, value in raw.items()}
 
 
 # ── Shared prompt suffix ──────────────────────────────────────────────────────

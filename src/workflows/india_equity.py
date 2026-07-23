@@ -16,18 +16,17 @@ Total: ~7 000 tokens vs ~18 000 for the ReAct equivalent.
 from __future__ import annotations
 
 import logging
-from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
 
-class EquityState(TypedDict):
-    question: str
+class EquityState(MosaicState):
     symbol: str
     exchange: str
     company_name: str
@@ -152,7 +151,7 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         from src.tools.market.correlation_tools import find_anomaly_correlations
         return str(find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365}, config=config))
 
-    return _par({
+    datasets = _par_datasets({
         "price":        _price,
         "momentum":     _momentum,
         "quarterly":    _quarterly,
@@ -166,6 +165,7 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         "anomalies":    _anomalies,
         "correlations": _correlations,
     })  # concurrency capped in _par (external scrapers throttle on a 12-way burst)
+    return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
 
 _SYNTHESIS_PROMPT = (

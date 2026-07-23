@@ -19,7 +19,7 @@ DEFAULT_MAX_CHARS = 12_000
 
 
 @dataclass(frozen=True)
-class ContextArtifact:
+class DatasetRef:
     """Prompt-ready fetch output plus the metadata needed to audit compaction."""
 
     key: str
@@ -36,7 +36,7 @@ class ContextRun:
     """Ephemeral, thread-safe state for a single workflow fetch phase."""
 
     cache: dict[str, Any] = field(default_factory=dict)
-    artifacts: list[ContextArtifact] = field(default_factory=list)
+    artifacts: list[DatasetRef] = field(default_factory=list)
     lock: RLock = field(default_factory=RLock, repr=False)
 
 
@@ -100,12 +100,12 @@ class ContextManager:
     def __init__(self, max_chars: int = DEFAULT_MAX_CHARS) -> None:
         self.max_chars = max_chars
 
-    def compress(self, key: str, raw: str | dict[str, Any]) -> str:
+    def _build_ref(self, key: str, raw: str | dict[str, Any]) -> DatasetRef:
         source_type = "dict" if isinstance(raw, dict) else "text"
         original = summarize_dict(raw) if isinstance(raw, dict) else str(raw)
         deduplicated = dedup_rows(original) if source_type == "text" else original
         content = truncate_text(deduplicated, self.max_chars)
-        artifact = ContextArtifact(
+        return DatasetRef(
             key=key,
             content=content,
             source_type=source_type,
@@ -114,11 +114,18 @@ class ContextManager:
             rows_deduplicated=deduplicated != original,
             truncated=len(deduplicated) > self.max_chars,
         )
+
+    def compress(self, key: str, raw: str | dict[str, Any]) -> str:
+        return self.to_dataset_ref(key, raw).content
+
+    def to_dataset_ref(self, key: str, raw: str | dict[str, Any]) -> DatasetRef:
+        """Like `compress()` but returns the full DatasetRef, not just its content."""
+        ref = self._build_ref(key, raw)
         run = _active_run.get()
         if run is not None:
             with run.lock:
-                run.artifacts.append(artifact)
-        return content
+                run.artifacts.append(ref)
+        return ref
 
     @contextmanager
     def run_scope(self) -> Iterator[ContextRun]:
@@ -145,7 +152,7 @@ class ContextManager:
             return run.cache.setdefault(cache_key, result)
 
     @property
-    def artifacts(self) -> tuple[ContextArtifact, ...]:
+    def artifacts(self) -> tuple[DatasetRef, ...]:
         """Artifacts for the current run, or an empty tuple outside a run."""
         run = _active_run.get()
         if run is None:

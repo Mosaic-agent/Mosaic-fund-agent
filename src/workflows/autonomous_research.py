@@ -19,19 +19,18 @@ Total: ~8 800 tokens vs ~42 000 for the ReAct equivalent.
 from __future__ import annotations
 
 import logging
-from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
 # ── State ─────────────────────────────────────────────────────────────────────
 
-class ResearchState(TypedDict):
-    question: str
+class ResearchState(MosaicState):
     symbol: str
     exchange: str
     company_name: str
@@ -145,7 +144,7 @@ def _fetch_all_node(state: ResearchState, config: RunnableConfig) -> dict:
         macd = plot_macd_chart.invoke({"symbol": sym, "days": 180}, config=config)
         return f"## Risk Governor\n{rg}\n\n## Price Chart\n{pc}\n\n## MACD\n{macd}"
 
-    results = _par({
+    datasets = _par_datasets({
         "price":         _price,
         "fundamentals":  _fundamentals,
         "institutional": _institutional,
@@ -153,7 +152,7 @@ def _fetch_all_node(state: ResearchState, config: RunnableConfig) -> dict:
         "news":          _news,
         "volatility":    _volatility,
     })
-    return results
+    return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
 
 def _correlate_node(state: ResearchState, config: RunnableConfig) -> dict:
