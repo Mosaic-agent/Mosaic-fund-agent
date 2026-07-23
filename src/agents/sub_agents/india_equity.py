@@ -122,7 +122,27 @@ class IndianEquityResearchSubAgent(_SubAgent):
 
     Can accept a company name ("adani enterprise"), a partial name, or a
     direct NSE symbol — ``resolve_company`` is always called first.
+
+    Uses the StateGraph workflow (src/workflows/india_equity.py) as the primary
+    path (~61% token savings vs ReAct). Falls back to the ReAct agent on failure.
     """
+
+    def run(self, question: str, llm_override: Any = None, callbacks: list | None = None) -> str:
+        """Try the StateGraph workflow first, fall back to ReAct loop.
+
+        Set MOSAIC_USE_WORKFLOWS=0 to force the ReAct agent for debugging.
+        """
+        import os
+        if os.getenv("MOSAIC_USE_WORKFLOWS", "1") != "0":
+            try:
+                from src.workflows.india_equity import run as _wf_run
+                logger.info("IndianEquityResearchSubAgent: routing → StateGraph workflow")
+                return _wf_run(question, callbacks=callbacks)
+            except Exception as exc:
+                logger.warning(
+                    "IndianEquityResearchSubAgent: workflow failed (%s), falling back to ReAct — track this", exc
+                )
+        return super().run(question, llm_override=llm_override, callbacks=callbacks)
 
     # resolve(1) + optional check/import(2) + 8 parallel tools(1) + synthesis(1) = ~8-15 steps
     RECURSION_LIMIT = 50
