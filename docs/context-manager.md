@@ -95,16 +95,16 @@ The sequence below illustrates how concurrent worker threads safely query tool A
 sequenceDiagram
     autonumber
     participant Node as Workflow Node
-    participant Par as _par_datasets
+    participant PF as Parallel Fetcher
     participant Pool as ThreadPoolExecutor
     participant CM as ContextManager
     participant Run as ContextRun Scope
     participant LLM as Synthesis Node
 
-    Node->>Par: Invoke _par_datasets
-    Par->>CM: Initialize ContextRun scope
+    Node->>PF: Invoke parallel fetcher
+    PF->>CM: Initialize ContextRun scope
     CM->>Run: Create ephemeral cache & RLock
-    Par->>Pool: Submit worker tasks concurrently
+    PF->>Pool: Submit worker tasks concurrently
 
     rect rgb(240, 253, 244)
         note over Pool,Run: Concurrent Worker Execution (ThreadPoolExecutor)
@@ -123,8 +123,8 @@ sequenceDiagram
         CM->>Run: Store cache & DatasetRef artifact 2
     end
 
-    Pool-->>Par: Return worker results
-    Par->>Node: Return dict of DatasetRef
+    Pool-->>PF: Return worker results
+    PF->>Node: Return dict of DatasetRef
     Node->>Node: Update MosaicState.datasets
     Node->>LLM: Inject verbatim content into prompt
 ```
