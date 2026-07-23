@@ -2,22 +2,56 @@ flowchart TD
     User(["👤 User"])
 
     %% ── CLI ────────────────────────────────────────────────────────────────
-    subgraph CLI ["CLI — src/main.py (Typer)"]
+    subgraph CLI ["CLI — src/main.py (Typer — 13 commands)"]
         CLIImport["import --category …"]
         CLISignals["signals [--save]"]
         CLIAnalyze["analyze / ask"]
         CLIMacro["macro / comex / etf-news"]
+        CLIResearch["research / portfolio-wf"]
         CLIUI["ui  →  localhost:8501"]
+    end
+
+    %% ── Routing & Multi-Agent Orchestrator ─────────────────────────
+    subgraph Orchestrator ["Multi-Agent Orchestrator & Workflows"]
+        Router["Intent Router\nsrc/agents/intent_router.py\nLLM classifier + regex fallback"]
+
+        subgraph SubAgents ["LangGraph ReAct Sub-Agents\nsrc/agents/sub_agents/"]
+            SA1["DeepDive · IndianEquity · Signal"]
+            SA2["Macro · MF · News · Code · Database"]
+            SA3["IntlETF · AutonomousResearch"]
+        end
+
+        subgraph Workflows ["StateGraph Workflows (8)\nsrc/workflows/ — 55–81% token savings"]
+            WF1["Signal · Macro · News\nparallel fetch + approval"]
+            WF2["MF Planner\nPlan-Execute-Replan"]
+            WF3["Research · Equity · Consensus · Portfolio\nfixed-structure graphs"]
+        end
+
+        subgraph WorkflowInfra ["Workflow Infrastructure"]
+            CM["ContextManager\ncontext_manager.py — DatasetRef & truncation"]
+            PS["PlanStore\nplan_store.py — SQLite + Jaccard search"]
+            MS["MosaicState\nstate.py — shared TypedDict"]
+        end
+    end
+
+    %% ── Agentic Memory System ──────────────────────────────────────────────
+    subgraph Memory ["Agentic Memory & Harness System"]
+        L1["Level 1: Global User Mandate\nNo LLM math · Zero-Trust · QIP check · DSP signal"]
+        L2["Level 2: Context Files\nAGENTS.md · GEMINI.md · docs/CLAUDE.md"]
+        L3["Level 3: Subagent Defs\n.agents/agents/ (21 defs)"]
+        L4["Level 4: Skills & Commands\n.agents/skills/ (21) · .claude/commands/ (5)"]
+        L5["Level 5: Caveman Compression\n.claude/skills/caveman* (60–70% token cut)"]
+        L1 --> L2 --> L3 --> L4 --> L5
     end
 
     %% ── Import pipeline (Adapter + Repository + Observer) ──────────────────
     subgraph ImportPipeline ["Import Pipeline — Adapter + Repository + Observer"]
-        subgraph Adapters ["Fetcher Adapters  src/importer/fetchers/adapters.py"]
+        subgraph Adapters ["Fetcher Adapters  src/importer/fetchers/"]
             FA1["YFinanceFetcher\nstocks · etfs · commodities · indices"]
             FA2["MFNavFetcher\nMFAPI.in NAV"]
             FA3["FIIDIIFetcher\nSensibull cash + F&O + monthly"]
             FA4["FXRatesFetcher\nUSDINR · USDCNY · USDAED …"]
-            FA5["COTGoldFetcher\nCFTC Disaggregated weekly"]
+            FA5["COTGoldFetcher & AMC Importers\nCFTC COT · DSP · Nippon · ICICI"]
         end
 
         Repo["MarketDataRepository\nsrc/db/repository.py\nrun_fetcher() — watermark → fetch → insert → event"]
@@ -34,18 +68,32 @@ flowchart TD
         end
     end
 
-    %% ── ClickHouse ──────────────────────────────────────────────────────────
-    subgraph CH ["ClickHouse — market_data (19 tables)"]
-        T1[("daily_prices\nmf_nav · fx_rates · etf_aum")]
-        T2[("fii_dii_flows\ncot_gold · cb_gold_reserves")]
-        T3[("ml_predictions\nsignal_composite")]
-        T4[("inav_snapshots\nnews_articles")]
-        T5[("import_watermarks")]
+    %% ── ClickHouse & Qdrant Data Layer ─────────────────────────────────────
+    subgraph DataLayer ["Storage Layer — ClickHouse + Qdrant + SQLite"]
+        subgraph CH ["ClickHouse — market_data (27 tables)"]
+            T1[("daily_prices · mf_nav\nfx_rates · etf_aum")]
+            T2[("fii_dii_flows · cot_gold\ncb_gold_reserves · amfi_category_flows")]
+            T3[("ml_predictions\nsignal_composite")]
+            T4[("inav_snapshots · news_articles\ncorporate_actions")]
+            T5[("import_watermarks · agent_traces")]
+        end
+
+        subgraph Qdrant ["Qdrant Vector DB (6 collections — 768d COSINE)"]
+            Q1[("news_articles\n(tenant: symbol[])")]
+            Q2[("market_anomalies\n(tenant: symbol)")]
+            Q3[("mf_holdings · mf_fund_profiles\n(tenant: isin / fund_name)")]
+            Q4[("clickhouse_metadata · market_data")]
+        end
+
+        subgraph SQLiteDB ["SQLite Stores"]
+            SQ1[("LLM Cache\nllm_cache.db — 24h TTL")]
+            SQ2[("Plan Store & Checkpoints\nplans/index.db · checkpoints.db")]
+        end
     end
 
     %% ── Signal pipeline (Repository + Strategy) ────────────────────────────
     subgraph SignalPipeline ["Signal Pipeline — Repository + Strategy"]
-        RepoRead["MarketDataRepository\ntyped reads: fii_dii_5d() · ohlcv()\nlatest_ml_prediction() · inav_latest_and_history()"]
+        RepoRead["MarketDataRepository\ntyped reads: fii_dii_5d() · ohlcv()\nml_prediction_asof() · signal_composite_asof()"]
 
         subgraph Sources ["SignalSource strategies  src/agents/signal_sources.py"]
             direction LR
@@ -63,17 +111,8 @@ flowchart TD
     %% ── ML pipeline ────────────────────────────────────────────────────────
     subgraph MLPipeline ["ML Pipeline  src/ml/"]
         TP["TrendPredictor\ntrend_predictor.py\nLightGBM walk-forward CV\nDXY + US10Y fetched in parallel"]
-        ModelCache[("Model cache\noutput/.cache/ml_models/\n*.joblib — auto-invalidated\nby ModelCacheInvalidator")]
-        AD["AnomalyDetector\nanomaly.py\nGARCH(1,1) + Isolation Forest\n_IF_CACHE — 6× speedup on reuse"]
-    end
-
-    %% ── Portfolio analysis (existing) ──────────────────────────────────────
-    subgraph PortfolioFlow ["Portfolio Analysis — src/agents/mosaic_fund_agent.py"]
-        PA1["① Fetch Holdings\nKiteMCPClient → Zerodha Kite"]
-        PA2["② Enrich (parallel)\nyfinance · news · earnings · iNAV"]
-        PA3["③ LLM Scoring\nrisk 1–10 · sentiment · insights"]
-        PA4["④ Aggregate + Format\nJSON report → output/"]
-        PA1 --> PA2 --> PA3 --> PA4
+        ModelCache[("Model cache\noutput/.cache/ml_models/\n*.joblib — auto-invalidated")]
+        AD["AnomalyDetector\nanomaly.py\n6-step: MAD-Z + GARCH(1,1) + IF\n+ PELT + CorpActions + Volume HMM"]
     end
 
     %% ── Streamlit UI ───────────────────────────────────────────────────────
@@ -85,13 +124,17 @@ flowchart TD
         E2[("NSE API + MFAPI.in\niNAV · NAV")]
         E3[("Sensibull oxide API\nFII/DII cash + F&O")]
         E4[("CFTC Socrata + ZIP\nCOT gold weekly")]
-        E5[("GNews RSS\nmacro themes")]
+        E5[("GNews RSS & NewsAPI\nmacro themes · news")]
         E6[("Zerodha Kite MCP\nportfolio + orders")]
-        E7[("OpenAI / Anthropic\nLLM scoring")]
+        E7[("OpenAI / Anthropic / Local Ollama\nLLM scoring")]
     end
 
     %% ── Flows ──────────────────────────────────────────────────────────────
     User --> CLI
+    CLIAnalyze & CLIResearch --> Router
+    Router --> SubAgents & Workflows
+    Workflows --> CM & PS & MS
+    SubAgents & Workflows --> RepoRead
 
     CLIImport --> Adapters
     FA1 & FA2 & FA3 & FA4 & FA5 --> Repo
@@ -110,13 +153,10 @@ flowchart TD
     OBS3 --> Aggregator
     TP <--> ModelCache
     TP --> T3
-    AD --> T3
-
-    CLIAnalyze --> PA1
-    PA4 -->|JSON| User
+    AD --> T3 & Q2
 
     CLIUI --> UI
-    UI --> T1 & T2 & T3 & T4
+    UI --> T1 & T2 & T3 & T4 & Q1 & Q3
 
     CLIMacro --> E5
 
@@ -125,11 +165,12 @@ flowchart TD
     FA3 -.-> E3
     FA4 -.-> E1
     FA5 -.-> E4
-    PA1 -.-> E6
-    PA2 -.-> E1 & E2
-    PA3 -.-> E7
+    SubAgents -.-> E7
+    Workflows -.-> E7
     SS1 -.-> E5
     TP -.-> E1
+    PS --> SQ2
+    CM -.-> SQ1
 
     %% ── Styles ─────────────────────────────────────────────────────────────
     classDef repo fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -138,10 +179,12 @@ flowchart TD
     classDef storage fill:#f3e8ff,stroke:#9333ea,color:#3b0764
     classDef strategy fill:#ffedd5,stroke:#ea580c,color:#7c2d12
     classDef ext fill:#f1f5f9,stroke:#94a3b8,color:#334155
+    classDef memory fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
 
     class Repo,RepoRead repo
     class FA1,FA2,FA3,FA4,FA5 adapter
     class OBS1,OBS2,OBS3,OBS4 observer
-    class T1,T2,T3,T4,T5,ModelCache storage
+    class T1,T2,T3,T4,T5,ModelCache,Q1,Q2,Q3,Q4,SQ1,SQ2 storage
     class SS1,SS2,SS3,SS4,SS5,SS6 strategy
     class E1,E2,E3,E4,E5,E6,E7 ext
+    class L1,L2,L3,L4,L5 memory

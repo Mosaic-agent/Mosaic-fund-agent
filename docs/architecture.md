@@ -569,7 +569,7 @@ Five agentic coding harnesses (Claude Code, Codex, Gemini CLI, Antigravity, inte
 A new agent pattern for open-ended queries where the data needed depends on previous results. The planner LLM decomposes the question into 2–6 steps; an executor runs each step with one tool call; a replanner assesses progress and either rewrites remaining steps or terminates. Interactive plan approval (`_show_and_approve_plan()`) gates execution. Token savings: 55–76% vs ReAct equivalent. Used by the MF Planner; extensible to any domain with dynamic data dependencies.
 
 ### 15. Context Compression (`src/workflows/context_manager.py`)
-Deterministic (no-LLM) context compression for workflow fetch results. `DatasetRef` tracks per-fetch audit metadata (original vs. compacted chars, dedup, truncation). `_par_datasets()` combines parallel fetch + compress in one call. `ContextRun` provides thread-safe per-run caching via `contextvars`. `PlanStore` (`plan_store.py`) adds SQLite-backed plan persistence with Jaccard similarity search for reuse.
+Deterministic (no-LLM) context compression for workflow fetch results. `DatasetRef` tracks per-fetch audit metadata (original vs. compacted chars, dedup, truncation). `_par_datasets()` combines parallel fetch + compress in one call. `ContextRun` provides thread-safe per-run caching via `contextvars`. `PlanStore` (`plan_store.py`) adds SQLite-backed plan persistence with Jaccard similarity search for reuse. See [context-manager.md](context-manager.md) for full architecture and design.
 
 ---
 

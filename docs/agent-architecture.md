@@ -326,6 +326,8 @@ class ReplanDecision(BaseModel):
 
 #### ContextManager (`context_manager.py`)
 
+> **Full reference:** [docs/context-manager.md](context-manager.md) — deterministic compaction mechanics, `DatasetRef` audit ledger, thread safety model, `contextvars` scoping, and `_par_datasets()` workflow integration.
+
 **File:** `src/workflows/context_manager.py`
 
 Deterministic (no-LLM) context compression for StateGraph workflow fetch results. All compaction is rule-based — no summarisation that could lose numbers.
