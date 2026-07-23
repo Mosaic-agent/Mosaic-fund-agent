@@ -155,5 +155,39 @@ class TestExemplarsFile:
         assert mid_count >= 5, f"Need at least 5 mid-range exemplars, got {mid_count}"
 
 
+# ── Ollama Host Resolution tests ──────────────────────────────────────────────
+
+
+class TestOllamaHostResolution:
+    """Test dynamic Ollama base URL resolution and error resilience."""
+
+    def test_unresolvable_ollama_docker_host_falls_back_to_localhost(self):
+        import socket
+        from src.ml.correlation.news_rag import _get_ollama_base
+
+        with patch.dict("os.environ", {"OLLAMA_HOST": "http://ollama:11434"}):
+            with patch("socket.gethostbyname", side_effect=socket.gaierror(-2, "Name or service not known")):
+                base = _get_ollama_base()
+                assert base == "http://localhost:11434", f"Expected http://localhost:11434, got {base}"
+
+    def test_resolvable_ollama_docker_host_is_preserved(self):
+        from src.ml.correlation.news_rag import _get_ollama_base
+
+        with patch.dict("os.environ", {"OLLAMA_HOST": "http://ollama:11434"}):
+            with patch("socket.gethostbyname", return_value="172.18.0.5"):
+                base = _get_ollama_base()
+                assert base == "http://ollama:11434", f"Expected http://ollama:11434, got {base}"
+
+    def test_embed_batch_handles_connection_failure_gracefully(self):
+        from src.ml.correlation.news_rag import embed_batch
+
+        with patch("requests.post", side_effect=Exception("Connection refused")):
+            results = embed_batch(["headline 1", "headline 2"])
+            assert len(results) == 2
+            assert len(results[0]) == 768
+            assert all(v == 0.0 for v in results[0])
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

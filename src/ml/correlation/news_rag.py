@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import date, timedelta
 from functools import lru_cache
@@ -261,22 +262,37 @@ def retrieve_cached_news_for_symbol(symbol: str, published_date: str, limit: int
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 def _get_ollama_base() -> str:
-    """Resolve Ollama base host dynamically."""
+    """Resolve Ollama base host dynamically with container-to-host fallback."""
+    candidate = None
     env_host = os.environ.get("OLLAMA_HOST")
     if env_host:
-        return env_host.rstrip("/")
+        candidate = env_host.rstrip("/")
+    else:
+        try:
+            from config.settings import settings
+            if settings.llm_base_url:
+                base = settings.llm_base_url.strip().rstrip("/")
+                if base.endswith("/v1"):
+                    base = base[:-3]
+                candidate = base
+        except Exception:
+            pass
 
-    try:
-        from config.settings import settings
-        if settings.llm_base_url:
-            base = settings.llm_base_url.strip().rstrip("/")
-            if base.endswith("/v1"):
-                base = base[:-3]
-            return base
-    except Exception:
-        pass
+    if not candidate:
+        candidate = "http://localhost:11434"
 
-    return "http://localhost:11434"
+    # Container-to-host resolution fallback:
+    # If the URL targets the 'ollama' docker service name (e.g. http://ollama:11434)
+    # but DNS resolution fails (running outside Docker container on macOS host),
+    # dynamically rewrite 'ollama' -> 'localhost'.
+    if "://ollama" in candidate:
+        import socket
+        try:
+            socket.gethostbyname("ollama")
+        except (socket.gaierror, TimeoutError, OSError):
+            candidate = re.sub(r"://ollama(?=[:/].*|$)", "://localhost", candidate)
+
+    return candidate
 
 _EMBED_MODEL = "nomic-embed-text"
 _EMBED_DIM = 768
@@ -383,8 +399,13 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
         resp.raise_for_status()
         embeddings = resp.json()["embeddings"]
     except Exception as e:
-        log.warning("Ollama batch embed failed: %s — falling back to individual", e)
-        return [embed_text(t) for t in texts]
+        global _ollama_warned
+        if not _ollama_warned:
+            log.warning("Ollama batch embed unavailable — semantic scoring disabled: %s", e)
+            _ollama_warned = True
+        else:
+            log.debug("Ollama batch embed failed: %s", e)
+        return [[0.0] * _EMBED_DIM for _ in texts]
 
     result = [[0.0] * _EMBED_DIM for _ in texts]
     for pos, idx in enumerate(non_empty_idx):
