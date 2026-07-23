@@ -162,6 +162,7 @@ class ContextRun:
 
 - **Thread-Safety**: Worker threads inside `ThreadPoolExecutor` acquire `lock` before writing to `cache` or `artifacts`.
 - **Context Isolation**: Scoped via `contextvars.ContextVar("_workflow_context_run")`, ensuring concurrent workflow runs remain isolated.
+- **Context Propagation**: When `_par_datasets()` spawns thread pool workers, it invokes `contextvars.copy_context().run(_run, fn, key)` for each worker task. This explicitly propagates the parent thread's active `ContextRun` scope into background threads so workers share the same run-local cache.
 
 ---
 
