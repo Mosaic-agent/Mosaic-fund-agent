@@ -188,6 +188,18 @@ def run(question: str, callbacks: list | None = None) -> str:
     q_lower = question.lower()
     geo_query = any(kw in q_lower for kw in _GEO_KEYWORDS)
 
+    # ── Check if query is actually a single-name equity stock ──────────────
+    try:
+        from src.tools.company_resolver import _local_indian_lookup
+        from src.agents.signal_sources import SIGNAL_ETFS
+        sym = _local_indian_lookup(question)
+        if sym and sym not in SIGNAL_ETFS:
+            from .india_equity import run as run_india_equity
+            logger.info("macro workflow: question %r is an equity stock query (%s) — delegating to india_equity", question, sym)
+            return run_india_equity(question, callbacks=callbacks)
+    except Exception:
+        pass
+
     # ── Build + save plan ─────────────────────────────────────────────────
     plan = _build_plan(question, geo_query)
     plan_id = save_plan("macro", question, plan, metadata={"geo_query": geo_query})

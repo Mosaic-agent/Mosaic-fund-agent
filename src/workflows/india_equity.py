@@ -20,7 +20,8 @@ import logging
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .plan_store import save_plan
 from .state import MosaicState
 
 logger = logging.getLogger(__name__)
@@ -253,6 +254,18 @@ def _build_graph():
     return _GRAPH
 
 
+def _build_plan(question: str, symbol: str = "") -> list[str]:
+    target = f" ({symbol})" if symbol else ""
+    return [
+        f"Resolve company symbol & exchange{target}",
+        "Fetch live quote, price momentum & 52-week range",
+        "Fetch quarterly financial results, P/E & Screener metrics",
+        "Fetch institutional shareholding & DSP/multi-asset fund holdings",
+        "Detect price anomalies, volume spikes & corporate actions",
+        "Fetch financial news & sentiment analysis",
+    ]
+
+
 def run(question: str, callbacks: list | None = None) -> str:
     """
     Run the Indian equity research workflow.
@@ -269,10 +282,27 @@ def run(question: str, callbacks: list | None = None) -> str:
     str
         8-section Markdown research note with guaranteed all sections populated.
     """
+    resolved_sym = ""
+    try:
+        from src.tools.company_resolver import _local_indian_lookup
+        resolved_sym = _local_indian_lookup(question) or ""
+    except Exception:
+        pass
+
+    # ── Build + save plan ─────────────────────────────────────────────────
+    plan = _build_plan(question, symbol=resolved_sym)
+    plan_id = save_plan("india_equity", question, plan, metadata={"symbol": resolved_sym})
+
+    # ── Show plan and get approval ─────────────────────────────────────────
+    approved = _show_and_approve_plan(question, plan, intent="equity")
+    if approved is None:
+        return "Plan cancelled by user."
+    plan = approved
+
     graph = _build_graph()
     config = {
         "configurable": {"thread_id": _thread_id("india_equity", question)},
         "callbacks": callbacks or [],
     }
-    result = graph.invoke({"question": question}, config=config)
+    result = graph.invoke({"question": question, "plan": plan, "plan_id": plan_id}, config=config)
     return result.get("report", "*India equity workflow returned no report*")

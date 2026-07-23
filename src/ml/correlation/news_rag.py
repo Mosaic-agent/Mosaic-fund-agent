@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import urllib.parse
 import uuid
 from datetime import date, timedelta
 from functools import lru_cache
@@ -261,6 +262,11 @@ def retrieve_cached_news_for_symbol(symbol: str, published_date: str, limit: int
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
+def _is_running_in_container() -> bool:
+    """Detect if process is running inside a Docker container."""
+    return Path("/.dockerenv").exists() or Path("/run/.containerenv").exists()
+
+
 def _get_ollama_base() -> str:
     """Resolve Ollama base host dynamically from config/settings (.env) with container-to-host fallback."""
     try:
@@ -291,9 +297,10 @@ def _get_ollama_base() -> str:
         candidate = fallback_host
 
     # Container-to-host resolution fallback:
-    # If the candidate URL targets the 'ollama' docker service name (e.g. http://ollama:11434)
-    # but DNS resolution fails (running outside Docker container on macOS host),
-    # dynamically rewrite 'ollama' to fallback_host target (default: localhost).
+    # 1. If running outside container (macOS host) and candidate is 'http://ollama:11434' (unresolvable),
+    #    rewrite 'ollama' -> fallback_host (default: localhost).
+    # 2. If running INSIDE container and candidate targets localhost, test if localhost port 11434 is listening.
+    #    If localhost is not listening (no Ollama inside app container), rewrite localhost -> host.docker.internal.
     if "://ollama" in candidate:
         import socket
         try:
@@ -301,6 +308,15 @@ def _get_ollama_base() -> str:
         except (socket.gaierror, TimeoutError, OSError):
             fallback_target = fallback_host.split("://")[-1].split(":")[0] if "://" in fallback_host else "localhost"
             candidate = re.sub(r"://ollama(?=[:/].*|$)", "://" + fallback_target, candidate)
+
+    if _is_running_in_container() and ("://localhost" in candidate or "://127.0.0.1" in candidate):
+        import socket
+        try:
+            parsed_port = urllib.parse.urlparse(candidate).port or 11434
+            sock = socket.create_connection(("localhost", parsed_port), timeout=0.3)
+            sock.close()
+        except (OSError, socket.error, TimeoutError):
+            candidate = candidate.replace("://localhost", "://host.docker.internal").replace("://127.0.0.1", "://host.docker.internal")
 
     return candidate
 
@@ -310,6 +326,36 @@ _CACHE_DIR = Path("data/.cache/embeddings")
 
 # Warn once per process when Ollama is unreachable; subsequent failures go to DEBUG.
 _ollama_warned = False
+_ollama_reachable: bool | None = None
+
+
+def validate_ollama_connection(base_url: str) -> bool:
+    """Pre-flight TCP socket validation before issuing HTTP POST payload requests."""
+    global _ollama_reachable, _ollama_warned
+    if _ollama_reachable is not None:
+        return _ollama_reachable
+
+    import socket
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(base_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 11434
+
+    try:
+        sock = socket.create_connection((host, port), timeout=0.8)
+        sock.close()
+        _ollama_reachable = True
+        return True
+    except (OSError, socket.error, TimeoutError) as e:
+        _ollama_reachable = False
+        if not _ollama_warned:
+            log.warning("Ollama connection check failed at %s:%d — semantic scoring disabled (start Ollama or set OLLAMA_HOST): %s", host, port, e)
+            _ollama_warned = True
+        else:
+            log.debug("Ollama connection check failed at %s:%d: %s", host, port, e)
+        return False
+
 
 # ── Embedding primitives ──────────────────────────────────────────────────────
 
@@ -322,6 +368,13 @@ def embed_text(text: str) -> list[float]:
     """
     if not text or not text.strip():
         return [0.0] * _EMBED_DIM
+
+    try:
+        from config.settings import settings
+        if getattr(settings, "llm_local_disabled", False):
+            return [0.0] * _EMBED_DIM
+    except Exception:
+        pass
 
     text = text.strip()[:512]  # nomic-embed-text has 512 token window
 
@@ -342,8 +395,12 @@ def embed_text(text: str) -> list[float]:
             except Exception:
                 pass
 
+    base_url = _get_ollama_base()
+    if not validate_ollama_connection(base_url):
+        return [0.0] * _EMBED_DIM
+
     # Call Ollama
-    url = f"{_get_ollama_base()}/api/embed"
+    url = f"{base_url}/api/embed"
     payload = {"model": _EMBED_MODEL, "input": text}
     try:
         resp = requests.post(url, json=payload, timeout=30)
@@ -354,7 +411,7 @@ def embed_text(text: str) -> list[float]:
     except Exception as e:
         global _ollama_warned
         if not _ollama_warned:
-            log.warning("Ollama embed unavailable — semantic scoring disabled (set OLLAMA_HOST to enable): %s", e)
+            log.warning("Ollama embed server unreachable at %s — semantic scoring disabled: %s", base_url, e)
             _ollama_warned = True
         else:
             log.debug("Ollama embed failed: %s", e)
@@ -391,6 +448,13 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
 
+    try:
+        from config.settings import settings
+        if getattr(settings, "llm_local_disabled", False):
+            return [[0.0] * _EMBED_DIM for _ in texts]
+    except Exception:
+        pass
+
     if len(texts) > _OLLAMA_EMBED_BATCH:
         result: list[list[float]] = []
         for i in range(0, len(texts), _OLLAMA_EMBED_BATCH):
@@ -402,7 +466,11 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     if not non_empty_idx:
         return [[0.0] * _EMBED_DIM for _ in texts]
 
-    url = f"{_get_ollama_base()}/api/embed"
+    base_url = _get_ollama_base()
+    if not validate_ollama_connection(base_url):
+        return [[0.0] * _EMBED_DIM for _ in texts]
+
+    url = f"{base_url}/api/embed"
     payload = {"model": _EMBED_MODEL, "input": [cleaned[i] for i in non_empty_idx]}
     try:
         resp = requests.post(url, json=payload, timeout=120)
@@ -411,7 +479,7 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     except Exception as e:
         global _ollama_warned
         if not _ollama_warned:
-            log.warning("Ollama batch embed unavailable — semantic scoring disabled: %s", e)
+            log.warning("Ollama batch embed unreachable at %s — semantic scoring disabled: %s", base_url, e)
             _ollama_warned = True
         else:
             log.debug("Ollama batch embed failed: %s", e)

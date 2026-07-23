@@ -13,43 +13,83 @@ from src.ml.anomaly import run_composite_anomaly
 from src.ml.correlation.service import CorrelationService
 from src.scripts.market.ou_regime_backtest import _load_from_clickhouse
 
-def draw_ascii_chart(df: pd.DataFrame, symbol: str, anomaly_dates: set, width: int = 80, height: int = 15) -> str:
+def draw_ascii_chart(df: pd.DataFrame, symbol: str, anomaly_dates: set, width: int = 80, height: int = 12) -> str:
     df = df.sort_values("date").reset_index(drop=True)
     n_rows = len(df)
     if n_rows == 0:
         return "No data to plot"
-        
+
+    # Compute 20-day rolling annualized volatility (%)
+    ret = df["price"].pct_change()
+    df["vol20"] = ret.rolling(20).std() * np.sqrt(252) * 100.0
+    df["vol20"] = df["vol20"].fillna(ret.std() * np.sqrt(252) * 100.0 if not pd.isna(ret.std()) else 0.0)
+
+    # Compute 20-day rolling avg volume for spike detection
+    if "volume" in df.columns:
+        df["vol_avg20"] = df["volume"].rolling(20).mean().fillna(df["volume"].mean())
+    else:
+        df["volume"] = 0.0
+        df["vol_avg20"] = 1.0
+
     indices = np.linspace(0, n_rows - 1, width, dtype=int)
     sampled_dates = df["date"].iloc[indices].tolist()
     sampled_vals = df["price"].iloc[indices].tolist()
-    
+    sampled_vols = df["vol20"].iloc[indices].tolist()
+    sampled_volumes = df["volume"].iloc[indices].tolist()
+    sampled_avg_volumes = df["vol_avg20"].iloc[indices].tolist()
+
+    # Price Grid
     min_val = min(sampled_vals)
     max_val = max(sampled_vals)
     val_range = max_val - min_val if max_val != min_val else 1.0
-    
+
     grid = [[" " for _ in range(width)] for _ in range(height)]
-    
+
     for col_idx, val in enumerate(sampled_vals):
         row_idx = int(((val - min_val) / val_range) * (height - 1))
         row_idx = max(0, min(height - 1, row_idx))
-        
+
         dt_str = sampled_dates[col_idx].strftime("%Y-%m-%d")
         if dt_str in anomaly_dates:
             row_df = df[df["date"] == sampled_dates[col_idx]]
-            ret = 0.0
+            r_val = 0.0
             if not row_df.empty:
                 idx = row_df.index[0]
                 if idx > 0:
-                    ret = (df.loc[idx, "price"] / df.loc[idx-1, "price"] - 1.0) * 100.0
-            marker = "▲" if ret >= 0 else "▼"
+                    r_val = (df.loc[idx, "price"] / df.loc[idx - 1, "price"] - 1.0) * 100.0
+            marker = "▲" if r_val >= 0 else "▼"
             grid[height - 1 - row_idx][col_idx] = marker
         else:
             grid[height - 1 - row_idx][col_idx] = "●"
-            
+
+    # Volatility Spark Bar Construction
+    vol_blocks = [" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+    max_vol = max(sampled_vols) if sampled_vols else 1.0
+    min_vol = min(sampled_vols) if sampled_vols else 0.0
+    vol_range = max_vol - min_vol if max_vol != min_vol else 1.0
+    vol_chars = []
+    for v in sampled_vols:
+        b_idx = int(((v - min_vol) / vol_range) * (len(vol_blocks) - 1))
+        vol_chars.append(vol_blocks[max(0, min(len(vol_blocks) - 1, b_idx))])
+
+    # Volume Sub-Chart Bar Construction
+    max_volume = max(sampled_volumes) if sampled_volumes and max(sampled_volumes) > 0 else 1.0
+    vol_bar_chars = []
+    for col_idx, vol in enumerate(sampled_volumes):
+        avg_v = sampled_avg_volumes[col_idx]
+        if avg_v > 0 and vol >= 2.0 * avg_v:
+            # Volume spike (>2x 20D average volume)
+            vol_bar_chars.append("█")
+        elif max_volume > 0:
+            b_idx = int((vol / max_volume) * (len(vol_blocks) - 1))
+            vol_bar_chars.append(vol_blocks[max(0, min(len(vol_blocks) - 1, b_idx))])
+        else:
+            vol_bar_chars.append(" ")
+
     chart_lines = []
     start_date_str = sampled_dates[0].strftime("%Y-%m-%d")
     end_date_str = sampled_dates[-1].strftime("%Y-%m-%d")
-    
+
     chart_lines.append("=" * (width + 12))
     chart_lines.append(f" 📈 {symbol} EOD Price Trend ({start_date_str} to {end_date_str}) | ▲ Positive Shock | ▼ Negative Shock")
     chart_lines.append("=" * (width + 12))
@@ -58,6 +98,25 @@ def draw_ascii_chart(df: pd.DataFrame, symbol: str, anomaly_dates: set, width: i
         val_label = f"₹{cur_val:7.2f} | "
         row_str = "".join(grid[r])
         chart_lines.append(f"{val_label}{row_str}")
+
+    # Volatility Section
+    chart_lines.append(" " * 9 + "+" + "-" * width)
+    curr_vol = sampled_vols[-1] if sampled_vols else 0.0
+    vol_str = "".join(vol_chars)
+    chart_lines.append(f"⚡ Vol({curr_vol:2.0f}%)| {vol_str}")
+
+    # Volume Section
+    if max_volume > 1.0:
+        curr_vol_num = sampled_volumes[-1]
+        if curr_vol_num >= 1e6:
+            curr_vol_m = curr_vol_num / 1e6
+            unit_str = "M"
+        else:
+            curr_vol_m = curr_vol_num / 1e3
+            unit_str = "K"
+        vol_bar_str = "".join(vol_bar_chars)
+        chart_lines.append(f"📊 Vol({curr_vol_m:4.1f}{unit_str})| {vol_bar_str}")
+
     chart_lines.append(" " * 9 + "+" + "-" * width)
     timeline_labels = f"Timeline: {start_date_str}" + " " * (width - len(start_date_str) - len(end_date_str)) + end_date_str
     chart_lines.append(" " * 10 + timeline_labels)

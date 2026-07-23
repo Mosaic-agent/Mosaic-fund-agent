@@ -10,6 +10,7 @@ Falls back to a plain markdown table if plotext is not installed.
 from __future__ import annotations
 
 import logging
+import numpy as np
 from typing import Any
 
 from langchain_core.tools import tool
@@ -334,21 +335,25 @@ def plot_price_chart(
             dates  = df["trade_date"].astype(str).tolist()
             prices = df["close"].tolist()
 
+        import pandas as pd
+        ret_s = pd.Series(prices).pct_change()
+        vol_s = (ret_s.rolling(20).std() * np.sqrt(252) * 100.0).fillna(ret_s.std() * np.sqrt(252) * 100.0 if not pd.isna(ret_s.std()) else 0.0).tolist()
+        volumes = df["volume"].tolist() if not df.empty and "volume" in df.columns else ([r.get("volume", 0) for r in hist] if hist else [0] * len(prices))
+
         spark  = sparkline(prices)
         chg    = ((prices[-1] - prices[0]) / prices[0] * 100) if len(prices) >= 2 else 0
 
         plt = _plt()
         plt.clear_figure()
+        plt.subplots(3, 1)
         xs = list(range(len(prices)))
-        plt.plot(xs, prices, label=symbol)
-        
-        # Overlay anomalies. Primary: composite pipeline (GARCH vol-normalization
-        # + Isolation Forest + PELT change-point detection). Fallback: naive
-        # max(2.0, 2.5*std) return threshold when the pipeline can't run
-        # (<60 rows, arch/ruptures missing, or DB-less yfinance fallback path).
-        try:
-            import pandas as pd
 
+        # Subplot 1: Price
+        plt.subplot(1, 1)
+        plt.plot(xs, prices, label=symbol)
+
+        # Overlay anomalies
+        try:
             anomaly_xs:    list[int] = []
             anomaly_ys:    list[float] = []
             corp_act_xs:   list[int] = []
@@ -390,9 +395,8 @@ def plot_price_chart(
             plt.ylabel("Price ($)")
         else:
             plt.ylabel("Price (₹)")
-        plt.plot_size(_chart_width(), _CHART_HEIGHT)
-        # Set ~5 evenly-spaced date labels so plotext doesn't auto-generate
-        # raw integer ticks that overflow into a second panel below the chart.
+
+        # Set date ticks
         n = len(dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
@@ -400,6 +404,20 @@ def plot_price_chart(
             tick_idx.append(n - 1)
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
         plt.xticks(tick_idx, tick_lbl)
+
+        # Subplot 2: 20D Annualized Volatility %
+        plt.subplot(2, 1)
+        plt.plot(xs, vol_s, label="20D Vol (%)", color="magenta")
+        plt.ylabel("Vol (%)")
+        plt.xticks(tick_idx, tick_lbl)
+
+        # Subplot 3: Volume
+        plt.subplot(3, 1)
+        plt.bar(xs, volumes, label="Volume", color="cyan")
+        plt.ylabel("Volume")
+        plt.xticks(tick_idx, tick_lbl)
+
+        plt.plot_size(_chart_width(), 26)
         chart = _build(plt)
         table = _data_table(
             ["Date", "Open", "High", "Low", "Close", "Volume"],
