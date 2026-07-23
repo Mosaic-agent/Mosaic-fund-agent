@@ -16,18 +16,17 @@ Total: ~7 000 tokens vs ~18 000 for the ReAct equivalent.
 from __future__ import annotations
 
 import logging
-from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
 
-class EquityState(TypedDict):
-    question: str
+class EquityState(MosaicState):
     symbol: str
     exchange: str
     company_name: str
@@ -116,8 +115,12 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         from src.tools.chart_tools import plot_shareholding_bar
         from src.tools.earnings_scraper import get_shareholding_pattern
         chart = str(plot_shareholding_bar.invoke({"symbol": sym}, config=config))
-        data = str(get_shareholding_pattern.invoke({"symbol": sym}, config=config))
-        return f"{chart}\n{data}"
+        data = get_shareholding_pattern.invoke({"symbol": sym}, config=config)
+        if isinstance(data, dict):
+            # Spread first so an unexpected "shareholding_chart" key in `data`
+            # can never clobber the real chart placeholder.
+            return {**data, "shareholding_chart": chart}
+        return {"shareholding_chart": chart, "shareholding_data": data}
 
     def _mf_holdings():
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
@@ -125,7 +128,7 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
 
     def _db_price():
         from src.tools.indian_equity_tools import get_db_price_summary
-        return str(get_db_price_summary.invoke({"symbol": sym}, config=config))
+        return get_db_price_summary.invoke({"symbol": sym}, config=config)
 
     def _news_gnews():
         from src.tools.news_search import get_stock_news
@@ -148,7 +151,7 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         from src.tools.market.correlation_tools import find_anomaly_correlations
         return str(find_anomaly_correlations.invoke({"symbol": sym, "lookback_days": 365}, config=config))
 
-    return _par({
+    datasets = _par_datasets({
         "price":        _price,
         "momentum":     _momentum,
         "quarterly":    _quarterly,
@@ -162,6 +165,7 @@ def _fetch_all_node(state: EquityState, config: RunnableConfig) -> dict:
         "anomalies":    _anomalies,
         "correlations": _correlations,
     })  # concurrency capped in _par (external scrapers throttle on a 12-way burst)
+    return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
 
 _SYNTHESIS_PROMPT = (

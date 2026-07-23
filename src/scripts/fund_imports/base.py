@@ -15,6 +15,7 @@ import os
 import sys
 import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from typing import Any
 
@@ -84,11 +85,35 @@ class BaseFundImporter(ABC):
     """
 
     REQUEST_DELAY: float = 1.0  # seconds between HTTP requests; override per subclass
+    # Holdings files are independent, while AMC hosts are often rate-limited.
+    # Two in-flight sources materially improves historical backfills without
+    # turning an import into an abusive burst.  Individual importers can lower
+    # this for fragile endpoints; the environment value is capped at four.
+    MAX_PARALLEL_SOURCES: int = 2
 
     def __init__(self, target_month: date | None = None, freshness_months: int = 0) -> None:
         self._console = Console()
         self._target_month = target_month
         self._freshness_months = freshness_months
+        self._source_workers_override: int | None = None
+
+    def set_source_workers(self, max_workers: int) -> None:
+        """Set a validated per-instance override without mutating process config."""
+        if not 1 <= max_workers <= 4:
+            raise ValueError("max_workers must be between 1 and 4")
+        self._source_workers_override = max_workers
+
+    def source_workers(self) -> int:
+        """Return the bounded fetch/parse concurrency for this AMC importer."""
+        if self._source_workers_override is not None:
+            return self._source_workers_override
+        configured = os.getenv("AMC_IMPORT_MAX_WORKERS")
+        try:
+            workers = int(configured) if configured else self.MAX_PARALLEL_SOURCES
+        except ValueError:
+            logger.warning("Ignoring invalid AMC_IMPORT_MAX_WORKERS=%r", configured)
+            workers = self.MAX_PARALLEL_SOURCES
+        return max(1, min(workers, 4))
 
     def source_month(self, source: Any) -> date | None:
         """
@@ -232,25 +257,56 @@ class BaseFundImporter(ABC):
         all_rows: list[dict] = []
         failed: list = []
 
+        workers = min(self.source_workers(), len(sources))
         with httpx.Client(headers=COMMON_HEADERS, timeout=60, follow_redirects=True) as http:
             with Progress() as progress:
                 task = progress.add_task(
                     f"[cyan]Importing {self.fund_name()}...", total=len(sources)
                 )
-                for i, source in enumerate(sources):
-                    try:
-                        rows = self.parse_source(source, http)
-                        if rows:
-                            all_rows.extend(rows)
-                        else:
+                if workers > 1:
+                    # Bounding concurrency to `workers` caps in-flight requests, but
+                    # submitting every source at once still opens `workers` connections
+                    # in the same instant. Stagger submissions so the AMC host sees the
+                    # same request cadence as REQUEST_DELAY intended, just overlapped.
+                    stagger = self.REQUEST_DELAY / workers
+                    console.print(
+                        f"[dim]Fetching/parsing with {workers} bounded workers "
+                        f"(staggered {stagger:.2f}s apart).[/dim]"
+                    )
+                    with ThreadPoolExecutor(max_workers=workers) as executor:
+                        futures = {}
+                        for i, source in enumerate(sources):
+                            futures[executor.submit(self.parse_source, source, http)] = source
+                            if i < len(sources) - 1:
+                                time.sleep(stagger)
+                        for future in as_completed(futures):
+                            source = futures[future]
+                            try:
+                                rows = future.result()
+                                if rows:
+                                    all_rows.extend(rows)
+                                else:
+                                    failed.append(source)
+                            except Exception as exc:
+                                logger.error("Failed to parse source %s in %s: %s", source, self.fund_name(), exc)
+                                console.print(f"[yellow]⚠ Skipped source {source}: {exc}[/yellow]")
+                                failed.append(source)
+                            progress.advance(task)
+                else:
+                    for i, source in enumerate(sources):
+                        try:
+                            rows = self.parse_source(source, http)
+                            if rows:
+                                all_rows.extend(rows)
+                            else:
+                                failed.append(source)
+                        except Exception as exc:
+                            logger.error("Failed to parse source %s in %s: %s", source, self.fund_name(), exc)
+                            console.print(f"[yellow]⚠ Skipped source {source}: {exc}[/yellow]")
                             failed.append(source)
-                    except Exception as exc:
-                        logger.error("Failed to parse source %s in %s: %s", source, self.fund_name(), exc)
-                        console.print(f"[yellow]⚠ Skipped source {source}: {exc}[/yellow]")
-                        failed.append(source)
-                    if i < len(sources) - 1:
-                        time.sleep(self.REQUEST_DELAY)
-                    progress.advance(task)
+                        if i < len(sources) - 1:
+                            time.sleep(self.REQUEST_DELAY)
+                        progress.advance(task)
 
         if failed:
             console.print(f"[yellow]Warning: {len(failed)} source(s) failed or returned no rows.[/yellow]")

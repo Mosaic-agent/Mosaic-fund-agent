@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 from .base import _get_llm, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
 from .plan_store import save_plan
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +58,11 @@ class ReplanDecision(BaseModel):
 
 # ── State ─────────────────────────────────────────────────────────────────────
 
-class MFPlanExecute(TypedDict):
+class MFPlanExecute(MosaicState):
     input:      str              # original question (preserved throughout)
-    question:   str              # alias for input (used by _show_and_approve_plan)
-    plan:       list[str]        # remaining steps; replanner rewrites this each cycle
     past_steps: list             # list of [step_description, result_str] pairs
     step_count: int              # monotonic counter; terminates at max_steps
     max_steps:  int              # cap (default 8)
-    plan_id:    str              # PlanStore reference ID
     response:   str              # set by replanner when done; drives END edge
 
 
@@ -482,6 +480,7 @@ def run(question: str, callbacks: list | None = None) -> str:
         "step_count": 0,
         "max_steps":  _MAX_STEPS_DEFAULT,
         "plan_id":    plan_id,
+        "datasets":   {},
         "response":   "",
     }
     result = graph.invoke(initial_state, config=config)

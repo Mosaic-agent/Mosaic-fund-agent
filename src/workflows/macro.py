@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
 from .plan_store import save_plan
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,7 @@ _GEO_KEYWORDS = frozenset({
 })
 
 
-class MacroState(TypedDict):
-    question:   str
-    plan:       list    # step descriptions
-    plan_id:    str
+class MacroState(MosaicState):
     geo_query:  bool    # True → include search_financial_news in fetch
     # ── fetched data sections ──────────────────────────────────────────────
     macro:      str     # run_macro_scanner
@@ -90,7 +87,8 @@ def _fetch_node(state: MacroState, config: RunnableConfig) -> dict:
             return str(search_financial_news.invoke({"query": q}, config=config))
         fetchers["news"] = _news
 
-    return _par(fetchers)
+    datasets = _par_datasets(fetchers)
+    return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
 
 # ── Node: synthesise ──────────────────────────────────────────────────────────
@@ -213,6 +211,7 @@ def run(question: str, callbacks: list | None = None) -> str:
         "geo_query":  geo_query,
         "macro":      "", "comex":  "", "fii_dii":    "",
         "dxy":        "", "indicators": "", "news": "",
+        "datasets":   {},
         "report":     "",
     }
     result = graph.invoke(initial_state, config=config)

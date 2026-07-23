@@ -18,6 +18,8 @@ import json as _json
 import logging
 from typing import Any
 
+from src.workflows.context_manager import truncate_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -142,11 +144,7 @@ def _make_context_trimmer(context_window: int):
             if isinstance(m, ToolMessage):
                 content = str(m.content)
                 if len(content) > max_tool_chars:
-                    trimmed_n = len(content) - max_tool_chars
-                    content = (
-                        content[:max_tool_chars]
-                        + f"\n…[{trimmed_n} chars trimmed — use narrower queries to fit local context]"
-                    )
+                    content = truncate_text(content, max_tool_chars)
                     m = m.model_copy(update={"content": content})
             result.append(m)
 

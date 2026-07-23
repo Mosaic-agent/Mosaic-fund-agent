@@ -1,6 +1,6 @@
 # Agent Architecture
 
-> Last updated: 2026-06-23 (patterns: Null Object, Hook Method, table-driven routing; StateGraph workflows)
+> Last updated: 2026-07-24 (Plan-Execute-Replan workflows, context compression, plan store, multi-harness memory)
 
 This document details the multi-agent orchestration layer of the Mosaic Fund Agent platform. For the broader system architecture (data pipeline, ClickHouse schema, ML, tools), see [architecture.md](architecture.md).
 
@@ -219,6 +219,10 @@ only for synthesis and adversarial verification.
 | `run_india_equity_research(question)` | `india_equity.py` | resolve → fetch_all (12 tools, guaranteed) → synthesise | 1 | ~7,000 |
 | `run_multi_fund_consensus(period)` | `multi_fund_consensus.py` | fetch_all_funds (7 parallel) → fetch_consensus → synthesise | 1 | ~4,000 |
 | `run_portfolio_analysis()` | `portfolio_analysis.py` | discover → enrich_all → score_all → **verify_high** → fetch_macro → synthesise | N+K+1 | ~9,800 |
+| `run_signal(question)` | `signal.py` | resolve → build_plan → **[approval]** → fetch (6 parallel) → synthesise | 1 | ~4,000 |
+| `run_macro(question)` | `macro.py` | build_plan → **[approval]** → fetch (all sources parallel) → synthesise | 1 | ~3,500 |
+| `run_news(question)` | `news.py` | resolve → build_plan → **[approval]** → fetch (3 parallel) → aggregate (+ optional synth) | 0–1 | ~1,500 |
+| `run_mf_planner(question)` | `mf_planner.py` | **plan** (LLM) → **[approval]** → executor ↺ replanner loop | 2–4 | ~6,000–12,000 |
 
 ### Shared infrastructure (`base.py`)
 
@@ -258,6 +262,125 @@ Two workflows include an adversarial pass:
 
 - **`verify` (autonomous_research)** — one LLM call: "generate 3 data-grounded bear cases that could invalidate a bullish thesis". Bear cases are injected into the synthesis prompt.
 - **`verify_high` (portfolio_analysis)** — for each `HIGH`-conviction score, one LLM call tries to refute it. If refuted, conviction is downgraded to `MEDIUM` with the refutation reason appended to the rationale.
+
+### Plan-Execute-Replan Pattern
+
+**File:** `src/workflows/mf_planner.py`
+
+A new agent pattern for open-ended mutual fund queries where the data needed depends on previous results. Unlike static parallel-fetch workflows, the MF Planner dynamically adapts its execution plan based on intermediate findings.
+
+```
+User question
+     │
+     ▼
+┌──────────────┐
+│  1. Planner  │  LLM decomposes question into 2–6 ordered steps
+│  (1 LLM call)│  Pydantic schema: Plan { steps: list[str] }
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│  2. Approval │  _show_and_approve_plan() — Y/n/edit
+│  (human)     │  Only in interactive CLI sessions
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│  3. Executor │  Mini-ReAct: one tool call per step
+│  (0–1 LLM)  │  Uses full MF tool suite
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐     ┌─────────────────────────┐
+│  4. Replanner│────▶│ action: "revise"         │
+│  (1 LLM call)│     │ → rewrite remaining plan │
+│              │     │ → loop back to Executor  │
+│              │────▶│ action: "done"           │
+│              │     │ → set response, → END    │
+└──────────────┘     └─────────────────────────┘
+```
+
+**Self-improvement example:**
+- Q: "Why is DSP trimming gold?"
+- Initial plan: `[run_multi_asset_consensus, run MoM changes for DSP_MULTI_ASSET]`
+- After step 1 → consensus shows Nippon ALSO trimming gold
+- Replanner auto-adds: `[run MoM for NIPPON_INDIA_..., run_whale_tracker]`
+
+**Pydantic schemas:**
+
+```python
+class Plan(BaseModel):
+    steps: list[str]   # ordered list of 2–6 step descriptions
+
+class ReplanDecision(BaseModel):
+    action:       Literal["continue", "revise", "done"]
+    revised_plan: list[str] = []   # populated when action="revise"
+    response:     str = ""         # populated when action="done"
+```
+
+**Token savings:** ~6,000–12,000 vs ~25,000 for the ReAct equivalent (~55–76%).
+
+**State:** `MFPlanExecute(MosaicState)` — extends the shared `MosaicState` TypedDict with `input`, `past_steps`, `step_count`, `max_steps` (default 8), `response`.
+
+### Context Compression & Plan Store
+
+#### ContextManager (`context_manager.py`)
+
+**File:** `src/workflows/context_manager.py`
+
+Deterministic (no-LLM) context compression for StateGraph workflow fetch results. All compaction is rule-based — no summarisation that could lose numbers.
+
+| Component | Purpose |
+|---|---|
+| `DatasetRef` | Frozen dataclass: prompt-ready fetch output + audit metadata (`original_chars`, `compacted_chars`, `rows_deduplicated`, `truncated`) |
+| `ContextRun` | Thread-safe per-run ephemeral state (cache + artifacts list + `RLock`), scoped via `contextvars.ContextVar` |
+| `truncate_text(text, max_chars=12_000)` | Head-truncate with explicit marker: `…[N chars trimmed — use narrower queries to fit context]` |
+| `summarize_dict(raw)` | Lossless JSON serialization (no field derivation or dropping) |
+
+`_par_datasets()` in `base.py` combines parallel fan-out (`_par()`) with automatic context compression, returning `dict[str, DatasetRef]` instead of raw values. Used by signal, macro, and news workflows.
+
+#### PlanStore (`plan_store.py`)
+
+**File:** `src/workflows/plan_store.py`
+
+SQLite-backed plan persistence for workflow plan reuse and auditing.
+
+| Function | Purpose |
+|---|---|
+| `save_plan(intent, question, steps)` | Store plan as JSON file + SQLite index entry at `output/plans/` |
+| `find_similar_plans(question, intent, top_k)` | Jaccard token-overlap similarity search (no embedding model required) |
+| `load_plan(plan_id)` | Retrieve stored plan by ID |
+
+**Schema:** `plan_index` table — `id` (TEXT PK), `intent`, `question`, `steps_json`, `created_at`, `file_path`, `metadata_json`.
+
+#### MosaicState (`state.py`)
+
+**File:** `src/workflows/state.py`
+
+Shared `TypedDict` ancestor for all workflow TypedDicts (`total=False` — subclasses only populate fields they use):
+
+```python
+class MosaicState(TypedDict, total=False):
+    question: str
+    plan: list[str]
+    plan_id: str
+    datasets: dict[str, DatasetRef]
+```
+
+#### Interactive Plan Approval (`_show_and_approve_plan()`)
+
+**File:** `src/workflows/base.py`
+
+Human-in-the-loop gate used by 4 workflows (signal, macro, news, mf_planner). Before executing the plan, a Rich terminal panel displays the ordered steps and prompts for Y/n/edit. Only active in interactive CLI sessions (`MOSAIC_INTERACTIVE_CHAT="1"`).
+
+#### Shared Infrastructure Additions (`base.py`)
+
+| Function | Purpose |
+|---|---|
+| `_par_datasets(fetchers, max_chars)` | Parallel fetch + context compression → `dict[str, DatasetRef]` |
+| `_get_checkpointer()` | SQLite `SqliteSaver` for workflow resumption (same DB as chat sessions) |
+| `_thread_id()` | Deterministic thread ID generation for checkpointer keying |
+| `_show_and_approve_plan(question, plan, intent)` | Interactive Y/n/edit before workflow execution |
 
 ---
 
@@ -334,6 +457,109 @@ A **SQLite-backed cache** (`output/.cache/llm_cache.db`) stores LLM responses ke
 | Scope | Per-prompt response cache, distinct from the in-memory intent-router LRU and the joblib ML-model cache |
 
 This is the **second storage engine** in the platform: ClickHouse holds market data (the quant engines read it), SQLite holds LLM responses (the agent layer reads it). Cache state is shown at startup, e.g. `llm_cache: enabled · ttl=24h · live=178 entries · size=1228kB`.
+
+---
+
+## Agentic Memory & Harness Architecture
+
+The Mosaic platform is developed using **5 parallel agentic coding harnesses**, each with its own context injection mechanism, skills, and configuration. A layered memory hierarchy ensures consistent behaviour across all harnesses while allowing domain-specific extensions.
+
+### 5-Layer Memory Hierarchy
+
+```
+┌────────────────────────────────────────────────────────┐
+│ Level 1: Global User Mandate                          │
+│ No LLM math · Zero-Trust Grounding · QIP Dilution     │
+│ Check · DSP Conviction Signal · Single-Author Commits │
+└───────────────────────────┬────────────────────────────┘
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│ Level 2: Harness Context Files                        │
+│ AGENTS.md · GEMINI.md · docs/CLAUDE.md                │
+│ Project architecture, DB schemas, design patterns     │
+└───────────────────────────┬────────────────────────────┘
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│ Level 3: Subagent Definitions                         │
+│ .agents/agents/*.md (21 YAML-frontmatter definitions) │
+│ model, max_turns, tools, system prompts               │
+└───────────────────────────┬────────────────────────────┘
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│ Level 4: Skill Specs & Commands                       │
+│ .agents/skills/* (21 dirs) · .claude/commands/* (5)   │
+│ CLI scripts, SQL queries, domain-specific parameters  │
+└───────────────────────────┬────────────────────────────┘
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│ Level 5: Token-Compression Contracts                  │
+│ .claude/skills/caveman* (7 files, skills-lock.json)   │
+│ Cavecrew compressed output: investigator/builder/     │
+│ reviewer delegation with 60–70% token savings         │
+└────────────────────────────────────────────────────────┘
+```
+
+Each level overrides or specialises the one above. Global user mandates (Level 1) are injected by every harness and cannot be overridden by lower levels.
+
+### Harness Configuration Matrix
+
+| Harness | Context File | Config | Skills/Commands |
+|---|---|---|---|
+| **Claude Code** | `docs/CLAUDE.md` | `.claude/settings.local.json` (139 pre-approved patterns) | `.claude/commands/` (5: `/commit`, `/goldbees-pipeline`, `/intraday`, `/macro-strategy`, `/risk-governor`) + `.claude/skills/` (7 Cavecrew files + 8 Qdrant skill dirs) |
+| **Codex (OpenAI)** | `AGENTS.md` | `.codex/config.toml` (MCP server: `ofin-pipeline`) | — |
+| **Gemini CLI** | `GEMINI.md` | — | `docs/gemini-prompts.md` (20 structured prompts) |
+| **Antigravity** | `AGENTS.md` + `GEMINI.md` (both auto-loaded) | `.antigravitycli/` (workspace registration) | `.agents/agents/` (21 agent defs) + `.agents/skills/` (21 skill dirs) |
+| **Internal LangGraph** | `sub_agents/prompts.py` (`NO_LLM_CALC_RULE`) | `config/settings.py` | — |
+
+### Context File Overlap
+
+The three context files share ~70% of their content (architecture, CLI commands, ClickHouse schema, design patterns, mandatory rules). Each adds harness-specific extensions:
+
+| Content | `AGENTS.md` | `GEMINI.md` | `docs/CLAUDE.md` |
+|---|---|---|---|
+| CLI commands & scripts | ✅ | ✅ | ✅ |
+| ClickHouse DDL schemas | ✅ (full) | ✅ (full) | ✅ (summary) |
+| Qdrant vector DB reference | ✅ | ✅ | ✅ (full with backfill) |
+| Agent architecture cross-ref | ✅ | ✅ | ✅ |
+| MCP tool mapping | — | — | ✅ |
+| Antigravity slash commands | ✅ | ✅ | ✅ |
+| Claude Code slash commands | ✅ | ✅ | ✅ |
+| DSP fund scheme codes table | ✅ | — | — |
+| Gemini prompt playbook | — | — (separate file) | — |
+
+> **Note:** Future consolidation into a single source-of-truth file (e.g. `docs/project-context.md`) with harness-specific overlays would eliminate the maintenance burden of keeping three 25–30kB files in sync.
+
+### Cross-Harness Consistency Rules
+
+Six mandatory rules are enforced identically across all 5 harnesses:
+
+1. **No LLM Calculations** — all numeric work in Python/SQL; the LLM only narrates tool output
+2. **Zero-Trust Verification Protocol** — symbol-row locking, re-read mandate, overlay priority before citing any number
+3. **No Co-Authored-By** in commit messages — single-author only
+4. **QIP/dilution check** before flagging promoter sell-down — verify total share count expanded (QIP, preferential allotment, ESOP)
+5. **DSP active-fund cross-ownership** as highest-conviction single-name signal (2+ active DSP funds × 24+ months)
+6. **Pipeline grounding** — never invent composite scores, regime labels, or metrics beyond tool output
+
+### Caveman/Cavecrew Token-Compression
+
+**Source:** `JuliusBrussee/caveman` (GitHub), managed via `skills-lock.json`
+
+Three compressed-output subagent contracts for Claude Code that reduce token usage by 60–70%:
+
+| Role | Purpose | Output Format |
+|---|---|---|
+| `cavecrew-investigator` | Codebase research | File paths, line numbers, symbols — terse (~700 vs 2,000 tokens) |
+| `cavecrew-builder` | Surgical 1–2 file edits | Edit confirmation + verification in compressed format |
+| `cavecrew-reviewer` | Diff auditing | Line-level emoji severity flags (🔴 critical, 🟡 warning, 🟢 clean) |
+
+### Known Discrepancies
+
+| Issue | Detail | Status |
+|---|---|---|
+| venv path mismatch | `.codex/config.toml` and some `.claude/settings.local.json` entries reference `.venv_new/bin/python3`; `AGENTS.md`, `GEMINI.md`, and `ci.yml` standardise on `.venv/bin/python3` | Cosmetic |
+| Broken Antigravity registration | `.antigravitycli/318cb5fd-...json` is a dangling reference | Cosmetic |
+| Skill-to-command gap | 21 skill packages and 21 agent definitions, but only 5 Claude commands — high-value skills lack `.claude/commands/*.md` shortcuts | Feature gap |
+| MCP fallback inconsistency | `macro-strategy.md` directs calling MCP `run_pipeline()`; `goldbees-pipeline.md` correctly mandates direct script execution | Documentation |
 
 ---
 
@@ -534,6 +760,24 @@ graph TB
         RES["Research<br/>~30 tools"]
     end
 
+    subgraph "Workflows (StateGraph)"
+        WF_SIG["Signal<br/>~4k tokens"]
+        WF_MAC["Macro<br/>~3.5k tokens"]
+        WF_NEWS["News<br/>~1.5k tokens"]
+        WF_MF["MF Planner<br/>Plan-Execute-Replan"]
+        WF_RES["Research<br/>~8.8k tokens"]
+        WF_EQ["India Equity<br/>~7k tokens"]
+        WF_CON["Consensus<br/>~4k tokens"]
+        WF_PORT["Portfolio<br/>~9.8k tokens"]
+    end
+
+    subgraph "Workflow Infrastructure"
+        CTX["ContextManager<br/>compression + dedup"]
+        PS["PlanStore<br/>SQLite + Jaccard"]
+        MS["MosaicState<br/>shared TypedDict"]
+        AP["Plan Approval<br/>Y/n/edit gate"]
+    end
+
     subgraph "Standalone Agents"
         COMEX["ComexAgent<br/>1 tool"]
         NSENT["NewsSentimentAgent<br/>1 tool"]
@@ -545,20 +789,34 @@ graph TB
 
     subgraph "Data Layer"
         REPO["MarketDataRepository"]
-        CH[("ClickHouse<br/>market_data<br/>26 tables")]
-        SQLITE[("SQLite<br/>LLM cache<br/>24h TTL")]
+        CH[("ClickHouse<br/>market_data<br/>27 tables")]
+        SQLITE[("SQLite<br/>LLM cache 24h TTL<br/>+ plan store")]
+    end
+
+    subgraph "Agentic Memory"
+        L1["Global Rules<br/>user_global"]
+        L2["Context Files<br/>AGENTS/GEMINI/CLAUDE.md"]
+        L3["Agent Defs<br/>.agents/agents/ (21)"]
+        L4["Skills<br/>.agents/skills/ (21)"]
     end
 
     CLI --> IR
+    CLI --> WF_SIG & WF_MAC & WF_NEWS & WF_MF & WF_RES & WF_EQ & WF_CON & WF_PORT
     MCP --> CLI
     IR -->|fallback| RX
     IR --> DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES
     DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES -.->|auto| TRC & BUD
     DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES --> T
+    WF_SIG & WF_MAC & WF_NEWS & WF_MF -.-> AP
+    WF_SIG & WF_MAC & WF_NEWS & WF_MF & WF_RES & WF_EQ & WF_CON & WF_PORT -.-> CTX & MS
+    WF_MF -.-> PS
+    WF_SIG & WF_MAC & WF_NEWS & WF_MF & WF_RES & WF_EQ & WF_CON & WF_PORT --> T
     COMEX & NSENT --> T
     T --> REPO --> CH
     TRC --> CH
+    PS --> SQLITE
     DD & IE & SIG & MAC & MF & NEWS & CODE & DB & INTL & RES -.->|cache| SQLITE
+    L1 --> L2 --> L3 --> L4
 ```
 
 ---

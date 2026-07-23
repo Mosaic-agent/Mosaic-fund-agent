@@ -42,6 +42,34 @@ def test_portfolio_analysis_graph_compiles():
     assert graph is not None
 
 
+def test_enrich_all_node_populates_enriched_from_par_dicts(monkeypatch):
+    """Regression test: _enrich_all_node relies on _par() returning fetchers'
+    raw dicts untouched. A prior refactor of _par() routed every result through
+    ContextManager.compress(), which always returns a str — silently making
+    `enriched` empty (isinstance(v, dict) never matched) for every holding.
+    Uses the real (unpatched) _par() to prove the actual fetch path works."""
+    from src.workflows import portfolio_analysis as pa
+
+    class _FakeTool:
+        def __init__(self, value):
+            self._value = value
+
+        def invoke(self, *args, **kwargs):
+            return self._value
+
+    import src.tools.yahoo_finance as yf
+    import src.tools.news_search as news_search
+    import src.tools.earnings_scraper as earnings_scraper
+    monkeypatch.setattr(yf, "get_yahoo_finance_data", _FakeTool("100"))
+    monkeypatch.setattr(news_search, "get_stock_news", _FakeTool("n/a"))
+    monkeypatch.setattr(earnings_scraper, "get_quarterly_results", _FakeTool("n/a"))
+
+    state = {"holdings": [{"tradingsymbol": "RELIANCE"}, {"tradingsymbol": "TCS"}]}
+    result = pa._enrich_all_node(state)
+    assert len(result["enriched"]) == 2
+    assert {h["tradingsymbol"] for h in result["enriched"]} == {"RELIANCE", "TCS"}
+
+
 def test_all_graphs_are_cached():
     """Second call returns the same compiled instance (module-level cache)."""
     from src.workflows.autonomous_research import _build_graph as g1
@@ -81,6 +109,87 @@ def test_par_returns_empty_string_for_none():
     from src.workflows.base import _par
     results = _par({"none_returner": lambda: None})
     assert results["none_returner"] == ""
+
+
+def test_par_returns_raw_dict_untouched():
+    """_par() must NOT compress dict results — callers like
+    portfolio_analysis._enrich_all_node rely on getting the raw dict back."""
+    from src.workflows.base import _par
+    payload = {"latest_close": 123.45, "30d": {"change_pct": -2.5}}
+    results = _par({"price": lambda: payload})
+    assert results["price"] is payload
+
+
+def test_par_datasets_compresses_native_dict_without_losing_numeric_fields():
+    from src.workflows.base import _par_datasets
+    from src.workflows.context_manager import DatasetRef
+    datasets = _par_datasets({"price": lambda: {"latest_close": 123.45, "30d": {"change_pct": -2.5}}})
+    assert isinstance(datasets["price"], DatasetRef)
+    assert '"latest_close": 123.45' in datasets["price"].content
+    assert '"change_pct": -2.5' in datasets["price"].content
+
+
+def test_par_datasets_content_matches_named_field_parity():
+    """Migration invariant: the compressed content a workflow spreads onto its
+    named TypedDict fields must be byte-identical to state["datasets"][key].content."""
+    from src.workflows.base import _par_datasets
+    datasets = _par_datasets({"goldbees": lambda: "prob_up: 0.62"})
+    fields = {k: v.content for k, v in datasets.items()}
+    assert fields["goldbees"] == datasets["goldbees"].content == "prob_up: 0.62"
+
+
+def test_dataset_ref_survives_json_checkpoint_round_trip():
+    """DatasetRef must be a flat, JSON-serializable dataclass — langgraph's
+    SqliteSaver checkpoints workflow state (including state["datasets"]) between
+    graph steps, so a non-serializable field would break resumoption."""
+    import dataclasses
+    import json
+    from src.workflows.base import _par_datasets
+    datasets = _par_datasets({"macro": lambda: {"theme": "gold", "score": 12.5}})
+    payload = json.dumps({k: dataclasses.asdict(v) for k, v in datasets.items()})
+    restored = json.loads(payload)
+    assert restored["macro"]["key"] == "macro"
+    assert restored["macro"]["source_type"] == "dict"
+    assert '"theme": "gold"' in restored["macro"]["content"]
+
+
+# ── Context manager unit tests ───────────────────────────────────────────────
+
+def test_context_manager_truncates_with_marker_and_preserves_unicode():
+    from src.workflows.context_manager import ContextManager, truncate_text
+    assert truncate_text("₹abcdef", 3) == "₹ab\n…[4 chars trimmed — use narrower queries to fit context]"
+    assert ContextManager(max_chars=3).compress("any", "₹abcdef").startswith("₹ab")
+
+
+def test_context_manager_dedups_only_duplicate_markdown_rows():
+    from src.workflows.context_manager import dedup_rows
+    text = "Before\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 1 | 2 |\n| 3 | 4 |\nAfter\n"
+    result = dedup_rows(text)
+    assert result.count("| 1 | 2 |") == 1
+    assert "| 3 | 4 |" in result
+    assert result.startswith("Before\n") and result.endswith("After\n")
+
+
+def test_context_manager_fetch_cache_is_scoped_to_a_run():
+    from src.workflows.context_manager import ContextManager
+    calls = []
+    manager = ContextManager()
+    with manager.run_scope():
+        assert manager.fetch_once("same", lambda: calls.append(1) or "result") == "result"
+        assert manager.fetch_once("same", lambda: calls.append(2) or "other") == "result"
+    assert calls == [1]
+
+
+def test_context_manager_records_compaction_artifact():
+    from src.workflows.context_manager import ContextManager
+    manager = ContextManager(max_chars=3)
+    with manager.run_scope():
+        manager.compress("price", {"close": 123.45})
+        artifact = manager.artifacts[0]
+    assert artifact.key == "price"
+    assert artifact.source_type == "dict"
+    assert artifact.truncated
+    assert artifact.content.startswith("{\n ")
 
 
 # ── _get_llm() smoke test ──────────────────────────────────────────────────────
@@ -182,7 +291,8 @@ def test_macro_fetch_node_forwards_config_to_budget_handler(monkeypatch):
     result = macro._fetch_node(state, {"callbacks": [budget]})
 
     assert budget.total_tool_calls == 5
-    assert all(v == "ok" for v in result.values())
+    assert "datasets" in result and len(result["datasets"]) == 5
+    assert all(v == "ok" for k, v in result.items() if k != "datasets")
 
 
 def test_budget_handler_tool_cap_enforced_through_workflow_node(monkeypatch):
@@ -214,7 +324,7 @@ def test_budget_handler_tool_cap_enforced_through_workflow_node(monkeypatch):
     # of propagating — so the cap trip surfaces as "unavailable" placeholders, not
     # a raised exception here. What matters is that the cap was actually hit.
     assert budget.total_tool_calls >= budget.max_tool_calls
-    assert any("unavailable" in v for v in result.values())
+    assert any("unavailable" in v for k, v in result.items() if k != "datasets")
 
 
 # ── Synthesis prompts ─────────────────────────────────────────────────────────

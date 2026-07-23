@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Compass, Layers, Activity, ShieldAlert, Search, Cpu,
-  BarChart2, Database, TrendingUp, Zap, RefreshCw, Settings, MessageSquare
+  Compass, Activity, ShieldAlert, Search,
+  BarChart2, Database, TrendingUp, Zap, RefreshCw, MessageSquare
 } from "lucide-react";
-import AgentPanel from "./components/AgentPanel";
 import DashboardWorkspace from "./components/DashboardWorkspace";
 import SignalsWorkspace from "./components/SignalsWorkspace";
 import DataIngestWorkspace from "./components/DataIngestWorkspace";
@@ -15,47 +14,33 @@ import ChatWorkspace from "./components/ChatWorkspace";
 import ExplorerWorkspace from "./components/ExplorerWorkspace";
 import EtfScannerWorkspace from "./components/EtfScannerWorkspace";
 
-const NAV_PLATFORM = [
-  { key: "dashboard",     label: "Dashboard",     icon: Compass,       preset: "gold_usd" },
-  { key: "markets",       label: "Markets",       icon: Layers,        preset: "india_macro" },
-  { key: "signals",       label: "Signals",       icon: Activity },
-  { key: "explorer",      label: "Explorer",      icon: BarChart2 },
-  { key: "etf_scanner",   label: "ETF Scanner",   icon: Zap },
-  { key: "chat",          label: "AI Chat",       icon: MessageSquare },
-  { key: "screener",      label: "Screener",      icon: ShieldAlert },
-  { key: "research",      label: "Research",      icon: Search },
-  { key: "strategies",    label: "Strategies",    icon: TrendingUp },
-  { key: "agents",        label: "Agents",        icon: Cpu,           preset: "nifty_momentum" },
-  { key: "data_explorer", label: "Data Explorer", icon: Database },
-];
-
-const NAV_WORKSPACES = [
-  { key: "gold_usd",        label: "⚡ Gold vs USD",     preset: "gold_usd" },
-  { key: "india_macro",     label: "🇮🇳 India Macro",     preset: "india_macro" },
-  { key: "nifty_momentum",  label: "📈 Nifty Momentum",  preset: "nifty_momentum" },
-];
-
-const NAV_SYSTEM = [
-  { key: "whale_tracker", label: "📦 Whale Tracker" },
-  { key: "anomaly_scan",  label: "🔬 Anomaly Scan" },
-  { key: "data_ingest",   label: "📥 Data Ingest" },
+const NAVIGATION = [
+  { key: "dashboard",     label: "Overview",       icon: Compass,     preset: "gold_usd" },
+  { key: "signals",       label: "ETF Signals",    icon: Activity },
+  { key: "explorer",      label: "Market Explorer",icon: BarChart2 },
+  { key: "etf_scanner",   label: "ETF Monitor",    icon: Zap },
+  { key: "whale_tracker", label: "Fund Holdings",  icon: TrendingUp },
+  { key: "research",      label: "Research",       icon: Search },
+  { key: "screener",      label: "Dilution Review",icon: ShieldAlert },
+  { key: "data_ingest",   label: "Data Operations",icon: Database },
+  { key: "chat",          label: "Research Chat",  icon: MessageSquare },
 ];
 
 const WORKSPACE_TITLES = {
-  dashboard:     "Gold vs USD Analysis",
-  markets:       "India Macro Dashboard",
-  signals:       "ETF Signal Scoreboard",
-  screener:      "Promoter Dilution Screener",
-  research:      "Volatility Research",
-  strategies:    "Strategy Backtester",
-  agents:        "Nifty Momentum",
-  data_explorer: "Data Explorer",
-  gold_usd:      "Gold vs USD Analysis",
-  india_macro:   "India Macro Dashboard",
-  nifty_momentum:"Nifty Momentum Tracker",
-  whale_tracker: "Institutional Whale Tracker",
-  anomaly_scan:  "Anomaly Scanner",
-  data_ingest:   "Data Ingest Pipeline",
+  dashboard:     "Market overview",
+  markets:       "India macro",
+  signals:       "ETF signals",
+  screener:      "Dilution review",
+  research:      "Research",
+  strategies:    "Strategy backtest",
+  agents:        "Nifty momentum",
+  data_explorer: "Data operations",
+  gold_usd:      "Gold and USD",
+  india_macro:   "India macro",
+  nifty_momentum:"Nifty momentum",
+  whale_tracker: "Fund holdings",
+  anomaly_scan:  "Anomaly review",
+  data_ingest:   "Data operations",
 };
 
 const DASHBOARD_PRESETS = {
@@ -66,6 +51,12 @@ const DASHBOARD_PRESETS = {
   india_macro:  "india_macro",
   nifty_momentum: "nifty_momentum",
 };
+
+const DASHBOARD_OPTIONS = [
+  { key: "gold_usd", label: "Gold and USD", preset: "gold_usd" },
+  { key: "india_macro", label: "India macro", preset: "india_macro" },
+  { key: "nifty_momentum", label: "Nifty momentum", preset: "nifty_momentum" },
+];
 
 export default function App() {
   const [currentWorkspace, setCurrentWorkspace] = useState("dashboard");
@@ -116,12 +107,12 @@ export default function App() {
     }
   };
 
-  const NavItem = ({ item, isWorkspace = false }) => {
+  const NavItem = ({ item }) => {
     const Icon = item.icon;
     const active = currentWorkspace === item.key;
     return (
       <div
-        className={`nav-item ${isWorkspace ? "nav-workspace-item" : ""} ${active ? "active" : ""}`}
+        className={`nav-item ${active ? "active" : ""}`}
         onClick={() => setCurrentWorkspace(item.key)}
       >
         {Icon && <Icon size={13} />}
@@ -143,27 +134,17 @@ export default function App() {
             src="https://mosaic-agent.github.io/Mosaic-fund-agent/logo.png"
             alt="Mosaic"
           />
-          <div className="brand-title">MOSAIC<span>Studio</span></div>
-        </div>
-
-        <div className="nav-section">
-          <div className="nav-header">Platform</div>
-          {NAV_PLATFORM.map(item => <NavItem key={item.key} item={item} />)}
-        </div>
-
-        <div className="nav-section">
-          <div className="nav-header">Workspaces</div>
-          {NAV_WORKSPACES.map(item => <NavItem key={item.key} item={item} isWorkspace />)}
+          <div className="brand-title">Mosaic<span>Research</span></div>
         </div>
 
         <div className="nav-section" style={{ flex: 1 }}>
-          <div className="nav-header">System Desk</div>
-          {NAV_SYSTEM.map(item => <NavItem key={item.key} item={item} isWorkspace />)}
+          <div className="nav-header">Research desk</div>
+          {NAVIGATION.map(item => <NavItem key={item.key} item={item} />)}
         </div>
 
         <div className="sidebar-status">
           <span className="sidebar-status-dot" />
-          ClickHouse Connected
+          Data service connected
         </div>
       </aside>
 
@@ -177,7 +158,7 @@ export default function App() {
                 className="workspace-select"
                 value={currentPreset}
                 onChange={e => {
-                  const found = NAV_WORKSPACES.find(w => w.preset === e.target.value);
+                  const found = DASHBOARD_OPTIONS.find(w => w.preset === e.target.value);
                   if (found) setCurrentWorkspace(found.key);
                   else setCurrentWorkspace(e.target.value);
                 }}
@@ -189,6 +170,10 @@ export default function App() {
             )}
           </div>
           <div className="header-right">
+            <span className={`run-status ${agentActivity.isRunning ? "working" : ""}`}>
+              <span />
+              {agentActivity.isRunning ? agentActivity.label : "Data service connected"}
+            </span>
             <span className="header-clock">{clock}</span>
             <button
               className="btn-action"
@@ -200,7 +185,7 @@ export default function App() {
               className="btn-action btn-primary"
               onClick={() => setCurrentWorkspace("strategies")}
             >
-              New Analysis
+              Run analysis
             </button>
           </div>
         </header>
@@ -210,10 +195,6 @@ export default function App() {
         </div>
       </main>
 
-      {/* ── RIGHT PANEL ───────────────────────────────────────── */}
-      <aside className="right-panel">
-        <AgentPanel activity={agentActivity} />
-      </aside>
     </div>
   );
 }

@@ -20,16 +20,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .base import _get_llm, _par, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
 
-class PortfolioState(TypedDict):
+class PortfolioState(MosaicState):
     holdings: list          # raw rows from user_holdings
     enriched: list          # [{symbol, price, news, earnings}]
     scored: list            # [{symbol, action, conviction, rationale}]
@@ -199,11 +199,11 @@ def _fetch_macro_node(state: PortfolioState) -> dict:
         from src.tools.indian_equity_tools import get_fii_dii_summary
         return get_fii_dii_summary.invoke({"days": 7})
 
-    results = _par({"comex": _comex, "macro": _macro, "fii": _fii})
+    datasets = _par_datasets({"comex": _comex, "macro": _macro, "fii": _fii})
     macro_context = "\n\n---\n\n".join(
-        f"## {k.title()}\n{v}" for k, v in results.items()
+        f"## {k.title()}\n{v.content}" for k, v in datasets.items()
     )
-    return {"macro_context": macro_context}
+    return {"macro_context": macro_context, "datasets": datasets}
 
 
 def _synthesise_node(state: PortfolioState) -> dict:
@@ -288,6 +288,6 @@ def run() -> str:
     config = {"configurable": {"thread_id": _thread_id("portfolio_analysis", str(date.today()))}}
     result = graph.invoke({
         "holdings": [], "enriched": [], "scored": [],
-        "verified": [], "macro_context": "", "report": "",
+        "verified": [], "macro_context": "", "datasets": {}, "report": "",
     }, config=config)
     return result.get("report", "*Portfolio workflow returned no report*")

@@ -20,13 +20,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 
-from .base import _get_llm, _par, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
+from .base import _get_llm, _par_datasets, SYNTH_SUFFIX, _get_checkpointer, _thread_id, _show_and_approve_plan
 from .plan_store import save_plan
+from .state import MosaicState
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,9 @@ _ANALYSIS_KEYWORDS = frozenset({
 })
 
 
-class NewsState(TypedDict):
-    question:     str
+class NewsState(MosaicState):
     symbol:       str   # resolved NSE ticker (empty → broad query)
     company_name: str
-    plan:         list
-    plan_id:      str
     needs_llm:    bool  # True → run LLM synthesis after aggregation
     # ── fetched data ──────────────────────────────────────────────────────
     gnews:    str       # get_stock_news
@@ -107,7 +104,8 @@ def _fetch_node(state: NewsState, config: RunnableConfig) -> dict:
             return str(run_etf_news_sentiment.invoke({"save": False}, config=config))
         fetchers["etf_scan"] = _etf_scan
 
-    return _par(fetchers)
+    datasets = _par_datasets(fetchers)
+    return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
 
 def _infer_category(question: str) -> str:
@@ -263,6 +261,7 @@ def run(question: str, callbacks: list | None = None) -> str:
         "newsapi":      "",
         "db_news":      "",
         "etf_scan":     "",
+        "datasets":     {},
         "report":       "",
     }
     result = graph.invoke(initial_state, config=config)
