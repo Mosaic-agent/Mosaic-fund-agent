@@ -190,6 +190,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         "(1b) Price Anomalies & Shock Events — summarise the dates, price shocks, and underlying news/macro causes retrieved from search_anomaly_events (explain the anomalies/red dots on the chart)  "
         "(1c) Event Correlation Analysis — include the full output of find_anomaly_correlations verbatim (attribution table, mapped anomalies timeline, FX validation block, and attribution summary). "
         "Write `[CHART:correlation_timeline]` then `[CHART:lead_lag_grid]` on their own lines immediately after the attribution table so the charts appear inline.  "
+        "(1d) Volume & Liquidity Pattern — summarise average daily volume (30d ADV), recent volume vs 20d MA expansion/contraction ratio, volume Z-scores, and institutional block volume probability (`p_institutional` from search_anomaly_events).  "
         "(2) Financials table  (3) Valuation vs sector  "
         "(4) Cash Flow quality  "
         "(5) Institutional Ownership — write `[CHART:shareholding]` on its own line where the shareholding bar should appear, then the "

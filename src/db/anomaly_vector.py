@@ -292,6 +292,7 @@ def retrieve_similar_anomalies(
     k: int = 5,
     category: str = "",
     same_asset_only: bool = False,
+    exclude_window_days: int = 0,
 ) -> list[dict]:
     """
     Find past anomaly events semantically similar to the given regime + context.
@@ -300,13 +301,14 @@ def retrieve_similar_anomalies(
     `market_anomalies` collection by vector similarity.
 
     Args:
-        symbol:          The asset symbol (e.g. "GOLDBEES").
-        regime:          The anomaly regime label (e.g. "⚡ Flash Crash / Black Swan (EXIT)").
-        trade_date:      The anomaly date — used to exclude future-leaking matches
-                         that are within 30 days of the query date.
-        k:               Number of similar events to return.
-        category:        Optional asset category for richer query context.
-        same_asset_only: If True, restrict results to the same symbol.
+        symbol:              The asset symbol (e.g. "GOLDBEES").
+        regime:              The anomaly regime label (e.g. "⚡ Flash Crash / Black Swan (EXIT)").
+        trade_date:          The query anomaly date.
+        k:                   Number of similar events to return.
+        category:            Optional asset category for richer query context.
+        same_asset_only:     If True, restrict results to the same symbol.
+        exclude_window_days: Optional calendar days window around query date to exclude.
+                             Defaults to 0 (do not exclude surrounding dates).
 
     Returns:
         List of dicts with keys: symbol, category, trade_date, regime,
@@ -324,11 +326,6 @@ def retrieve_similar_anomalies(
     if all(v == 0.0 for v in query_vec):
         return []
 
-    # Exclude a 30-day window around the query date to avoid trivial self-matches
-    ts = _to_ts(trade_date)
-    exclusion_lo = ts - 30 * 86400
-    exclusion_hi = ts + 30 * 86400
-
     try:
         must_conditions = []
         if same_asset_only:
@@ -336,12 +333,17 @@ def retrieve_similar_anomalies(
                 FieldCondition(key="symbol", match=MatchValue(value=symbol))
             )
 
-        # Two searches: before and after the exclusion window, then merge
+        ts = _to_ts(trade_date)
+        if exclude_window_days > 0:
+            exclusion_lo = ts - exclude_window_days * 86400
+            exclusion_hi = ts + exclude_window_days * 86400
+            ranges = [(0.0, exclusion_lo), (exclusion_hi, ts + 10 * 365 * 86400)]
+        else:
+            ranges = [(0.0, float(2e9))]
+
         results_all: list[dict] = []
-        for (lo, hi) in [
-            (0.0, exclusion_lo),
-            (exclusion_hi, ts + 10 * 365 * 86400),
-        ]:
+        query_date_str = str(trade_date)[:10]
+        for (lo, hi) in ranges:
             range_conds = list(must_conditions) + [
                 FieldCondition(key="trade_timestamp", range=Range(gte=lo, lte=hi))
             ]
@@ -349,11 +351,15 @@ def retrieve_similar_anomalies(
                 collection_name=_COLLECTION,
                 query=query_vec,
                 query_filter=Filter(must=range_conds),
-                limit=k,
+                limit=k * 2,
                 with_payload=True,
             )
             for hit in hits.points:
                 p = hit.payload or {}
+                p_date = str(p.get("trade_date", ""))[:10]
+                # Exclude only exact self-match date if querying same event
+                if p_date == query_date_str and p.get("symbol") == symbol:
+                    continue
                 results_all.append({
                     "symbol":       p.get("symbol", ""),
                     "category":     p.get("category", ""),

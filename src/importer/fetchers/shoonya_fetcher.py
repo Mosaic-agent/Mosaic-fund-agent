@@ -313,11 +313,61 @@ def fetch_shoonya_ohlcv(
                 log.debug("Shoonya: bad bar for %s: %s — %s", nse_sym, bar, exc)
                 continue
 
+        # If the daily series is missing recent dates up to to_date/today, try intraday aggregation fallback
+        parsed_dates = {r["trade_date"] for r in rows if r["symbol"] == nse_sym}
+        check_date = from_date
+        max_check = min(to_date, date.today())
+        while check_date <= max_check:
+            if check_date.weekday() < 5 and check_date not in parsed_dates:
+                extra_bar = _fetch_shoonya_intraday_eod(api, nse_sym, category, check_date)
+                if extra_bar:
+                    rows.append(extra_bar)
+                    parsed_dates.add(check_date)
+            check_date += timedelta(days=1)
+
         # Be polite — Shoonya has no documented rate limit but avoid hammering
         time.sleep(0.1)
 
     log.info("Shoonya: fetched %d rows for %s (%s→%s)", len(rows), category, from_date, to_date)
     return rows
+
+
+def _fetch_shoonya_intraday_eod(api, nse_sym: str, category: str, target_date: date) -> dict[str, Any] | None:
+    """Aggregate 1-minute intraday bars from Shoonya into an EOD bar when get_daily_price_series lags."""
+    try:
+        from src.tools.shoonya_tools import _resolve_token
+        token_info = _resolve_token(api, nse_sym)
+        if not token_info:
+            return None
+        token, _tsym = token_info
+        exchange = "NSE"
+        start_ts = int(datetime.combine(target_date, datetime.min.time()).timestamp())
+        end_ts   = int(datetime.combine(target_date, datetime.max.time()).timestamp())
+        bars = api.get_time_price_series(exchange=exchange, token=token, starttime=start_ts, endtime=end_ts)
+        if not bars or not isinstance(bars, list):
+            return None
+        valid_bars = [b for b in bars if isinstance(b, dict) and b.get("ssboe") and b.get("into")]
+        if not valid_bars:
+            return None
+        valid_bars.sort(key=lambda x: int(x["ssboe"]))
+        open_p  = float(valid_bars[0]["into"])
+        high_p  = max(float(b["inth"]) for b in valid_bars)
+        low_p   = min(float(b["intl"]) for b in valid_bars)
+        close_p = float(valid_bars[-1]["intc"])
+        vol     = sum(float(b.get("intv", 0)) for b in valid_bars)
+        return {
+            "symbol":     nse_sym,
+            "category":   category,
+            "trade_date": target_date,
+            "open":       open_p,
+            "high":       high_p,
+            "low":        low_p,
+            "close":      close_p,
+            "volume":     vol,
+        }
+    except Exception as exc:
+        log.debug("Shoonya intraday fallback failed for %s on %s: %s", nse_sym, target_date, exc)
+        return None
 
 
 def _parse_shoonya_date(raw: str) -> date | None:

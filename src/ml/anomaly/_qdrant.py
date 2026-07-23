@@ -19,6 +19,7 @@ def retrieve_similar_anomalies(
     k: int = 5,
     category: str = "",
     same_asset_only: bool = False,
+    exclude_window_days: int = 0,
 ) -> list[dict]:
     """Retrieve past anomaly events semantically similar to the given regime+context.
 
@@ -37,6 +38,7 @@ def retrieve_similar_anomalies(
             k=k,
             category=category,
             same_asset_only=same_asset_only,
+            exclude_window_days=exclude_window_days,
         )
     except (ImportError, ConnectionError, OSError) as e:
         # Qdrant unavailable — expected in offline or non-vectorised environments
