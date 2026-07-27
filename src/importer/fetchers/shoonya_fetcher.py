@@ -329,6 +329,20 @@ def fetch_shoonya_ohlcv(
         # Be polite — Shoonya has no documented rate limit but avoid hammering
         time.sleep(0.1)
 
+    # Batch WebSocket fallback for today's price if still missing
+    today = date.today()
+    if from_date <= today <= to_date:
+        missing_today_symbols = []
+        for nse_sym, yahoo_sym in symbols:
+            symbol_has_today = any(r["symbol"] == nse_sym and r["trade_date"] == today for r in rows)
+            if not symbol_has_today:
+                missing_today_symbols.append((nse_sym, yahoo_sym))
+        
+        if missing_today_symbols:
+            log.info("Shoonya: %d symbol(s) missing today's bar. Attempting WebSocket touchline fetch...", len(missing_today_symbols))
+            ws_rows = _fetch_shoonya_websocket_today_batch(api, missing_today_symbols, category, today)
+            rows.extend(ws_rows)
+
     log.info("Shoonya: fetched %d rows for %s (%s→%s)", len(rows), category, from_date, to_date)
     return rows
 
@@ -379,3 +393,99 @@ def _parse_shoonya_date(raw: str) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def _fetch_shoonya_websocket_today_batch(
+    api,
+    symbols: list[tuple[str, str]],
+    category: str,
+    today_date: date,
+) -> list[dict[str, Any]]:
+    """
+    Connect to Shoonya WebSocket, subscribe to all symbols in parallel,
+    wait for touchline tick data, and format them as EOD bars for today.
+    """
+    import queue
+    import threading
+    from src.tools.shoonya_tools import _resolve_token
+
+    token_to_symbol = {}
+    tokens = []
+    for nse_sym, _yf_sym in symbols:
+        token_info = _resolve_token(api, nse_sym)
+        if token_info:
+            token, _tsym = token_info
+            token_to_symbol[token] = nse_sym
+            tokens.append(f"NSE|{token}")
+
+    if not tokens:
+        return []
+
+    ticks = {}
+    ticks_lock = threading.Lock()
+    all_done = threading.Event()
+
+    def on_feed(tick_data):
+        if not tick_data or tick_data.get("t") not in ("tk", "tf"):
+            return
+        token = tick_data.get("tk")
+        if not token or token not in token_to_symbol:
+            return
+
+        lp = tick_data.get("lp")
+        o = tick_data.get("o")
+        h = tick_data.get("h")
+        l = tick_data.get("l")
+        v = tick_data.get("v")
+
+        # We need touchline values (last traded price, open, high, low, volume)
+        if all(x is not None for x in (lp, o, h, l, v)):
+            with ticks_lock:
+                ticks[token] = tick_data
+                if len(ticks) == len(tokens):
+                    all_done.set()
+
+    try:
+        api.start_websocket(
+            order_update_callback=lambda x: None,
+            subscribe_callback=on_feed,
+            socket_open_callback=lambda: api.subscribe(tokens),
+        )
+        # Wait up to 3 seconds for all ticks to arrive
+        all_done.wait(timeout=3.0)
+    except Exception as exc:
+        log.warning("Shoonya: WebSocket batch fetch failed: %s", exc)
+    finally:
+        try:
+            api.close_websocket()
+        except Exception:
+            pass
+
+    # Construct EOD rows from cached ticks
+    ws_rows = []
+    with ticks_lock:
+        for token, tick in ticks.items():
+            symbol = token_to_symbol[token]
+            try:
+                close = float(tick["lp"])
+                if close <= 0:
+                    continue
+                ws_rows.append({
+                    "symbol":     symbol,
+                    "category":   category,
+                    "trade_date": today_date,
+                    "open":       float(tick.get("o") or close),
+                    "high":       float(tick.get("h") or close),
+                    "low":        float(tick.get("l") or close),
+                    "close":      close,
+                    "volume":     float(tick.get("v") or 0),
+                })
+            except (ValueError, TypeError, KeyError) as e:
+                log.debug("Shoonya: WebSocket parse failed for %s: %s", symbol, e)
+                continue
+
+    log.info(
+        "Shoonya: WebSocket touchline fetch completed. Retrieved %d rows out of %d requested.",
+        len(ws_rows), len(symbols)
+    )
+    return ws_rows
