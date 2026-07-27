@@ -457,7 +457,14 @@ def _fetch_shoonya_websocket_today_batch(
         log.warning("Shoonya: WebSocket batch fetch failed: %s", exc)
     finally:
         try:
-            api.close_websocket()
+            def _close():
+                try:
+                    api.close_websocket()
+                except Exception:
+                    pass
+            t = threading.Thread(target=_close, daemon=True)
+            t.start()
+            t.join(timeout=2.0)
         except Exception:
             pass
 
