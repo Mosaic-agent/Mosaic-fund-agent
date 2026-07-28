@@ -49,7 +49,8 @@ def fetch_nselib_ohlcv(
     rows: list[dict[str, Any]] = []
 
     for idx, (nse_sym, _yahoo_sym) in enumerate(symbols, 1):
-        print(f"    [{idx}/{len(symbols)}] Fetching {nse_sym} via nselib...", flush=True)
+        pct = (idx / len(symbols)) * 100
+        print(f"    [{idx}/{len(symbols)} - {pct:.1f}%] Fetching {nse_sym} via nselib...", flush=True)
         try:
             df = capital_market.price_volume_and_deliverable_position_data(
                 nse_sym,
