@@ -1,6 +1,6 @@
 # Agent Architecture
 
-> Last updated: 2026-07-24 (Plan-Execute-Replan workflows, context compression, plan store, multi-harness memory)
+> Last updated: 2026-07-30 (Declarative agent orchestration, notice replacement trimmer, event bus observers, RAG architecture)
 
 This document details the multi-agent orchestration layer of the Mosaic Fund Agent platform. For the broader system architecture (data pipeline, ClickHouse schema, ML, tools), see [architecture.md](architecture.md).
 
