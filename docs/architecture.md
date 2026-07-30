@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-07-24 (8 workflows, Plan-Execute-Replan, multi-harness context)
+> Last updated: 2026-07-30 (Observer EventBus, Declarative Orchestration, RAG Architecture, ClickHouse Repository)
 
 Mosaic Fund Agent is a multi-source financial intelligence platform for Indian equity and commodity markets. It ingests market data into ClickHouse, scores assets across six independent signal pillars, runs ML forecasting and anomaly detection, and surfaces actionable recommendations via CLI, scripts, and a Streamlit UI.
 
