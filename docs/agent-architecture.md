@@ -53,7 +53,57 @@ User Query
 
 ---
 
-## Intent Router
+## Declarative Agent Orchestration & Playbooks
+
+**Directory:** `src/agents/declarative/` & `config/agents/`
+
+Mosaic supports **configuration-driven declarative playbooks** (`config/agents/*.yaml`) for predictable, zero-hallucination agent execution.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Declarative Execution Pipeline                              │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Pydantic Spec Validation  │ declarative_spec.py          │
+│ 2. Parallel auto_tools Fetch │ ThreadPoolExecutor + 30s cap │
+│ 3. LLM Reason Pass (XML tags)│ Claude-native prompt tags    │
+│ 4. Jinja2 Template Rendering │ safe_from_json + xml_tag     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+1. **Pydantic Contract Validator (`declarative_spec.py`)**:
+   - Parses YAML playbooks into strongly-typed `DeclarativeAgentSpec` instances.
+   - Enforces strict validation on Jinja2 template syntax, step IDs, model tags, and step-type parameters (`auto_tools`, `reason`, `template_output`, `use_tools`).
+
+2. **Multi-Threaded Execution Engine (`declarative_runner.py`)**:
+   - Manages an in-memory thread-safe `ContextRun` blackboard mapping `step_id` outputs to template contexts.
+   - Executes deterministic `auto_tools` tool calls concurrently via `ThreadPoolExecutor` with a default 30-second per-tool timeout.
+   - Includes custom Jinja2 filters: `from_json` (safely parses JSON strings) and `xml_tag` (wraps content in XML tags).
+
+3. **Sub-Agent Registry Adapter (`DeclarativeSubAgentAdapter` in `registry.py`)**:
+   - `get_subagent(intent)` automatically detects `config/agents/<intent>.yaml` playbooks.
+   - Extracts stock/ETF symbols accurately via `resolve_company_info` and regex heuristics.
+   - Wires `callbacks` (such as `TracingCallbackHandler`) directly into the runner so all tool execution steps are logged to `market_data.agent_traces` in ClickHouse.
+
+4. **Claude-Native XML Tag Structuring**:
+   - Prompts and templates in playbooks (`india_equity.yaml`, `goldbees_pipeline.yaml`) wrap data boundaries and directives in explicit XML tags (`<task_context>`, `<source_priority>`, `<market_data>`, `<instructions>`).
+   - Enforces price priority rules: **Shoonya Live LTP** $\rightarrow$ **ClickHouse NSE EOD** $\rightarrow$ **Yahoo Finance**.
+
+---
+
+## Notice Replacement Context Trimmer
+
+**File:** `src/agents/sub_agents/infra.py` → `_make_context_trimmer()`
+
+For multi-turn ReAct loops running on local models, Mosaic uses **Notice Replacement** to manage context window budgets without triggering agent amnesia:
+
+- **Current Turn Tool Cap**: Hard-truncates current-turn `ToolMessage` outputs exceeding 10% of context capacity.
+- **Notice Replacement Phase**: When total prompt tokens exceed 50% capacity, verbose historical `ToolMessage` outputs from prior turns are collapsed into compact metadata notices (`[Historical Tool Result Pruned: tool 'get_company_snapshot' (original size 4,200 chars)...]`).
+- **Preserves Reasoning History**: Keeps 100% of past `AIMessage` thoughts and tool-call signatures intact.
+- **Emergency Fallback**: Evicts the oldest full round-trip only as a last resort if prompt tokens still exceed capacity.
+
+---
 
 **File:** `src/agents/intent_router.py`
 
