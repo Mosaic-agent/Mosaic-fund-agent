@@ -471,18 +471,21 @@ class MosaicFundAgent:
                     max_tokens=settings.llm_token_budget,
                 )
 
-            extra_body = {"options": {"num_ctx": settings.llm_context_window}}
-            if settings.llm_think:
-                extra_body["think"] = True  # Ollama thinking flag
+            is_ollama = "ollama" in settings.llm_base_url.lower() or "11434" in settings.llm_base_url.lower()
+            extra_body: dict = {}
+            if is_ollama:
+                extra_body["options"] = {"num_ctx": settings.llm_context_window}
+                if settings.llm_think:
+                    extra_body["think"] = True  # Ollama thinking flag
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
-                extra_body=extra_body,
+                extra_body=extra_body if extra_body else None,
                 timeout=settings.llm_request_timeout,
-                streaming=settings.llm_think,
+                streaming=settings.llm_think if is_ollama else False,
             )
 
         # ── OpenRouter cloud ───────────────────────────────────────────────────
@@ -596,13 +599,14 @@ class MosaicFundAgent:
 
         if settings.code_llm_base_url:
             from langchain_openai import ChatOpenAI
+            is_ollama = "ollama" in settings.code_llm_base_url.lower() or "11434" in settings.code_llm_base_url.lower()
             return ChatOpenAI(
                 model=model,
                 base_url=settings.code_llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=budget,
-                extra_body={"options": {"num_ctx": ctx}},
+                extra_body={"options": {"num_ctx": ctx}} if is_ollama else None,
             )
 
         if provider == "anthropic":
@@ -1054,9 +1058,11 @@ class MosaicFundAgent:
                     return f"Error: {fallback_exc}"
             
             if is_connection_error:
-                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
+                from src.utils.error_utils import format_agent_error
+                return format_agent_error("MosaicFundAgent", f"{exc}{_CONN_TROUBLESHOOTING}", "Connection to local/cloud LLM endpoint failed.")
             logger.error("Agent query failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+            from src.utils.error_utils import format_agent_error
+            return format_agent_error("MosaicFundAgent", exc, "Main agent query execution failed. Portfolio synthesis could not be completed.")
 
     def chat(self, question: str, thread_id: str = "default", forced_intent: str | None = None) -> str:
         """
@@ -1285,9 +1291,11 @@ class MosaicFundAgent:
                     return f"Error: {fb_exc}"
             
             if is_connection_error:
-                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
+                from src.utils.error_utils import format_agent_error
+                return format_agent_error("MosaicFundAgent", f"{exc}{_CONN_TROUBLESHOOTING}", "Connection to local/cloud LLM endpoint failed.")
             logger.error("chat() failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+            from src.utils.error_utils import format_agent_error
+            return format_agent_error("MosaicFundAgent", exc, "Multi-turn conversation step failed. Agent state updated with error.")
 
     # ── Private Helpers ───────────────────────────────────────────────────────
 

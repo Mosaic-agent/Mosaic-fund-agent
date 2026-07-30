@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import time
 from datetime import date
 from typing import Any
 
@@ -777,6 +778,7 @@ def run_trend_prediction(
     ch_database: str = "market_data",
     ch_user: str = "default",
     ch_password: str = "",
+    force: bool = False,
 ) -> dict[str, Any]:
     """
     End-to-end LightGBM trend predictor.
@@ -799,6 +801,25 @@ def run_trend_prediction(
       as_of                date
       horizon_days         int
     """
+    start_time_sec = time.time()
+    manifest_details = {}
+    if symbol == "GOLDBEES":
+        try:
+            from src.pipeline.manifest import ManifestTracker, ML_PREDICTIONS, StageStatus
+            tracker = ManifestTracker()
+            status, manifest_details = tracker.check(ML_PREDICTIONS)
+            if status == StageStatus.FRESH and not force:
+                if verbose:
+                    log.info("ManifestTracker: ml_predictions FRESH for %s — skipping recomputation", symbol)
+                from src.db.repository import MarketDataRepository
+                repo = MarketDataRepository()
+                latest = repo.latest_ml_prediction()
+                if latest:
+                    latest["is_cached_manifest"] = True
+                    return latest
+        except Exception as _m_err:
+            log.warning("Manifest check failed for ml_predictions: %s", _m_err)
+
     from src.db.pool import get_pool as _get_ch_pool
     client = _get_ch_pool().get_client()  # unmanaged; closed after master table build
     try:
@@ -1009,6 +1030,14 @@ def run_trend_prediction(
             "Prediction: %+.3f%% in %dd | regime=%s | CV R²=%.4f | hit=%.3f",
             pred, horizon, regime, result["cv_r2_mean"], result["cv_hit_ratio_mean"],
         )
+    if symbol == "GOLDBEES":
+        try:
+            from src.pipeline.manifest import ManifestTracker, ML_PREDICTIONS
+            tracker = ManifestTracker()
+            duration_ms = int((time.time() - start_time_sec) * 1000)
+            tracker.record(ML_PREDICTIONS, manifest_details, duration_ms=duration_ms)
+        except Exception as _m_rec_err:
+            log.warning("Manifest record failed for ml_predictions: %s", _m_rec_err)
     return result
 
 

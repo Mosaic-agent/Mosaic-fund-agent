@@ -193,7 +193,13 @@ def get_comex_pre_market_context() -> dict[str, Any]:
             ),
         }
     except Exception as exc:
-        return {"error": str(exc)}
+        from src.utils.error_utils import format_tool_error
+        impact = "Impact: Could not determine market opening context. Downstream pre-market timing analysis relies on default timing."
+        return {
+            "error": str(exc),
+            "impact": impact,
+            "error_message": format_tool_error("get_comex_pre_market_context", exc, impact),
+        }
 
 
 # All tools for this agent
@@ -244,13 +250,14 @@ class ComexAgent:
                 settings.llm_model,
                 settings.llm_base_url,
             )
+            is_ollama = "ollama" in settings.llm_base_url.lower() or "11434" in settings.llm_base_url.lower()
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
-                extra_body={"options": {"num_ctx": settings.llm_context_window}},
+                extra_body={"options": {"num_ctx": settings.llm_context_window}} if is_ollama else None,
             )
 
         if settings.llm_provider.lower() == "anthropic":

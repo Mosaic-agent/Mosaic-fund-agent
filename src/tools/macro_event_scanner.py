@@ -601,15 +601,20 @@ def _fetch_quant_overlay() -> QuantOverlay:
         import numpy as np
         from concurrent.futures import ThreadPoolExecutor
 
+        from config.settings import settings
+        from src.db.pool import CHPool, get_pool as _get_ch_pool
+
+        if not CHPool._is_port_open(settings.clickhouse_host, settings.clickhouse_port):
+            log.debug("Macro scanner quant overlay: ClickHouse %s:%s not reachable, skipping DB overlay.", settings.clickhouse_host, settings.clickhouse_port)
+            return None
+
         # Each concurrent query gets its own pooled connection — the pool's
         # acquire() context manager guarantees exclusive per-thread checkout.
-        from src.db.pool import get_pool as _get_ch_pool
         _pool = _get_ch_pool()
 
         # Ensure all tables exist before querying (e.g. on new setup or new migration tables)
         try:
             from src.importer.clickhouse import ClickHouseImporter
-            from config.settings import settings
             ch = ClickHouseImporter(
                 host     = settings.clickhouse_host,
                 port     = settings.clickhouse_port,

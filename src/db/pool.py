@@ -102,17 +102,31 @@ class CHPool:
         self._all: list = []
         self._lock = threading.RLock()
 
-        # Pre-warm min_size connections
-        for _ in range(min_size):
-            try:
-                self._idle.put(self._new_client())
-            except Exception as exc:
-                log.warning("CHPool: pre-warm failed (%s) — pool will grow lazily", exc)
+        # Pre-warm min_size connections if ClickHouse host is reachable
+        if self._is_port_open(host, port):
+            for _ in range(min_size):
+                try:
+                    self._idle.put(self._new_client())
+                except Exception as exc:
+                    log.warning("CHPool: pre-warm failed (%s) — pool will grow lazily", exc)
+                    break
+        else:
+            log.debug("CHPool: %s:%s not reachable — pre-warm skipped, pool will grow lazily", host, port)
 
         log.debug(
             "CHPool ready — %d/%d connections warm (%s:%s/%s)",
             self._idle.qsize(), max_size, host, port, database,
         )
+
+    @staticmethod
+    def _is_port_open(host: str, port: int, timeout: float = 0.2) -> bool:
+        """Check if TCP port is accepting connections before pre-warming."""
+        import socket
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except (OSError, TimeoutError):
+            return False
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

@@ -271,13 +271,14 @@ class NewsSentimentAgent:
                 settings.llm_model,
                 settings.llm_base_url,
             )
+            is_ollama = "ollama" in settings.llm_base_url.lower() or "11434" in settings.llm_base_url.lower()
             return ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 temperature=0,
                 max_tokens=settings.llm_token_budget,
-                extra_body={"options": {"num_ctx": settings.llm_context_window}},
+                extra_body={"options": {"num_ctx": settings.llm_context_window}} if is_ollama else None,
             )
 
         if settings.llm_provider.lower() == "anthropic":

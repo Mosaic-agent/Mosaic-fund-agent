@@ -55,7 +55,10 @@ def _run_cmd(args: list[str]) -> str:
             output += "\n--- STDERR ---\n" + res.stderr
         return _clean_terminal_output(output)
     except Exception as e:
-        return f"Error executing command {' '.join(cmd)}: {e}"
+        from src.utils.error_utils import format_tool_error
+        cmd_str = " ".join(cmd)
+        impact = f"Subprocess command '{cmd_str}' failed to execute. Output data from this tool is unavailable for LLM synthesis."
+        return format_tool_error(cmd_str, e, impact)
 
 
 def _run_cmd_streaming(args: list[str]) -> str:
@@ -81,7 +84,11 @@ def _run_cmd_streaming(args: list[str]) -> str:
         proc.wait()
         rc = proc.returncode
     except Exception as exc:
-        return f"Import error: {exc}\n" + "\n".join(collected[:40])
+        from src.utils.error_utils import format_tool_error
+        cmd_str = " ".join(cmd)
+        impact = f"Data import process '{cmd_str}' raised an exception. Subsequent queries may operate on stale or missing market data."
+        err_msg = f"Import error: {exc}\n" + "\n".join(collected[:40])
+        return format_tool_error(cmd_str, err_msg, impact)
     if len(collected) > 40:
         truncated_count = len(collected) - 30
         summary_lines = (
@@ -93,7 +100,7 @@ def _run_cmd_streaming(args: list[str]) -> str:
     else:
         result = "\n".join(collected) if collected else "Import completed (no output)."
     if rc != 0:
-        result += f"\n[Process exited with code {rc}]"
+        result += f"\n[Process exited with non-zero code {rc}. Impact: Importer or CLI script completed with errors. Partial logs shown above; complete data sync may be missing.]"
     return result
 
 

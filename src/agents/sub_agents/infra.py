@@ -68,21 +68,26 @@ def _wrap_tool_for_dedup(tool: Any) -> Any:
 
     if original_func is not None:
         def cached_func(*args: Any, **kwargs: Any) -> Any:
+            from src.utils.error_utils import format_tool_error
             cache = _dedup_cache.get()
-            if cache is None:
-                return original_func(*args, **kwargs)
-            key = _make_key(args, kwargs)
-            if key is None:
-                return original_func(*args, **kwargs)
-            if key in cache:
-                logger.info(
-                    "tool dedup: %s called twice with same args this turn — returning cached result",
-                    tool_name,
-                )
-                return cache[key]
-            result = original_func(*args, **kwargs)
-            cache[key] = result
-            return result
+            try:
+                if cache is None:
+                    return original_func(*args, **kwargs)
+                key = _make_key(args, kwargs)
+                if key is None:
+                    return original_func(*args, **kwargs)
+                if key in cache:
+                    logger.info(
+                        "tool dedup: %s called twice with same args this turn — returning cached result",
+                        tool_name,
+                    )
+                    return cache[key]
+                result = original_func(*args, **kwargs)
+                cache[key] = result
+                return result
+            except Exception as exc:
+                logger.error("Tool execution failed for %s: %s", tool_name, exc)
+                return format_tool_error(tool_name, exc)
 
         # StructuredTool stores `func` as a Pydantic field — assignment is allowed,
         # but goes through Pydantic validation.  Use object.__setattr__ to bypass.
@@ -90,21 +95,26 @@ def _wrap_tool_for_dedup(tool: Any) -> Any:
 
     if original_coro is not None:
         async def cached_coro(*args: Any, **kwargs: Any) -> Any:
+            from src.utils.error_utils import format_tool_error
             cache = _dedup_cache.get()
-            if cache is None:
-                return await original_coro(*args, **kwargs)
-            key = _make_key(args, kwargs)
-            if key is None:
-                return await original_coro(*args, **kwargs)
-            if key in cache:
-                logger.info(
-                    "tool dedup: %s called twice with same args this turn — returning cached result",
-                    tool_name,
-                )
-                return cache[key]
-            result = await original_coro(*args, **kwargs)
-            cache[key] = result
-            return result
+            try:
+                if cache is None:
+                    return await original_coro(*args, **kwargs)
+                key = _make_key(args, kwargs)
+                if key is None:
+                    return await original_coro(*args, **kwargs)
+                if key in cache:
+                    logger.info(
+                        "tool dedup: %s called twice with same args this turn — returning cached result",
+                        tool_name,
+                    )
+                    return cache[key]
+                result = await original_coro(*args, **kwargs)
+                cache[key] = result
+                return result
+            except Exception as exc:
+                logger.error("Tool execution failed for %s: %s", tool_name, exc)
+                return format_tool_error(tool_name, exc)
 
         object.__setattr__(tool, "coroutine", cached_coro)
 
@@ -114,19 +124,33 @@ def _wrap_tool_for_dedup(tool: Any) -> Any:
 
 # ── Context-window trimmer ─────────────────────────────────────────────────────
 
+def format_notice_marker(tool_msg: Any) -> str:
+    """Format a historical ToolMessage into a compact Notice Marker preserving metadata."""
+    content = str(getattr(tool_msg, "content", ""))
+    orig_len = len(content)
+    tool_name = getattr(tool_msg, "name", "") or getattr(tool_msg, "tool_call_id", "") or "tool"
+    snippet = content[:80].replace("\n", " ").strip()
+    return (
+        f"[Historical Tool Result Pruned: tool '{tool_name}' (original size {orig_len} chars). "
+        f"Result snippet: '{snippet}...' — data preserved in step_outputs]"
+    )
+
+
 def _make_context_trimmer(context_window: int):
     """
     Returns a ``pre_model_hook`` for ``create_react_agent`` that keeps each
     LLM call within *context_window* tokens (approximated as chars / 4).
 
     Strategy (applied before every model call):
-      1. Hard-truncate each ToolMessage to ≤ 20 % of context (biggest single
+      1. Hard-truncate each ToolMessage to ≤ 10% of context (biggest single
          source of overflow — SQL results, news dumps, chart ASCII).
-      2. If the total message chars still exceed 60 % of context, evict the
-         oldest AI+Tool round-trip (the pair of AIMessage-with-tool_calls +
-         its ToolMessages) repeatedly until it fits.
-      3. Return the trimmed list as ``llm_input_messages`` so the actual
-         LangGraph state (used for the fallback synthesis path) is untouched.
+      2. If total message chars exceed 50% of context, apply Notice Replacement
+         to historical ToolMessages (replacing verbose outputs from prior turns with
+         compact metadata notices while keeping AIMessage reasoning steps 100% intact).
+      3. If total chars still exceed 50%, evict the oldest AI+Tool round-trip
+         repeatedly as a safety fallback.
+      4. Return the trimmed list as ``llm_input_messages`` so the actual
+         LangGraph state is untouched.
 
     Only attached when running a local model; cloud models skip this.
     """
@@ -148,10 +172,31 @@ def _make_context_trimmer(context_window: int):
                     m = m.model_copy(update={"content": content})
             result.append(m)
 
-        # Step 2 — evict oldest AI+Tool round-trips until total fits
         def _total(ms):
             return sum(len(str(m.content)) for m in ms)
 
+        # Step 2 — Notice Replacement for historical ToolMessages
+        if _total(result) > max_input_chars and len(result) > 2:
+            # Identify index of the last AIMessage with tool_calls
+            last_ai_idx = -1
+            for idx in range(len(result) - 1, -1, -1):
+                if isinstance(result[idx], AIMessage) and getattr(result[idx], "tool_calls", None):
+                    last_ai_idx = idx
+                    break
+
+            # Historical tool messages are those before last_ai_idx
+            if last_ai_idx > 0:
+                new_msgs = []
+                for idx, m in enumerate(result):
+                    if idx < last_ai_idx and isinstance(m, ToolMessage):
+                        content = str(m.content)
+                        if len(content) > 150:
+                            notice = format_notice_marker(m)
+                            m = m.model_copy(update={"content": notice})
+                    new_msgs.append(m)
+                result = new_msgs
+
+        # Step 3 — Emergency eviction fallback if prompt is still oversized
         while _total(result) > max_input_chars and len(result) > 2:
             evicted = False
             for i in range(1, len(result)):
