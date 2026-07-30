@@ -78,15 +78,26 @@ class Fetcher(ABC):
     symbol_key    : watermark symbol      (e.g. "MARKET", or per-symbol override)
     description   : human-readable label  (shown in CLI progress output)
     overlap_days  : re-fetch window to catch late corrections  (default 3)
+    supports_parallel        : opt-in — orchestrator may run fetch() per symbol
+                                across a thread pool (see for_symbol())
+    supports_source_override : opt-in — fetch() honors the `source` kwarg
+    per_symbol_watermark     : opt-in — each symbol resolves its OWN watermark
+                                independently (e.g. stocks today), rather than
+                                one worst-case watermark shared across the
+                                whole symbol group (e.g. etfs today). Only
+                                meaningful when supports_parallel is True.
     """
 
     source_name:  str
     symbol_key:   str
     description:  str = ""
     overlap_days: int = 3
+    supports_parallel:        bool = False
+    supports_source_override: bool = False
+    per_symbol_watermark:     bool = False
 
     @abstractmethod
-    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
         """
         Pull rows from the external source.
 
@@ -94,11 +105,13 @@ class Fetcher(ABC):
         ----------
         from_date : inclusive start date
         to_date   : inclusive end date
+        source    : override the fetcher's default source, if
+                    supports_source_override is True. Ignored otherwise.
 
         Returns empty list if source is unavailable — never raises.
         """
 
-    def fetch_with_retry(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    def fetch_with_retry(self, from_date: date, to_date: date, **kwargs) -> list[dict[str, Any]]:
         """
         Call fetch() with exponential-backoff retry.
 
@@ -107,13 +120,49 @@ class Fetcher(ABC):
         instead of crashing the batch.
         """
         try:
-            return _with_retry(self.fetch, from_date, to_date)
+            return _with_retry(self.fetch, from_date, to_date, **kwargs)
         except Exception as exc:
             log.error(
                 "%s fetch failed after retries (%s→%s): %s",
                 self.__class__.__name__, from_date, to_date, exc,
             )
             return []
+
+    def for_symbol(self, sym: str, ticker: str) -> "Fetcher":
+        """
+        Return a fetcher instance scoped to a single (sym, ticker) pair, for
+        parallel execution by the orchestrator (one thread per symbol).
+
+        Default assumes __init__(self, category, symbols) — override if a
+        supports_parallel subclass has a different constructor shape.
+        """
+        return type(self)(self.category, [(sym, ticker)])
+
+    def write_group_watermarks(
+        self, ch, rows: list[dict[str, Any]], dry_run: bool, *, source: str | None = None,
+    ) -> None:
+        """
+        Per-symbol watermark write for supports_parallel fetchers, used
+        instead of the single symbol_key watermark when the orchestrator
+        resolved a per-symbol (group) watermark for this fetch.
+
+        `source` is the runtime source override actually used for this run
+        (if supports_source_override) — the watermark must be keyed on the
+        source that really produced the rows, not the fetcher's static
+        default, or a source-override run silently fragments watermark
+        history from the default-source run.
+
+        Default: one dataset of rows, one watermark per symbol at that
+        symbol's max_date(). Override when fetch() emits more than one row
+        dataset in a single batch (see StocksFetcher).
+        """
+        if dry_run or not rows:
+            return
+        effective_source = source or self.source_name
+        symbols_seen = {r["symbol"] for r in rows}
+        for sym in symbols_seen:
+            sym_rows = [r for r in rows if r["symbol"] == sym]
+            ch.set_watermark(effective_source, sym, self.max_date(sym_rows))
 
     @abstractmethod
     def insert(self, rows: list[dict[str, Any]], ch) -> int:

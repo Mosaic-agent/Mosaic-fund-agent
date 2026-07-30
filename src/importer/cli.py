@@ -131,17 +131,14 @@ def run_import(
     data_source        : stock/ETF source; shoonya, nse, or yfinance
     """
     from src.importer.registry import (
-        get_symbols_for_categories,
         MF_SCHEME_CODES,
         MF_HOLDINGS_WATCHLIST,
         ALL_CATEGORIES,
     )
     from src.importer.clickhouse import ClickHouseImporter
-    from src.importer.fetchers.yfinance_fetcher import fetch_ohlcv
     from src.importer.fetchers.mfapi_fetcher import fetch_all_nav
     from config.settings import settings
 
-    shoonya_active = bool(settings.shoonya_user_id and settings.shoonya_api_secret)
     selected_source = normalize_data_source(data_source)
     if data_source and not selected_source:
         raise ValueError("data_source must be one of: shoonya, nse, yfinance")
@@ -189,71 +186,32 @@ def run_import(
     # ── Summary table ──────────────────────────────────────────────────────
     summary_rows: list[tuple[str, str, int, str, str]] = []
 
-    # ── yfinance categories ────────────────────────────────────────────────
-    cat_symbols = get_symbols_for_categories(categories)
-    for category, symbol_list in cat_symbols.items():
-        console.print(f"\n[bold cyan]▶ {category.upper()}[/bold cyan] ({len(symbol_list)} symbols)")
+    # ── Unified registry-driven import: stocks / us_stocks / etfs / commodities / indices / nse_indices ──
+    from src.importer.fetchers.adapters import get_registry
+    from src.db.repository import MarketDataRepository
 
-        if category in ("stocks", "us_stocks"):
-            console.print(f"  [dim]Running parallel import (limit: 5 workers)...[/dim]")
-            from src.importer.parallel_importer import run_parallel_stock_import
-            
-            clickhouse_config = {
-                "host": clickhouse_host,
-                "port": clickhouse_port,
-                "database": clickhouse_database,
-                "username": clickhouse_user,
-                "password": clickhouse_password,
-            }
-            
-            res = run_parallel_stock_import(
-                symbols=symbol_list,
-                category=category,
-                lookback_days=lookback_days,
-                full_reimport=full_reimport,
-                workers=5,
-                clickhouse_config=clickhouse_config,
-                dry_run=dry_run,
-                data_source=(selected_source or "shoonya") if category == "stocks" else "yfinance",
-            )
-            
-            inserted = res["prices"]
-            console.print(
-                f"  [green]✓[/green] Completed parallel stock import. "
-                f"Prices: {res['prices']} rows, Earnings: {res['earnings']} rows, "
-                f"Insider: {res['insider']} rows, Valuations: {res['valuation']} rows."
-            )
-            
-            summary_rows.append((
-                category,
-                f"{(selected_source or 'shoonya') if category == 'stocks' else 'yfinance'}_parallel",
-                inserted,
-                (today - timedelta(days=lookback_days)).isoformat(),
-                today.isoformat(),
-            ))
+    repo = MarketDataRepository(pool=None)
+    price_categories = [
+        c for c in categories
+        if c in {"stocks", "us_stocks", "etfs", "commodities", "indices", "nse_indices"}
+    ]
+    for category in price_categories:
+        fetcher = get_registry().get(category)
+        if fetcher is None:
+            console.print(f"[yellow]⚠ Unknown category: {category}, skipping[/yellow]")
             continue
 
-        # ── NSE-only indices via nselib ────────────────────────────────────
-        if category == "nse_indices":
-            from src.importer.fetchers.nse_index_fetcher import fetch_nse_indices
+        symbol_list = getattr(fetcher, "symbols", [])
+        console.print(
+            f"\n[bold cyan]▶ {category.upper()}[/bold cyan]"
+            + (f" ({len(symbol_list)} symbols)" if symbol_list else "")
+        )
 
-            from_date = _resolve_from_date(
-                ch, "nselib_index", "NSE_INDICES",
-                lookback_days=lookback_days, full_reimport=full_reimport,
-                dry_run=dry_run, today=today,
-            )
-
-            console.print(f"  [dim]Fetching via nselib {from_date} → {today}…[/dim]")
-            rows = fetch_nse_indices(symbol_list, from_date, today)
-            inserted = ch.insert_prices(rows, dry_run=dry_run)
-            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
-
-            _update_watermarks(ch, rows, "nselib_index", dry_run=dry_run)
-
-            summary_rows.append((
-                category, "nselib", inserted, from_date.isoformat(), today.isoformat(),
-            ))
-            continue
+        workers = 5 if fetcher.supports_parallel and category in ("stocks", "us_stocks") else 1
+        effective_source = (
+            selected_source if fetcher.supports_source_override and selected_source
+            else fetcher.source_name
+        )
 
         with Progress(
             SpinnerColumn(),
@@ -263,44 +221,37 @@ def run_import(
             console=console,
             transient=True,
         ) as progress:
-            task = progress.add_task(f"Fetching {category}…", total=len(symbol_list))
+            task = progress.add_task(f"Fetching {category}…", total=len(symbol_list) or 1)
 
-            for nse_sym, _yahoo in symbol_list:
-                progress.update(task, advance=1, description=f"[dim]{nse_sym}[/dim]")
+            if workers == 1:
+                # Cosmetic pre-tick — matches the non-parallel categories' existing display.
+                for nse_sym, _yahoo in symbol_list:
+                    progress.update(task, advance=1, description=f"[dim]{nse_sym}[/dim]")
 
-            # Determine date range (worst-case watermark across all symbols)
-            watermark_source = (selected_source or "shoonya") if category in ("stocks", "etfs") else "yfinance"
-            from_date = _resolve_from_date(
-                ch, watermark_source, [sym for sym, _ in symbol_list],
-                lookback_days=lookback_days, full_reimport=full_reimport,
-                dry_run=dry_run, today=today,
+            def _advance(sym: str) -> None:
+                progress.update(task, advance=1, description=f"[dim]{sym}[/dim]")
+
+            result = repo.run_fetcher(
+                fetcher,
+                dry_run=dry_run,
+                full=full_reimport,
+                lookback_days=lookback_days,
+                workers=workers,
+                source=selected_source if fetcher.supports_source_override else None,
+                progress_cb=_advance if workers > 1 else None,
+                ch=ch,
             )
 
-            progress.update(task, description=f"Downloading {category} {from_date}→{today}…")
-            if category in ("stocks", "etfs"):
-                from src.importer.fetchers.adapters import NSElibFetcher, ShoonyaFetcher
-                if selected_source == "nse":
-                    rows = NSElibFetcher(category, symbol_list).fetch(from_date, today)
-                elif selected_source == "yfinance":
-                    rows = fetch_ohlcv(symbol_list, category, from_date, today)
-                else:
-                    rows = ShoonyaFetcher(category, symbol_list).fetch(from_date, today)
-            else:
-                rows = fetch_ohlcv(symbol_list, category, from_date, today)
+        if result.skipped:
+            console.print("  [yellow]⚠ Fetch failed after retries — logged to import_failures, skipping.[/yellow]")
+            continue
 
-        inserted = ch.insert_prices(rows, dry_run=dry_run)
-        console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
-
-        # Update watermarks
-        _update_watermarks(ch, rows, watermark_source, dry_run=dry_run)
-
+        console.print(f"  [green]✓[/green] {result.n} rows {'(dry-run)' if dry_run else 'inserted'}")
         summary_rows.append((
-            category,
-            selected_source or ("shoonya" if category == "etfs" and shoonya_active else "yfinance"),
-            inserted,
-            from_date.isoformat(),
-            today.isoformat(),
+            category, effective_source, result.n,
+            result.from_date.isoformat(), result.to_date.isoformat(),
         ))
+
     # ── NSE EOD OHLCV (available immediately after 3:30 PM IST) ─────────────
     if "nse_eod" in categories:
         from src.importer.registry import ETFS, STOCKS

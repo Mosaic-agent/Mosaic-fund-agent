@@ -233,10 +233,16 @@ class TestRunImportDispatch:
 
     # ── non-AMC categories must not trigger the factory ───────────────────────
 
+    # NOTE: "stocks"/"etfs"/etc. now route through get_registry() (the
+    # Fetcher-registry unification), not get_symbols_for_categories()
+    # directly — get_registry() is additionally mocked to {} here so the
+    # price-category loop is a no-op instead of running (mocked-Shoonya-
+    # bypassing) real network fetches against the full stock watchlist.
+    @patch("src.importer.fetchers.adapters.get_registry", return_value={})
     @patch("src.importer.registry.get_symbols_for_categories", return_value={})
     @patch("src.importer.clickhouse.ClickHouseImporter")
     @patch("src.scripts.fund_imports.factory.create_importer")
-    def test_yfinance_category_does_not_call_factory(self, mock_create, mock_ch_cls, _syms):
+    def test_yfinance_category_does_not_call_factory(self, mock_create, mock_ch_cls, _syms, _registry):
         mock_ch_cls.return_value = _mock_ch()
 
         from src.importer.cli import run_import
@@ -244,11 +250,12 @@ class TestRunImportDispatch:
 
         mock_create.assert_not_called()
 
+    @patch("src.importer.fetchers.adapters.get_registry", return_value={})
     @patch("src.importer.registry.get_symbols_for_categories", return_value={})
     @patch("src.importer.clickhouse.ClickHouseImporter")
     @patch("src.scripts.fund_imports.factory.create_importer")
-    def test_mixed_yfinance_and_amc_categories(self, mock_create, mock_ch_cls, mock_syms):
-        """Mixing stocks + icici: yfinance loop runs (via mock) and factory is called once."""
+    def test_mixed_yfinance_and_amc_categories(self, mock_create, mock_ch_cls, mock_syms, mock_registry):
+        """Mixing stocks + icici: registry-driven price loop is a no-op (mocked empty) and factory is called once."""
         mock_ch_cls.return_value = _mock_ch()
         mock_imp = MagicMock()
         mock_create.return_value = mock_imp
@@ -260,6 +267,6 @@ class TestRunImportDispatch:
             console=_quiet_console(),
         )
 
-        mock_syms.assert_called_once_with(["stocks", "icici"])
+        mock_registry.assert_called_once()
         mock_create.assert_called_once_with("icici")
         mock_imp.run.assert_called_once_with(dry_run=True)

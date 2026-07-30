@@ -233,6 +233,10 @@ class MarketDataRepository:
         dry_run: bool = False,
         full: bool = False,
         lookback_days: int = 3650,
+        workers: int = 1,
+        source: str | None = None,
+        progress_cb=None,
+        ch=None,
     ) -> "FetchResult":
         """
         Execute the full fetch → validate → insert → watermark cycle.
@@ -243,6 +247,15 @@ class MarketDataRepository:
         dry_run       : fetch but do not write to ClickHouse
         full          : ignore watermarks; re-fetch full lookback window
         lookback_days : history depth on first import or full re-import
+        workers       : if fetcher.supports_parallel and workers > 1, fetch
+                        each symbol concurrently via a thread pool
+        source        : override the fetcher's default source, if
+                        fetcher.supports_source_override is True
+        progress_cb   : called with a symbol string after each symbol
+                        completes (parallel path only)
+        ch            : an already-open ClickHouseImporter to reuse (e.g. so
+                        a caller looping over many fetchers connects once).
+                        If None, a connection is opened and closed here.
 
         Returns a FetchResult with row count and date range.
         """
@@ -250,21 +263,61 @@ class MarketDataRepository:
         from src.importer.clickhouse import ClickHouseImporter
 
         today = _date_today()
-        ch = ClickHouseImporter(**self._ch_kwargs())
+        owns_ch = ch is None
+        if owns_ch:
+            ch = ClickHouseImporter(**self._ch_kwargs())
         try:
-            ch.ensure_schema()
+            if owns_ch:
+                ch.ensure_schema()
+
+            # Watermarks must be keyed on the source that actually produces
+            # the rows this run, not the fetcher's static default — a
+            # --data-source override must not fragment watermark history
+            # from the default-source run (or make tomorrow's default-source
+            # run think it's already caught up when it isn't).
+            effective_source = (source or fetcher.source_name) if fetcher.supports_source_override else fetcher.source_name
+
+            use_group_watermark = fetcher.supports_parallel and hasattr(fetcher, "symbols")
+            per_symbol_watermark = use_group_watermark and getattr(fetcher, "per_symbol_watermark", False)
 
             # Determine start date
-            if full:
+            if per_symbol_watermark:
+                # Each symbol resolves its own watermark inside _fetch_parallel
+                # (see there) — this from_date is only a display fallback for
+                # FetchResult, matching today's stock-summary behavior which
+                # always shows the full lookback window regardless of actual
+                # per-symbol watermarks used.
+                from_date = today - timedelta(days=lookback_days)
+            elif use_group_watermark:
+                from_date = self._resolve_group_from_date(
+                    ch, effective_source, [s for s, _ in fetcher.symbols],
+                    lookback_days=lookback_days, overlap_days=fetcher.overlap_days,
+                    full=full, today=today,
+                )
+            elif full:
                 from_date = today - timedelta(days=lookback_days)
             else:
-                wm = ch.get_watermark(fetcher.source_name, fetcher.symbol_key)
+                wm = ch.get_watermark(effective_source, fetcher.symbol_key)
                 if wm is None:
                     from_date = today - timedelta(days=lookback_days)
                 else:
                     from_date = wm - timedelta(days=fetcher.overlap_days)
 
-            rows = fetcher.fetch_with_retry(from_date, today)
+            fetch_kwargs = {"source": source} if fetcher.supports_source_override else {}
+
+            if use_group_watermark and workers > 1:
+                rows = self._fetch_parallel(
+                    fetcher, from_date, today, workers,
+                    progress_cb=progress_cb,
+                    ch=ch if per_symbol_watermark else None,
+                    per_symbol_watermark=per_symbol_watermark,
+                    lookback_days=lookback_days, full=full,
+                    effective_source=effective_source,
+                    **fetch_kwargs,
+                )
+            else:
+                rows = fetcher.fetch_with_retry(from_date, today, **fetch_kwargs)
+
             if not rows:
                 # fetch failed after retries — log to import_failures and skip
                 self._record_failure(fetcher, from_date, today, "FetchError", "fetch returned empty after retries")
@@ -279,7 +332,11 @@ class MarketDataRepository:
 
             n = fetcher.insert(rows, ch)
             max_dt = fetcher.max_date(rows)
-            ch.set_watermark(fetcher.source_name, fetcher.symbol_key, max_dt)
+
+            if use_group_watermark:
+                fetcher.write_group_watermarks(ch, rows, dry_run, source=source)
+            else:
+                ch.set_watermark(effective_source, fetcher.symbol_key, max_dt)
 
             result = FetchResult(fetcher=fetcher, n=n, from_date=from_date, to_date=max_dt)
 
@@ -289,7 +346,87 @@ class MarketDataRepository:
             return result
 
         finally:
-            ch.close()
+            if owns_ch:
+                ch.close()
+
+    def _resolve_group_from_date(
+        self, ch, source: str, symbols: list[str], *,
+        lookback_days: int, overlap_days: int, full: bool, today: "date",
+    ) -> "date":
+        """
+        Worst-case (earliest) per-symbol watermark minus overlap, across a
+        group of symbols sharing one category (e.g. all ETF or stock
+        tickers). Port of cli.py's _resolve_from_date, generalized for the
+        registry-based orchestrator.
+        """
+        from datetime import timedelta
+
+        if full:
+            return today - timedelta(days=lookback_days)
+
+        earliest: "date | None" = None
+        for sym in symbols:
+            wm = ch.get_watermark(source, sym)
+            if wm is None:
+                return today - timedelta(days=lookback_days)
+            candidate = wm - timedelta(days=overlap_days)
+            if earliest is None or candidate < earliest:
+                earliest = candidate
+        return earliest or (today - timedelta(days=lookback_days))
+
+    def _fetch_parallel(self, fetcher, from_date, to_date, workers: int, *,
+                         progress_cb=None, ch=None, per_symbol_watermark=False,
+                         lookback_days: int = 3650, full: bool = False,
+                         effective_source: str | None = None,
+                         **fetch_kwargs) -> list[dict]:
+        """
+        Fetch fetcher.symbols concurrently, one thread per symbol, via
+        fetcher.for_symbol(). Generalizes parallel_importer.py's
+        ThreadPoolExecutor loop to any supports_parallel Fetcher.
+
+        When per_symbol_watermark is set (e.g. StocksFetcher), each symbol
+        resolves its OWN watermark here — a direct port of
+        parallel_importer.import_single_stock's per-thread
+        `ch.get_watermark(data_source, symbol, dataset="prices")` call — so
+        one caught-up symbol's from_date is never dragged down to a
+        full-lookback re-fetch just because another symbol in the same
+        category has no watermark yet. `from_date` is otherwise used
+        unchanged (the shared, pre-resolved group watermark case, e.g. etfs).
+
+        Per-symbol failures are already swallowed by fetch_with_retry (which
+        returns [] after exhausting retries) — one bad symbol contributes no
+        rows but never fails the batch.
+        """
+        from datetime import timedelta
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        rows: list[dict] = []
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {}
+            for sym, ticker in fetcher.symbols:
+                sym_from = from_date
+                if per_symbol_watermark and ch is not None:
+                    if full:
+                        sym_from = to_date - timedelta(days=lookback_days)
+                    else:
+                        wm = ch.get_watermark(effective_source, sym, dataset="prices")
+                        sym_from = (
+                            (to_date - timedelta(days=lookback_days)) if wm is None
+                            else (wm - timedelta(days=fetcher.overlap_days))
+                        )
+                futures[executor.submit(
+                    fetcher.for_symbol(sym, ticker).fetch_with_retry,
+                    sym_from, to_date, **fetch_kwargs,
+                )] = sym
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    rows.extend(future.result())
+                except Exception as exc:
+                    log.error("%s: parallel fetch failed for %s: %s", fetcher.source_name, sym, exc)
+                if progress_cb:
+                    progress_cb(sym)
+        return rows
 
     def _publish_imported(self, fetcher, result: "FetchResult") -> None:
         """Fire DataImportedEvent on the global EventBus after a successful insert."""
