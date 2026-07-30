@@ -254,6 +254,10 @@ class StocksFetcher(Fetcher):
             return max(r["trade_date"] for r in price_rows)
         return date.today()
 
+    def count_insertable(self, rows: list[dict]) -> int:
+        # dry-run preview must match insert()'s real-run count — prices only.
+        return len([r for r in rows if r.get("_dataset") == "prices"])
+
     def write_group_watermarks(
         self, ch, rows: list[dict], dry_run: bool, *, source: str | None = None,
     ) -> None:

@@ -191,5 +191,16 @@ class Fetcher(ABC):
                 return latest if isinstance(latest, date) else latest.date()
         raise ValueError(f"{self.__class__.__name__}: cannot determine max date from rows")
 
+    def count_insertable(self, rows: list[dict[str, Any]]) -> int:
+        """
+        Row count to report for a dry-run (or any pre-insert preview) —
+        must match what insert() would actually report on a real run.
+
+        Default: one homogeneous row dataset, so len(rows) is correct.
+        Override when fetch() emits more than one row dataset in a single
+        batch (see StocksFetcher, whose insert() only counts price rows).
+        """
+        return len(rows)
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(source={self.source_name!r}, symbol={self.symbol_key!r})"

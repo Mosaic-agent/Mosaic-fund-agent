@@ -327,7 +327,7 @@ class MarketDataRepository:
             rows = fetcher.validate(rows)
 
             if dry_run:
-                return FetchResult(fetcher=fetcher, n=len(rows), from_date=from_date,
+                return FetchResult(fetcher=fetcher, n=fetcher.count_insertable(rows), from_date=from_date,
                                    to_date=fetcher.max_date(rows), dry_run=True)
 
             n = fetcher.insert(rows, ch)

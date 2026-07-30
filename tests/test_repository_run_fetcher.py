@@ -162,6 +162,22 @@ class TestStocksSourceOverrideWatermark(unittest.TestCase):
         self.assertEqual(ch.get_watermark("nse", "RELIANCE", dataset="prices"), date(2026, 7, 30))
         self.assertIsNone(ch.get_watermark("shoonya", "RELIANCE", dataset="prices"))
 
+    def test_dry_run_count_matches_real_insert_count(self):
+        """dry-run must report the prices-only count insert() would really
+        write, not len(rows) across all four datasets combined — caught via
+        a live dry-run smoke test where stocks showed ~7x too many rows."""
+        from src.importer.fetchers.adapters import StocksFetcher
+
+        fetcher = StocksFetcher("stocks", [("RELIANCE", "RELIANCE.NS")])
+        rows = [
+            {"symbol": "RELIANCE", "trade_date": date(2026, 7, 30), "close": 100.0, "_dataset": "prices"},
+            {"symbol": "RELIANCE", "trade_date": date(2026, 7, 29), "close": 99.0, "_dataset": "prices"},
+            {"symbol": "RELIANCE", "earnings_date": date(2026, 7, 20), "_dataset": "earnings"},
+            {"symbol": "RELIANCE", "transaction_date": date(2026, 7, 15), "_dataset": "insider"},
+        ]
+
+        self.assertEqual(fetcher.count_insertable(rows), 2)
+
     def test_us_stocks_ignores_source_override(self):
         """us_stocks has no Shoonya/NSE presence — a --data-source override
         must not affect it, matching parallel_importer's hardcoded
