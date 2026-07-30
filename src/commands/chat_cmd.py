@@ -467,20 +467,21 @@ def _get_plan_llm() -> "Any":
         from config.settings import settings
         budget = settings.llm_token_budget
         kw = dict(temperature=0, max_tokens=budget)
-        # Check LLM_BASE_URL first so that local Ollama takes priority for planning,
-        # matching the _build_llm prioritisation pattern in mosaic_fund_agent.py.
         if settings.llm_base_url:
             from langchain_openai import ChatOpenAI
-            extra_body = {"options": {"num_ctx": settings.llm_context_window}}
-            if settings.llm_think:
-                extra_body["think"] = True
+            is_ollama = "ollama" in settings.llm_base_url.lower() or "11434" in settings.llm_base_url.lower()
+            extra_body: dict = {}
+            if is_ollama:
+                extra_body["options"] = {"num_ctx": settings.llm_context_window}
+                if settings.llm_think:
+                    extra_body["think"] = True
             _plan_llm = ChatOpenAI(
                 model=settings.llm_model,
                 base_url=settings.llm_base_url,
                 api_key=settings.openai_api_key or "local",
                 request_timeout=120,  # Prevent permanent hangs on local endpoint
                 timeout=120,
-                extra_body=extra_body,
+                extra_body=extra_body if extra_body else None,
                 **kw,
             )
         elif settings.llm_provider == "openrouter":

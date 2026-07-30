@@ -540,16 +540,19 @@ def _build_llm_for_deepdive():
                 timeout=settings.llm_request_timeout,
                 max_tokens=settings.llm_token_budget,
             )
-        extra_body = {"options": {"num_ctx": settings.llm_context_window}}
-        if settings.llm_think:
-            extra_body["think"] = True
+        is_ollama = "ollama" in settings.llm_base_url.lower() or "11434" in settings.llm_base_url.lower()
+        extra_body: dict = {}
+        if is_ollama:
+            extra_body["options"] = {"num_ctx": settings.llm_context_window}
+            if settings.llm_think:
+                extra_body["think"] = True
         return ChatOpenAI(
             model=settings.llm_model,
             base_url=settings.llm_base_url,
             api_key=settings.openai_api_key or "local",
             temperature=0,
             max_tokens=settings.llm_token_budget,
-            extra_body=extra_body,
+            extra_body=extra_body if extra_body else None,
             timeout=settings.llm_request_timeout,
             streaming=False,
         )
