@@ -545,7 +545,18 @@ The platform features a native **Terminal Charting** engine (in `src/tools/chart
 `Fetcher` ABC defines `fetch() / validate() / insert() / max_date()`. Each external data source is a concrete subclass registered in `FETCHER_REGISTRY`. `repo.run_fetcher(fetcher)` handles watermarks, dry-run, and event publishing — the fetcher only knows its data.
 
 ### 8. Observer Pattern (`src/events/`)
-`EventBus` fires `DataImportedEvent` after every live `run_fetcher()` insert. Observers subscribe once; the import pipeline has zero knowledge of ML retraining or signal refresh. Built-in observers: `ModelCacheInvalidator` (sync), `MLPredictionObserver`, `SignalAggregatorObserver`, `SanityCheckObserver` (all async, daemon threads).
+`EventBus` fires `DataImportedEvent` after every live `run_fetcher()` insert in [`src/db/repository.py`](../src/db/repository.py). Observers subscribe once at startup; the import pipeline has zero knowledge of downstream ML retraining, anomaly attribution, or signal refresh.
+
+#### Observer Trigger Matrix
+
+| Observer Class | Execution Mode | Category / Source Trigger | Action Taken |
+| :--- | :--- | :--- | :--- |
+| **`SanityCheckObserver`** | Async | **ALL Imports** (`etfs`, `stocks`, `fii_dii`, `cot`, `fx_rates`, `mf`, `macro`, `news`) | Executes YoY anomaly checks and daily outlier detection across ClickHouse tables. |
+| **`SignalAggregatorObserver`** | Async | **Signal Categories** (`etfs`, `fii_dii`, `cot`, `fx_rates`, `mf`) | Re-calculates 0–100 composite scores across all 18 tracked ETFs and saves to `market_data.signal_composite`. |
+| **`ModelCacheInvalidator`** | Sync | **GOLDBEES ETF Ingestion** (`category="etfs"`, `source="nselib"/"yfinance"/"shoonya"`) | Instantly unlinks stale `goldbees_lgbm_*.joblib` files before ML training starts. |
+| **`MLPredictionObserver`** | Async | **GOLDBEES ETF Ingestion** (`category="etfs"`) | Re-runs the LightGBM 5-day directional price predictor (`trend_predictor.py`). |
+| **`AnomalyCorrelationObserver`** | Async | **`AnomalyDetectedEvent`** (Flagged by GARCH, MAD-Z, or PELT) | Correlates price anomalies with macro events/news, embeds precedent into Qdrant `market_anomalies`, and pulls news into Qdrant RAG. |
+| **`AnomalyAlertObserver`** | Async | **`LiveAlertEvent`** (Live 5-min Shoonya WebSocket breakout) | Formats a structured alert and pushes notification via Slack webhook / CallMeBot WhatsApp API. |
 
 ### 9. Graceful Pillar Degradation
 Every signal pillar degrades to neutral 50 (not 0) when its data source is unavailable. The composite score remains valid across all 18 ETFs — missing data does not penalise the composite.
