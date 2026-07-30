@@ -20,6 +20,17 @@ import pytest
 from src.models.portfolio import NewsItem, Sentiment
 
 
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def disable_stage_c_llm_filter(monkeypatch):
+    """Disable Stage C LLM fail-open filter by default for deterministic unit tests."""
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "news_filter_llm_enabled", False, raising=False)
+
+
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 
