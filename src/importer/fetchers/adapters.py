@@ -551,6 +551,123 @@ class NseIndexFetcher(Fetcher):
         return max(r["trade_date"] for r in rows)
 
 
+# ── NSE EOD OHLCV (ETFs + stocks, direct NSE Quote API) ────────────────────
+
+class NseEodFetcher(Fetcher):
+    """
+    Same-day OHLCV for ETFs + stocks via the NSE Quote API — available right
+    after 3:30 PM IST market close, without Yahoo Finance's ~1h delay.
+
+    fetch() ignores from_date/to_date — there's no date-range parameter on
+    the underlying NSE Quote endpoint, it always returns *today's* bar.
+    """
+    overlap_days = 3
+    supports_parallel = True  # per-symbol watermark write, not per-symbol fetch (workers stays 1)
+
+    def __init__(self, etf_symbols: list[tuple[str, str]], stock_symbols: list[tuple[str, str]]) -> None:
+        self._etf_symbols   = etf_symbols
+        self._stock_symbols = stock_symbols
+        self.symbols      = etf_symbols + stock_symbols
+        self.source_name  = "nse_quote"
+        self.symbol_key   = "NSE_EOD_GROUP"
+        self.description  = f"NSE EOD OHLCV — ETFs + stocks ({len(self.symbols)} symbols)"
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        from src.importer.fetchers.nse_quote_fetcher import fetch_nse_eod
+
+        rows: list[dict[str, Any]] = []
+        for cat_name, sym_list in (("etfs", self._etf_symbols), ("stocks", self._stock_symbols)):
+            rows.extend(fetch_nse_eod(sym_list, cat_name))
+        return rows
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_prices(rows)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("close") and r["close"] > 0]
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["trade_date"] for r in rows)
+
+
+# ── MF Holdings (Morningstar) ───────────────────────────────────────────────
+
+class MfHoldingsFetcher(Fetcher):
+    """
+    Monthly portfolio-holdings snapshot per fund in the watchlist.
+
+    Constructed fresh per call (not cached in get_registry()) — as_of_month
+    is a runtime value, not something fixed at registry-build time. The
+    "already imported this month" idempotency guard lives in cli.py, not
+    here — it's a presence check against real data, not delta-sync logic
+    fetch()/watermarks can express.
+    """
+    source_name = "mf_holdings"
+    symbol_key  = "ALL"
+    description = "MF Holdings (Morningstar)"
+    overlap_days = 0
+
+    def __init__(self, watchlist: list[tuple[str, str, str]], as_of_month: date) -> None:
+        self.watchlist   = watchlist
+        self.as_of_month = as_of_month
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        from src.importer.fetchers.mf_holdings_fetcher import fetch_holdings
+        return fetch_holdings(self.watchlist, self.as_of_month)
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_mf_holdings(rows)
+
+    def max_date(self, rows: list[dict]) -> date:
+        return self.as_of_month
+
+
+# ── AMFI Category-Wise Monthly Flows + AUM ──────────────────────────────────
+
+class AmfiCategoryFlowsFetcher(Fetcher):
+    """
+    AMFI industry data — monthly net flows & AUM by fund category.
+
+    fetch() has no date-range parameter upstream; it takes months_back
+    instead. overlap_days=0 makes run_fetcher() pass the raw watermark
+    through as from_date unmodified, so months_back can be derived from it
+    with exact parity to the original cli.py month-arithmetic whenever a
+    watermark exists.
+    """
+    source_name  = "amfi_category_flows"
+    symbol_key   = "INDUSTRY"
+    dataset      = "flows"
+    description  = "AMFI Category-Wise Monthly Flows + AUM"
+    overlap_days = 0
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        from src.importer.fetchers.amfi_flows_fetcher import fetch_amfi_category_flows
+
+        months_back = max(
+            2,
+            (to_date.year - from_date.year) * 12 + (to_date.month - from_date.month) + 1,
+        )
+        return fetch_amfi_category_flows(months_back=months_back)
+
+    def insert(self, rows: list[dict], ch) -> int:
+        n = ch.insert_amfi_category_flows(rows)
+        latest_m = max(r["report_month"] for r in rows)
+        latest_rows = sorted(
+            (r for r in rows if r["report_month"] == latest_m),
+            key=lambda r: r["net_flow_cr"], reverse=True,
+        )
+        log.info("AMFI category flows — latest month: %s", latest_m.strftime("%b %Y"))
+        for r in latest_rows[:3]:
+            log.info(
+                "  %-30s Net: ₹%+,.0f Cr  |  AUM: ₹%,.0f Cr",
+                r["category_name"][:30], r["net_flow_cr"], r["closing_aum_cr"],
+            )
+        return n
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["report_month"] for r in rows)
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 # Maps CLI category name → Fetcher instance.
 # The orchestrator loops over this — adding a new source = one line here.
@@ -560,7 +677,11 @@ def _build_registry() -> dict[str, Fetcher]:
         get_symbols_for_categories,
         MF_SCHEME_CODES,
         NSE_ONLY_INDICES,
+        ETFS,
+        STOCKS,
     )
+    from src.importer.fetchers.indian_macro_fetcher import IndianMacroFetcher
+
     sym_map = get_symbols_for_categories(["stocks", "us_stocks", "etfs", "commodities", "indices"])
 
     registry: dict[str, Fetcher] = {}
@@ -573,6 +694,9 @@ def _build_registry() -> dict[str, Fetcher]:
             registry[cat] = YFinanceFetcher(cat, sym_list) # global symbols
 
     registry["nse_indices"] = NseIndexFetcher(NSE_ONLY_INDICES)
+    registry["nse_eod"]      = NseEodFetcher(ETFS, STOCKS)
+    registry["indian_macro"] = IndianMacroFetcher()
+    registry["amfi_flows"]   = AmfiCategoryFlowsFetcher()
     registry["mf"]      = MFNavFetcher(MF_SCHEME_CODES)
     registry["fii_dii"] = FIIDIIFetcher()
     registry["fx_rates"] = FXRatesFetcher()

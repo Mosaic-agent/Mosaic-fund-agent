@@ -297,7 +297,7 @@ class MarketDataRepository:
             elif full:
                 from_date = today - timedelta(days=lookback_days)
             else:
-                wm = ch.get_watermark(effective_source, fetcher.symbol_key)
+                wm = ch.get_watermark(effective_source, fetcher.symbol_key, dataset=fetcher.dataset)
                 if wm is None:
                     from_date = today - timedelta(days=lookback_days)
                 else:
@@ -336,7 +336,7 @@ class MarketDataRepository:
             if use_group_watermark:
                 fetcher.write_group_watermarks(ch, rows, dry_run, source=source)
             else:
-                ch.set_watermark(effective_source, fetcher.symbol_key, max_dt)
+                ch.set_watermark(effective_source, fetcher.symbol_key, max_dt, dataset=fetcher.dataset)
 
             result = FetchResult(fetcher=fetcher, n=n, from_date=from_date, to_date=max_dt)
 

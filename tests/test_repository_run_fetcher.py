@@ -224,5 +224,110 @@ class TestWatermarkEquivalence(unittest.TestCase):
         self.assertEqual(new_from, today - timedelta(days=365))
 
 
+class FakeFlowsFetcher(Fetcher):
+    """Single-watermark fetcher using a non-default dataset bucket."""
+
+    source_name = "test_flows"
+    symbol_key = "X"
+    dataset = "flows"
+    overlap_days = 0
+
+    def fetch(self, from_date, to_date, *, source=None):
+        return [{"report_month": date(2026, 7, 1), "value": 1}]
+
+    def insert(self, rows, ch):
+        return len(rows)
+
+    def max_date(self, rows):
+        return date(2026, 7, 1)
+
+
+class TestDatasetAttribute(unittest.TestCase):
+    def test_single_watermark_path_uses_fetcher_dataset(self):
+        """run_fetcher's single-watermark path must read/write the fetcher's
+        own `dataset` bucket, not silently default to "prices" — needed for
+        amfi_flows, whose watermark lives under dataset="flows"."""
+        ch = FakeCH({})
+        repo = MarketDataRepository(pool=None)
+
+        repo.run_fetcher(FakeFlowsFetcher(), dry_run=False, full=True, lookback_days=10, ch=ch)
+
+        self.assertEqual(ch.get_watermark("test_flows", "X", dataset="flows"), date(2026, 7, 1))
+        self.assertIsNone(ch.get_watermark("test_flows", "X", dataset="prices"))
+
+
+class TestAmfiCategoryFlowsFetcher(unittest.TestCase):
+    @patch("src.importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
+    def test_months_back_matches_original_cli_formula(self, mock_fetch):
+        """With overlap_days=0, run_fetcher passes from_date=watermark exactly,
+        so months_back must reproduce cli.py's original month-diff arithmetic
+        byte-for-byte whenever a watermark exists — spec Phase 4 parity."""
+        from src.importer.fetchers.adapters import AmfiCategoryFlowsFetcher
+
+        mock_fetch.return_value = []
+        today = date(2026, 7, 31)
+        wm = date(2026, 5, 1)  # report_month watermarks are always first-of-month
+
+        AmfiCategoryFlowsFetcher().fetch(wm, today)
+
+        today_m, wm_m = today.replace(day=1), wm.replace(day=1)
+        diff_months = (today_m.year - wm_m.year) * 12 + (today_m.month - wm_m.month)
+        expected_months_back = max(2, diff_months + 1)
+
+        mock_fetch.assert_called_once_with(months_back=expected_months_back)
+
+    @patch("src.importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
+    def test_months_back_floor_of_two(self, mock_fetch):
+        from src.importer.fetchers.adapters import AmfiCategoryFlowsFetcher
+
+        mock_fetch.return_value = []
+        today = date(2026, 7, 31)
+        wm = date(2026, 7, 1)  # same month as today
+
+        AmfiCategoryFlowsFetcher().fetch(wm, today)
+
+        mock_fetch.assert_called_once_with(months_back=2)
+
+
+class TestNseEodFetcher(unittest.TestCase):
+    @patch("src.importer.fetchers.nse_quote_fetcher.fetch_nse_eod")
+    def test_fetch_combines_etfs_and_stocks(self, mock_fetch):
+        from src.importer.fetchers.adapters import NseEodFetcher
+
+        def side_effect(sym_list, cat_name):
+            return [
+                {"symbol": s, "category": cat_name, "trade_date": date(2026, 7, 31), "close": 1.0}
+                for s, _ in sym_list
+            ]
+        mock_fetch.side_effect = side_effect
+
+        fetcher = NseEodFetcher([("GOLDBEES", "GOLDBEES.NS")], [("RELIANCE", "RELIANCE.NS")])
+        rows = fetcher.fetch(date(2026, 7, 1), date(2026, 7, 31))
+
+        self.assertEqual({r["symbol"] for r in rows}, {"GOLDBEES", "RELIANCE"})
+        self.assertEqual({r["category"] for r in rows}, {"etfs", "stocks"})
+        self.assertEqual(fetcher.max_date(rows), date(2026, 7, 31))
+        self.assertEqual(fetcher.symbols, [("GOLDBEES", "GOLDBEES.NS"), ("RELIANCE", "RELIANCE.NS")])
+
+
+class TestMfHoldingsFetcher(unittest.TestCase):
+    @patch("src.importer.fetchers.mf_holdings_fetcher.fetch_holdings")
+    def test_fetch_insert_max_date(self, mock_fetch):
+        from src.importer.fetchers.adapters import MfHoldingsFetcher
+
+        mock_fetch.return_value = [{"scheme_code": "X", "as_of_month": date(2026, 7, 1)}]
+        fetcher = MfHoldingsFetcher([("X", "Fund X", "ISIN1")], date(2026, 7, 1))
+
+        rows = fetcher.fetch(date(2026, 1, 1), date(2026, 7, 31))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(fetcher.max_date(rows), date(2026, 7, 1))
+        mock_fetch.assert_called_once_with([("X", "Fund X", "ISIN1")], date(2026, 7, 1))
+
+        fake_ch = MagicMock()
+        fake_ch.insert_mf_holdings.return_value = 1
+        self.assertEqual(fetcher.insert(rows, fake_ch), 1)
+        fake_ch.insert_mf_holdings.assert_called_once_with(rows)
+
+
 if __name__ == "__main__":
     unittest.main()

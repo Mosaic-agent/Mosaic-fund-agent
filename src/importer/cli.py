@@ -186,16 +186,18 @@ def run_import(
     # ── Summary table ──────────────────────────────────────────────────────
     summary_rows: list[tuple[str, str, int, str, str]] = []
 
-    # ── Unified registry-driven import: stocks / us_stocks / etfs / commodities / indices / nse_indices ──
+    # ── Unified registry-driven import: stocks / us_stocks / etfs / commodities /
+    # indices / nse_indices / nse_eod / indian_macro ───────────────────────────────────────
     from src.importer.fetchers.adapters import get_registry
     from src.db.repository import MarketDataRepository
 
     repo = MarketDataRepository(pool=None)
-    price_categories = [
+    registry_categories = [
         c for c in categories
-        if c in {"stocks", "us_stocks", "etfs", "commodities", "indices", "nse_indices"}
+        if c in {"stocks", "us_stocks", "etfs", "commodities", "indices",
+                 "nse_indices", "nse_eod", "indian_macro"}
     ]
-    for category in price_categories:
+    for category in registry_categories:
         fetcher = get_registry().get(category)
         if fetcher is None:
             console.print(f"[yellow]⚠ Unknown category: {category}, skipping[/yellow]")
@@ -252,41 +254,6 @@ def run_import(
             result.from_date.isoformat(), result.to_date.isoformat(),
         ))
 
-    # ── NSE EOD OHLCV (available immediately after 3:30 PM IST) ─────────────
-    if "nse_eod" in categories:
-        from src.importer.registry import ETFS, STOCKS
-        from src.importer.fetchers.nse_quote_fetcher import fetch_nse_eod
-
-        nse_eod_symbols = ETFS + STOCKS
-        console.print(
-            f"\n[bold cyan]▶ NSE EOD OHLCV[/bold cyan] "
-            f"({len(nse_eod_symbols)} symbols — ETFs + stocks)"
-        )
-        console.print(
-            "  [dim]Direct NSE Quote API — available right after 3:30 PM IST, "
-            "no Yahoo Finance delay[/dim]"
-        )
-
-        eod_rows: list[dict] = []
-        for cat_name, sym_list in [("etfs", ETFS), ("stocks", STOCKS)]:
-            fetched = fetch_nse_eod(sym_list, cat_name)
-            eod_rows.extend(fetched)
-
-        if not eod_rows:
-            console.print(
-                "  [yellow]⚠ NSE returned no EOD data — "
-                "market may be open or API blocked.[/yellow]"
-            )
-        else:
-            inserted = ch.insert_prices(eod_rows, dry_run=dry_run)
-            console.print(
-                f"  [green]✓[/green] {inserted} rows "
-                f"{'(dry-run)' if dry_run else 'inserted'}"
-            )
-            _update_watermarks(ch, eod_rows, "nse_quote", dry_run=dry_run)
-            summary_rows.append((
-                "nse_eod", "nse_quote", inserted, str(today), str(today),
-            ))
 
     # ── NSE live iNAV snapshots ────────────────────────────────────────────────
     if "inav" in categories:
@@ -428,7 +395,7 @@ def run_import(
                                   str(fx_from), str(today)))
 
     if "mf_holdings" in categories:
-        from src.importer.fetchers.mf_holdings_fetcher import fetch_holdings
+        from src.importer.fetchers.adapters import MfHoldingsFetcher
 
         # NOTE: mstarpy.Funds.holdings() has NO date parameter — it always returns
         # the current Morningstar snapshot. We tag rows with the current month so
@@ -440,7 +407,9 @@ def run_import(
             f"({len(MF_HOLDINGS_WATCHLIST)} funds · snapshot as of {as_of_month})"
         )
 
-        # Skip if this month's snapshot already exists (unless forced)
+        # Skip if this month's snapshot already exists (unless forced) — an
+        # idempotency guard against real data, not delta-sync logic a Fetcher
+        # watermark can express, so it stays here rather than in the ABC.
         existing_months: set = set()
         if not full_reimport and not dry_run:
             try:
@@ -454,18 +423,18 @@ def run_import(
         if as_of_month in existing_months:
             console.print(f"  [dim]{as_of_month} snapshot already imported — skipping. Use --full to overwrite.[/dim]")
         else:
-            holdings_rows = fetch_holdings(MF_HOLDINGS_WATCHLIST, as_of_month)
-            if not holdings_rows:
-                console.print("  [yellow]⚠ No holdings returned — mstarpy may be unavailable.[/yellow]")
+            result = repo.run_fetcher(
+                MfHoldingsFetcher(MF_HOLDINGS_WATCHLIST, as_of_month),
+                dry_run=dry_run, full=True, ch=ch,
+            )
+            if result.skipped:
+                console.print("  [yellow]⚠ No holdings returned — mstarpy/Morningstar may be unavailable.[/yellow]")
             else:
-                inserted = ch.insert_mf_holdings(holdings_rows, dry_run=dry_run)
                 console.print(
-                    f"  [green]✓[/green] {inserted} rows "
+                    f"  [green]✓[/green] {result.n} rows "
                     f"{'(dry-run)' if dry_run else 'stored'} for {as_of_month}"
                 )
-                if not dry_run:
-                    ch.set_watermark("mf_holdings", "ALL", as_of_month)
-                summary_rows.append(("mf_holdings", "morningstar", inserted,
+                summary_rows.append(("mf_holdings", "morningstar", result.n,
                                      str(as_of_month), str(as_of_month)))
 
     # ── FII / DII Institutional Flows ─────────────────────────────────────────
@@ -584,37 +553,6 @@ def run_import(
             summary_rows.append(("imf_weo", "imf_weo", inserted,
                                   str(imf_from_year), str(imf_to_year)))
 
-    # ── Indian Macro Indicators ───────────────────────────────────────────────
-    if "indian_macro" in categories:
-        from src.importer.fetchers.indian_macro_fetcher import IndianMacroFetcher
-
-        console.print("\n[bold cyan]▶ Indian Macro Indicators[/bold cyan]")
-        console.print("  [dim]Scrapes industry and macro indicators (source: Tijori Finance)[/dim]")
-
-        fetcher = IndianMacroFetcher()
-        from_date = _resolve_from_date(
-            ch, fetcher.source_name, fetcher.symbol_key,
-            lookback_days=lookback_days, full_reimport=full_reimport,
-            dry_run=dry_run, today=today,
-        )
-
-        console.print(f"  [dim]Fetching {from_date} → {today}…[/dim]")
-        rows = fetcher.fetch_with_retry(from_date, today)
-
-        if not rows:
-            console.print("  [yellow]⚠ No Indian macro data returned.[/yellow]")
-        else:
-            inserted = fetcher.insert(rows, ch) if not dry_run else len(rows)
-            console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'stored'}")
-            if not dry_run:
-                try:
-                    max_dt = fetcher.max_date(rows)
-                    ch.set_watermark(fetcher.source_name, fetcher.symbol_key, max_dt)
-                except Exception as e:
-                    logger.warning("Failed to update watermark for indian_macro: %s", e)
-            summary_rows.append(("indian_macro", "tijori", inserted,
-                                  from_date.isoformat(), today.isoformat()))
-
     if "fii_dii" in categories:
         from src.importer.fetchers.fii_dii_fetcher import (
             fetch_fii_dii,
@@ -680,52 +618,28 @@ def run_import(
             console.print("  [yellow]⚠ No monthly rows returned.[/yellow]")
 
     if "amfi_flows" in categories:
-        from src.importer.fetchers.amfi_flows_fetcher import fetch_amfi_category_flows
+        from src.importer.fetchers.adapters import get_registry
 
         console.print("\n[bold cyan]▶ AMFI Category-Wise Monthly Flows + AUM[/bold cyan]")
         console.print(
             "  [dim]AMFI industry data — monthly net flows & AUM by fund category[/dim]"
         )
 
-        amfi_wm = ch.get_watermark("amfi_category_flows", "INDUSTRY", dataset="flows")
-        months_back = 120 if full_reimport else 24
-        if amfi_wm is not None and not full_reimport:
-            today_m = date.today().replace(day=1)
-            wm_m = amfi_wm.replace(day=1)
-            diff_months = (today_m.year - wm_m.year) * 12 + (today_m.month - wm_m.month)
-            months_back = max(2, diff_months + 1)
-
-        console.print(f"  [dim]Fetching last {months_back} months[/dim]")
-
-        amfi_rows = fetch_amfi_category_flows(months_back=months_back)
-        if amfi_rows:
-            inserted = ch.insert_amfi_category_flows(amfi_rows, dry_run=dry_run)
-            console.print(f"  [green]✓[/green] {inserted} category flow rows stored")
-            if not dry_run:
-                latest_month = max(r["report_month"] for r in amfi_rows)
-                ch.set_watermark("amfi_category_flows", "INDUSTRY", latest_month, dataset="flows")
-            latest_m = max(r["report_month"] for r in amfi_rows)
-            latest_rows = [r for r in amfi_rows if r["report_month"] == latest_m]
-            latest_rows.sort(key=lambda r: r["net_flow_cr"], reverse=True)
-            console.print(f"  Latest month: [bold]{latest_m.strftime('%b %Y')}[/bold]")
-            for r in latest_rows[:3]:
-                sign = "+" if r["net_flow_cr"] >= 0 else ""
-                console.print(
-                    f"    {r['category_name'][:30]:<30} "
-                    f"Net: ₹{sign}{r['net_flow_cr']:,.0f} Cr  |  "
-                    f"AUM: ₹{r['closing_aum_cr']:,.0f} Cr"
-                )
-            summary_rows.append((
-                "amfi_flows", "amfi", inserted,
-                str(min(r["report_month"] for r in amfi_rows)),
-                str(max(r["report_month"] for r in amfi_rows)),
-            ))
-        else:
+        result = repo.run_fetcher(
+            get_registry()["amfi_flows"],
+            dry_run=dry_run, full=full_reimport, lookback_days=lookback_days, ch=ch,
+        )
+        if result.skipped:
             console.print(
                 "  [yellow]⚠ No AMFI category flow rows returned. "
                 "Set AMFI_EXCEL_URL in .env as manual fallback.[/yellow]"
             )
-
+        else:
+            console.print(f"  [green]✓[/green] {result.n} category flow rows {'(dry-run)' if dry_run else 'stored'}")
+            summary_rows.append((
+                "amfi_flows", "amfi", result.n,
+                result.from_date.isoformat(), result.to_date.isoformat(),
+            ))
 
     # ── AMC Fund-Holdings Importers ───────────────────────────────────────────
     _amc_cats = [c for c in ("icici", "nippon", "icici-index", "dsp", "bajaj", "quant") if c in categories]

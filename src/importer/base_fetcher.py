@@ -86,6 +86,9 @@ class Fetcher(ABC):
                                 one worst-case watermark shared across the
                                 whole symbol group (e.g. etfs today). Only
                                 meaningful when supports_parallel is True.
+    dataset                  : watermark dataset bucket (default "prices") —
+                                override when a source's watermark isn't a
+                                price series (e.g. amfi_flows uses "flows").
     """
 
     source_name:  str
@@ -95,6 +98,7 @@ class Fetcher(ABC):
     supports_parallel:        bool = False
     supports_source_override: bool = False
     per_symbol_watermark:     bool = False
+    dataset:                  str = "prices"
 
     @abstractmethod
     def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
