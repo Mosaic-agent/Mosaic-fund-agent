@@ -1054,9 +1054,11 @@ class MosaicFundAgent:
                     return f"Error: {fallback_exc}"
             
             if is_connection_error:
-                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
+                from src.utils.error_utils import format_agent_error
+                return format_agent_error("MosaicFundAgent", f"{exc}{_CONN_TROUBLESHOOTING}", "Connection to local/cloud LLM endpoint failed.")
             logger.error("Agent query failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+            from src.utils.error_utils import format_agent_error
+            return format_agent_error("MosaicFundAgent", exc, "Main agent query execution failed. Portfolio synthesis could not be completed.")
 
     def chat(self, question: str, thread_id: str = "default", forced_intent: str | None = None) -> str:
         """
@@ -1285,9 +1287,11 @@ class MosaicFundAgent:
                     return f"Error: {fb_exc}"
             
             if is_connection_error:
-                return f"Error: {exc}{_CONN_TROUBLESHOOTING}"
+                from src.utils.error_utils import format_agent_error
+                return format_agent_error("MosaicFundAgent", f"{exc}{_CONN_TROUBLESHOOTING}", "Connection to local/cloud LLM endpoint failed.")
             logger.error("chat() failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+            from src.utils.error_utils import format_agent_error
+            return format_agent_error("MosaicFundAgent", exc, "Multi-turn conversation step failed. Agent state updated with error.")
 
     # ── Private Helpers ───────────────────────────────────────────────────────
 

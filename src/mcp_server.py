@@ -163,10 +163,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         elif name == "import_data":
             result = await _import_data(categories=arguments.get("categories", "etfs,mf,cot,fii_dii"))
         else:
-            result = {"error": f"Unknown tool: {name}"}
+            result = {"error": f"Unknown tool: {name}", "impact": "Impact: Tool execution aborted because the requested tool name is not registered."}
     except Exception as exc:
         log.exception("Tool %s failed", name)
-        result = {"error": str(exc), "tool": name}
+        from src.utils.error_utils import format_tool_error
+        impact = f"Impact: MCP tool '{name}' failed. Downstream analysis using this tool's predictions or market data will be omitted or fall back to cached values."
+        result = {
+            "error": str(exc),
+            "tool": name,
+            "impact": impact,
+            "error_message": format_tool_error(name, exc, impact),
+        }
 
     return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 

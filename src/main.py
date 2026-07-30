@@ -1252,6 +1252,10 @@ def risk_cmd(
         0.5, "--blend",
         help="Kelly blend fraction: 0=pure RG, 1=pure Kelly, 0.5=50/50 (default).",
     ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Force recomputation even if manifest is FRESH.",
+    ),
 ) -> None:
     """
     Adaptive Kelly position sizing — blends LightGBM forecast with Risk Governor.
@@ -1468,6 +1472,14 @@ def risk_cmd(
         n = save_checkpoints(checkpoint_rows)
         console.print(f"\n[green]✓ Saved {n} checkpoint rows to market_data.weight_checkpoints[/green]")
 
+        try:
+            from src.pipeline.manifest import ManifestTracker, WEIGHT_CHECKPOINTS
+            tracker = ManifestTracker()
+            status, details = tracker.check(WEIGHT_CHECKPOINTS)
+            tracker.record(WEIGHT_CHECKPOINTS, details)
+        except Exception as _m_err:
+            logger.warning("Failed to record manifest for weight_checkpoints: %s", _m_err)
+
 
 @app.command(name="signals")
 def signals_cmd(
@@ -1476,6 +1488,9 @@ def signals_cmd(
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show per-source debug info.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force recomputation even if manifest is FRESH.",
     ),
 ) -> None:
     """
@@ -1494,11 +1509,51 @@ def signals_cmd(
 
     from src.agents.signal_aggregator import run_signal_aggregation, print_signal_report
 
-    report = run_signal_aggregation(save=save, verbose=verbose)
+    report = run_signal_aggregation(save=save, verbose=verbose, force=force)
     print_signal_report(report)
 
     if save:
         console.print(f"[green]✓ Signal composite saved to DB for {len(report.signals)} ETFs.[/green]")
+
+
+@app.command(name="pipeline-status")
+def pipeline_status_cmd() -> None:
+    """
+    Show freshness status of all pipeline stages.
+    """
+    _setup_logging()
+    from src.pipeline.manifest import ManifestTracker
+    tracker = ManifestTracker()
+    report = tracker.staleness_report()
+
+    console.print(Panel(
+        "[bold cyan]🔍 Pipeline Manifest DAG — Freshness Status[/bold cyan]\n"
+        "[dim]Tracks input data freshness and code version across pipeline stages[/dim]",
+        border_style="cyan",
+    ))
+
+    tbl = Table(box=box.SIMPLE_HEAD, show_header=True)
+    tbl.add_column("Status", justify="center")
+    tbl.add_column("Stage", style="bold")
+    tbl.add_column("Symbol", justify="center")
+    tbl.add_column("Last Computed")
+    tbl.add_column("Upstream Details")
+
+    status_icons = {
+        "fresh": "[green]✅ FRESH[/green]",
+        "stale_data": "[yellow]🔄 STALE DATA[/yellow]",
+        "stale_code": "[magenta]🔧 STALE CODE[/magenta]",
+        "never_run": "[dim]⬜ NEVER RUN[/dim]",
+    }
+
+    for r in report:
+        st = r["status"]
+        icon = status_icons.get(st, st)
+        computed = str(r["computed_at"]) if r["computed_at"] else "Never"
+        details_str = ", ".join(f"{k}={v}" for k, v in r["details"].items())
+        tbl.add_row(icon, r["stage"], r["symbol"], computed, details_str)
+
+    console.print(tbl)
 
 
 @app.command(name="drift-monitor")

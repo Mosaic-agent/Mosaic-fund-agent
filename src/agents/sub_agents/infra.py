@@ -68,21 +68,26 @@ def _wrap_tool_for_dedup(tool: Any) -> Any:
 
     if original_func is not None:
         def cached_func(*args: Any, **kwargs: Any) -> Any:
+            from src.utils.error_utils import format_tool_error
             cache = _dedup_cache.get()
-            if cache is None:
-                return original_func(*args, **kwargs)
-            key = _make_key(args, kwargs)
-            if key is None:
-                return original_func(*args, **kwargs)
-            if key in cache:
-                logger.info(
-                    "tool dedup: %s called twice with same args this turn — returning cached result",
-                    tool_name,
-                )
-                return cache[key]
-            result = original_func(*args, **kwargs)
-            cache[key] = result
-            return result
+            try:
+                if cache is None:
+                    return original_func(*args, **kwargs)
+                key = _make_key(args, kwargs)
+                if key is None:
+                    return original_func(*args, **kwargs)
+                if key in cache:
+                    logger.info(
+                        "tool dedup: %s called twice with same args this turn — returning cached result",
+                        tool_name,
+                    )
+                    return cache[key]
+                result = original_func(*args, **kwargs)
+                cache[key] = result
+                return result
+            except Exception as exc:
+                logger.error("Tool execution failed for %s: %s", tool_name, exc)
+                return format_tool_error(tool_name, exc)
 
         # StructuredTool stores `func` as a Pydantic field — assignment is allowed,
         # but goes through Pydantic validation.  Use object.__setattr__ to bypass.
@@ -90,21 +95,26 @@ def _wrap_tool_for_dedup(tool: Any) -> Any:
 
     if original_coro is not None:
         async def cached_coro(*args: Any, **kwargs: Any) -> Any:
+            from src.utils.error_utils import format_tool_error
             cache = _dedup_cache.get()
-            if cache is None:
-                return await original_coro(*args, **kwargs)
-            key = _make_key(args, kwargs)
-            if key is None:
-                return await original_coro(*args, **kwargs)
-            if key in cache:
-                logger.info(
-                    "tool dedup: %s called twice with same args this turn — returning cached result",
-                    tool_name,
-                )
-                return cache[key]
-            result = await original_coro(*args, **kwargs)
-            cache[key] = result
-            return result
+            try:
+                if cache is None:
+                    return await original_coro(*args, **kwargs)
+                key = _make_key(args, kwargs)
+                if key is None:
+                    return await original_coro(*args, **kwargs)
+                if key in cache:
+                    logger.info(
+                        "tool dedup: %s called twice with same args this turn — returning cached result",
+                        tool_name,
+                    )
+                    return cache[key]
+                result = await original_coro(*args, **kwargs)
+                cache[key] = result
+                return result
+            except Exception as exc:
+                logger.error("Tool execution failed for %s: %s", tool_name, exc)
+                return format_tool_error(tool_name, exc)
 
         object.__setattr__(tool, "coroutine", cached_coro)
 

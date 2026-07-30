@@ -192,12 +192,46 @@ def _compute_composite(
 def run_signal_aggregation(
     save: bool = False,
     verbose: bool = False,
+    force: bool = False,
 ) -> SignalReport:
     """
     Run all signal collectors, compute composite, and optionally save to DB.
 
     Returns a SignalReport with per-ETF composite scores.
     """
+    import time
+    start_time_sec = time.time()
+    manifest_details = {}
+    try:
+        from src.pipeline.manifest import ManifestTracker, SIGNAL_COMPOSITE, StageStatus
+        tracker = ManifestTracker()
+        status, manifest_details = tracker.check(SIGNAL_COMPOSITE)
+        if status == StageStatus.FRESH and not force:
+            log.info("ManifestTracker: signal_composite FRESH — skipping recomputation")
+            from src.db.pool import get_pool
+            from src.db.repository import MarketDataRepository
+            repo = MarketDataRepository(get_pool())
+            latest_rows = repo.latest_signal_composite(SIGNAL_ETFS)
+            if latest_rows:
+                signals = [
+                    ETFSignal(
+                        etf=r["etf_symbol"],
+                        macro_score=r.get("macro_score", 50.0),
+                        sentiment_score=r.get("sentiment_score", 50.0),
+                        valuation_score=r.get("valuation_score", 50.0),
+                        flow_score=r.get("flow_score", 50.0),
+                        ml_score=r.get("ml_score", 50.0),
+                        anomaly_flag=r.get("anomaly_flag", "Normal"),
+                        composite_score=float(r["composite_score"]),
+                        action=r["action"],
+                        rationale=r.get("rationale", ""),
+                    )
+                    for r in latest_rows
+                ]
+                return SignalReport(as_of=date.today(), signals=signals, regime="MIXED")
+    except Exception as _m_err:
+        log.warning("Manifest check failed for signal_composite: %s", _m_err)
+
     log.info("Starting signal aggregation for %d ETFs...", len(SIGNAL_ETFS))
 
     from src.db.pool import get_pool
@@ -277,8 +311,13 @@ def run_signal_aggregation(
             n = ch.insert_signal_composite(rows)
             ch.close()
             log.info("Saved %d signal composite rows to ClickHouse", n)
+
+            from src.pipeline.manifest import ManifestTracker, SIGNAL_COMPOSITE
+            tracker = ManifestTracker()
+            duration_ms = int((time.time() - start_time_sec) * 1000)
+            tracker.record(SIGNAL_COMPOSITE, manifest_details, duration_ms=duration_ms)
         except Exception as e:
-            log.warning("Failed to save signal composite: %s", e)
+            log.warning("Failed to save signal composite / record manifest: %s", e)
 
     log.info("Signal aggregation complete: regime=%s, %d ETFs scored", report.regime, len(signals))
     return report

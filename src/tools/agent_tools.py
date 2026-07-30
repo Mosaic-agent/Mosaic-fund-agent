@@ -208,7 +208,11 @@ def delegate_to_signal_agent(question: str) -> str:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("signal", question)
     except Exception as exc:
-        return f"Signal agent error: {exc}"
+        from src.utils.error_utils import format_agent_error
+        return format_agent_error(
+            "signal", exc,
+            "Signal sub-agent failed. GOLDBEES ML predictions, GARCH risk parameters, and composite scores are excluded from this report."
+        )
 
 
 @tool
@@ -244,7 +248,11 @@ def delegate_to_macro_agent(question: str) -> str:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("macro", question)
     except Exception as exc:
-        return f"Macro agent error: {exc}"
+        from src.utils.error_utils import format_agent_error
+        return format_agent_error(
+            "macro", exc,
+            "Macro sub-agent failed. COMEX commodity signals, FII/DII flow charts, and geopolitical theme scores are omitted."
+        )
 
 
 @tool
@@ -283,7 +291,11 @@ def delegate_to_intl_etf_agent(question: str) -> str:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("intl_etf", question)
     except Exception as exc:
-        return f"IntlETF agent error: {exc}"
+        from src.utils.error_utils import format_agent_error
+        return format_agent_error(
+            "intl_etf", exc,
+            "IntlETF sub-agent failed. Scarcity premium/discount, regime detection, and seasonality tables are unavailable."
+        )
 
 
 @tool
@@ -316,7 +328,11 @@ def delegate_to_news_agent(question: str) -> str:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("news", question)
     except Exception as exc:
-        return f"News agent error: {exc}"
+        from src.utils.error_utils import format_agent_error
+        return format_agent_error(
+            "news", exc,
+            "News sub-agent failed. News headlines and multi-source sentiment summary could not be retrieved."
+        )
 
 
 @tool
@@ -351,7 +367,11 @@ def delegate_to_india_equity_agent(question: str) -> str:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("india_equity", question)
     except Exception as exc:
-        return f"India equity agent error: {exc}"
+        from src.utils.error_utils import format_agent_error
+        return format_agent_error(
+            "india_equity", exc,
+            "India equity research sub-agent failed. Full 8-section equity research note could not be compiled."
+        )
 
 
 @tool
@@ -391,7 +411,11 @@ def delegate_to_mf_agent(question: str) -> str:
         from src.agents.sub_agents import run_subagent_for
         return run_subagent_for("mf", question)
     except Exception as exc:
-        return f"MF agent error: {exc}"
+        from src.utils.error_utils import format_agent_error
+        return format_agent_error(
+            "mf", exc,
+            "Mutual Fund sub-agent failed. Institutional MF holdings, MoM/YoY consensus, and NAV returns are omitted."
+        )
 
 
 # ── Export list ───────────────────────────────────────────────────────────────

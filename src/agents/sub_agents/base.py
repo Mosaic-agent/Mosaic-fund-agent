@@ -235,7 +235,11 @@ class _SubAgent:
                 return self._confirm_fallback(question)
             else:
                 logger.error("%s.run() failed: %s", self.__class__.__name__, exc)
-                return f"Research incomplete: {exc}"
+                from src.utils.error_utils import format_agent_error
+                return format_agent_error(
+                    self.__class__.__name__, exc,
+                    f"Sub-agent '{self.__class__.__name__}' stream encountered an unhandled exception. Research for this domain is incomplete."
+                )
 
         try:
             # Collect tool outputs; skip pure-plumbing symbol-resolution calls.
@@ -367,7 +371,11 @@ class _SubAgent:
             return _get_message_text(msgs[-1].content) if msgs else "No response from sub-agent."
         except Exception as exc:
             logger.error("%s: message processing failed: %s", self.__class__.__name__, exc)
-            return f"Research incomplete: {exc}"
+            from src.utils.error_utils import format_agent_error
+            return format_agent_error(
+                self.__class__.__name__, exc,
+                f"Sub-agent '{self.__class__.__name__}' message post-processing failed. Tool results could not be formatted or synthesized."
+            )
 
     def _confirm_fallback(self, question: str) -> str:
         """Prompt the user before switching to the programmatic data-gathering path."""

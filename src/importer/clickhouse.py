@@ -18,6 +18,7 @@ Design:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -450,6 +451,21 @@ ENGINE = ReplacingMergeTree(created_at)
 ORDER BY (as_of, symbol, method)
 """
 
+_DDL_PIPELINE_MANIFEST = """
+CREATE TABLE IF NOT EXISTS market_data.pipeline_manifest (
+    stage            LowCardinality(String),
+    symbol           String,
+    input_fingerprint String,
+    code_version     String,
+    computed_at      DateTime DEFAULT now(),
+    input_details    String,
+    duration_ms      UInt32 DEFAULT 0,
+    status           LowCardinality(String) DEFAULT 'success'
+) ENGINE = ReplacingMergeTree(computed_at)
+ORDER BY (stage, symbol)
+TTL computed_at + INTERVAL 90 DAY
+"""
+
 _DDL_STOCK_EARNINGS = """
 CREATE TABLE IF NOT EXISTS market_data.stock_earnings (
     symbol          String,
@@ -749,7 +765,7 @@ class ClickHouseImporter:
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
             _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
             _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
-            _DDL_SIGNAL_COMPOSITE, _DDL_WEIGHT_CHECKPOINTS,
+            _DDL_SIGNAL_COMPOSITE, _DDL_WEIGHT_CHECKPOINTS, _DDL_PIPELINE_MANIFEST,
             _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
             _DDL_USER_HOLDINGS, _DDL_USER_PROFILE,
             _DDL_USER_MARGINS, _DDL_USER_POSITIONS, _DDL_USER_ORDERS,
@@ -1001,6 +1017,62 @@ class ClickHouseImporter:
         )
         logger.info("Inserted %d weight checkpoint rows", len(rows))
         return len(rows)
+
+    # ── Pipeline Manifest ───────────────────────────────────────────────────
+
+    def insert_pipeline_manifest(self, row: dict) -> None:
+        """
+        Record a pipeline stage execution in market_data.pipeline_manifest.
+
+        row must contain: stage, symbol, input_fingerprint, code_version,
+                          input_details (JSON string or dict), duration_ms, status.
+        """
+        input_details_str = (
+            json.dumps(row["input_details"])
+            if isinstance(row.get("input_details"), dict)
+            else str(row.get("input_details", "{}"))
+        )
+        computed_at = row.get("computed_at", datetime.now())
+        data = [[
+            row["stage"],
+            row["symbol"],
+            row["input_fingerprint"],
+            row["code_version"],
+            computed_at,
+            input_details_str,
+            int(row.get("duration_ms", 0)),
+            row.get("status", "success"),
+        ]]
+        self._client.insert(
+            "market_data.pipeline_manifest",
+            data,
+            column_names=[
+                "stage", "symbol", "input_fingerprint", "code_version",
+                "computed_at", "input_details", "duration_ms", "status",
+            ],
+        )
+
+    def get_pipeline_manifest(self, stage: str, symbol: str) -> dict | None:
+        """Get the latest manifest row for a given stage and symbol."""
+        result = self._client.query(
+            "SELECT stage, symbol, input_fingerprint, code_version, computed_at, input_details, duration_ms, status "
+            "FROM market_data.pipeline_manifest FINAL "
+            "WHERE stage = {stage:String} AND symbol = {symbol:String} LIMIT 1",
+            parameters={"stage": stage, "symbol": symbol},
+        )
+        if result.result_rows:
+            r = result.result_rows[0]
+            return {
+                "stage": r[0],
+                "symbol": r[1],
+                "input_fingerprint": r[2],
+                "code_version": r[3],
+                "computed_at": r[4],
+                "input_details": r[5],
+                "duration_ms": r[6],
+                "status": r[7],
+            }
+        return None
 
     # ── Watermarks ────────────────────────────────────────────────────────────
 

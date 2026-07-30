@@ -153,6 +153,26 @@ def main():
     pool = get_pool()
     repo = MarketDataRepository(pool)
 
+    # 0. Check manifest freshness
+    try:
+        from src.pipeline.manifest import ManifestTracker, ALL_STAGES, StageStatus
+        tracker = ManifestTracker(pool)
+        stale_stages = []
+        for stage in ALL_STAGES:
+            st, details = tracker.check(stage)
+            if st != StageStatus.FRESH:
+                stale_stages.append((stage.name, st.value, details))
+        if stale_stages:
+            print("=" * 65)
+            print("  ⚠️  STALENESS WARNING: Pipeline output may be behind upstream data")
+            for sname, sval, sdet in stale_stages:
+                print(f"     • {sname}: {sval}")
+            print("  Re-run pipeline: `python src/main.py signals --save --force`")
+            print("=" * 65)
+            print()
+    except Exception:
+        pass
+
     # 1. Latest ML prediction
     ml = query_df("""
         SELECT expected_return_pct, prob_up, regime_signal, cv_auc_mean,

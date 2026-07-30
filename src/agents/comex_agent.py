@@ -193,7 +193,13 @@ def get_comex_pre_market_context() -> dict[str, Any]:
             ),
         }
     except Exception as exc:
-        return {"error": str(exc)}
+        from src.utils.error_utils import format_tool_error
+        impact = "Impact: Could not determine market opening context. Downstream pre-market timing analysis relies on default timing."
+        return {
+            "error": str(exc),
+            "impact": impact,
+            "error_message": format_tool_error("get_comex_pre_market_context", exc, impact),
+        }
 
 
 # All tools for this agent
