@@ -1,0 +1,164 @@
+agent_name: "India Equity Research Agent"
+agent_type: "india_equity"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative equity research playbook for Indian stocks (NSE/BSE).
+  Executes batch data enrichment followed by qualitative LLM reasoning and 8-section research note formatting.
+  </task_context>
+
+  <source_priority>
+  1. Shoonya REST API (Live quotes, order depth)
+  2. NSE Disclosures & ClickHouse EOD daily_prices
+  3. Yahoo Finance (Fallback valuation & metrics)
+  </source_priority>
+
+steps:
+  - id: batch_enrichment
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: get_shoonya_quotes
+        params:
+          symbol: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: get_nse_announcements
+        params:
+          input_str: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: get_yahoo_finance_data
+        params:
+          input_str: "{{ symbol }}:NSE"
+        fail_on_error: false
+      - tool_name: check_and_refresh_symbol_data
+        params:
+          symbol: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: get_price_momentum
+        params:
+          input_str: "{{ symbol }}:NSE"
+        fail_on_error: false
+      - tool_name: get_quarterly_results
+        params:
+          input_str: "{{ symbol }}:NSE"
+        fail_on_error: false
+      - tool_name: get_stock_cashflow
+        params:
+          input_str: "{{ symbol }}:NSE"
+        fail_on_error: false
+      - tool_name: get_mf_holdings_for_stock
+        params:
+          company_name: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: get_db_price_summary
+        params:
+          symbol: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: search_anomaly_events
+        params:
+          symbol: "{{ symbol }}"
+          days: 365
+        fail_on_error: false
+      - tool_name: get_stock_news
+        params:
+          company_name: "{{ symbol }}"
+        fail_on_error: false
+
+  - id: qualitative_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are a senior Indian equity research analyst. Synthesise the qualitative research summary for {{ symbol }}.
+      </role_context>
+
+      <source_data>
+      <shoonya_quote>
+      {{ batch_enrichment.get_shoonya_quotes }}
+      </shoonya_quote>
+
+      <financials>
+      {{ batch_enrichment.get_quarterly_results }}
+      </financials>
+
+      <cashflow>
+      {{ batch_enrichment.get_stock_cashflow }}
+      </cashflow>
+
+      <anomalies>
+      {{ batch_enrichment.search_anomaly_events }}
+      </anomalies>
+      </source_data>
+
+      <instructions>
+      1. Analyze the core growth drivers and cash flow quality.
+      2. Check for promoter dilution (verify QIP/preferential allotment before assuming promoter sale).
+      3. Write a concise 3-sentence executive investment thesis summary.
+      </instructions>
+
+  - id: format_equity_note
+    step_type: template_output
+    format: markdown
+    template: |
+      # {{ symbol }} — Equity Research & Quantitative Report
+
+      ## Executive Investment Thesis
+      {{ qualitative_synthesis.output }}
+
+      ## 1. Company Snapshot & Valuation
+      {% set shoonya = batch_enrichment.get_shoonya_quotes | from_json %}
+      {% set db_price = batch_enrichment.get_db_price_summary %}
+      {% set yf = batch_enrichment.get_yahoo_finance_data %}
+
+      <price_summary>
+      {% if shoonya and shoonya.status != 'error' and shoonya.lp is defined %}
+      * **Current Price**: ₹{{ shoonya.lp }} (Source: Shoonya Live LTP)
+      * **Previous Close**: ₹{{ shoonya.c }} | **Open**: ₹{{ shoonya.o }} | **High**: ₹{{ shoonya.h }} | **Low**: ₹{{ shoonya.l }}
+      * **Volume**: {{ shoonya.v }} | **Total Buy Qty**: {{ shoonya.tbq }} | **Total Sell Qty**: {{ shoonya.tsq }}
+      {% elif db_price and db_price.latest_close is defined and db_price.error is not defined %}
+      * **Current Price**: ₹{{ db_price.latest_close }} (Source: ClickHouse NSE EOD Close)
+      * **Latest Date**: {{ db_price.latest_date }} | **30d Avg Close**: ₹{{ db_price['30d'].avg_close }}
+      {% elif yf and yf.current_price_inr is defined and yf.error is not defined %}
+      * **Current Price**: ₹{{ yf.current_price_inr }} (Source: Yahoo Finance)
+      * **Day Range**: ₹{{ yf.day_low_inr }} - ₹{{ yf.day_high_inr }}
+      {% else %}
+      * **Current Price**: Price not available across sources.
+      {% endif %}
+      </price_summary>
+
+      ### Live Quote Detail (Shoonya)
+      {{ batch_enrichment.get_shoonya_quotes }}
+
+      ### Official Disclosures (NSE)
+      {{ batch_enrichment.get_nse_announcements }}
+
+      ### Market Metrics (Yahoo Finance)
+      {{ batch_enrichment.get_yahoo_finance_data }}
+
+      ## 2. Price Momentum & Technical
+      {{ batch_enrichment.get_price_momentum }}
+
+      ### Data Freshness
+      {{ batch_enrichment.check_and_refresh_symbol_data }}
+
+      ### Price History (ClickHouse)
+      {{ batch_enrichment.get_db_price_summary }}
+
+      ## 3. Quarterly Financials
+      {{ batch_enrichment.get_quarterly_results }}
+
+      ## 4. Cash Flow Quality
+      {{ batch_enrichment.get_stock_cashflow }}
+
+      ## 5. Institutional Ownership — DSP MF Cross-Fund Holdings
+      {{ batch_enrichment.get_mf_holdings_for_stock }}
+
+      ## 6. Price Anomaly & Event Detection (365d)
+      {{ batch_enrichment.search_anomaly_events }}
+
+      ## 7. News Sentiment
+      {{ batch_enrichment.get_stock_news }}
+
+sample_input:
+  symbol: "TATAMOTORS"

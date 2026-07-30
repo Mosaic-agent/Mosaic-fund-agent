@@ -1,0 +1,72 @@
+agent_name: "GOLDBEES Investment Pipeline"
+agent_type: "goldbees_pipeline"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative quantitative pipeline for GOLDBEES ETF.
+  Fetches walk-forward LightGBM predictions, GARCH conditional volatility, Risk Governor scaling, and COMEX market signals.
+  </task_context>
+
+  <evaluation_rules>
+  Recommend weights.blended_50 as primary position weight.
+  Do not compute numbers inside prompt reasoning.
+  </evaluation_rules>
+
+steps:
+  - id: batch_market_fetch
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: run_goldbees_pipeline
+        params: {}
+        fail_on_error: false
+      - tool_name: run_comex_analysis
+        params: {}
+        fail_on_error: false
+
+  - id: quantitative_reasoning
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are a quantitative macro analyst reviewing GOLDBEES signal outputs.
+      </role_context>
+
+      <pipeline_data>
+      <goldbees_pipeline_results>
+      {{ batch_market_fetch.run_goldbees_pipeline }}
+      </goldbees_pipeline_results>
+
+      <comex_signals>
+      {{ batch_market_fetch.run_comex_analysis }}
+      </comex_signals>
+      </pipeline_data>
+
+      <instructions>
+      1. Review prob_up, expected_return_pct, and regime_signal from <goldbees_pipeline_results>.
+      2. State the recommended position weight (blended_50) verbatim without modifying numbers.
+      3. Summarise in 2 bullet points.
+      </instructions>
+
+  - id: format_goldbees_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # GOLDBEES Declarative Quantitative Analysis
+
+      ## Executive Summary
+      {{ quantitative_reasoning.output }}
+      
+      ## Quantitative Pipeline Results
+      <pipeline_output>
+      {{ batch_market_fetch.run_goldbees_pipeline }}
+      </pipeline_output>
+
+      ## COMEX Market Signals
+      <comex_output>
+      {{ batch_market_fetch.run_comex_analysis }}
+      </comex_output>
+
+sample_input:
+  symbol: "GOLDBEES"

@@ -28,6 +28,82 @@ _registry: dict[str, _SubAgent] = {}
 def get_subagent(name: str) -> _SubAgent:
     """Return (lazily creating) a sub-agent by name."""
     if name not in _registry:
+        # Check if a declarative YAML playbook exists for this intent
+        from pathlib import Path
+        yaml_path = Path(f"config/agents/{name}.yaml")
+        if yaml_path.is_file():
+            try:
+                from src.agents.declarative.declarative_runner import DeclarativeAgentRunner
+
+                class DeclarativeSubAgentAdapter:
+                    """Adapter bridging declarative YAML playbooks into the sub-agent interface."""
+
+                    def __init__(self, path: Path):
+                        self.runner = DeclarativeAgentRunner(str(path))
+
+                    def run(self, question: str, llm_override=None, callbacks=None) -> str:
+                        # ── P0 Fix: Extract symbol properly ──
+                        symbol = self._extract_symbol(question)
+
+                        # ── P0 Fix: Wire llm_override into runner ──
+                        if llm_override is not None:
+                            self.runner.spec.default_model = getattr(llm_override, "model_name", self.runner.spec.default_model)
+
+                        # ── P0 Fix: Wire callbacks for tracing ──
+                        if callbacks:
+                            self.runner._callbacks = callbacks
+
+                        res = self.runner.run({"symbol": symbol, "question": question})
+                        return res.get("output", "")
+
+                    @staticmethod
+                    def _extract_symbol(question: str) -> str:
+                        """Extract stock/ETF symbol from a natural language question.
+
+                        Uses resolve_company_info for Indian equities, falls back to
+                        regex extraction for ETF symbols like GOLDBEES/SILVERBEES.
+                        """
+                        import re as _re
+
+                        # Try regex for well-known ETF tickers first
+                        m = _re.search(r"\b([A-Z]{4,12}(?:BEES|ETF))\b", question.upper())
+                        if m and m.group(1) not in ("OVER", "LAST", "DAYS", "SHOW", "FIND", "EXPLAIN"):
+                            return m.group(1)
+
+                        # Strip action verbs and resolve company name → symbol
+                        subject = _re.sub(
+                            r"^(?:research|analyze|analyse|look\s+up|tell\s+me\s+about"
+                            r"|find\s+(?:info|data)\s+(?:about|on|for)"
+                            r"|run|using\s+declarative\s+runner)\s+",
+                            "", question, flags=_re.I,
+                        ).strip().rstrip("?.")
+
+                        # Remove common noise words
+                        subject = _re.sub(
+                            r"\b(?:stock|equity|share|company|nse|bse)\b",
+                            "", subject, flags=_re.I,
+                        ).strip()
+
+                        if not subject:
+                            return question.strip().split()[0].upper() if question.strip() else "UNKNOWN"
+
+                        try:
+                            from src.tools.company_resolver import resolve_company_info
+                            info = resolve_company_info(subject)
+                            if info.get("symbol") and info.get("source") != "fallback":
+                                return info["symbol"]
+                        except Exception:
+                            pass
+
+                        # Last resort: return first word uppercased
+                        return subject.split()[0].upper()
+
+                _registry[name] = DeclarativeSubAgentAdapter(yaml_path)  # type: ignore
+                logger.info("Registered declarative YAML sub-agent for %r from %s", name, yaml_path)
+                return _registry[name]
+            except Exception as exc:
+                logger.warning("Failed to initialize declarative YAML agent for %r: %s", name, exc)
+
         cls_map: dict[str, type[_SubAgent]] = {
             "deepdive":     DeepDiveSubAgent,
             "research":     AutonomousResearchAgent,
