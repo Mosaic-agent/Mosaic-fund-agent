@@ -2860,8 +2860,12 @@ with tab_holdings:
         ORDER BY fund_name, pct_of_nav DESC
         """
     )
-    _hold_df.columns = ["scheme_code", "fund_name", "isin", "security_name",
-                        "asset_type", "market_value_cr", "pct_of_nav"]
+    _HOLD_COLS = ["scheme_code", "fund_name", "isin", "security_name",
+                  "asset_type", "market_value_cr", "pct_of_nav"]
+    if _hold_df.empty:
+        _hold_df = pd.DataFrame(columns=_HOLD_COLS)
+    else:
+        _hold_df.columns = _HOLD_COLS
 
     # ── Fallback: for funds with no data in selected month, load their latest ─
     _sel_month_label = selected_month.strftime("%b %Y") if hasattr(selected_month, "strftime") else str(selected_month)[:7]
