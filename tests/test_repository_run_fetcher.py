@@ -482,6 +482,43 @@ class TestFIIDIIFetcher(unittest.TestCase):
         mock_ch.insert_fii_dii_monthly.assert_called_once_with(mock_monthly.return_value)
 
 
+class TestMacroAndFlowFetchers(unittest.TestCase):
+    def test_world_bank_fetcher_insert_logging(self):
+        from src.importer.fetchers.adapters import WorldBankMacroFetcher
+        fetcher = WorldBankMacroFetcher()
+        mock_ch = MagicMock()
+        mock_ch.insert_macro_indicators.return_value = 1
+        rows = [{"ref_year": 2025, "country_code": "IN", "indicator_code": "NY.GDP.MKTP.KD.ZG", "value": 6.8}]
+
+        n = fetcher.insert(rows, mock_ch)
+        self.assertEqual(n, 1)
+        mock_ch.insert_macro_indicators.assert_called_once_with(rows)
+
+    def test_imf_weo_fetcher_insert_logging(self):
+        from src.importer.fetchers.adapters import IMFWEOFetcher
+        fetcher = IMFWEOFetcher()
+        mock_ch = MagicMock()
+        mock_ch.insert_macro_indicators.return_value = 1
+        today_year = date.today().year
+        rows = [{"ref_year": today_year, "country_code": "IN", "indicator_code": "NGDP_RPCH", "value": 6.5}]
+
+        n = fetcher.insert(rows, mock_ch)
+        self.assertEqual(n, 1)
+        mock_ch.insert_macro_indicators.assert_called_once_with(rows)
+
+    def test_amfi_category_flows_fetcher_insert_logging(self):
+        from src.importer.fetchers.adapters import AmfiCategoryFlowsFetcher
+        fetcher = AmfiCategoryFlowsFetcher()
+        mock_ch = MagicMock()
+        mock_ch.insert_amfi_category_flows.return_value = 1
+        rows = [{"report_month": date(2026, 6, 1), "category_name": "Small Cap Fund", "net_flow_cr": 2450.0, "closing_aum_cr": 35000.0}]
+
+        n = fetcher.insert(rows, mock_ch)
+        self.assertEqual(n, 1)
+        mock_ch.insert_amfi_category_flows.assert_called_once_with(rows)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
