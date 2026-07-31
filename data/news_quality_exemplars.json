@@ -1,52 +1,314 @@
 [
-  {"text": "Reliance Q3 net profit rises 12% year-on-year, beats analyst estimates", "weight": 0.96},
-  {"text": "TCS reports quarterly earnings that beat street estimates on strong deal wins", "weight": 0.95},
-  {"text": "Infosys Q2 results beat estimates, raises full-year revenue guidance", "weight": 0.95},
-  {"text": "HDFC Bank Q1 earnings beat expectations as net interest income jumps 20%", "weight": 0.94},
-  {"text": "Company profit surges 25%, quarterly results beat consensus estimates", "weight": 0.94},
-  {"text": "Wipro misses quarterly earnings estimates, cuts FY revenue guidance", "weight": 0.92},
-  {"text": "Maruti Suzuki quarterly net profit doubles, beats analyst forecasts", "weight": 0.93},
-  {"text": "RBI cuts repo rate by 25 basis points in surprise monetary policy move", "weight": 0.95},
-  {"text": "RBI raises repo rate by 50 bps to combat rising inflation", "weight": 0.95},
-  {"text": "US Federal Reserve holds interest rates steady, signals future rate cuts", "weight": 0.90},
-  {"text": "Government hikes gold import duty from 6% to 15% in the union budget", "weight": 0.92},
-  {"text": "SEBI bars company promoters from markets over insider trading violations", "weight": 0.91},
-  {"text": "HDFC Bank announces landmark merger with parent HDFC in all-stock deal", "weight": 0.94},
-  {"text": "Adani Group stocks tumble after short-seller report alleges accounting fraud", "weight": 0.92},
-  {"text": "Vedanta board approves demerger into six separately listed entities", "weight": 0.88},
-  {"text": "Gold ETFs crash 15% as precious metals tumble on Fed hawkish stance", "weight": 0.90},
-  {"text": "Gold prices plunge 6% as US dollar strengthens sharply", "weight": 0.88},
-  {"text": "Silver futures plunge 8% amid industrial demand slowdown", "weight": 0.86},
-  {"text": "Crude oil jumps 6% after OPEC announces a surprise production cut", "weight": 0.88},
-  {"text": "Sensex crashes 1,200 points as global equity sell-off deepens", "weight": 0.87},
-  {"text": "Nifty hits record high on strong FII inflows and earnings optimism", "weight": 0.85},
-  {"text": "Rupee slumps to all-time low against the dollar, breaches 84 mark", "weight": 0.86},
-  {"text": "Company announces 1:1 bonus share issue alongside a special dividend", "weight": 0.84},
-  {"text": "Maruti Suzuki recalls 100,000 vehicles over a steering safety defect", "weight": 0.85},
-  {"text": "Company wins a multi-year supply contract worth 5,000 crore rupees", "weight": 0.80},
-  {"text": "Bank raises 10,000 crore via a qualified institutional placement", "weight": 0.78},
-  {"text": "Pharma firm receives US FDA approval for its generic cancer drug", "weight": 0.86},
-  {"text": "Passenger vehicle sales rise 8% in December on festive-season demand", "weight": 0.74},
-  {"text": "Company to acquire rival in a 3,000 crore cash-and-stock transaction", "weight": 0.88},
-  {"text": "Moody's downgrades company credit rating on rising debt concerns", "weight": 0.83},
-  {"text": "Firm to expand manufacturing capacity with a new greenfield plant", "weight": 0.62},
-  {"text": "Company launches a new product line in the premium consumer segment", "weight": 0.55},
-  {"text": "Management reshuffle: company appoints a new chief operating officer", "weight": 0.52},
-  {"text": "Analysts maintain a hold rating with a modestly revised target price", "weight": 0.48},
-  {"text": "Market outlook remains uncertain amid mixed global economic cues", "weight": 0.45},
-  {"text": "Quarterly sales volumes come in broadly in line with expectations", "weight": 0.50},
-  {"text": "Stock ends flat in a range-bound, low-conviction trading session", "weight": 0.42},
-  {"text": "Markets closed mixed on thin, low-volume holiday trading", "weight": 0.30},
-  {"text": "Gold rate today: check 22K and 24K prices in your city", "weight": 0.22},
-  {"text": "Sensex and Nifty: what to expect in today's trading session", "weight": 0.26},
-  {"text": "Weekly technical analysis: key support and resistance levels to watch", "weight": 0.28},
-  {"text": "5 stocks that could give 20% returns in the next 3 months", "weight": 0.06},
-  {"text": "3 multibagger penny stocks to buy now for potentially huge gains", "weight": 0.04},
-  {"text": "This small-cap stock could make you rich, say market experts", "weight": 0.05},
-  {"text": "Top 10 stocks to watch for explosive growth this week", "weight": 0.08},
-  {"text": "Random blog post predicting a penny stock will double overnight", "weight": 0.03},
-  {"text": "These 7 shares could turn 1 lakh into 10 lakh, tipster claims", "weight": 0.04},
-  {"text": "Hidden gem stock nobody is talking about could soar, blogger says", "weight": 0.05},
-  {"text": "Opinion: why I personally think this stock is a screaming buy", "weight": 0.12},
-  {"text": "Astrology stock tips: which shares the stars favour this month", "weight": 0.02}
+  {
+    "text": "RBI keeps repo rate unchanged; Projects India's real GDP growth for current fiscal at 6.9% - News On AIR",
+    "weight": 0.92
+  },
+  {
+    "text": "CIAN Agro Industries & Infrastructure consolidated net profit rises 664.71% in the March 2026 quarter - Business Standard",
+    "weight": 0.9
+  },
+  {
+    "text": "Bajaj Finance Q4 net profit rises 22% to Rs 5,465 crore, Rajiv Bajaj to step down from Board - Moneycontrol.com",
+    "weight": 0.9
+  },
+  {
+    "text": "Physical Gold, Jewellery, Gold ETFs To Grey Market: How Customs Duty To 15% From 6% Will Impact Precious Metal - Goodreturns",
+    "weight": 0.88
+  },
+  {
+    "text": "US-Iran conflict escalates as fresh missile strikes threaten Middle East ceasefire - France 24",
+    "weight": 0.88
+  },
+  {
+    "text": "India's Bajaj Finance at record high after first-quarter profit beat - Reuters",
+    "weight": 0.87
+  },
+  {
+    "text": "Sansera Engineering Reports 28% Revenue Growth, PAT Jumps 108% In Q4 - Free Press Journal",
+    "weight": 0.87
+  },
+  {
+    "text": "Fed Likely Won't Cut Interest Rates This Year, Minutes Show - Forbes",
+    "weight": 0.86
+  },
+  {
+    "text": "US stock markets fall amid Iran strikes and potential higher interest rates - The Guardian",
+    "weight": 0.85
+  },
+  {
+    "text": "Dr. Reddy's presses pause on generic semaglutide supply after flagging API issue - Fierce Pharma",
+    "weight": 0.85
+  },
+  {
+    "text": "Bajaj Finance shares fall 8% after AUM growth guidance cut but analysts retain optimism - CNBC TV18",
+    "weight": 0.85
+  },
+  {
+    "text": "Indian non-bank lender Bajaj Finance posts 22% profit growth, pushes AI adoption - Reuters",
+    "weight": 0.85
+  },
+  {
+    "text": "Bajaj Finance Q3 Net Profit Dips 6% After ₹1,671 Crore One-Time Hit; Core Profit Up 23% - PSU Connect",
+    "weight": 0.84
+  },
+  {
+    "text": "Cochin Shipyard shares fall 4% as OFS worth Rs 1,856 crore opens today at 7% discount - MSN",
+    "weight": 0.83
+  },
+  {
+    "text": "US initiates H-1B, PERM visa fraud probe; Cognizant among firms under scrutiny - The Federal",
+    "weight": 0.83
+  },
+  {
+    "text": "AI Shift, Automation Lead to 130,000 Job Cuts at Chinese Tech Giants - GujaratSamachar English",
+    "weight": 0.82
+  },
+  {
+    "text": "Asian Development Bank lowers India's GDP growth projection for FY27 to 6.6% - Deccan Herald",
+    "weight": 0.82
+  },
+  {
+    "text": "Gold ETFs: Outflows Of US$8.9bn From Funds Listed In All Regions in June - fintechbiznews.com",
+    "weight": 0.8
+  },
+  {
+    "text": "TCS Q1 revenue rises 2.7%, company adds over 9,000 to workforce - The Times of India",
+    "weight": 0.8
+  },
+  {
+    "text": "Bajaj Finance shares in focus today as global brokerages revise target prices after Q1 results; Citi, Jefferies, Morgan Stanley stay positive - Business Upturn",
+    "weight": 0.75
+  },
+  {
+    "text": "Sansera Engineering to Form JV with Japan's Nichidai for Precision Auto Components - India Infoline",
+    "weight": 0.75
+  },
+  {
+    "text": "Goldman Sachs initiates coverage on Sansera Engineering, 3 other auto ancillary stocks with upside of up to 28% - MSN",
+    "weight": 0.74
+  },
+  {
+    "text": "Indian equities rebound after sharp sell-off; Sensex, Nifty end higher on broad-based buying - Open Magazine",
+    "weight": 0.72
+  },
+  {
+    "text": "RBI rate hike: Interest burden for Indians may go up later this year amid inflation risks - The Economic Times",
+    "weight": 0.72
+  },
+  {
+    "text": "SEBI simplifies FPI rule, obligates fees payment in rupees now - BW Businessworld",
+    "weight": 0.68
+  },
+  {
+    "text": "India VIX Falls 6.14% To 12.55 As Geopolitical Fears Ease and Q1 Earnings Shift Market Focus - HDFC Sky",
+    "weight": 0.68
+  },
+  {
+    "text": "Sensex jumps over 700 points, Nifty tops 24,160 as IT stocks lead market rally - IBTimes India",
+    "weight": 0.66
+  },
+  {
+    "text": "Bajaj Finance Raises ₹4,505.15 Crore via NCDs with Coupons Up to 8% - Sahi",
+    "weight": 0.6
+  },
+  {
+    "text": "Power transmission sector may see ₹5-6 lakh crore capex by FY32: ICRA - ET EnergyWorld",
+    "weight": 0.58
+  },
+  {
+    "text": "Bajaj Finance aims at ₹10 lakh-cr loan book by FY29; likely to look within for next MD - The Economic Times",
+    "weight": 0.55
+  },
+  {
+    "text": "India's Alloy Steel Prices Jump 3.66% Amid Firm Domestic Demand - ChemAnalyst",
+    "weight": 0.5
+  },
+  {
+    "text": "10 Mutual Funds That Gave 20% to 25% Returns in Last 6 Months (July 2026 Update) - Myinvestmentideas",
+    "weight": 0.45
+  },
+  {
+    "text": "Rupee rises 15 paise against US dollar in early trade - Telangana Today",
+    "weight": 0.45
+  },
+  {
+    "text": "Indian Rupee regains ground despite higher oil prices - FXStreet",
+    "weight": 0.44
+  },
+  {
+    "text": "Why Is Share Market Rising Today? 5 Key Reasons Behind Sensex, Nifty Rally On July 10 - News18",
+    "weight": 0.42
+  },
+  {
+    "text": "Sensex jumps 700 points: Why is the stock market rising today? - India Today",
+    "weight": 0.4
+  },
+  {
+    "text": "Bajaj Finance Q4 results 2026 expectations: Can earnings justify recent stock recovery? - Business Today",
+    "weight": 0.3
+  },
+  {
+    "text": "Q4 Results Next Week: Adani, CIL, Vedanta, HUL, Bajaj Finance, Maruti Suzuki Among 208 Companies To Declare Q4 - Goodreturns",
+    "weight": 0.28
+  },
+  {
+    "text": "Bajaj Finance shares up 15% in a month - Q4 results, dividend amount 2026 announcement date, time | Expectations - Business Today",
+    "weight": 0.25
+  },
+  {
+    "text": "Gold ETF in India 2026: Best Funds, Returns & Taxation - Sahi",
+    "weight": 0.2
+  },
+  {
+    "text": "Bajaj Finance share price target 2026 post Q4 results | Buy, sell, or hold? - Business Today",
+    "weight": 0.2
+  },
+  {
+    "text": "BAJFINANCE Outlook for the Week (July 27, 2026 – July 31, 2026) - Equitypandit",
+    "weight": 0.18
+  },
+  {
+    "text": "Stocks To Buy or Sell Today, April 30, 2026: Bajaj Finance, Adani Power and Brigade Enterprises Among - LatestLY",
+    "weight": 0.15
+  },
+  {
+    "text": "Gold (XAU/USD) Price Forecast for Today, Tomorrow, Next Week, and the Next 30 Days - LiteFinance",
+    "weight": 0.15
+  },
+  {
+    "text": "This French Water Company Doesn't Make Bottled Water. It's Bigger Than That. - Barrons.com",
+    "weight": 0.15
+  },
+  {
+    "text": "Institutions own 23% of Bajaj Finance Limited (NSE:BAJFINANCE) shares but public companies control 55% of the company - simplywall.st",
+    "weight": 0.14
+  },
+  {
+    "text": "Bajaj Finance Limited's (NSE:BAJFINANCE) Shareholders Might Be Looking For Exit - simplywall.st",
+    "weight": 0.12
+  },
+  {
+    "text": "Bajaj Finance Ltd Sees High-Value Trading Amid Mixed Market Sentiment - MarketsMojo",
+    "weight": 0.12
+  },
+  {
+    "text": "Bajaj Finance Ltd Sees Robust Value Turnover Amid Mixed Technical Signals - MarketsMojo",
+    "weight": 0.12
+  },
+  {
+    "text": "7 Best Cloud Computing Stocks for 2026 and How to Invest - The Motley Fool",
+    "weight": 0.1
+  },
+  {
+    "text": "Alibaba to block Claude Code in workplace amid reported security concerns (BABA) - InvestorsHub",
+    "weight": 0.1
+  },
+  {
+    "text": "Nippon India ETF Gold BeES Share Price NSE/BSE - Live Price Charts & Performance - HDFC Sky",
+    "weight": 0.1
+  },
+  {
+    "text": "Bajaj Finance Ltd. Share Price Today - Bajaj Finance Ltd. Stock Price Live NSE/BSE - CNBC TV18",
+    "weight": 0.08
+  },
+  {
+    "text": "Here's Why We Think Bajaj Finance (NSE:BAJFINANCE) Is Well Worth Watching - simplywall.st",
+    "weight": 0.08
+  },
+  {
+    "text": "Cian Agro Industries Hits 12th Consecutive Upper Circuit, Surges 1,400% in Past Year - scanx.trade",
+    "weight": 0.07
+  },
+  {
+    "text": "Multibagger CIAN Agro Industries Delivers 790% Return In One Year — Check Out Why - NDTV Profit",
+    "weight": 0.06
+  },
+  {
+    "text": "₹12.50 to ₹1630: Multibagger penny stock turns ₹1 lakh into ₹1.30 crore in nine years - livemint.com",
+    "weight": 0.06
+  },
+  {
+    "text": "₹35 to ₹1,630: Ethanol Stock Turns ₹1 Lakh into Over ₹47 Lakh in Just 3 Years - Trade Brains",
+    "weight": 0.05
+  },
+  {
+    "text": "Can Russia's S-400 Or China's missiles actually shoot down a B-52? Here is how the old bomber stays alive - WION",
+    "weight": 0.03
+  },
+  {
+    "text": "Tata Sierra EV Pure S 63 RWD ACFC On Road Price (Electric(Battery)), Features & Specs, Images - CarDekho",
+    "weight": 0.02
+  },
+  {
+    "text": "Mahindra Vision S Interior Spotted - CarWale",
+    "weight": 0.02
+  },
+  {
+    "text": "India's Bajaj Finance posts higher profit on loan growth, lower provisions - Reuters",
+    "weight": 0.85
+  },
+  {
+    "text": "India's TCS tops revenue estimates on weak rupee, banking boost - Reuters",
+    "weight": 0.85
+  },
+  {
+    "text": "India's Trent heads for biggest one-day loss in a year on quarterly revenue miss - Reuters",
+    "weight": 0.85
+  },
+  {
+    "text": "Bharti Airtel to invest $2.2 billion to expand digital lending - Reuters",
+    "weight": 0.78
+  },
+  {
+    "text": "Indian shares set to open higher; TCS in focus after revenue beat - Reuters",
+    "weight": 0.72
+  },
+  {
+    "text": "India markets regulator allows Nifty Bank to be restructured by March 2026 - Reuters",
+    "weight": 0.7
+  },
+  {
+    "text": "Indian non-bank lenders plan $1.6 billion in debt sales as yields decline, bankers say - Reuters",
+    "weight": 0.65
+  },
+  {
+    "text": "Indian shares trade flat as financials, autos counter IT pullback - Reuters",
+    "weight": 0.35
+  },
+  {
+    "text": "Tech Wariness Blunts Asian Stock Markets - MT Newswires",
+    "weight": 0.28
+  },
+  {
+    "text": "Top Cryptocurrencies Rise; Bitcoin Tops $63,000 Level - MT Newswires",
+    "weight": 0.15
+  },
+  {
+    "text": "Institutions own 23% of Sansera Engineering shares, retail investors hold the rest - simplywall.st",
+    "weight": 0.1
+  },
+  {
+    "text": "Company reports strong Q3 earnings, profit beats analyst estimates",
+    "weight": 0.95
+  },
+  {
+    "text": "Quarterly earnings beat expectations across the board, profit jumps sharply",
+    "weight": 0.94
+  },
+  {
+    "text": "Gold ETFs crash 15% as precious metals tumble on hawkish Fed signals",
+    "weight": 0.9
+  },
+  {
+    "text": "Silver and gold ETFs tumble sharply as precious metals sell off",
+    "weight": 0.87
+  },
+  {
+    "text": "Random blog post predicts a penny stock will double overnight",
+    "weight": 0.03
+  },
+  {
+    "text": "Anonymous blogger's penny stock prediction goes viral with no factual basis",
+    "weight": 0.03
+  }
 ]
