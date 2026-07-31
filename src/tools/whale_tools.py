@@ -177,9 +177,11 @@ def get_whale_consensus(symbol: str) -> str:
             "spelling may differ (try NSE symbol, e.g. 'SANSERA')."
         )
 
-    # Filter passives
-    from src.scripts.portfolio.whale_accumulation_scanner import _is_passive, _get_amc_group
+    # Filter passives and debt instruments (asset_type is stamped per-fund at
+    # import time, not per-holding, so G-Sec/NCD lines can leak in as 'equity')
+    from src.scripts.portfolio.whale_accumulation_scanner import _is_passive, _get_amc_group, _is_debt_instrument
     df = df[~df["fund_name"].apply(_is_passive)].copy()
+    df = df[~df["security_name"].apply(_is_debt_instrument)].copy()
     if df.empty:
         return f"No **active** fund holdings found for **{symbol}** (only passive/index funds hold it)."
 
