@@ -46,15 +46,26 @@ python src/scripts/portfolio/import_stocks_parallel.py --workers 5 [--dry-run] [
 
 ### Fetcher Adapter Pattern
 
-Five core categories have typed **Fetcher adapters** (`src/importer/fetchers/adapters.py`):
+All general data categories have typed **Fetcher adapters** (`src/importer/fetchers/adapters.py`):
 
-| Adapter | Category | Overlap |
-|---|---|---|
-| `YFinanceFetcher` | etfs, stocks, commodities, indices | 3 days |
-| `MFNavFetcher` | mf | 3 days |
-| `FIIDIIFetcher` | fii_dii | 3 days |
-| `FXRatesFetcher` | fx_rates | 3 days |
-| `COTGoldFetcher` | cot | 21 days |
+| Adapter | Category | Overlap | Description |
+|---|---|---|---|
+| `ShoonyaFetcher` | etfs | 3 days | Shoonya API with nselib + yfinance fallbacks |
+| `StocksFetcher` | stocks, us_stocks | 3 days | Price, earnings, insider, valuation data |
+| `YFinanceFetcher` | commodities, indices | 3 days | Yahoo Finance EOD price history |
+| `NSElibFetcher` | etfs (fallback) | 3 days | Direct NSE OHLCV |
+| `NseIndexFetcher` | nse_indices | 3 days | Sectoral/factor indices via nselib |
+| `NseEodFetcher` | nse_eod | 3 days | Official NSE EOD bulk archive |
+| `IndianMacroFetcher` | indian_macro | 30 days | RBI/MOSPI Indian macro series |
+| `MFNavFetcher` | mf | 3 days | MFAPI mutual fund daily NAVs |
+| `FIIDIIFetcher` | fii_dii | 3 days | FII/DII daily cash, F&O OI, monthly aggs |
+| `FXRatesFetcher` | fx_rates | 3 days | Yahoo Finance USD currency pairs |
+| `COTGoldFetcher` | cot | 21 days | CFTC COT Gold Managed Money |
+| `CbReservesFetcher` | cb_reserves | 0 days | IMF IFS Central Bank Gold Reserves |
+| `EtfAumFetcher` | etf_aum | 0 days | Gold ETF AUM & implied tonnes |
+| `WorldBankMacroFetcher` | world_bank | 365 days | World Bank WDI annual macro indicators |
+| `IMFWEOFetcher` | imf_weo | 180 days | IMF WEO projections & forecasts |
+| `AmfiCategoryFlowsFetcher` | amfi_flows | 0 days | AMFI category-wise monthly flows + AUM |
 
 Use `MarketDataRepository.run_fetcher(fetcher)` to execute the full watermark → fetch → validate → insert → event cycle programmatically:
 

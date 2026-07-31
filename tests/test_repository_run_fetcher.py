@@ -7,7 +7,6 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from src.importer.base_fetcher import Fetcher
-from src.importer.cli import _resolve_from_date
 from src.db.repository import MarketDataRepository
 
 
@@ -189,9 +188,8 @@ class TestStocksSourceOverrideWatermark(unittest.TestCase):
 
 
 class TestWatermarkEquivalence(unittest.TestCase):
-    def test_resolve_group_from_date_matches_cli_resolve_from_date(self):
-        """New repository._resolve_group_from_date must agree with the existing
-        cli._resolve_from_date on the same fixture watermarks — spec §7.2."""
+    def test_resolve_group_from_date_computes_earliest_watermark_minus_overlap(self):
+        """repository._resolve_group_from_date computes earliest watermark minus overlap — spec §7.2."""
         today = date(2026, 7, 31)
         seed = {
             ("shoonya", "GOLDBEES"):   date(2026, 7, 20),
@@ -200,20 +198,14 @@ class TestWatermarkEquivalence(unittest.TestCase):
         }
         symbols = ["GOLDBEES", "NIFTYBEES", "BANKBEES"]
 
-        old_from = _resolve_from_date(
-            FakeCH(seed), "shoonya", symbols,
-            lookback_days=365, overlap_days=3, full_reimport=False,
-            dry_run=False, today=today,
-        )
-
         repo = MarketDataRepository(pool=None)
         new_from = repo._resolve_group_from_date(
             FakeCH(seed), "shoonya", symbols,
             lookback_days=365, overlap_days=3, full=False, today=today,
         )
 
-        self.assertEqual(old_from, new_from)
-        self.assertEqual(old_from, date(2026, 7, 18) - timedelta(days=3))
+        expected = date(2026, 7, 18) - timedelta(days=3)
+        self.assertEqual(new_from, expected)
 
     def test_resolve_group_from_date_full_lookback_when_no_watermark(self):
         today = date(2026, 7, 31)
@@ -458,5 +450,38 @@ class TestFirstRunLookbackDays(unittest.TestCase):
         self.assertGreaterEqual(months_back, 23)
 
 
+class TestFIIDIIFetcher(unittest.TestCase):
+    @patch("src.importer.fetchers.fii_dii_fetcher.fetch_fii_dii_monthly")
+    @patch("src.importer.fetchers.fii_dii_fetcher.fetch_fii_dii_fno")
+    @patch("src.importer.fetchers.fii_dii_fetcher.fetch_fii_dii")
+    def test_fii_dii_fetcher_stashes_from_date_and_passes_to_fno(self, mock_cash, mock_fno, mock_monthly):
+        from src.importer.fetchers.adapters import FIIDIIFetcher
+
+        mock_cash.return_value = [{"trade_date": date(2026, 7, 30), "fii_net_cr": 100.0, "dii_net_cr": 200.0}]
+        mock_fno.return_value = [{"trade_date": date(2026, 7, 30), "fii_fut_net_oi": 500.0, "fii_opt_overall_net_oi": 1000.0}]
+        mock_monthly.return_value = [{"month": "2026-07"}]
+
+        fetcher = FIIDIIFetcher()
+        from_dt = date(2026, 7, 25)
+        to_dt = date(2026, 7, 30)
+
+        rows = fetcher.fetch(from_dt, to_dt)
+        self.assertEqual(fetcher._last_from_date, from_dt)
+        mock_cash.assert_called_once_with(from_date=from_dt)
+
+        mock_ch = MagicMock()
+        mock_ch.insert_fii_dii_flows.return_value = 1
+
+        n = fetcher.insert(rows, mock_ch)
+
+        self.assertEqual(n, 1)
+        mock_ch.insert_fii_dii_flows.assert_called_once_with(rows)
+        mock_fno.assert_called_once_with(from_date=from_dt)
+        mock_ch.insert_fii_dii_fno_daily.assert_called_once_with(mock_fno.return_value)
+        mock_monthly.assert_called_once()
+        mock_ch.insert_fii_dii_monthly.assert_called_once_with(mock_monthly.return_value)
+
+
 if __name__ == "__main__":
     unittest.main()
+

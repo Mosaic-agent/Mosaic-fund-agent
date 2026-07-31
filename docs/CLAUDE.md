@@ -126,7 +126,7 @@ New pattern (Adapter + Repository):
 
 **14 fetchers:** `yfinance`, `mfapi`, `cot` (CFTC Socrata), `nse_inav`, `fii_dii`, `imf_reserves`, `etf_aum`, `mf_holdings` (Morningstar), `fx_rates`, `nse_quote`, `yahoo_snapshot`, `expert_tweets`, `nse_corporate_actions` (NSE equity corporate actions — splits, bonuses, demergers, rights, dividends), plus news tools.
 
-**5 Fetcher adapters** (Adapter pattern, `src/importer/fetchers/adapters.py`): `YFinanceFetcher`, `MFNavFetcher`, `FIIDIIFetcher`, `FXRatesFetcher`, `COTGoldFetcher`, `WorldBankMacroFetcher`, `IMFWEOFetcher`. Add new sources to `FETCHER_REGISTRY` — orchestrator loop picks up automatically.
+**Fetcher adapters** (Adapter pattern, `src/importer/fetchers/adapters.py`): All general categories (`etfs`, `stocks`, `fii_dii`, `fx_rates`, `cot`, `cb_reserves`, `etf_aum`, `world_bank`, `imf_weo`, `amfi_flows`, `mf`, etc.) subclass `Fetcher` and map in `FETCHER_REGISTRY`. Orchestrator loop picks up new sources automatically.
 
 ### LLM Configuration
 `LLM_PROVIDER` (`openai` or `anthropic`) + `LLM_MODEL` control which model is used. Set `LLM_BASE_URL` to an OpenAI-compatible endpoint (Ollama, LM Studio) for local inference — no API key needed in that case.

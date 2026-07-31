@@ -360,6 +360,7 @@ class FIIDIIFetcher(Fetcher):
     overlap_days = 3
 
     def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        self._last_from_date = from_date
         try:
             from src.importer.fetchers.fii_dii_fetcher import fetch_fii_dii
             return fetch_fii_dii(from_date=from_date)
@@ -369,13 +370,31 @@ class FIIDIIFetcher(Fetcher):
 
     def insert(self, rows: list[dict], ch) -> int:
         n = ch.insert_fii_dii_flows(rows)
+
+        if rows:
+            latest_fii = sorted(rows, key=lambda r: r["trade_date"])[-1]
+            log.info(
+                "Latest Cash (%s): FII Net ₹%s Cr  |  DII Net ₹%s Cr",
+                latest_fii["trade_date"],
+                f"{latest_fii.get('fii_net_cr', 0.0):+,.0f}",
+                f"{latest_fii.get('dii_net_cr', 0.0):+,.0f}",
+            )
+
         # Side-effect: also import F&O OI and monthly aggregates
         try:
             from src.importer.fetchers.fii_dii_fetcher import fetch_fii_dii_fno, fetch_fii_dii_monthly
-            fno_rows     = fetch_fii_dii_fno()
+            fno_from = getattr(self, "_last_from_date", None)
+            fno_rows     = fetch_fii_dii_fno(from_date=fno_from) if fno_from else fetch_fii_dii_fno()
             monthly_rows = fetch_fii_dii_monthly()
             if fno_rows:
                 ch.insert_fii_dii_fno_daily(fno_rows)
+                latest_fno = sorted(fno_rows, key=lambda r: r["trade_date"])[-1]
+                log.info(
+                    "Latest F&O (%s): FII Fut Net %s | FII Opt OI %s",
+                    latest_fno["trade_date"],
+                    f"{latest_fno.get('fii_fut_net_oi', 0.0):+,.0f}",
+                    f"{latest_fno.get('fii_opt_overall_net_oi', 0.0):+,.0f}",
+                )
             if monthly_rows:
                 ch.insert_fii_dii_monthly(monthly_rows)
         except Exception as exc:
@@ -550,7 +569,15 @@ class WorldBankMacroFetcher(Fetcher):
             return []
 
     def insert(self, rows: list[dict], ch) -> int:
-        return ch.insert_macro_indicators(rows)
+        n = ch.insert_macro_indicators(rows)
+        india_gdp = [
+            r for r in rows
+            if r.get("country_code") == "IN" and r.get("indicator_code") == "NY.GDP.MKTP.KD.ZG"
+        ]
+        if india_gdp:
+            latest = sorted(india_gdp, key=lambda r: r["ref_year"])[-1]
+            log.info("India GDP growth (%s): %+.2f%%", latest["ref_year"], latest["value"])
+        return n
 
     def validate(self, rows: list[dict]) -> list[dict]:
         return [r for r in rows if r.get("value") is not None]
@@ -587,7 +614,19 @@ class IMFWEOFetcher(Fetcher):
             return []
 
     def insert(self, rows: list[dict], ch) -> int:
-        return ch.insert_macro_indicators(rows)
+        n = ch.insert_macro_indicators(rows)
+        today_year = date.today().year
+        india_gdp = [
+            r for r in rows
+            if r.get("country_code") == "IN"
+            and r.get("indicator_code") == "NGDP_RPCH"
+            and int(r.get("ref_year", 0)) >= today_year
+        ]
+        if india_gdp:
+            forecasts = sorted(india_gdp, key=lambda r: r["ref_year"])[:3]
+            fwd_str = "  ".join(f"{r['ref_year']}={r['value']:+.1f}%" for r in forecasts)
+            log.info("India GDP forecasts: %s", fwd_str)
+        return n
 
     def validate(self, rows: list[dict]) -> list[dict]:
         return [r for r in rows if r.get("value") is not None]
@@ -744,8 +783,10 @@ class AmfiCategoryFlowsFetcher(Fetcher):
         log.info("AMFI category flows — latest month: %s", latest_m.strftime("%b %Y"))
         for r in latest_rows[:3]:
             log.info(
-                "  %-30s Net: ₹%+,.0f Cr  |  AUM: ₹%,.0f Cr",
-                r["category_name"][:30], r["net_flow_cr"], r["closing_aum_cr"],
+                "  %-30s Net: ₹%s Cr  |  AUM: ₹%s Cr",
+                r["category_name"][:30],
+                f"{r['net_flow_cr']:+,.0f}",
+                f"{r['closing_aum_cr']:,.0f}",
             )
         return n
 
