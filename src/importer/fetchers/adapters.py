@@ -325,11 +325,13 @@ class MFNavFetcher(Fetcher):
     symbol_key   = "ALL"
     description  = "MF NAV (MFAPI.in)"
     overlap_days = 3
+    supports_parallel = True  # per-scheme group watermark, not per-scheme threaded fetch (workers stays 1)
 
-    def __init__(self, scheme_codes: list[str]) -> None:
-        self.scheme_codes = scheme_codes
+    def __init__(self, scheme_codes: dict[str, str]) -> None:
+        self.scheme_codes = scheme_codes  # {nse_symbol: amfi_scheme_code}
+        self.symbols = list(scheme_codes.items())
 
-    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
         try:
             from src.importer.fetchers.mfapi_fetcher import fetch_all_nav
             return fetch_all_nav(self.scheme_codes, from_date, to_date)
@@ -396,8 +398,13 @@ class FXRatesFetcher(Fetcher):
     symbol_key   = "FX_GROUP"
     description  = "FX rates — USD pairs (Yahoo Finance)"
     overlap_days = 3
+    supports_parallel = True  # per-pair group watermark, not per-pair threaded fetch (workers stays 1)
 
-    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    def __init__(self) -> None:
+        from src.importer.fetchers.fx_rates_fetcher import FX_PAIRS
+        self.symbols = FX_PAIRS
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
         try:
             from src.importer.fetchers.fx_rates_fetcher import fetch_fx_rates
             return fetch_fx_rates(from_date=from_date, to_date=to_date)
@@ -406,7 +413,14 @@ class FXRatesFetcher(Fetcher):
             return []
 
     def insert(self, rows: list[dict], ch) -> int:
-        return ch.insert_fx_rates(rows)
+        n = ch.insert_fx_rates(rows)
+        latest_by_sym: dict[str, dict] = {}
+        for r in rows:
+            if r["symbol"] not in latest_by_sym or r["trade_date"] > latest_by_sym[r["symbol"]]["trade_date"]:
+                latest_by_sym[r["symbol"]] = r
+        for sym, r in sorted(latest_by_sym.items()):
+            log.info("%-8s %s close=%.4f", sym, r["trade_date"], r["close"])
+        return n
 
     def max_date(self, rows: list[dict]) -> date:
         return max(r["trade_date"] for r in rows)
@@ -426,22 +440,92 @@ class COTGoldFetcher(Fetcher):
     description  = "CFTC COT — Gold managed money (weekly)"
     overlap_days = 21  # 3-week overlap to catch late CFTC releases
 
-    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
         try:
             from src.importer.fetchers.cot_fetcher import fetch_cot_gold
-            return fetch_cot_gold(from_date=from_date)
+            # A fixed generous limit regardless of delta/first-run: delta runs
+            # are already bounded by the from_date filter, and a bigger cap
+            # never hurts on a first run (more history allowed, never less).
+            return fetch_cot_gold(from_date=from_date, limit=2000)
         except Exception as exc:
             log.warning("%s fetch failed: %s", self, exc)
             return []
 
     def insert(self, rows: list[dict], ch) -> int:
-        return ch.insert_cot_gold(rows)
+        n = ch.insert_cot_gold(rows)
+        latest = sorted(rows, key=lambda r: r["report_date"])[-1]
+        log.info(
+            "COT latest (%s): MM Net %s | OI %s | MM pct OI %+.1f%%",
+            latest["report_date"], f"{latest['mm_net']:+,d}", f"{latest['open_interest']:,d}",
+            latest["mm_net"] / max(latest["open_interest"], 1) * 100,
+        )
+        return n
 
     def max_date(self, rows: list[dict]) -> date:
         return max(r["report_date"] for r in rows)
 
 
 # ── World Bank Macro Indicators ───────────────────────────────────────────────
+
+class CbReservesFetcher(Fetcher):
+    """
+    Central bank gold reserves (9 countries, RAFAGOLD series), monthly,
+    ~6-week publication lag. fetch() takes a year, not a date range —
+    overlap_days=0 makes run_fetcher() pass the raw watermark through as
+    from_date unmodified, so from_date.year matches today's cb_wm.year
+    exactly whenever a watermark exists.
+    """
+    source_name  = "cb_reserves"
+    symbol_key   = "ALL"
+    description  = "IMF IFS — Central Bank Gold Reserves"
+    overlap_days = 0
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        try:
+            from src.importer.fetchers.imf_reserves_fetcher import fetch_cb_reserves
+            return fetch_cb_reserves(from_year=from_date.year)
+        except Exception as exc:
+            log.warning("%s fetch failed: %s", self, exc)
+            return []
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_cb_reserves(rows)
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["ref_period"] for r in rows)
+
+
+class EtfAumFetcher(Fetcher):
+    """
+    Daily AUM + implied gold tonnes for GLD/IAU/SGOL/PHYS via yfinance.
+    No date-range parameter upstream — always today's snapshot. Adding a
+    watermark here is purely additive bookkeeping (fetch() ignores
+    from_date/to_date either way, so it can't change what's fetched).
+    """
+    source_name  = "etf_aum"
+    symbol_key   = "ALL"
+    description  = "Gold ETF AUM Snapshots (GLD · IAU · SGOL · PHYS)"
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        try:
+            from src.importer.fetchers.etf_aum_fetcher import fetch_etf_aum
+            return fetch_etf_aum()
+        except Exception as exc:
+            log.warning("%s fetch failed: %s", self, exc)
+            return []
+
+    def insert(self, rows: list[dict], ch) -> int:
+        n = ch.insert_etf_aum(rows)
+        for r in rows:
+            log.info(
+                "%-6s AUM $%.2fB price $%.2f ~%.0ft",
+                r["symbol"], r["aum_usd"] / 1e9, r["price"], r["implied_tonnes"],
+            )
+        return n
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["trade_date"] for r in rows)
+
 
 class WorldBankMacroFetcher(Fetcher):
     """
@@ -639,6 +723,7 @@ class AmfiCategoryFlowsFetcher(Fetcher):
     dataset      = "flows"
     description  = "AMFI Category-Wise Monthly Flows + AUM"
     overlap_days = 0
+    first_run_lookback_days = 730  # ~24 months, matches the original first-run default
 
     def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
         from src.importer.fetchers.amfi_flows_fetcher import fetch_amfi_category_flows
@@ -701,6 +786,8 @@ def _build_registry() -> dict[str, Fetcher]:
     registry["fii_dii"] = FIIDIIFetcher()
     registry["fx_rates"] = FXRatesFetcher()
     registry["cot"]     = COTGoldFetcher()
+    registry["cb_reserves"] = CbReservesFetcher()
+    registry["etf_aum"]     = EtfAumFetcher()
     registry["world_bank"] = WorldBankMacroFetcher()
     registry["imf_weo"]    = IMFWEOFetcher()
     return registry

@@ -279,6 +279,11 @@ class MarketDataRepository:
 
             use_group_watermark = fetcher.supports_parallel and hasattr(fetcher, "symbols")
             per_symbol_watermark = use_group_watermark and getattr(fetcher, "per_symbol_watermark", False)
+            first_run_days = (
+                fetcher.first_run_lookback_days
+                if fetcher.first_run_lookback_days is not None
+                else lookback_days
+            )
 
             # Determine start date
             if per_symbol_watermark:
@@ -287,19 +292,20 @@ class MarketDataRepository:
                 # FetchResult, matching today's stock-summary behavior which
                 # always shows the full lookback window regardless of actual
                 # per-symbol watermarks used.
-                from_date = today - timedelta(days=lookback_days)
+                from_date = today - timedelta(days=first_run_days)
             elif use_group_watermark:
                 from_date = self._resolve_group_from_date(
                     ch, effective_source, [s for s, _ in fetcher.symbols],
                     lookback_days=lookback_days, overlap_days=fetcher.overlap_days,
                     full=full, today=today,
+                    first_run_lookback_days=fetcher.first_run_lookback_days,
                 )
             elif full:
                 from_date = today - timedelta(days=lookback_days)
             else:
                 wm = ch.get_watermark(effective_source, fetcher.symbol_key, dataset=fetcher.dataset)
                 if wm is None:
-                    from_date = today - timedelta(days=lookback_days)
+                    from_date = today - timedelta(days=first_run_days)
                 else:
                     from_date = wm - timedelta(days=fetcher.overlap_days)
 
@@ -352,27 +358,34 @@ class MarketDataRepository:
     def _resolve_group_from_date(
         self, ch, source: str, symbols: list[str], *,
         lookback_days: int, overlap_days: int, full: bool, today: "date",
+        first_run_lookback_days: int | None = None,
     ) -> "date":
         """
         Worst-case (earliest) per-symbol watermark minus overlap, across a
         group of symbols sharing one category (e.g. all ETF or stock
         tickers). Port of cli.py's _resolve_from_date, generalized for the
         registry-based orchestrator.
+
+        first_run_lookback_days overrides lookback_days only for the "no
+        watermark yet" case (not `full`, which always honors the caller's
+        explicit lookback_days).
         """
         from datetime import timedelta
 
         if full:
             return today - timedelta(days=lookback_days)
 
+        effective_lookback = first_run_lookback_days if first_run_lookback_days is not None else lookback_days
+
         earliest: "date | None" = None
         for sym in symbols:
             wm = ch.get_watermark(source, sym)
             if wm is None:
-                return today - timedelta(days=lookback_days)
+                return today - timedelta(days=effective_lookback)
             candidate = wm - timedelta(days=overlap_days)
             if earliest is None or candidate < earliest:
                 earliest = candidate
-        return earliest or (today - timedelta(days=lookback_days))
+        return earliest or (today - timedelta(days=effective_lookback))
 
     def _fetch_parallel(self, fetcher, from_date, to_date, workers: int, *,
                          progress_cb=None, ch=None, per_symbol_watermark=False,

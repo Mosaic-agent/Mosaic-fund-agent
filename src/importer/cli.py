@@ -136,7 +136,6 @@ def run_import(
         ALL_CATEGORIES,
     )
     from src.importer.clickhouse import ClickHouseImporter
-    from src.importer.fetchers.mfapi_fetcher import fetch_all_nav
     from config.settings import settings
 
     selected_source = normalize_data_source(data_source)
@@ -186,8 +185,9 @@ def run_import(
     # ── Summary table ──────────────────────────────────────────────────────
     summary_rows: list[tuple[str, str, int, str, str]] = []
 
-    # ── Unified registry-driven import: stocks / us_stocks / etfs / commodities /
-    # indices / nse_indices / nse_eod / indian_macro ───────────────────────────────────────
+    # ── Unified registry-driven import ── every category except mf_holdings
+    # (idempotency guard lives here in cli.py) and skills_tools.py's
+    # interactive single-symbol path is routed through get_registry().
     from src.importer.fetchers.adapters import get_registry
     from src.db.repository import MarketDataRepository
 
@@ -195,7 +195,8 @@ def run_import(
     registry_categories = [
         c for c in categories
         if c in {"stocks", "us_stocks", "etfs", "commodities", "indices",
-                 "nse_indices", "nse_eod", "indian_macro"}
+                 "nse_indices", "nse_eod", "indian_macro", "fx_rates",
+                 "cot", "cb_reserves", "etf_aum", "mf"}
     ]
     for category in registry_categories:
         fetcher = get_registry().get(category)
@@ -272,128 +273,6 @@ def run_import(
             from datetime import datetime
             ts = snapshot_rows[0]["snapshot_at"]
             summary_rows.append(("inav", "nse", inserted, str(ts)[:10], str(ts)[:10]))
-    # ── MF NAV ────────────────────────────────────────────────────────────
-    if "mf" in categories:
-        console.print(f"\n[bold cyan]▶ MF NAV[/bold cyan] ({len(MF_SCHEME_CODES)} schemes)")
-
-        mf_from = _resolve_from_date(
-            ch, "mfapi", list(MF_SCHEME_CODES),
-            lookback_days=lookback_days, full_reimport=full_reimport,
-            dry_run=dry_run, today=today,
-        )
-
-        console.print(f"  [dim]Fetching {mf_from} → {today} (MFAPI.in, polite delays)[/dim]")
-        nav_rows = fetch_all_nav(MF_SCHEME_CODES, mf_from, today)
-        inserted = ch.insert_nav(nav_rows, dry_run=dry_run)
-        console.print(f"  [green]✓[/green] {inserted} rows {'(dry-run)' if dry_run else 'inserted'}")
-
-        _update_watermarks(ch, nav_rows, "mfapi", date_field="nav_date", dry_run=dry_run)
-
-        summary_rows.append(("mf", "mfapi", inserted, mf_from.isoformat(), today.isoformat()))
-
-    # ── CFTC COT (hedge fund positioning) ────────────────────────────────────
-    if "cot" in categories:
-        from src.importer.fetchers.cot_fetcher import fetch_cot_gold
-
-        console.print("\n[bold cyan]▶ CFTC COT — Gold (Managed Money)[/bold cyan]")
-        console.print("  [dim]CFTC Disaggregated report, commodity code 088 (released Fridays)[/dim]")
-
-        cot_wm = ch.get_watermark("cot", "GOLD") if (not dry_run and not full_reimport) else None
-        cot_from = (cot_wm - timedelta(days=21)) if cot_wm else None   # 3-week overlap
-        if full_reimport:
-            console.print("  [dim]Full reimport — ignoring watermark, fetching full history[/dim]")
-        cot_rows = fetch_cot_gold(from_date=cot_from, limit=2000 if not cot_wm else 500)
-        if not cot_rows:
-            console.print("  [yellow]⚠ No COT data returned — CFTC endpoint may be unavailable.[/yellow]")
-        else:
-            inserted = ch.insert_cot_gold(cot_rows, dry_run=dry_run)
-            console.print(f"  [green]✓[/green] {inserted} weekly COT rows {'(dry-run)' if dry_run else 'stored'}")
-            if not dry_run:
-                ch.set_watermark("cot", "GOLD", max(r["report_date"] for r in cot_rows))
-            latest = sorted(cot_rows, key=lambda r: r["report_date"])[-1]
-            console.print(
-                f"  Latest ({latest['report_date']}): "
-                f"MM Net {latest['mm_net']:+,d}  |  "
-                f"OI {latest['open_interest']:,d}  |  "
-                f"MM pct OI {latest['mm_net'] / max(latest['open_interest'], 1) * 100:+.1f}%"
-            )
-            summary_rows.append(("cot", "cftc", inserted,
-                                  str(min(r["report_date"] for r in cot_rows)),
-                                  str(latest["report_date"])))
-
-    # ── IMF Central Bank Gold Reserves ────────────────────────────────────────
-    if "cb_reserves" in categories:
-        from src.importer.fetchers.imf_reserves_fetcher import fetch_cb_reserves
-
-        console.print("\n[bold cyan]▶ IMF IFS — Central Bank Gold Reserves[/bold cyan]")
-        console.print("  [dim]9 countries · RAFAGOLD series · monthly · ~6-week publication lag[/dim]")
-
-        cb_wm = ch.get_watermark("cb_reserves", "ALL") if not dry_run else None
-        cb_from_year = cb_wm.year if cb_wm else 2010
-        cb_rows = fetch_cb_reserves(from_year=cb_from_year)
-        if not cb_rows:
-            console.print("  [yellow]⚠ No CB reserves data returned — endpoint may be unavailable.[/yellow]")
-        else:
-            inserted = ch.insert_cb_reserves(cb_rows, dry_run=dry_run)
-            console.print(f"  [green]✓[/green] {inserted} reserve rows {'(dry-run)' if dry_run else 'stored'}")
-            if not dry_run:
-                ch.set_watermark("cb_reserves", "ALL", max(r["ref_period"] for r in cb_rows))
-            summary_rows.append(("cb_reserves", "world_bank", inserted,
-                                  str(cb_from_year), str(max(r["ref_period"] for r in cb_rows))))
-
-    # ── ETF AUM Snapshots (retail flow proxy) ─────────────────────────────────
-    if "etf_aum" in categories:
-        from src.importer.fetchers.etf_aum_fetcher import fetch_etf_aum
-
-        console.print("\n[bold cyan]▶ Gold ETF AUM Snapshots[/bold cyan] (GLD · IAU · SGOL · PHYS)")
-        console.print("  [dim]Daily AUM + implied gold tonnes via yfinance[/dim]")
-
-        aum_rows = fetch_etf_aum()
-        if not aum_rows:
-            console.print("  [yellow]⚠ No ETF AUM data returned.[/yellow]")
-        else:
-            inserted = ch.insert_etf_aum(aum_rows, dry_run=dry_run)
-            console.print(f"  [green]✓[/green] {inserted} ETF AUM snapshot(s) {'(dry-run)' if dry_run else 'stored'}")
-            for r in aum_rows:
-                console.print(
-                    f"  {r['symbol']:6s}  AUM ${r['aum_usd']/1e9:.2f}B  "
-                    f"price ${r['price']:.2f}  ~{r['implied_tonnes']:.0f}t"
-                )
-            summary_rows.append(("etf_aum", "yfinance", inserted,
-                                  str(today), str(today)))
-
-    # ── FX Rates (USD pairs) ───────────────────────────────────────────────────
-    if "fx_rates" in categories:
-        from src.importer.fetchers.fx_rates_fetcher import fetch_fx_rates, FX_PAIRS
-
-        console.print("\n[bold cyan]▶ FX Rates — USD Pairs[/bold cyan] (USDINR · USDCNY · USDAED · USDSAR · USDKWD)")
-        console.print("  [dim]Daily OHLC via Yahoo Finance — delta-synced per pair[/dim]")
-
-        fx_from = _resolve_from_date(
-            ch, "yfinance_fx", [sym for sym, _ in FX_PAIRS],
-            lookback_days=lookback_days, full_reimport=full_reimport,
-            dry_run=dry_run, today=today,
-        )
-
-        console.print(f"  [dim]Fetching {fx_from} → {today}[/dim]")
-        fx_rows = fetch_fx_rates(from_date=fx_from, to_date=today)
-        if not fx_rows:
-            console.print("  [yellow]⚠ No FX data returned — Yahoo Finance may be unavailable.[/yellow]")
-        else:
-            inserted = ch.insert_fx_rates(fx_rows, dry_run=dry_run)
-            console.print(f"  [green]✓[/green] {inserted} FX rate rows {'(dry-run)' if dry_run else 'stored'}")
-            _update_watermarks(ch, fx_rows, "yfinance_fx", dry_run=dry_run)
-            # Print latest close per pair
-            latest_by_sym: dict[str, dict] = {}
-            for r in fx_rows:
-                if r["symbol"] not in latest_by_sym or r["trade_date"] > latest_by_sym[r["symbol"]]["trade_date"]:
-                    latest_by_sym[r["symbol"]] = r
-            for sym in [s for s, _ in FX_PAIRS if s in latest_by_sym]:
-                r = latest_by_sym[sym]
-                console.print(f"  {sym:8s}  {r['trade_date']}  close={r['close']:.4f}")
-            summary_rows.append(("fx_rates", "yfinance", inserted,
-                                  str(fx_from), str(today)))
-
     if "mf_holdings" in categories:
         from src.importer.fetchers.adapters import MfHoldingsFetcher
 

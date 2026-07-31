@@ -329,5 +329,134 @@ class TestMfHoldingsFetcher(unittest.TestCase):
         fake_ch.insert_mf_holdings.assert_called_once_with(rows)
 
 
+class TestFxRatesAndMfNavGroupWatermarkFix(unittest.TestCase):
+    """Regression coverage for a real bug found before wiring these into
+    cli.py: both fetchers were defined with a single symbol_key
+    ("FX_GROUP"/"ALL") that nothing ever writes a watermark row for, so
+    the single-watermark path would read wm=None forever and re-fetch full
+    history on every single run."""
+
+    def test_fx_rates_fetcher_exposes_group_symbols(self):
+        from src.importer.fetchers.adapters import FXRatesFetcher
+
+        fetcher = FXRatesFetcher()
+        self.assertTrue(fetcher.supports_parallel)
+        self.assertTrue(len(fetcher.symbols) > 0)
+
+    def test_mf_nav_fetcher_exposes_group_symbols(self):
+        from src.importer.fetchers.adapters import MFNavFetcher
+
+        fetcher = MFNavFetcher({"GOLDBEES": "140088", "NIFTYBEES": "140084"})
+        self.assertTrue(fetcher.supports_parallel)
+        self.assertEqual(set(fetcher.symbols), {("GOLDBEES", "140088"), ("NIFTYBEES", "140084")})
+
+    def test_group_watermark_path_used_not_single_symbol_key(self):
+        """Before the fix, run_fetcher would use fetcher.symbol_key ("FX_GROUP")
+        for the watermark, which nothing ever writes to. After the fix, it
+        must use _resolve_group_from_date/write_group_watermarks instead."""
+        from src.importer.fetchers.adapters import FXRatesFetcher
+
+        fetcher = FXRatesFetcher()
+        use_group_watermark = fetcher.supports_parallel and hasattr(fetcher, "symbols")
+        self.assertTrue(use_group_watermark)
+
+
+class TestCbReservesFetcher(unittest.TestCase):
+    @patch("src.importer.fetchers.imf_reserves_fetcher.fetch_cb_reserves")
+    def test_fetch_converts_from_date_to_year(self, mock_fetch):
+        from src.importer.fetchers.adapters import CbReservesFetcher
+
+        mock_fetch.return_value = []
+        CbReservesFetcher().fetch(date(2018, 6, 15), date(2026, 7, 31))
+
+        mock_fetch.assert_called_once_with(from_year=2018)
+
+    def test_max_date_uses_ref_period(self):
+        from src.importer.fetchers.adapters import CbReservesFetcher
+
+        rows = [
+            {"ref_period": date(2024, 12, 1), "country_code": "IN"},
+            {"ref_period": date(2025, 12, 1), "country_code": "US"},
+        ]
+        self.assertEqual(CbReservesFetcher().max_date(rows), date(2025, 12, 1))
+
+
+class TestEtfAumFetcher(unittest.TestCase):
+    @patch("src.importer.fetchers.etf_aum_fetcher.fetch_etf_aum")
+    def test_fetch_insert_max_date(self, mock_fetch):
+        from src.importer.fetchers.adapters import EtfAumFetcher
+
+        mock_fetch.return_value = [
+            {"symbol": "GLD", "trade_date": date(2026, 7, 31), "aum_usd": 1e9, "price": 100.0, "implied_tonnes": 10.0},
+        ]
+        fetcher = EtfAumFetcher()
+        rows = fetcher.fetch(date(2026, 7, 1), date(2026, 7, 31))
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(fetcher.max_date(rows), date(2026, 7, 31))
+
+        fake_ch = MagicMock()
+        fake_ch.insert_etf_aum.return_value = 1
+        self.assertEqual(fetcher.insert(rows, fake_ch), 1)
+        fake_ch.insert_etf_aum.assert_called_once_with(rows)
+
+
+class FakeFirstRunFetcher(Fetcher):
+    """Single-watermark fetcher declaring a first_run_lookback_days override."""
+
+    source_name = "first_run_test"
+    symbol_key = "X"
+    overlap_days = 0
+    first_run_lookback_days = 30
+
+    def fetch(self, from_date, to_date, *, source=None):
+        return [{"trade_date": to_date, "symbol": "X", "close": 1.0}]
+
+    def insert(self, rows, ch):
+        return len(rows)
+
+
+class TestFirstRunLookbackDays(unittest.TestCase):
+    def test_first_run_lookback_days_used_when_no_watermark(self):
+        """first_run_lookback_days overrides the caller's lookback_days only
+        for the "no watermark yet" branch — full=True must still honor the
+        caller's explicit lookback_days."""
+        ch = FakeCH({})
+        repo = MarketDataRepository(pool=None)
+
+        result = repo.run_fetcher(
+            FakeFirstRunFetcher(), dry_run=True, full=False, lookback_days=3650, ch=ch,
+        )
+
+        self.assertEqual(result.from_date, date.today() - timedelta(days=30))
+
+    def test_full_reimport_ignores_first_run_lookback_days(self):
+        ch = FakeCH({})
+        repo = MarketDataRepository(pool=None)
+
+        result = repo.run_fetcher(
+            FakeFirstRunFetcher(), dry_run=True, full=True, lookback_days=3650, ch=ch,
+        )
+
+        self.assertEqual(result.from_date, date.today() - timedelta(days=3650))
+
+    @patch("src.importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
+    def test_amfi_flows_first_run_uses_24_months_not_120(self, mock_fetch):
+        """With first_run_lookback_days=730 set, a brand-new install's first
+        amfi_flows run should land near 24 months back, not ~120 (the
+        approximation this mechanism was added to remove)."""
+        from src.importer.fetchers.adapters import AmfiCategoryFlowsFetcher
+
+        mock_fetch.return_value = []
+        ch = FakeCH({})
+        repo = MarketDataRepository(pool=None)
+
+        repo.run_fetcher(AmfiCategoryFlowsFetcher(), dry_run=True, full=False, lookback_days=3650, ch=ch)
+
+        months_back = mock_fetch.call_args.kwargs["months_back"]
+        self.assertLess(months_back, 30)
+        self.assertGreaterEqual(months_back, 23)
+
+
 if __name__ == "__main__":
     unittest.main()

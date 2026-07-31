@@ -89,6 +89,10 @@ class Fetcher(ABC):
     dataset                  : watermark dataset bucket (default "prices") —
                                 override when a source's watermark isn't a
                                 price series (e.g. amfi_flows uses "flows").
+    first_run_lookback_days  : optional override of the caller's lookback_days,
+                                used only when no watermark exists yet. None
+                                (default) means "use whatever lookback_days
+                                the caller passed" — zero behavior change.
     """
 
     source_name:  str
@@ -99,6 +103,7 @@ class Fetcher(ABC):
     supports_source_override: bool = False
     per_symbol_watermark:     bool = False
     dataset:                  str = "prices"
+    first_run_lookback_days:  int | None = None
 
     @abstractmethod
     def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
