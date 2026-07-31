@@ -6249,7 +6249,7 @@ with tab_whale:
         with _wh_col1:
             _wh_amc = st.selectbox(
                 "AMC Filter",
-                options=["all", "dsp", "nippon", "bajaj", "icici", "quant"],
+                options=["all", "dsp", "nippon", "bajaj", "icici", "quant", "hdfc", "kotak", "sbi"],
                 index=0,
                 key="whale_amc",
             )

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -47,14 +48,35 @@ def _is_passive(fund_name: str) -> bool:
     return any(kw in fu for kw in _PASSIVE_KEYWORDS)
 
 
+# ── Debt-instrument name patterns ──────────────────────────────────────────────
+# mf_holdings.asset_type is stamped per-fund at import time (the fund's own
+# category), not per-holding — so equity-oriented funds that also carry a small
+# G-Sec/NCD sleeve have those debt lines mislabeled asset_type='equity'. Filter
+# them out by name pattern since the asset_type column can't be trusted here.
+_DEBT_NAME_RE = re.compile(
+    r"^[0-9]+\.[0-9]+%\s|Govt Stock|T-Bill|\(\d{2}/\d{2}/\d{4}\)"
+)
+
+
+def _is_debt_instrument(security_name: str) -> bool:
+    return bool(_DEBT_NAME_RE.search(security_name))
+
+
 def _get_amc_group(fund_name: str) -> str:
+    """Derive the parent AMC group from a fund_name's BRAND_SCHEME naming convention.
+
+    fund_name is always BRAND_SCHEME_TYPE (e.g. HDFC_FLEXI_CAP, BAJAJ_FINSERV_LIQUID_FUND),
+    so the brand token is a reliable, self-updating group key — no hardcoded whitelist needed
+    (a whitelist previously collapsed every non-listed AMC, including HDFC/Kotak/SBI, into a
+    single meaningless 'OTHER' bucket, undercounting true cross-AMC consensus).
+
+    Historical Reliance Mutual Fund filings (pre-2019 rename) are folded into NIPPON so the
+    same AMC's holdings aren't split across the brand change.
+    """
     fn = fund_name.upper()
-    if fn.startswith("DSP"):     return "DSP"
-    if fn.startswith("NIPPON"):  return "NIPPON"
-    if fn.startswith("BAJAJ"):   return "BAJAJ"
-    if fn.startswith("ICICI"):   return "ICICI"
-    if fn.startswith("QUANT"):   return "QUANT"
-    return "OTHER"
+    if fn.startswith("RELIANCE"):
+        return "NIPPON"
+    return fn.split("_")[0]
 
 
 # ── AMFI category flow context ────────────────────────────────────────────────
@@ -162,6 +184,7 @@ def run_whale_scan(
     # ── 2. Assign AMC group + drop passive funds ──────────────────────────────
     df_raw["amc_group"] = df_raw["fund_name"].apply(_get_amc_group)
     df_raw = df_raw[~df_raw["fund_name"].apply(_is_passive)].copy()
+    df_raw = df_raw[~df_raw["security_name"].apply(_is_debt_instrument)].copy()
 
     if df_raw.empty:
         return {"error": "No active equity holdings after passive fund filter.",
@@ -169,15 +192,32 @@ def run_whale_scan(
 
     df_raw["as_of_month"] = pd.to_datetime(df_raw["as_of_month"])
 
-    # ── 3. Identify latest and comparison month ───────────────────────────────
-    all_months = sorted(df_raw["as_of_month"].unique())
-    latest_month = all_months[-1]
-    # Find the comparison month: closest to `lookback_months` ago
-    target_prev = latest_month - pd.DateOffset(months=lookback_months)
-    prev_month = min(all_months, key=lambda m: abs((m - target_prev).days))
+    # ── 3. Identify latest and comparison month (by calendar month) ──────────
+    # Different AMCs snapshot on different calendar days (1st, 15th, month-end),
+    # so comparing by *exact* as_of_month date starves the scan of cross-AMC
+    # breadth whenever one family's snapshot date happens to be globally latest
+    # (e.g. only BAJAJ_FINSERV_* funds report on the 15th while every other AMC
+    # reports on the 1st/month-end — the exact-date max used to resolve to a
+    # date where only one AMC group had any data at all).  Bucket to calendar
+    # month instead so every AMC's most recent snapshot in that month counts.
+    df_raw["report_month"] = df_raw["as_of_month"].values.astype("datetime64[M]")
+    all_report_months = sorted(df_raw["report_month"].unique())
+    latest_report_month = all_report_months[-1]
+    target_prev = pd.Timestamp(latest_report_month) - pd.DateOffset(months=lookback_months)
+    prev_report_month = min(all_report_months, key=lambda m: abs((pd.Timestamp(m) - target_prev).days))
 
-    df_latest = df_raw[df_raw["as_of_month"] == latest_month].copy()
-    df_prev   = df_raw[df_raw["as_of_month"] == prev_month].copy()
+    def _latest_per_fund(df: pd.DataFrame, report_month) -> pd.DataFrame:
+        """Within a calendar month, keep each fund's most recent snapshot
+        (guards against rare double-imports/backfills landing in the same month)."""
+        sub = df[df["report_month"] == report_month]
+        idx = sub.groupby("fund_name")["as_of_month"].idxmax()
+        return sub.loc[idx].copy()
+
+    df_latest = _latest_per_fund(df_raw, latest_report_month)
+    df_prev   = _latest_per_fund(df_raw, prev_report_month)
+
+    latest_month = pd.Timestamp(latest_report_month)
+    prev_month   = pd.Timestamp(prev_report_month)
 
     # ── 4. Aggregate per security_name × amc_group per month ─────────────────
     def _agg(df: pd.DataFrame) -> pd.DataFrame:
