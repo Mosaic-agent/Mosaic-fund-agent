@@ -79,21 +79,63 @@ result = repo.run_fetcher(get_registry()["fii_dii"], dry_run=True)
 print(result)  # FetchResult: 8 rows  2026-05-07→2026-05-13 (dry-run)
 ```
 
-**Adding a new source:**
+### Developer Guide: Adding a New Fetcher Adapter
+
+To add a new data source to Mosaic, follow these **2 steps**:
+
+#### Step 1: Subclass `Fetcher` in `src/importer/fetchers/adapters.py`
+Implement `fetch()`, `validate()`, `insert()`, and `max_date()`:
+
 ```python
+from datetime import date
+from typing import Any
+import logging
 from src.importer.base_fetcher import Fetcher
 
-class MyFetcher(Fetcher):
-    source_name = "my_source"
-    symbol_key  = "MY_KEY"
+log = logging.getLogger(__name__)
 
-    def fetch(self, from_date, to_date): ...
-    def insert(self, rows, ch): return ch.insert_my_table(rows)
+class MyNewDataFetcher(Fetcher):
+    """Daily fetcher for My New Data Feed."""
+    source_name  = "my_source_name"   # Watermark source key in ClickHouse
+    symbol_key   = "ALL"              # Watermark symbol key ("ALL", "MARKET", etc.)
+    description  = "My New Data Feed" # Display description for CLI/logs
+    overlap_days = 1                  # Lookback overlap in days for delta-sync
 
-get_registry()["my_category"] = MyFetcher()
+    def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
+        """1. Fetch raw data from external API / scraper."""
+        from src.importer.fetchers.my_data_fetcher import fetch_my_data
+        return fetch_my_data(from_date=from_date, to_date=to_date)
+
+    def validate(self, rows: list[dict]) -> list[dict]:
+        """2. Filter invalid or corrupted rows."""
+        return [r for r in rows if r.get("value") is not None]
+
+    def insert(self, rows: list[dict], ch) -> int:
+        """3. Insert into ClickHouse using ClickHouseImporter instance `ch`."""
+        n = ch.insert_my_table(rows)
+        if rows:
+            latest = max(rows, key=lambda r: r["trade_date"])
+            log.info("MyNewData latest (%s): Value = %s", latest["trade_date"], f"{latest['value']:,.2f}")
+        return n
+
+    def max_date(self, rows: list[dict]) -> date:
+        """4. Return max trade date to update import_watermarks."""
+        return max(r["trade_date"] for r in rows)
 ```
 
-Post-import, `DataImportedEvent` fires automatically — `SignalAggregatorObserver` and `MLPredictionObserver` refresh downstream data without any manual trigger.
+#### Step 2: Register in `_build_registry()` inside `src/importer/fetchers/adapters.py`
+
+```python
+def _build_registry() -> dict[str, Fetcher]:
+    ...
+    registry["my_category"] = MyNewDataFetcher()
+    return registry
+```
+
+Once registered:
+- **CLI Ingestion**: `python src/main.py import --category my_category [--dry-run] [--full]`
+- **Programmatic Execution**: `repo.run_fetcher(get_registry()["my_category"])`
+- **Automatic Observer Integration**: Post-import, `DataImportedEvent` fires automatically to trigger downstream ML models, signals, and anomaly alerts.
 
 ## ClickHouse Schema
 
