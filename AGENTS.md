@@ -20,6 +20,7 @@ python src/main.py ui                       # Streamlit hub at localhost:8501
 ### Key Scripts
 ```bash
 python src/scripts/goldbees_report.py                              # Pre-baked GOLDBEES signal (~2s)
+python src/scripts/portfolio/run_stock_quant_workflow.py BAJFINANCE  # Stock ASCII chart, anomalies & MF holdings
 python src/scripts/portfolio/fund_mom_returns.py --scheme 152056   # MoM NAV returns
 python src/scripts/market/whale_tracker.py                         # All 7 multi-asset funds
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import

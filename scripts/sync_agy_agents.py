@@ -45,7 +45,6 @@ MAX_TURNS: dict[str, int] = {
     "etf-setups": 8,
     "intraday": 8,
     "ma-crossover": 8,
-    "stock-quant-deepdive": 8,
     "shoonya-session": 8,
     "stock-anomaly-news": 8,
     "risk-governor": 8,
