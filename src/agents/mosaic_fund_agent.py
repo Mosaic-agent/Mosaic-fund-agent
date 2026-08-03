@@ -58,6 +58,7 @@ from src.tools.agent_tools import (
     delegate_to_mf_agent,
 )
 from langchain_core.callbacks import BaseCallbackHandler
+from src.utils.markdown_renderer import render_markdown_to_group, looks_like_markdown_table
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -291,9 +292,9 @@ class RichConsoleCallbackHandler(BaseCallbackHandler):
                 title="Tool Output",
                 expand=False,
             ))
-        elif "|" in output_str and "-" in output_str:
+        elif looks_like_markdown_table(output_str):
             self.console.print(Panel(
-                Markdown(output_str),
+                render_markdown_to_group(output_str),
                 border_style="green",
                 title="Tool Output",
             ))
@@ -376,6 +377,28 @@ _CONN_TROUBLESHOOTING = (
     "   - For Ollama on macOS/Windows: `http://host.docker.internal:11434/v1`\n"
     "   - For Ollama on Linux: `http://172.17.0.1:11434/v1`"
 )
+
+
+def _cacheable_system_prompt(llm: Any, text: str) -> Any:
+    """
+    Return the system prompt as-is for most providers, or — for Anthropic
+    Claude models — as a SystemMessage with a `cache_control` breakpoint.
+
+    The system prompt here is large (1000+ tokens) and 100% static across
+    every turn in a session. Without a cache breakpoint it's billed as fresh
+    input tokens on every single LLM call in the ReAct loop; Anthropic's
+    prompt cache serves it from cache after the first call instead.
+    """
+    try:
+        from langchain_anthropic import ChatAnthropic
+        if isinstance(llm, ChatAnthropic):
+            from langchain_core.messages import SystemMessage
+            return SystemMessage(content=[
+                {"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}
+            ])
+    except ImportError:
+        pass
+    return text
 
 
 def _get_message_text(content: Any) -> str:
@@ -693,7 +716,7 @@ class MosaicFundAgent:
         kwargs: dict[str, Any] = dict(
             model=self._llm,
             tools=ALL_TOOLS,
-            prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+            prompt=_cacheable_system_prompt(self._llm, AGENT_SYSTEM_PROMPT + get_caveman_prompt()),
         )
         if self._checkpointer is not None:
             kwargs["checkpointer"] = self._checkpointer
@@ -1024,7 +1047,7 @@ class MosaicFundAgent:
                     temp_cloud_agent = create_react_agent(
                         model=self._cloud_llm,
                         tools=ALL_TOOLS,
-                        prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+                        prompt=_cacheable_system_prompt(self._cloud_llm, AGENT_SYSTEM_PROMPT + get_caveman_prompt()),
                     )
                     result = temp_cloud_agent.invoke(
                         {"messages": [HumanMessage(content=question)]},
@@ -1257,7 +1280,7 @@ class MosaicFundAgent:
                     temp_cloud_agent = create_react_agent(
                         model=self._cloud_llm,
                         tools=ALL_TOOLS,
-                        prompt=AGENT_SYSTEM_PROMPT + get_caveman_prompt(),
+                        prompt=_cacheable_system_prompt(self._cloud_llm, AGENT_SYSTEM_PROMPT + get_caveman_prompt()),
                     )
                     result = temp_cloud_agent.invoke(
                         {"messages": [HumanMessage(content=question)]},

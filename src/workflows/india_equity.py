@@ -213,14 +213,8 @@ def _synthesise_node(state: EquityState, config: RunnableConfig) -> dict:
         SystemMessage(content=_SYNTHESIS_PROMPT + get_caveman_prompt() + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched data:\n{data}"),
     ], config=config)
-    report = str(result.content).strip()
-    # Safety net: never return an empty report. The local reasoning model
-    # (gemma4 think=True) spends its whole token budget on reasoning tokens and
-    # returns EMPTY final content on a synthesis this size — and the MLX endpoint
-    # does not reliably honour a larger max_tokens override. So for a local-only
-    # setup this falls back to the complete raw sections (all data, no prose).
-    # Synthesised prose requires a cloud LLM — `_get_llm(prefer_cloud=True)`
-    # already picks one automatically when configured.
+    from .base import _render_report
+    report = _render_report(result).strip()
     if not report:
         logger.warning(
             "india_equity: synthesis returned empty content (local model) — "

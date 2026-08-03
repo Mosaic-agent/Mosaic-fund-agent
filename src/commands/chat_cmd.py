@@ -2372,9 +2372,17 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                 ctx_lines = [
                     "[Session context — prior turns in this conversation]"
                 ]
-                for _u, _a, _i in recent:
-                    if _i in ("deepdive", "research", "india_equity"):
-                        _a_short = _a
+                for idx, (_u, _a, _i) in enumerate(recent):
+                    # Only the MOST RECENT deep-report turn gets extended (but
+                    # still bounded) context — it's the one a follow-up is
+                    # actually likely to reference. Older ones fall back to
+                    # the standard 400-char cap like every other intent, so
+                    # this doesn't re-inject several full multi-thousand-token
+                    # reports on every subsequent turn.
+                    _is_latest = idx == len(recent) - 1
+                    if _i in ("deepdive", "research", "india_equity") and _is_latest:
+                        _cap = 6000
+                        _a_short = _a[:_cap] + "…" if len(_a) > _cap else _a
                     else:
                         _a_short = _a[:400] + "…" if len(_a) > 400 else _a
                     ctx_lines.append(f"User ({_i}): {_u}")

@@ -45,6 +45,10 @@ def _run_cmd(args: list[str]) -> str:
     env = os.environ.copy()
     env["ALLOW_LOCAL_RUN"] = "1"
     env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")
+    # Without a TTY, rich.Console() auto-detects an 80-column width and
+    # ellipsis-truncates wide tables (e.g. the 9-column ETF signal composite).
+    # Force a wide COLUMNS so subprocess-rendered Rich tables aren't squeezed.
+    env["COLUMNS"] = "200"
     cmd = [sys.executable] + args
     try:
         res = subprocess.run(
@@ -53,7 +57,22 @@ def _run_cmd(args: list[str]) -> str:
         output = res.stdout
         if res.stderr:
             output += "\n--- STDERR ---\n" + res.stderr
-        return _clean_terminal_output(output)
+        cleaned = _clean_terminal_output(output)
+
+        # Unlike _run_cmd_streaming, this had no output cap — a runner tool
+        # returning a large dump (verbose logs, an oversized report) went
+        # straight into LLM context unbounded. Keep head + tail, same as the
+        # streaming variant's truncation policy.
+        _HEAD, _TAIL = 200, 80
+        lines = cleaned.splitlines()
+        if len(lines) > _HEAD + _TAIL:
+            omitted = len(lines) - _HEAD - _TAIL
+            cleaned = "\n".join(
+                lines[:_HEAD]
+                + [f"\n... [{omitted} lines omitted — output truncated for LLM context budget] ...\n"]
+                + lines[-_TAIL:]
+            )
+        return cleaned
     except Exception as e:
         from src.utils.error_utils import format_tool_error
         cmd_str = " ".join(cmd)
@@ -64,7 +83,7 @@ def _run_cmd(args: list[str]) -> str:
 def _run_cmd_streaming(args: list[str]) -> str:
     """Like _run_cmd but prints each line live. Used for long-running imports."""
     env = os.environ.copy()
-    env.update({"ALLOW_LOCAL_RUN": "1", "NO_COLOR": "1", "TERM": "dumb"})
+    env.update({"ALLOW_LOCAL_RUN": "1", "NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"})
     env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")
     cmd = [sys.executable] + args
     collected: list[str] = []

@@ -138,6 +138,7 @@ class _SubAgent:
             tools = [_wrap_tool_for_dedup(t) for t in tools]
             tool_node = ToolNode(tools)
             from src.utils.caveman import get_caveman_prompt
+            from src.agents.mosaic_fund_agent import _cacheable_system_prompt
             from config.settings import settings
 
             # Always attach context trimmer using the appropriate context window size (local vs cloud)
@@ -155,7 +156,10 @@ class _SubAgent:
             self._agent = create_react_agent(
                 model=self._llm,
                 tools=tool_node,
-                prompt=self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + CLICKHOUSE_FINAL_ALIAS_RULE,
+                prompt=_cacheable_system_prompt(
+                    self._llm,
+                    self.SYSTEM_PROMPT + get_caveman_prompt() + NO_LLM_CALC_RULE + TABLE_FORMAT_RULE + CLICKHOUSE_FINAL_ALIAS_RULE,
+                ),
                 pre_model_hook=pre_hook,
             )
             logger.info(
@@ -349,8 +353,9 @@ class _SubAgent:
                             "- Do not mention step limits, recursion, or missing data.\n"
                             "- Be concise and factual — only report what the tools returned."
                         )
+                        from src.agents.mosaic_fund_agent import _cacheable_system_prompt
                         synth = synth_llm.invoke([
-                            SystemMessage(content=sys_prompt),
+                            _cacheable_system_prompt(self._llm, sys_prompt),
                             HumanMessage(content=f"Question: {question}\n\nData collected:\n{combined}"),
                         ])
                         # Print extended-thinking blocks if present

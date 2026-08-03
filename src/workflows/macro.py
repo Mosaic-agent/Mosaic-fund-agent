@@ -155,7 +155,8 @@ def _synthesise_node(state: MacroState, config: RunnableConfig) -> dict:
         SystemMessage(content=synth_prompt + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched macro data:\n{data}"),
     ], config=config)
-    report = str(result.content).strip() or data
+    from .base import _render_report
+    report = _render_report(result).strip() or data
     return {"report": report}
 
 

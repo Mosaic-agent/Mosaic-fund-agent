@@ -43,6 +43,10 @@ _NOT_TICKERS = frozenset({
     "OVER", "LAST", "DAYS", "SHOW", "FIND", "EXPLAIN", "ANALYSE", "ANALYZE",
     "WHAT", "WHEN", "WHERE", "WHICH", "WITH", "THIS", "THAT", "THEN", "FROM",
     "GIVE", "LIST", "TELL", "ETFS", "GOLD", "SIGNAL", "TODAY",
+    # Session-context and English words that match the ticker regex
+    "SESSION", "CONTEXT", "PRIOR", "TURNS", "USER", "MASTER", "ROTA",
+    "COMPOSITE", "SCORE", "SCORES", "REPORT", "CHART", "MARKET", "AGENT",
+    "SHOW", "DATA", "ALL", "FOR", "EACH", "RANK", "RANKED", "ACROSS",
 })
 
 
@@ -54,7 +58,8 @@ class SignalState(MosaicState):
     risk_gov:  str      # run_risk_governor_analysis
     inav:      str      # run_premium_alerts
     etf_news:  str      # run_etf_news_sentiment
-    chart:     str      # plot_price_chart
+    chart:     str      # plot_price_chart for resolved symbol
+    scores:    str      # plot_signal_scores bar chart
     # ── output ────────────────────────────────────────────────────────────
     report:    str
 
@@ -62,13 +67,16 @@ class SignalState(MosaicState):
 # ── Node 1: resolve symbol ────────────────────────────────────────────────────
 
 def _resolve_node(state: SignalState) -> dict:
-    q = state["question"].upper()
+    # Strip injected session-context prefix before symbol extraction
+    raw_q = re.sub(r"^\s*\[Session context.*?\]\s*", "", state["question"], flags=re.DOTALL)
+    q = raw_q.upper()
     # Check known tickers first
     for tk in _KNOWN_TICKERS:
         if tk in q:
             return {"symbol": tk}
-    # Fallback: extract a plausible NSE ticker
-    m = re.search(r"\b([A-Z]{4,12}(?:BEES|ETF|100|50)?)\b", q)
+    # Fallback: only accept matches that end in a real ETF suffix to avoid
+    # plain English words (SESSION, MARKET, …) masquerading as tickers
+    m = re.search(r"\b([A-Z]{4,12}(BEES|ETF|100|50))\b", q)
     if m and m.group(1) not in _NOT_TICKERS:
         return {"symbol": m.group(1)}
     return {"symbol": "GOLDBEES"}   # default for gold/signal queries
@@ -103,6 +111,10 @@ def _fetch_node(state: SignalState, config: RunnableConfig) -> dict:
         from src.tools.chart_tools import plot_price_chart
         return str(plot_price_chart.invoke({"symbol": sym, "days": 90}, config=config))
 
+    def _scores():
+        from src.tools.chart_tools import plot_signal_scores
+        return str(plot_signal_scores.invoke({}, config=config))
+
     datasets = _par_datasets({
         "goldbees":  _goldbees,
         "composite": _composite,
@@ -110,6 +122,7 @@ def _fetch_node(state: SignalState, config: RunnableConfig) -> dict:
         "inav":      _inav,
         "etf_news":  _etf_news,
         "chart":     _chart,
+        "scores":    _scores,
     })
     return {**{k: v.content for k, v in datasets.items()}, "datasets": datasets}
 
@@ -125,6 +138,13 @@ _SYNTH_PROMPT = (
     "3. **Risk Governor** — GARCH vol, position sizing, blended weight.\n"
     "4. **iNAV Premium/Discount** — highlight any significant premium or discount.\n"
     "5. **News Sentiment** — 1-sentence summary per ETF category.\n\n"
+    "TABLE FORMATTING MANDATE: Use ONLY standard Markdown tables with pipe characters `|` and "
+    "hyphens `-`. Never use Unicode box-drawing characters (╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, │, etc.).\n\n"
+    "CHART PLACEMENT: \n"
+    "  - After Section 2 (Composite ETF Scores table), include the literal token `[CHART:plot_signal_scores]` "
+    "on its own line so the composite-score bar chart appears below the table.\n"
+    "  - In Section 1 (GOLDBEES Signal), include `[CHART:price]` on its own line where the 90-day "
+    "price chart belongs.\n\n"
     "CRITICAL: Never invent composite scores, labels (ACCUMULATE/STRONG BUY), or ML metrics. "
     "Use only the data provided. If a section is unavailable, write 'Data unavailable'."
 )
@@ -146,14 +166,15 @@ def _synthesise_node(state: SignalState, config: RunnableConfig) -> dict:
 
     data = "\n\n---\n\n".join(
         f"### {k}\n{state.get(k, '')}" for k in
-        ("goldbees", "composite", "risk_gov", "inav", "etf_news", "chart")
+        ("goldbees", "composite", "risk_gov", "inav", "etf_news", "chart", "scores")
         if state.get(k)
     )
     result = llm.invoke([
         SystemMessage(content=_SYNTH_PROMPT + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nPre-fetched signal data:\n{data}"),
     ], config=config)
-    report = str(result.content).strip() or data
+    from .base import _render_report
+    report = _render_report(result).strip() or data
     return {"report": report}
 
 
@@ -209,14 +230,15 @@ def run(question: str, callbacks: list | None = None) -> str:
         Formatted Markdown signal dashboard.
     """
     # ── Step 1: resolve symbol ─────────────────────────────────────────────
-    q_upper = question.upper()
+    clean_q = re.sub(r"^\s*\[Session context.*?\]\s*", "", question, flags=re.DOTALL)
+    q_upper = clean_q.upper()
     symbol = "GOLDBEES"
     for tk in _KNOWN_TICKERS:
         if tk in q_upper:
             symbol = tk
             break
     else:
-        m = re.search(r"\b([A-Z]{4,12}(?:BEES|ETF|100|50)?)\b", q_upper)
+        m = re.search(r"\b([A-Z]{4,12}(BEES|ETF|100|50))\b", q_upper)
         if m and m.group(1) not in _NOT_TICKERS:
             symbol = m.group(1)
 
@@ -242,7 +264,7 @@ def run(question: str, callbacks: list | None = None) -> str:
         "question": question, "symbol": symbol,
         "plan": plan, "plan_id": plan_id,
         "goldbees": "", "composite": "", "risk_gov": "",
-        "inav": "", "etf_news": "", "chart": "",
+        "inav": "", "etf_news": "", "chart": "", "scores": "",
         "datasets": {},
         "report": "",
     }

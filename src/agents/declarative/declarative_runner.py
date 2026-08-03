@@ -94,6 +94,8 @@ class DeclarativeAgentRunner:
     def _discover_tools(self) -> dict[str, Callable[..., Any]]:
         """Discover registered tools across Mosaic tool modules."""
         tools: dict[str, Callable[..., Any]] = {}
+
+        # ── delegation / agent tools ───────────────────────────────────────
         try:
             from src.tools.agent_tools import ALL_TOOLS
             for t in ALL_TOOLS:
@@ -101,6 +103,45 @@ class DeclarativeAgentRunner:
                 tools[tool_name] = t
         except Exception as exc:
             logger.debug("Failed to load ALL_TOOLS from agent_tools: %s", exc)
+
+        # ── equity data tools ──────────────────────────────────────────────
+        _equity_modules = [
+            ("src.tools.yahoo_finance",       ["get_yahoo_finance_data", "get_price_momentum"]),
+            ("src.tools.earnings_scraper",    ["get_quarterly_results", "get_shareholding_pattern"]),
+            ("src.tools.indian_equity_tools", ["get_stock_cashflow", "get_mf_holdings_for_stock",
+                                               "get_db_price_summary", "get_fii_dii_summary"]),
+            ("src.tools.news_search",         ["get_stock_news", "search_financial_news"]),
+            ("src.tools.newsapi_search",      ["get_newsapi_stock_news"]),
+            ("src.tools.market.equity",       ["search_anomaly_events"]),
+            ("src.tools.chart_tools",         ["plot_price_chart", "plot_shareholding_bar",
+                                               "plot_macd_chart", "plot_signal_scores"]),
+            ("src.tools.agent_tools",         ["check_and_refresh_symbol_data"]),
+        ]
+        for module_path, names in _equity_modules:
+            try:
+                import importlib
+                mod = importlib.import_module(module_path)
+                for name in names:
+                    obj = getattr(mod, name, None)
+                    if obj is not None:
+                        tools[name] = obj
+            except Exception as exc:
+                logger.debug("Failed to load tools from %s: %s", module_path, exc)
+
+        # ── broker tools (optional — absent when Shoonya/NSE not configured) ─
+        for tool_mod, tool_name in [
+            ("src.tools.shoonya_tools",     "get_shoonya_quotes"),
+            ("src.tools.nse_announcements", "get_nse_announcements"),
+        ]:
+            try:
+                import importlib
+                mod = importlib.import_module(tool_mod)
+                obj = getattr(mod, tool_name, None)
+                if obj is not None:
+                    tools[tool_name] = obj
+            except Exception:
+                pass  # optional; missing silently
+
         return tools
 
     def render_string(self, template_str: str, ctx: ContextRun) -> str:
@@ -234,10 +275,13 @@ class DeclarativeAgentRunner:
         """Execute a reason LLM synthesis step."""
         rendered_prompt = self.render_string(step.prompt or "", ctx)
         try:
-            from src.agents.mosaic_fund_agent import get_llm
-            llm = get_llm(self.spec.default_model)
+            from src.workflows.base import _get_llm
+            llm = _get_llm()
+            if llm is None:
+                raise RuntimeError("No LLM configured — set LLM_PROVIDER/ANTHROPIC_API_KEY in .env")
             response = llm.invoke(rendered_prompt)
-            output_text = getattr(response, "content", str(response))
+            from src.agents.sub_agents.base import _get_message_text
+            output_text = _get_message_text(getattr(response, "content", response))
             return {"prompt": rendered_prompt, "output": output_text, "status": "completed"}
         except Exception as exc:
             impact = f"Reason step '{step.id}' failed. Qualitative LLM analysis for this step could not be completed."
@@ -273,8 +317,10 @@ class DeclarativeAgentRunner:
             )
 
             try:
-                from src.agents.mosaic_fund_agent import get_llm
-                llm = get_llm(self.spec.default_model)
+                from src.workflows.base import _get_llm
+                llm = _get_llm()
+                if llm is None:
+                    raise RuntimeError("No LLM configured — set LLM_PROVIDER/ANTHROPIC_API_KEY in .env")
 
                 # Bind tools if the LLM supports it
                 tool_objects = [v for v in available_tools.values() if hasattr(v, "name")]

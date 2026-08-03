@@ -72,6 +72,23 @@ def parse_markdown_table(table_text: str) -> Table | None:
     return table
 
 
+def looks_like_markdown_table(text: str) -> bool:
+    """True if `text` contains a real markdown table: a header row followed
+    by a `|---|---|`-style separator row. A stray `|` or `-` elsewhere in
+    plain text (log lines, file paths, JSON) does not count."""
+    lines = text.split("\n")
+    for i in range(len(lines) - 1):
+        if "|" not in lines[i]:
+            continue
+        next_stripped = lines[i + 1].strip()
+        if not next_stripped or "|" not in next_stripped and not next_stripped.startswith("-"):
+            continue
+        cells = [c.strip() for c in next_stripped.strip("|").split("|")]
+        if cells and all(re.match(r"^:?-+:?$", c) for c in cells):
+            return True
+    return False
+
+
 def render_markdown_to_group(text: str) -> Group:
     """
     Parse markdown text and return a Group of renderables where tables
@@ -103,7 +120,13 @@ def render_markdown_to_group(text: str) -> Group:
             tbl_txt = "\n".join(table_lines)
             table = parse_markdown_table(tbl_txt)
             if table:
+                # Give the table the same breathing room a Markdown
+                # paragraph gets, so it doesn't visually collide with
+                # the prose immediately above/below it.
+                if renderables:
+                    renderables.append("")
                 renderables.append(table)
+                renderables.append("")
             else:
                 # If parsing failed, render it as normal markdown text
                 text_lines.extend(table_lines)

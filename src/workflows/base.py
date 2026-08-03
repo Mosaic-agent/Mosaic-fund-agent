@@ -201,6 +201,76 @@ SYNTH_SUFFIX = (
     "If a number is not in the data, state that it is unavailable."
 )
 
+
+def _render_report(result: Any) -> str:
+    """
+    Extract clean Markdown from an LLM result, handling Anthropic extended-thinking
+    responses (list of content blocks) and plain string content alike.
+
+    Performs three post-processing passes after extraction:
+      1. Print extended-thinking blocks to the console (analyst reasoning panel).
+      2. Strip box-drawing chars reproduced by the LLM (cleanup runs BEFORE chart
+         insertion so the real chart strings are never corrupted by the regex).
+      3. Substitute [CHART:xxx] placeholders with ASCII chart strings saved by
+         chart tools during the fetch phase.
+    """
+    import re as _re
+
+    # ── 1. Extract text ────────────────────────────────────────────────────────
+    from src.agents.sub_agents.base import _get_message_text
+    content = result.content if hasattr(result, "content") else result
+    text = _get_message_text(content).strip()
+
+    # ── 2. Print thinking blocks to console (does nothing when absent) ────────
+    try:
+        from src.agents.sub_agents.infra import _print_thinking_blocks
+        _print_thinking_blocks(content)
+    except Exception:
+        pass
+
+    if not text:
+        return text
+
+    # ── 3. Cleanup (on LLM text, BEFORE chart substitution) ──────────────────
+    # Strip box-drawing chars the LLM may have reproduced despite instructions.
+    _CHART_LINE_RE = _re.compile(
+        r"^.*[┤┼┌┐┘└├┬┴─]{3,}.*$|"
+        r"^.*[████▓▓▒▒░░]{4,}.*$|"
+        r"^.*▞▞.*▗▌.*$",
+        _re.MULTILINE,
+    )
+    text = _CHART_LINE_RE.sub("", text)
+    text = _re.sub(r"```\s*```", "", text)
+    text = _re.sub(r"\n{3,}", "\n\n", text)
+
+    # ── 4. Chart placeholder substitution ────────────────────────────────────
+    # Real chart strings (with box-drawing + ANSI colour) are inserted AFTER
+    # cleanup so the cleanup regex never touches the actual chart output.
+    try:
+        from src.tools.chart_tools import get_active_charts
+        chart_by_type = get_active_charts().copy()
+
+        for tname in list(chart_by_type.keys()):
+            placeholders = [f"[CHART:{tname}]"]
+            if tname.startswith("plot_") and tname.endswith("_chart"):
+                short = tname[5:-6]  # "plot_price_chart" → "price"
+                placeholders.append(f"[CHART:{short}]")
+
+            for ph in placeholders:
+                if ph in text:
+                    text = text.replace(ph, chart_by_type.pop(tname))
+                    break
+
+        # Append any charts not placed by placeholder (e.g. charts from
+        # workflows that didn't include a [CHART:xxx] directive in the prompt).
+        for tname, chart_str in chart_by_type.items():
+            title = tname.replace("plot_", "").replace("_chart", "").replace("_", " ").title()
+            text += f"\n\n### {title}\n\n{chart_str}"
+    except Exception:
+        pass
+
+    return text.strip()
+
 # ── Checkpointing ─────────────────────────────────────────────────────────────
 
 _checkpointer = None

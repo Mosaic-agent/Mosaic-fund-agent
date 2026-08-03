@@ -113,9 +113,20 @@ def _get_router_llm() -> Any | None:
     # OpenAI-compatible endpoints (LM Studio, Ollama) which can't serve real
     # OpenAI cloud calls.
     _PLACEHOLDERS = {"", "ollama", "local", "none", "null", "lm-studio", "lmstudio"}
-
     def _real_key(k: str | None) -> bool:
-        return bool(k) and k.strip().lower() not in _PLACEHOLDERS
+        if not k:
+            return False
+        kk = k.strip().lower()
+        if kk in _PLACEHOLDERS:
+            return False
+        # .env ships unfilled keys as e.g. "your_openai_api_key_here" or
+        # "your_key_here" — catch that whole family instead of only the exact
+        # strings above, so a stale/unfilled placeholder never gets sent to
+        # the provider as a real API key (a real key never looks like this —
+        # a 401 + wasted round-trip on every call is the alternative).
+        if kk.startswith("your") and kk.endswith("here") and "key" in kk:
+            return False
+        return True
 
     # 1. Prefer cloud LLM if local is disabled
     if getattr(settings, "llm_local_disabled", False) and settings.llm_cloud_provider:
