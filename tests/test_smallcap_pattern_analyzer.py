@@ -42,6 +42,6 @@ def test_smallcap_analyzer_dashboard_renderer():
     report = analyzer.analyze(amc="all")
     dashboard = analyzer.render_ascii_dashboard(report)
 
-    assert "SMALLCAP ETF PRICE TREND" in dashboard
+    assert "SMALL CAP ETF PRICE TREND" in dashboard
     assert "SMALL CAP TOP EQUITY HOLDINGS" in dashboard
     assert "MULTI-AMC CROSS-CONVICTION" in dashboard
