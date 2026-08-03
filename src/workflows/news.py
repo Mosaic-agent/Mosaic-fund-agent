@@ -174,7 +174,8 @@ def _aggregate_node(state: NewsState, config: RunnableConfig) -> dict:
         SystemMessage(content=synth_prompt + caveman + SYNTH_SUFFIX),
         HumanMessage(content=f"Question: {state['question']}\n\nNews data:\n{combined[:6000]}"),
     ], config=config)
-    report = str(result.content).strip() or combined
+    from .base import _render_report
+    report = _render_report(result).strip() or combined
     return {"report": report}
 
 

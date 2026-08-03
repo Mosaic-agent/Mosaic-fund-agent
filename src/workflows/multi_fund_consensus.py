@@ -107,7 +107,8 @@ def _synthesise_node(state: ConsensusState) -> dict:
             f"Cross-fund consensus:\n{state.get('consensus_report', '')}"
         )),
     ])
-    return {"synthesis": str(result.content)}
+    from .base import _render_report
+    return {"synthesis": _render_report(result)}
 
 
 _GRAPH = None

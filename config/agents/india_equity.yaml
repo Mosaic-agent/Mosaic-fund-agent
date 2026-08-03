@@ -50,7 +50,7 @@ steps:
         fail_on_error: false
       - tool_name: get_mf_holdings_for_stock
         params:
-          company_name: "{{ symbol }}"
+          company_name_or_symbol: "{{ symbol }}"
         fail_on_error: false
       - tool_name: get_db_price_summary
         params:
@@ -63,7 +63,7 @@ steps:
         fail_on_error: false
       - tool_name: get_stock_news
         params:
-          company_name: "{{ symbol }}"
+          input_str: "{{ symbol }}"
         fail_on_error: false
 
   - id: qualitative_synthesis

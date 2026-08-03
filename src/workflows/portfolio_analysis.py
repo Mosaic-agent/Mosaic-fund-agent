@@ -110,7 +110,8 @@ def _score_all_node(state: PortfolioState) -> dict:
         )
         try:
             result = llm.invoke([system, HumanMessage(content=data)])
-            content = str(result.content).strip()
+            from src.agents.sub_agents.base import _get_message_text
+            content = _get_message_text(result.content).strip()
             try:
                 start  = content.find("{")
                 end    = content.rfind("}") + 1
@@ -159,7 +160,8 @@ def _verify_high_node(state: PortfolioState) -> dict:
         )
         try:
             result = llm.invoke([system, HumanMessage(content=data)])
-            content = str(result.content).strip()
+            from src.agents.sub_agents.base import _get_message_text
+            content = _get_message_text(result.content).strip()
             try:
                 start  = content.find("{")
                 end    = content.rfind("}") + 1
@@ -244,7 +246,8 @@ def _synthesise_node(state: PortfolioState) -> dict:
             f"Macro context:\n{state.get('macro_context', '')}"
         )),
     ])
-    return {"report": str(result.content)}
+    from .base import _render_report
+    return {"report": _render_report(result)}
 
 
 _GRAPH = None

@@ -223,7 +223,9 @@ class Settings(BaseSettings):
         
         # 1. Local models via base URL (Ollama, LM Studio)
         if base_url and "openrouter" not in base_url and "nvidia" not in base_url:
-            if "gemma4" in model_lower or "3.1" in model_lower or "3.2" in model_lower or "3.3" in model_lower:
+            if any(k in model_lower for k in ["gemma", "gemma4", "gemma-3", "gemma-2", "mosaic-gemma"]):
+                return 32768
+            if "3.1" in model_lower or "3.2" in model_lower or "3.3" in model_lower:
                 return 32768
             return 16384
             

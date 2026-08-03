@@ -13,11 +13,14 @@ temperature: 0.1
 max_turns: 25
 ---
 
-# Complete Mutual Fund (MF) & AMC Research Suite (`/mf-tracker`)
+## 🛠️ Registered Mutual Fund Analysis Tools (`MosaicFundAgent`)
 
-This skill is the single unified reference and execution guide for **ALL Mutual Fund capabilities** across Indian AMCs (DSP, Nippon India, ICICI Prudential, Quant, Bajaj Finserv, AMFI category flows) with a special focus on **AMC-Specific Bullish Small-Cap Stock Picks** and **Small-Cap/Mid-Cap Cross-Ownership Conviction Screening**.
+| Tool Name | Module | What it Does |
+| :--- | :--- | :--- |
+| `smallcap` | `src/scripts/portfolio/smallcap_pattern_analyzer.py` | Multi-AMC Small Cap pattern & accumulation analyzer (CLI: `python src/main.py smallcap --amc <all\|dsp\|nippon\|hdfc\|quant>`) |
+| `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
+| `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
 
----
 
 ## 🏛️ 1. AMC-Specific Bullish Small-Cap Stock Pick Queries
 

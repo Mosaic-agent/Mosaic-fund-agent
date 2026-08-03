@@ -680,6 +680,31 @@ _RAG_PLAN_TEMPLATES = [
         "main",
         ["run_data_engineering_importer(category='indian_macro')"]
     ),
+    (
+        "show master rotation dashboard for quant / dsp / hdfc / nippon / multi asset",
+        "mf",
+        ["display_master_amc_dashboard(amc_name='QUANT', lookback_months=12)"]
+    ),
+    (
+        "detect sector rotation in quant amc / dsp / hdfc",
+        "mf",
+        ["detect_amc_sector_rotation(amc_name='QUANT', lookback_months=12)"]
+    ),
+    (
+        "audit exhaustive stock shifts for quant / dsp / hdfc",
+        "mf",
+        ["audit_exhaustive_stock_shifts(amc_name='QUANT', lookback_months=12)"]
+    ),
+    (
+        "explain rotation thesis for telecom / adani / bfsi",
+        "mf",
+        ["explain_rotation_thesis(amc_name='QUANT', sector_or_stock='Telecom')"]
+    ),
+    (
+        "analyze mf sectors for quant / dsp / hdfc / nippon",
+        "mf",
+        ["analyze_mf_sectors(amc_name='QUANT', top_n_stocks=3)"]
+    ),
 ]
 
 _rag_plan_tfidf = None
@@ -889,7 +914,8 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
     try:
         rag_intent, rag_plan_text = _build_rag_plan(question)
         if rag_plan_text:
-            return rag_intent or regex_intent, rag_plan_text, None
+            final_intent = regex_intent if locked else (rag_intent or regex_intent)
+            return final_intent, rag_plan_text, None
     except Exception as exc:
         logger.debug("_build_ai_plan: RAG plan lookup failed (%s)", exc)
 
@@ -2346,9 +2372,17 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                 ctx_lines = [
                     "[Session context — prior turns in this conversation]"
                 ]
-                for _u, _a, _i in recent:
-                    if _i in ("deepdive", "research", "india_equity"):
-                        _a_short = _a
+                for idx, (_u, _a, _i) in enumerate(recent):
+                    # Only the MOST RECENT deep-report turn gets extended (but
+                    # still bounded) context — it's the one a follow-up is
+                    # actually likely to reference. Older ones fall back to
+                    # the standard 400-char cap like every other intent, so
+                    # this doesn't re-inject several full multi-thousand-token
+                    # reports on every subsequent turn.
+                    _is_latest = idx == len(recent) - 1
+                    if _i in ("deepdive", "research", "india_equity") and _is_latest:
+                        _cap = 6000
+                        _a_short = _a[:_cap] + "…" if len(_a) > _cap else _a
                     else:
                         _a_short = _a[:400] + "…" if len(_a) > 400 else _a
                     ctx_lines.append(f"User ({_i}): {_u}")

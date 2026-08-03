@@ -189,7 +189,8 @@ def _verify_node(state: ResearchState, config: RunnableConfig) -> dict:
             f"Data:\n{data_snapshot}"
         )),
     ], config=config)
-    return {"bear_cases": str(result.content)}
+    from src.agents.sub_agents.base import _get_message_text
+    return {"bear_cases": _get_message_text(result.content)}
 
 
 _SYNTHESIS_PROMPT = (
@@ -197,14 +198,19 @@ _SYNTHESIS_PROMPT = (
     "pre-collected for you across 6 parallel data sources — you do NOT need to call "
     "any tools. Your task is to synthesise this into a structured Markdown research note.\n\n"
     "Write exactly these 8 sections:\n"
-    "(1) Company Snapshot — key metrics table (sector, market cap, P/E, P/B, 52w range, price)\n"
+    "(1) Company Snapshot — key metrics table (sector, market cap, P/E, P/B, 52w range, price); "
+    "then write `[CHART:price]` on its own line where the 1-year price chart belongs\n"
     "(2) Financials — latest quarterly revenue, net profit, EPS, YoY growth\n"
-    "(3) Valuation — P/E and P/B vs sector; qualitative PEG assessment\n"
+    "(3) Valuation — P/E and P/B vs sector; qualitative PEG; "
+    "write `[CHART:macd]` on its own line where the MACD momentum chart belongs\n"
     "(4) Cash Flow Quality — FCF trend, operating CF vs capex\n"
-    "(5) Institutional Ownership — promoter %, FII/DII QoQ delta, DSP MF cross-ownership\n"
+    "(5) Institutional Ownership — write `[CHART:shareholding]` on its own line first, "
+    "then promoter %, FII/DII QoQ delta, DSP MF cross-ownership\n"
     "(6) News Sentiment — dominant themes, bullish/bearish balance\n"
     "(7) Key Risks — ranked by severity; integrate bear cases from the adversarial analysis\n"
     "(8) Recommendation — BUY/HOLD/SELL/WATCH · conviction LOW/MEDIUM/HIGH · one-line rationale\n\n"
+    "TABLE FORMATTING: Use ONLY standard Markdown tables with pipe `|` and hyphens `-`. "
+    "Never use Unicode box-drawing characters.\n\n"
     "Rules: all monetary values in ₹. Never invent numbers — only narrate data provided below."
 )
 
@@ -234,10 +240,8 @@ def _synthesise_node(state: ResearchState, config: RunnableConfig) -> dict:
             f"Pre-collected data:\n{all_data}"
         )),
     ], config=config)
-    report = str(result.content).strip()
-    # A thinking model can burn its token budget on reasoning and return empty
-    # final content on a large synthesis prompt — never return an empty report;
-    # fall back to the raw pre-collected sections.
+    from .base import _render_report
+    report = _render_report(result).strip()
     if not report:
         logger.warning(
             "autonomous_research: synthesis returned empty content — falling back to raw sections"

@@ -149,7 +149,7 @@ class BajajImporter(BaseFundImporter):
     REQUEST_DELAY = 1.0
     _DISCOVERY_DELAY = 0.3  # between the lightweight AJAX discovery calls
 
-    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0, **kwargs) -> None:
         super().__init__(target_month=target_month, freshness_months=freshness_months)
         self.full_reimport = full_reimport
         self._category_dates: dict[str, date] = {}

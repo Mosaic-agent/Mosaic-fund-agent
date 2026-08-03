@@ -55,6 +55,10 @@ from src.tools.runners import (  # noqa: E402
     run_fund_mom_returns,
     run_market_indicators,
 )
+from src.tools.mf_sector_analyzer import analyze_mf_sectors, get_mf_sector_report
+from src.tools.mf_sector_rotation import detect_amc_sector_rotation, get_sector_rotation_report, audit_exhaustive_stock_shifts, get_exhaustive_shift_ledger
+from src.tools.mf_rotation_thesis import explain_rotation_thesis, get_rotation_thesis_report
+from src.tools.cli_ux_dashboard import display_master_amc_dashboard, render_master_amc_rotation_dashboard
 
 
 def import_symbol_data_impl(
