@@ -64,6 +64,11 @@ from rich.markdown import Markdown
 
 logger = logging.getLogger(__name__)
 
+from src.tools.mf_sector_analyzer import analyze_mf_sectors
+from src.tools.mf_sector_rotation import detect_amc_sector_rotation, audit_exhaustive_stock_shifts
+from src.tools.mf_rotation_thesis import explain_rotation_thesis
+from src.tools.cli_ux_dashboard import display_master_amc_dashboard
+
 # Tools bound directly to the main agent's ReAct loop. Kept deliberately narrow:
 # every entry here is either unique to "main" (broker/portfolio access, generic
 # SQL/import/chart plumbing) or a token-efficient StateGraph workflow. Anything
@@ -76,7 +81,7 @@ ALL_TOOLS = ZERODHA_TOOLS + SUMMARIZATION_TOOLS + [
     scan_etf_setups, scan_etf_trends,
     run_autonomous_research, run_india_equity_research_workflow,
     run_multi_fund_consensus_workflow, run_portfolio_workflow,
-    query_clickhouse_db, get_live_inav,
+    query_clickhouse_db, get_live_inav, analyze_mf_sectors, detect_amc_sector_rotation, explain_rotation_thesis, audit_exhaustive_stock_shifts, display_master_amc_dashboard,
     import_symbol_data, run_data_engineering_importer,
     plot_price_chart, plot_multi_price_chart,
     publish_consolidated_pdf,
@@ -312,7 +317,7 @@ AGENT_SYSTEM_PROMPT = (
     "reaching you. If one lands here anyway, delegate rather than trying to answer it "
     "yourself — you don't hold that sub-agent's tools directly.\n"
     "Guidance on using specific tools/data sources:\n"
-    "  • Mutual Funds (MF): Use `query_clickhouse_db` for quick lookups against `market_data.mf_holdings`/`market_data.mf_nav`, or `run_multi_fund_consensus_workflow` for cross-fund MoM/YoY consensus. For whale-tracking, reverse lookups ('which funds hold X'), or single-fund deep dives, call `delegate_to_mf_agent`.\n"
+    "  • Mutual Funds (MF): Use `analyze_mf_sectors` for sector breakdowns, `detect_amc_sector_rotation` for MoM/YoY rotation detection, `explain_rotation_thesis` for investment thesis rationale, `audit_exhaustive_stock_shifts` for 100% complete additions/subtractions audit, and `display_master_amc_dashboard` for full visual executive CLI dashboards. For whale-tracking or single-fund deep dives, call `delegate_to_mf_agent`.\n"
     "  • Single-stock / company research (price, financials, quarterly results, news, MF ownership): call `run_india_equity_research_workflow` — it runs 12 data-fetch tools in parallel and returns a full 8-section note for NSE/BSE stocks.\n"
     "  • Importing Stocks/ETFs: The import tools reuse the user's saved data source for 24 hours. If a tool returns `DATA_SOURCE_REQUIRED`, ask the user which source to use: 1. Shoonya, 2. NSE, or 3. yfinance, then retry with `data_source`. Never choose a source on the user's behalf. If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES', 'refresh GOLDBEES'), call `import_symbol_data(symbol, data_source=...)` — never `run_data_engineering_importer` for a single symbol. Only use `run_data_engineering_importer(category='stocks', data_source=...)` when the user asks to import ALL stocks generically without naming one. When the user specifies a particular year (e.g. '2019'), date, or month range, parse the dates and pass them as `start_date` (format YYYY-MM-DD) and `end_date` (format YYYY-MM-DD) parameters to `import_symbol_data` and `plot_price_chart` (e.g. for year 2019, `start_date='2019-01-01'` and `end_date='2019-12-31'`).\n"
     "  • News sweeps / sentiment: call `delegate_to_news_agent`.\n"

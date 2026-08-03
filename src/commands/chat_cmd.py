@@ -680,6 +680,31 @@ _RAG_PLAN_TEMPLATES = [
         "main",
         ["run_data_engineering_importer(category='indian_macro')"]
     ),
+    (
+        "show master rotation dashboard for quant / dsp / hdfc / nippon / multi asset",
+        "mf",
+        ["display_master_amc_dashboard(amc_name='QUANT', lookback_months=12)"]
+    ),
+    (
+        "detect sector rotation in quant amc / dsp / hdfc",
+        "mf",
+        ["detect_amc_sector_rotation(amc_name='QUANT', lookback_months=12)"]
+    ),
+    (
+        "audit exhaustive stock shifts for quant / dsp / hdfc",
+        "mf",
+        ["audit_exhaustive_stock_shifts(amc_name='QUANT', lookback_months=12)"]
+    ),
+    (
+        "explain rotation thesis for telecom / adani / bfsi",
+        "mf",
+        ["explain_rotation_thesis(amc_name='QUANT', sector_or_stock='Telecom')"]
+    ),
+    (
+        "analyze mf sectors for quant / dsp / hdfc / nippon",
+        "mf",
+        ["analyze_mf_sectors(amc_name='QUANT', top_n_stocks=3)"]
+    ),
 ]
 
 _rag_plan_tfidf = None
@@ -889,7 +914,8 @@ def _build_ai_plan(question: str, regex_intent: str, locked: bool = False) -> tu
     try:
         rag_intent, rag_plan_text = _build_rag_plan(question)
         if rag_plan_text:
-            return rag_intent or regex_intent, rag_plan_text, None
+            final_intent = regex_intent if locked else (rag_intent or regex_intent)
+            return final_intent, rag_plan_text, None
     except Exception as exc:
         logger.debug("_build_ai_plan: RAG plan lookup failed (%s)", exc)
 

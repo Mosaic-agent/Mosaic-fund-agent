@@ -5,7 +5,19 @@ description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC impo
 
 # Complete Mutual Fund (MF) & AMC Research Suite (`/mf-tracker`)
 
-This skill is the single unified reference and execution guide for **ALL Mutual Fund capabilities** across Indian AMCs (DSP, Nippon India, ICICI Prudential, Quant, Bajaj Finserv, AMFI category flows) with a special focus on **AMC-Specific Bullish Small-Cap Stock Picks** and **Small-Cap/Mid-Cap Cross-Ownership Conviction Screening**.
+This skill is the single unified reference and execution guide for **ALL Mutual Fund capabilities** across Indian AMCs (DSP, Nippon India, ICICI Prudential, Quant, HDFC, Bajaj Finserv, AMFI category flows) with dedicated tools for **Sector Allocations**, **MoM/YoY Sector Rotation**, **Investment Thesis Rationale**, **100% Exhaustive Stock Shift Audits**, and **Master Executive CLI Dashboards**.
+
+---
+
+## 🛠️ Registered Mutual Fund Analysis Tools (`MosaicFundAgent`)
+
+| Tool Name | Module | What it Does |
+| :--- | :--- | :--- |
+| `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
+| `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
+| `explain_rotation_thesis` | `src/tools/mf_rotation_thesis.py` | Macro, fundamental, and valuation investment thesis explaining WHY an AMC rotated |
+| `audit_exhaustive_stock_shifts` | `src/tools/mf_sector_rotation.py` | 100% complete audit of ALL stock additions (+₹ Cr) and subtractions (-₹ Cr) with zero data loss |
+| `display_master_amc_dashboard` | `src/tools/cli_ux_dashboard.py` | Master Executive CLI Dashboard (Left-to-Right Horizontal Sector Flow + Side-by-Side Stock Ledger) |
 
 ---
 

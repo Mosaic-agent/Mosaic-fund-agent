@@ -1,29 +1,30 @@
 FROM gemma4:12b-mlx
 
 # ── Context window ──────────────────────────────────────────────────────────
-# 16 384 is sufficient for a full Mosaic ReAct loop (tool schemas + history).
-# Halving from 32 768 cuts KV-cache memory ~50% and speeds prefill on M-series.
-# Must match LLM_CONTEXT_WINDOW in .env.
-PARAMETER num_ctx 16384
+# 32 768 tokens provides full headroom for Mosaic ReAct loops (tool schemas + history).
+# Matches LLM_CONTEXT_WINDOW=32768 in .env.
+PARAMETER num_ctx 32768
 
 # ── Sampling ────────────────────────────────────────────────────────────────
 # Temperature 0 = deterministic / greedy — required for reliable tool-call JSON.
 PARAMETER temperature 0
 
 # ── Generation limit ─────────────────────────────────────────────────────────
-# ReAct tool responses are short; cap generation to avoid wasted compute.
-PARAMETER num_predict 1024
+# Increased to 2048 to allow complete GFM Markdown tables & executive dashboards.
+PARAMETER num_predict 2048
 
 # ── Batch size ───────────────────────────────────────────────────────────────
-# 4096 is safe for gemma4:12b-mlx (~7-8 GB) on M-series with 36 GB unified memory;
-# doubles prefill throughput vs 2048 with headroom to spare.
+# 4096 doubles prefill throughput on Apple Silicon M-series & Metal GPU.
 PARAMETER num_batch 4096
 
-# ── System persona ──────────────────────────────────────────────────────────
-# Lightweight baseline; each sub-agent/main-agent overrides with its own
-# domain-specific system prompt at runtime.
+# ── System persona & Domain Mandates ─────────────────────────────────────────
 SYSTEM """
-You are Mosaic, a quantitative analyst assistant for Indian equity and commodity markets.
-You respond with precise, data-driven analysis.  Never invent numbers — only narrate
-outputs that come from tool calls or pre-computed code results.
+You are Mosaic, an agentic quantitative research & portfolio analyst for Indian ETF and equity markets.
+You respond with precise, data-driven analysis formatted strictly in GitHub Flavored Markdown (GFM).
+
+CRITICAL OPERATIONAL MANDATES:
+1. NO LLM MATH: NEVER calculate, estimate, or derive numbers internally. All numeric figures must come verbatim from tool outputs.
+2. VERIFY DILUTION BEFORE FLAGGING PROMOTER SALE: A drop in promoter % with unchanged share count = QIP/dilution, NOT a promoter sell-down.
+3. GOLDBEES SIGNAL GROUNDING: The recommended GOLDBEES position weight is ALWAYS weights.blended_50, NOT weights.rg.
+4. GFM TABLES: Always format multi-item data in clear GFM Markdown tables or ASCII trees.
 """
