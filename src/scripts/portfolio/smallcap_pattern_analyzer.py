@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional  # noqa: F401 (List used in _score_cross_conviction_persistence)
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -79,13 +79,24 @@ class SmallcapPatternAnalyzer:
     def __init__(self):
         self.pool = get_pool()
 
-    def _get_amc_sql_filter(self, amc: str) -> str:
+    def _get_amc_sql_filter(self, amc: str) -> tuple[str, dict]:
+        """Return (sql_fragment, bind_params). Unmapped AMC names are bound as a
+        query parameter rather than spliced into the SQL string."""
         amc_lower = amc.lower().strip()
         if amc_lower == "all" or amc_lower == "all_amcs":
-            return "(lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%' AND lower(fund_name) NOT LIKE '%quality%')"
+            return (
+                "(lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%' AND lower(fund_name) NOT LIKE '%quality%')",
+                {},
+            )
         if amc_lower in AMC_ALIAS_MAP:
-            return f"({AMC_ALIAS_MAP[amc_lower]} AND lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')"
-        return f"(lower(fund_name) LIKE '%{amc_lower}%' AND lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')"
+            return (
+                f"({AMC_ALIAS_MAP[amc_lower]} AND lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')",
+                {},
+            )
+        return (
+            "(lower(fund_name) LIKE {amc_pattern:String} AND lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')",
+            {"amc_pattern": f"%{amc_lower}%"},
+        )
 
     def fetch_price_metrics(self, symbol: str = "SMALLCAP") -> SmallcapPriceMetrics:
         """Fetch EOD prices and compute technical return & SMA metrics."""
@@ -153,7 +164,7 @@ class SmallcapPatternAnalyzer:
 
     def fetch_top_holdings(self, amc: str = "all", limit: int = 15) -> pd.DataFrame:
         """Fetch Small Cap fund holdings across specified AMC or ALL AMCs."""
-        amc_filter = self._get_amc_sql_filter(amc)
+        amc_filter, amc_params = self._get_amc_sql_filter(amc)
         query = f"""
             SELECT 
                 security_name, 
@@ -171,16 +182,16 @@ class SmallcapPatternAnalyzer:
             ORDER BY total_market_value_cr DESC
             LIMIT {limit}
         """
-        return self.pool.query_df(query)
+        return self.pool.query_df(query, parameters=amc_params)
 
     def fetch_mom_shifts(self, amc: str = "all") -> tuple[pd.DataFrame, pd.DataFrame]:
         """Fetch MoM net additions and trims across target AMC or ALL AMCs."""
-        amc_filter = self._get_amc_sql_filter(amc)
+        amc_filter, amc_params = self._get_amc_sql_filter(amc)
         months_df = self.pool.query_df(f"""
             SELECT DISTINCT as_of_month FROM market_data.mf_holdings FINAL
             WHERE {amc_filter}
             ORDER BY as_of_month DESC LIMIT 2
-        """)
+        """, parameters=amc_params)
         if len(months_df) < 2:
             return pd.DataFrame(), pd.DataFrame()
 
@@ -213,7 +224,7 @@ class SmallcapPatternAnalyzer:
             ORDER BY mv_change_cr DESC
             LIMIT 15
         """
-        df_add = self.pool.query_df(add_query)
+        df_add = self.pool.query_df(add_query, parameters=amc_params)
 
         trim_query = f"""
             WITH c AS (
@@ -241,17 +252,11 @@ class SmallcapPatternAnalyzer:
             ORDER BY mv_change_cr ASC
             LIMIT 15
         """
-        df_trim = self.pool.query_df(trim_query)
+        df_trim = self.pool.query_df(trim_query, parameters=amc_params)
 
         return df_add, df_trim
 
-    def fetch_cross_conviction(self, limit: int = 15) -> pd.DataFrame:
-        """Fetch multi-AMC cross-fund conviction for Small Cap stocks across ALL AMCs."""
-        query = f"""
-            SELECT 
-                security_name,
-                isin,
-                count(DISTINCT multiIf(
+    _AMC_CASE_SQL = """multiIf(
                     lower(fund_name) LIKE 'dsp%', 'DSP',
                     lower(fund_name) LIKE 'nippon%' OR lower(fund_name) LIKE 'reliance%', 'Nippon',
                     lower(fund_name) LIKE 'icici%', 'ICICI',
@@ -262,26 +267,98 @@ class SmallcapPatternAnalyzer:
                     lower(fund_name) LIKE 'kotak%', 'Kotak',
                     lower(fund_name) LIKE 'bajaj%', 'Bajaj',
                     splitByChar('_', fund_name)[1]
-                )) as amc_count,
+                )"""
+
+    def fetch_cross_conviction(self, limit: int = 15, lookback_months: int = 24) -> pd.DataFrame:
+        """Fetch multi-AMC cross-fund conviction for Small Cap stocks, ranked by persistence.
+
+        A name held by several AMCs continuously across `lookback_months` scores higher
+        than one where several AMCs all bought in the same latest month — the latter
+        looks identical on a single-month snapshot but is a much weaker conviction signal.
+        """
+        months_df = self.pool.query_df(f"""
+            SELECT DISTINCT as_of_month
+            FROM market_data.mf_holdings FINAL
+            WHERE lower(fund_name) LIKE '%small%'
+            ORDER BY as_of_month DESC
+            LIMIT {lookback_months}
+        """)
+        if months_df.empty:
+            return pd.DataFrame()
+
+        window_months = sorted(pd.to_datetime(months_df['as_of_month']).tolist())
+        latest_month = window_months[-1].strftime('%Y-%m-%d')
+        month_list_sql = ", ".join(f"'{m.strftime('%Y-%m-%d')}'" for m in window_months)
+
+        history = self.pool.query_df(f"""
+            SELECT
+                as_of_month,
+                any(security_name) as security_name,
+                isin,
+                count(DISTINCT {self._AMC_CASE_SQL}) as amc_count,
                 count(DISTINCT fund_name) as total_fund_count,
                 round(sum(market_value_cr), 1) as total_market_value_cr
             FROM market_data.mf_holdings FINAL
-            WHERE as_of_month = (
-                SELECT max(as_of_month) FROM market_data.mf_holdings FINAL WHERE lower(fund_name) LIKE '%small%'
-              )
+            WHERE as_of_month IN ({month_list_sql})
               AND isin IN (
-                  SELECT DISTINCT isin FROM market_data.mf_holdings FINAL 
-                  WHERE lower(fund_name) LIKE '%small%'
+                  SELECT DISTINCT isin FROM market_data.mf_holdings FINAL
+                  WHERE as_of_month = '{latest_month}'
+                    AND lower(fund_name) LIKE '%small%'
                     AND lower(fund_name) NOT LIKE '%index%'
                     AND lower(fund_name) NOT LIKE '%etf%'
                     AND isin NOT LIKE 'PH_%' AND isin != ''
               )
               AND isin NOT LIKE 'PH_%' AND isin != ''
-            GROUP BY security_name, isin
-            ORDER BY amc_count DESC, total_market_value_cr DESC
-            LIMIT {limit}
-        """
-        return self.pool.query_df(query)
+            GROUP BY as_of_month, isin
+        """)
+        if history.empty:
+            return pd.DataFrame()
+
+        return self._score_cross_conviction_persistence(history, window_months, limit)
+
+    def _score_cross_conviction_persistence(
+        self, history: pd.DataFrame, window_months: List, limit: int
+    ) -> pd.DataFrame:
+        """Collapse a monthly (isin, as_of_month) amc_count history into a persistence-ranked table."""
+        history = history.copy()
+        history['as_of_month'] = pd.to_datetime(history['as_of_month'])
+        month_index = pd.DatetimeIndex(sorted(window_months))
+        latest_month = month_index[-1]
+
+        rows = []
+        for isin, grp in history.groupby('isin'):
+            by_month = grp.set_index('as_of_month').reindex(month_index)
+            amc_series = by_month['amc_count'].fillna(0).astype(int)
+
+            streak = 0
+            for month in reversed(month_index):
+                if amc_series.loc[month] >= 2:
+                    streak += 1
+                else:
+                    break
+
+            latest_row = grp[grp['as_of_month'] == latest_month]
+            security_name = grp['security_name'].dropna().iloc[-1] if grp['security_name'].notna().any() else isin
+
+            rows.append({
+                'security_name': security_name,
+                'isin': isin,
+                'amc_count': int(latest_row['amc_count'].iloc[0]) if not latest_row.empty else 0,
+                'total_fund_count': int(latest_row['total_fund_count'].iloc[0]) if not latest_row.empty else 0,
+                'total_market_value_cr': float(latest_row['total_market_value_cr'].iloc[0]) if not latest_row.empty else 0.0,
+                'avg_amc_count': round(float(amc_series.mean()), 2),
+                'months_covered': int((amc_series > 0).sum()),
+                'multi_amc_streak_months': streak,
+                'window_months': len(month_index),
+            })
+
+        result = pd.DataFrame(rows)
+        if result.empty:
+            return result
+        return result.sort_values(
+            by=['multi_amc_streak_months', 'amc_count', 'total_market_value_cr'],
+            ascending=[False, False, False],
+        ).head(limit).reset_index(drop=True)
 
     def fetch_quant_signal(self, etf_symbol: str = "SMALL250") -> Dict[str, Any]:
         """Fetch composite quant signal record for target smallcap ETF."""
@@ -297,13 +374,13 @@ class SmallcapPatternAnalyzer:
             return {"etf_symbol": etf_symbol, "composite_score": None, "action": "N/A"}
         return df.to_dict(orient='records')[0]
 
-    def analyze(self, amc: str = "all") -> SmallcapPatternReport:
+    def analyze(self, amc: str = "all", lookback_months: int = 24) -> SmallcapPatternReport:
         """Run complete modular analysis pipeline for targeted AMC or ALL AMCs."""
         pm = self.fetch_price_metrics("SMALLCAP")
         amfi = self.fetch_amfi_flows()
         holdings = self.fetch_top_holdings(amc=amc)
         additions, trims = self.fetch_mom_shifts(amc=amc)
-        cross = self.fetch_cross_conviction()
+        cross = self.fetch_cross_conviction(lookback_months=lookback_months)
         signal = self.fetch_quant_signal("SMALL250")
 
         return SmallcapPatternReport(
@@ -380,8 +457,9 @@ class SmallcapPatternAnalyzer:
         lines.append("\n")
 
         # Cross Conviction Chart
+        window = int(report.cross_conviction['window_months'].iloc[0]) if not report.cross_conviction.empty else 0
         lines.append("===============================================================")
-        lines.append("  MULTI-AMC CROSS-CONVICTION (DISTINCT AMCs HOLDING EACH NAME)")
+        lines.append(f"  MULTI-AMC CROSS-CONVICTION (PERSISTENCE-RANKED, {window}mo LOOKBACK)")
         lines.append("===============================================================")
         if not report.cross_conviction.empty:
             df_c = report.cross_conviction.head(8)
@@ -389,15 +467,16 @@ class SmallcapPatternAnalyzer:
                 sec = row['security_name'][:24].ljust(24)
                 amcs = row['amc_count']
                 bar = '█' * amcs
-                lines.append(f"{sec} | {bar:<10} | {amcs} AMCs ({row['total_fund_count']} Funds | ₹{row['total_market_value_cr']:6.1f} Cr)")
+                streak = row['multi_amc_streak_months']
+                lines.append(f"{sec} | {bar:<10} | {amcs} AMCs now | {streak:>2}/{window}mo streak | ₹{row['total_market_value_cr']:6.1f} Cr")
 
         return "\n".join(lines)
 
 
-def run_smallcap_analysis(amc: str = "all", verbose: bool = True) -> SmallcapPatternReport:
+def run_smallcap_analysis(amc: str = "all", lookback_months: int = 24, verbose: bool = True) -> SmallcapPatternReport:
     """Convenience function to run analysis across target AMC or all AMCs."""
     analyzer = SmallcapPatternAnalyzer()
-    report = analyzer.analyze(amc=amc)
+    report = analyzer.analyze(amc=amc, lookback_months=lookback_months)
     if verbose:
         dashboard = analyzer.render_ascii_dashboard(report)
         print(dashboard)
@@ -408,5 +487,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Generic Multi-AMC Small Cap Pattern Analyzer")
     parser.add_argument("--amc", "-a", type=str, default="all", help="AMC group: all | dsp | nippon | hdfc | quant | icici | kotak | bajaj")
+    parser.add_argument("--lookback-months", type=int, default=24, help="Months of holdings history to score cross-conviction persistence over")
     args = parser.parse_args()
-    run_smallcap_analysis(amc=args.amc, verbose=True)
+    run_smallcap_analysis(amc=args.amc, lookback_months=args.lookback_months, verbose=True)
