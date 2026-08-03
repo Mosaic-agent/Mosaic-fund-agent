@@ -36,6 +36,8 @@ class AutoToolCallSpec(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict, description="Parameters passed to the tool")
     fail_on_error: bool = Field(default=True, description="Whether tool exception halts execution")
     condition: str | None = Field(default=None, description="Optional boolean condition for running tool")
+    # Overrides the step-level tool_timeout for this specific call (seconds)
+    timeout: int | None = Field(default=None, description="Per-tool wall-clock timeout in seconds; falls back to runner default")
 
 
 class UseToolsSpec(BaseModel):

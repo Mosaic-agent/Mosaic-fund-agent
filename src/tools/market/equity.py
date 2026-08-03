@@ -21,13 +21,25 @@ each date in actual published news rather than training-data guesses.
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from typing import NamedTuple
 
 import pandas as pd
 from langchain_core.tools import tool
 
 log = logging.getLogger(__name__)
+
+# ── News cache ────────────────────────────────────────────────────────────────
+# Keyed by "SYMBOL:date_str"; entries expire after 24 hours.
+_NEWS_CACHE_TTL = 86_400  # seconds
+
+class _CacheEntry(NamedTuple):
+    result: str
+    ts: float  # time.monotonic() when stored — reset on process restart
+
+_news_cache: dict[str, _CacheEntry] = {}
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -81,12 +93,26 @@ def _search_one_date(
     Search cascade (stops at first hit):
       1. GNews — primary query (company + regime-context terms), exact date
       2. GNews — broadened fallback query, exact date
-      3. GNews — broadened query, ±1 day window (handles publication lag)
+      3. GNews — ±1 day window (handles publication lag)
       4. NewsAPI — when available and date is within 30 days
       5. Corporate action heuristic — extreme returns (>20%) flag likely split/bonus/demerger
 
+    Results are cached per (symbol, date_str) for 24 hours to avoid triggering
+    Google News abuse detection on repeated calls for the same stock/day.
+
     Returns (date_str, markdown_block).
     """
+    # ── Cache lookup ──────────────────────────────────────────────────────────
+    cache_key = f"{symbol}:{date_str}"
+    cached = _news_cache.get(cache_key)
+    if cached and (time.monotonic() - cached.ts) < _NEWS_CACHE_TTL:
+        log.debug("News cache hit for %s on %s", symbol, date_str)
+        return date_str, cached.result
+
+    def _store_and_return(md: str) -> tuple[str, str]:
+        _news_cache[cache_key] = _CacheEntry(result=md, ts=time.monotonic())
+        return date_str, md
+
     from datetime import date as _date
     from src.tools.news_search import search_financial_news
 
@@ -106,7 +132,7 @@ def _search_one_date(
             if daily_ret < 0
             else "bonus, rights issue, or price adjustment"
         )
-        return date_str, (
+        return _store_and_return(
             f"> ⚙️ **Likely corporate action** ({daily_ret:+.1f}%): "
             f"a return of this magnitude almost always indicates a {action_type} "
             f"rather than a market-driven move. Verify via NSE corporate actions page."
@@ -119,7 +145,7 @@ def _search_one_date(
         {"query": primary, "max_results": max_results, "target_date": date_str}
     )
     if "No news found" not in result:
-        return date_str, result
+        return _store_and_return(result)
 
     # ── 2. GNews exact date, broadened query ─────────────────────────────────
     fallback = _fallback_query(symbol, company_name)
@@ -127,7 +153,7 @@ def _search_one_date(
         {"query": fallback, "max_results": max_results, "target_date": date_str}
     )
     if "No news found" not in result:
-        return date_str, result
+        return _store_and_return(result)
 
     # ── 3. GNews ±1 day window (publication lag) ──────────────────────────────
     from datetime import timedelta
@@ -137,7 +163,7 @@ def _search_one_date(
             {"query": primary, "max_results": max_results, "target_date": adj_date}
         )
         if "No news found" not in adj_result:
-            return date_str, f"*(news from {adj_date})*\n{adj_result}"
+            return _store_and_return(f"*(news from {adj_date})*\n{adj_result}")
 
     # ── 4. NewsAPI — only viable within last 30 days ──────────────────────────
     if days_ago <= 30:
@@ -147,11 +173,16 @@ def _search_one_date(
                 {"symbol": symbol, "target_date": date_str}
             )
             if na_result and "No articles" not in str(na_result) and "error" not in str(na_result).lower():
-                return date_str, str(na_result)
+                return _store_and_return(str(na_result))
         except Exception:
             pass
 
-    return date_str, result  # final fallback (the "No news found" message)
+    return _store_and_return(result)  # final fallback (the "No news found" message)
+
+
+def clear_news_cache() -> None:
+    """Evict all entries; useful for testing or forced refresh."""
+    _news_cache.clear()
 
 
 # ── public tool ───────────────────────────────────────────────────────────────

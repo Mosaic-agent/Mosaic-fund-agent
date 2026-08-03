@@ -242,8 +242,12 @@ class DeclarativeAgentRunner:
                     executor.submit(self._execute_single_tool_call, tc, ctx): tc
                     for tc in step.tool_calls
                 }
+                # Wait up to the largest per-tool timeout so slow tools aren't cut short
+                step_wall_timeout = max(
+                    (tc.timeout or self.tool_timeout) for tc in step.tool_calls
+                )
                 done, not_done = concurrent.futures.wait(
-                    future_to_tc.keys(), timeout=self.tool_timeout,
+                    future_to_tc.keys(), timeout=step_wall_timeout,
                 )
                 for f in done:
                     try:
@@ -254,9 +258,10 @@ class DeclarativeAgentRunner:
                 for f in not_done:
                     tc = future_to_tc[f]
                     f.cancel()
-                    impact = f"Tool '{tc.tool_name}' timed out after {self.tool_timeout}s."
+                    effective_timeout = tc.timeout or self.tool_timeout
+                    impact = f"Tool '{tc.tool_name}' timed out after {effective_timeout}s."
                     results.append({"tool_name": tc.tool_name, "status": "timeout", "output": format_tool_error(tc.tool_name, TimeoutError(impact), impact)})
-                    logger.warning("auto_tools call '%s' timed out after %ds", tc.tool_name, self.tool_timeout)
+                    logger.warning("auto_tools call '%s' timed out after %ds", tc.tool_name, effective_timeout)
         else:
             for tc in step.tool_calls:
                 results.append(self._execute_single_tool_call(tc, ctx))
@@ -274,6 +279,7 @@ class DeclarativeAgentRunner:
     def _execute_reason(self, step: StepSpec, ctx: ContextRun) -> dict[str, Any]:
         """Execute a reason LLM synthesis step."""
         rendered_prompt = self.render_string(step.prompt or "", ctx)
+        logger.info("Executing declarative step '%s' [reason] — calling LLM for synthesis", step.id)
         try:
             from src.workflows.base import _get_llm
             llm = _get_llm()
