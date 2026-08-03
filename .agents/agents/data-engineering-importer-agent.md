@@ -43,10 +43,7 @@ get_registry()["sentiment"] = MySentimentFetcher()
 
 Then `repo.run_fetcher(get_registry()["sentiment"])` handles watermarks, dry-run, and fires `DataImportedEvent` with no extra wiring.
 
-Legacy path (still works for complex categories not yet adapted):
-1. **Define Table**: Add the DDL to `src/importer/clickhouse.py`.
-2. **Register Source**: Update `src/importer/registry.py` with the new symbols or categories.
-3. **Wire into CLI**: Update `run_import()` in `src/importer/cli.py`.
+All general data categories (`stocks`, `etfs`, `fii_dii`, `world_bank`, `imf_weo`, `amfi_flows`, `fx_rates`, `cot`, `cb_reserves`, etc.) are 100% adapter-driven. Adding a new category simply requires instantiating its `Fetcher` in `_build_registry()` inside `src/importer/fetchers/adapters.py`.
 
 ### 2. Nippon India AMC Importer — Dynamic URL Discovery
 
