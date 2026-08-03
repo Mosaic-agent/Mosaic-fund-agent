@@ -71,6 +71,14 @@ def audit_freshness():
     except Exception as e:
         results.append(("FII_DII", "market_data.fii_dii_flows", f"Error: {e}"))
 
+    # 6. Check AMC Mutual Fund Holdings category
+    try:
+        res = client.query("SELECT max(as_of_month) FROM market_data.mf_holdings FINAL")
+        max_date = res.result_rows[0][0] if res.result_rows else None
+        results.append(("AMC_Holdings", "market_data.mf_holdings", max_date))
+    except Exception as e:
+        results.append(("AMC_Holdings", "market_data.mf_holdings", f"Error: {e}"))
+
     # Print results
     table = Table(title="Category Freshness Audit", show_header=True, header_style="bold magenta")
     table.add_column("Category", style="cyan")
@@ -111,6 +119,12 @@ def audit_freshness():
             limit_date = today - timedelta(days=60)
             is_stale = (max_date < limit_date)
             threshold_desc = f"On/After {limit_date}"
+        elif cat == "AMC_Holdings":
+            # AMC holdings disclosures are monthly.
+            # Consider stale if older than 45 days.
+            limit_date = today - timedelta(days=45)
+            is_stale = (max_date < limit_date)
+            threshold_desc = f"On/After {limit_date}"
         else:
             # Older than 1 business day
             # If today is Thursday, 1 business day ago is Wednesday.
@@ -141,6 +155,7 @@ def audit_freshness():
             elif import_name == "inav": import_name = "inav"
             elif import_name == "indian_macro": import_name = "indian_macro"
             elif import_name == "fii_dii": import_name = "fii_dii"
+            elif import_name == "amc_holdings": import_name = "dsp,nippon,icici,quant,bajaj"
             stale_categories.append(import_name)
 
         table.add_row(cat, tbl_name, str(max_date), status)

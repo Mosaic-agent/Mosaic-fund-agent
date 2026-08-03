@@ -12,6 +12,7 @@ python src/main.py ask "question"           # ReAct LLM Q&A / sub-agent dispatch
 python src/main.py analyze                  # Full live portfolio (Zerodha login required)
 python src/main.py import --category etfs,stocks,mf,fii_dii,cot,fx_rates
 python src/main.py signals --save --verbose # Composite signal aggregator
+python src/main.py smallcap --amc all       # Multi-AMC Small Cap pattern & accumulation analyzer
 python src/main.py macro --max 3            # Macro theme scanner
 python src/main.py comex                    # COMEX pre-market gold/silver/copper
 python src/main.py ui                       # Streamlit hub at localhost:8501
@@ -20,8 +21,10 @@ python src/main.py ui                       # Streamlit hub at localhost:8501
 ### Key Scripts
 ```bash
 python src/scripts/goldbees_report.py                              # Pre-baked GOLDBEES signal (~2s)
+python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc all  # Multi-AMC Small Cap accumulation & conviction analyzer
 python src/scripts/portfolio/run_stock_quant_workflow.py BAJFINANCE  # Stock ASCII chart, anomalies & MF holdings
 python src/scripts/portfolio/fund_mom_returns.py --scheme 152056   # MoM NAV returns
+
 python src/scripts/market/whale_tracker.py                         # All 7 multi-asset funds
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import
 python src/scripts/db/fix_bad_data.py                              # Deduplication & price repair

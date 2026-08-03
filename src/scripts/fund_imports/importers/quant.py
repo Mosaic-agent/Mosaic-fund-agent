@@ -123,7 +123,7 @@ class QuantImporter(BaseFundImporter):
     Loads dynamic list of monthly Excel sheets from quantmutual.com.
     """
 
-    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0) -> None:
+    def __init__(self, full_reimport: bool = False, target_month: date | None = None, freshness_months: int = 0, **kwargs) -> None:
         super().__init__(target_month=target_month, freshness_months=freshness_months)
         self.full_reimport = full_reimport
 

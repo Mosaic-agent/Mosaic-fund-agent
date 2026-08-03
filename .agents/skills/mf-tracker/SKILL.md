@@ -13,11 +13,13 @@ This skill is the single unified reference and execution guide for **ALL Mutual 
 
 | Tool Name | Module | What it Does |
 | :--- | :--- | :--- |
+| `smallcap` | `src/scripts/portfolio/smallcap_pattern_analyzer.py` | Multi-AMC Small Cap pattern & accumulation analyzer (CLI: `python src/main.py smallcap --amc <all\|dsp\|nippon\|hdfc\|quant>`) |
 | `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
 | `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
 | `explain_rotation_thesis` | `src/tools/mf_rotation_thesis.py` | Macro, fundamental, and valuation investment thesis explaining WHY an AMC rotated |
 | `audit_exhaustive_stock_shifts` | `src/tools/mf_sector_rotation.py` | 100% complete audit of ALL stock additions (+₹ Cr) and subtractions (-₹ Cr) with zero data loss |
 | `display_master_amc_dashboard` | `src/tools/cli_ux_dashboard.py` | Master Executive CLI Dashboard (Left-to-Right Horizontal Sector Flow + Side-by-Side Stock Ledger) |
+
 
 ---
 

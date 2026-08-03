@@ -1764,7 +1764,28 @@ def studio(
     subprocess.run(cmd)
 
 
+@app.command(name="smallcap")
+def smallcap(
+    amc: str = typer.Option(
+        "all",
+        "--amc", "-a",
+        help="AMC group to analyze: all | dsp | nippon | hdfc | quant | icici | kotak | bajaj (default: all)",
+    ),
+    verbose: bool = typer.Option(True, "--verbose/--quiet", "-v/-q", help="Render ASCII visual dashboard."),
+) -> None:
+    """
+    Run Multi-AMC Small Cap pattern analyzer.
+
+    Extracts price trends, AMFI inflows, Small Cap Fund holdings across AMCs,
+    MoM accumulation/trims, active cross-fund conviction, and composite quant signals.
+    """
+    from src.scripts.portfolio.smallcap_pattern_analyzer import run_smallcap_analysis
+    run_smallcap_analysis(amc=amc, verbose=verbose)
+
+
+
 if __name__ == "__main__":
     app()
+
 
 
