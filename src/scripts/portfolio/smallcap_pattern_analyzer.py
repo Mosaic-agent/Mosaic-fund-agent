@@ -1,15 +1,16 @@
 """
 src/scripts/portfolio/smallcap_pattern_analyzer.py
 ────────────────────────────────────────────────────
-Generic Multi-AMC Small Cap Pattern & Institutional Shift Analyzer.
+Generic Multi-AMC Market-Cap-Segment Pattern & Institutional Shift Analyzer.
 
-Supports all major AMCs (Nippon, DSP, HDFC, ICICI, Quant, Kotak, Bajaj, etc.) 
-or aggregate multi-AMC consensus analysis across all active Small Cap funds.
+Supports Small, Mid, and Large Cap segments (via --category) across all major
+AMCs (Nippon, DSP, HDFC, ICICI, Quant, Kotak, Bajaj, etc.), or aggregate
+multi-AMC consensus analysis across all active funds in the segment.
 
 Usage:
-    python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc all
-    python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc dsp
-    python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc nippon
+    python src/scripts/portfolio/smallcap_pattern_analyzer.py --category small --amc all
+    python src/scripts/portfolio/smallcap_pattern_analyzer.py --category mid --amc dsp
+    python src/scripts/portfolio/smallcap_pattern_analyzer.py --category large --amc nippon
 """
 
 from __future__ import annotations
@@ -42,9 +43,37 @@ AMC_ALIAS_MAP = {
     "axis": "lower(fund_name) LIKE 'axis%'",
 }
 
+# Per-category fund_name / AMFI-category membership rules and the ETF symbols
+# used for price trend + composite quant signal. "mid"/"large" explicitly
+# exclude "Large & Mid Cap Fund" hybrids so they don't bleed into either pure
+# segment (verified against live mf_holdings fund_name values).
+CATEGORY_CONFIG = {
+    "small": {
+        "label": "Small Cap",
+        "membership_sql": "(lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%' AND lower(fund_name) NOT LIKE '%quality%')",
+        "amfi_filter_sql": "(lower(category_name) LIKE '%small%' OR lower(subcategory_group) LIKE '%small%')",
+        "price_symbol": "SMALLCAP",
+        "signal_etf": "SMALL250",
+    },
+    "mid": {
+        "label": "Mid Cap",
+        "membership_sql": "(lower(fund_name) LIKE '%mid%cap%' AND lower(fund_name) NOT LIKE '%large%' AND lower(fund_name) NOT LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%' AND lower(fund_name) NOT LIKE '%quality%')",
+        "amfi_filter_sql": "(lower(category_name) = 'mid cap fund')",
+        "price_symbol": "MID150CASE",
+        "signal_etf": "MID150BEES",
+    },
+    "large": {
+        "label": "Large Cap",
+        "membership_sql": "((lower(fund_name) LIKE '%large%cap%' OR lower(fund_name) LIKE '%bluechip%') AND lower(fund_name) NOT LIKE '%mid%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')",
+        "amfi_filter_sql": "(lower(category_name) = 'large cap fund')",
+        "price_symbol": "TOP100CASE",
+        "signal_etf": "NIFTYBEES",
+    },
+}
+
 
 @dataclass
-class SmallcapPriceMetrics:
+class CapPriceMetrics:
     symbol: str
     latest_date: str
     latest_close: float
@@ -62,9 +91,10 @@ class SmallcapPriceMetrics:
 
 
 @dataclass
-class SmallcapPatternReport:
+class CapPatternReport:
     amc: str
-    price_metrics: SmallcapPriceMetrics
+    category_label: str
+    price_metrics: CapPriceMetrics
     amfi_flows: pd.DataFrame
     top_holdings: pd.DataFrame
     mom_additions: pd.DataFrame
@@ -73,32 +103,36 @@ class SmallcapPatternReport:
     quant_signal: Dict[str, Any]
 
 
-class SmallcapPatternAnalyzer:
-    """Generic Small Cap quantitative analyzer across all AMCs."""
+# Backward-compat aliases for the pre-existing Small-Cap-only names.
+SmallcapPriceMetrics = CapPriceMetrics
+SmallcapPatternReport = CapPatternReport
 
-    def __init__(self):
+
+class MFCapPatternAnalyzer:
+    """Generic multi-AMC market-cap-segment quantitative analyzer (small/mid/large cap)."""
+
+    def __init__(self, category: str = "small"):
         self.pool = get_pool()
+        self.category = category.lower().strip()
+        if self.category not in CATEGORY_CONFIG:
+            raise ValueError(f"Unknown cap category '{category}' — expected one of {sorted(CATEGORY_CONFIG)}")
+        self.cfg = CATEGORY_CONFIG[self.category]
 
     def _get_amc_sql_filter(self, amc: str) -> tuple[str, dict]:
         """Return (sql_fragment, bind_params). Unmapped AMC names are bound as a
         query parameter rather than spliced into the SQL string."""
         amc_lower = amc.lower().strip()
+        membership = self.cfg["membership_sql"]
         if amc_lower == "all" or amc_lower == "all_amcs":
-            return (
-                "(lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%' AND lower(fund_name) NOT LIKE '%quality%')",
-                {},
-            )
+            return (membership, {})
         if amc_lower in AMC_ALIAS_MAP:
-            return (
-                f"({AMC_ALIAS_MAP[amc_lower]} AND lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')",
-                {},
-            )
+            return (f"({AMC_ALIAS_MAP[amc_lower]} AND {membership})", {})
         return (
-            "(lower(fund_name) LIKE {amc_pattern:String} AND lower(fund_name) LIKE '%small%' AND lower(fund_name) NOT LIKE '%index%' AND lower(fund_name) NOT LIKE '%etf%')",
+            f"(lower(fund_name) LIKE {{amc_pattern:String}} AND {membership})",
             {"amc_pattern": f"%{amc_lower}%"},
         )
 
-    def fetch_price_metrics(self, symbol: str = "SMALLCAP") -> SmallcapPriceMetrics:
+    def fetch_price_metrics(self, symbol: str = "SMALLCAP") -> CapPriceMetrics:
         """Fetch EOD prices and compute technical return & SMA metrics."""
         query = f"""
             SELECT trade_date, open, high, low, close, volume
@@ -134,7 +168,7 @@ class SmallcapPatternAnalyzer:
         low_52w = round(float(df['close'].tail(252).min()), 2)
         drawdown_52w = round((latest_close / high_52w - 1) * 100, 2)
 
-        return SmallcapPriceMetrics(
+        return CapPriceMetrics(
             symbol=symbol,
             latest_date=latest_date,
             latest_close=latest_close,
@@ -152,11 +186,11 @@ class SmallcapPatternAnalyzer:
         )
 
     def fetch_amfi_flows(self, limit: int = 6) -> pd.DataFrame:
-        """Fetch historical AMFI mutual fund category flows for Small Cap schemes."""
+        """Fetch historical AMFI mutual fund category flows for this cap segment."""
         query = f"""
             SELECT report_month, category_name, subcategory_group, gross_purchase_cr, gross_redemption_cr, net_flow_cr, closing_aum_cr, flow_pct_of_aum
             FROM market_data.amfi_category_flows FINAL
-            WHERE lower(category_name) LIKE '%small%' OR lower(subcategory_group) LIKE '%small%'
+            WHERE {self.cfg['amfi_filter_sql']}
             ORDER BY report_month DESC
             LIMIT {limit}
         """
@@ -270,16 +304,17 @@ class SmallcapPatternAnalyzer:
                 )"""
 
     def fetch_cross_conviction(self, limit: int = 15, lookback_months: int = 24) -> pd.DataFrame:
-        """Fetch multi-AMC cross-fund conviction for Small Cap stocks, ranked by persistence.
+        """Fetch multi-AMC cross-fund conviction for this cap segment, ranked by persistence.
 
         A name held by several AMCs continuously across `lookback_months` scores higher
         than one where several AMCs all bought in the same latest month — the latter
         looks identical on a single-month snapshot but is a much weaker conviction signal.
         """
+        membership = self.cfg["membership_sql"]
         months_df = self.pool.query_df(f"""
             SELECT DISTINCT as_of_month
             FROM market_data.mf_holdings FINAL
-            WHERE lower(fund_name) LIKE '%small%'
+            WHERE {membership}
             ORDER BY as_of_month DESC
             LIMIT {lookback_months}
         """)
@@ -303,9 +338,7 @@ class SmallcapPatternAnalyzer:
               AND isin IN (
                   SELECT DISTINCT isin FROM market_data.mf_holdings FINAL
                   WHERE as_of_month = '{latest_month}'
-                    AND lower(fund_name) LIKE '%small%'
-                    AND lower(fund_name) NOT LIKE '%index%'
-                    AND lower(fund_name) NOT LIKE '%etf%'
+                    AND {membership}
                     AND isin NOT LIKE 'PH_%' AND isin != ''
               )
               AND isin NOT LIKE 'PH_%' AND isin != ''
@@ -361,7 +394,7 @@ class SmallcapPatternAnalyzer:
         ).head(limit).reset_index(drop=True)
 
     def fetch_quant_signal(self, etf_symbol: str = "SMALL250") -> Dict[str, Any]:
-        """Fetch composite quant signal record for target smallcap ETF."""
+        """Fetch composite quant signal record for the target ETF."""
         query = f"""
             SELECT *
             FROM market_data.signal_composite FINAL
@@ -374,17 +407,18 @@ class SmallcapPatternAnalyzer:
             return {"etf_symbol": etf_symbol, "composite_score": None, "action": "N/A"}
         return df.to_dict(orient='records')[0]
 
-    def analyze(self, amc: str = "all", lookback_months: int = 24) -> SmallcapPatternReport:
+    def analyze(self, amc: str = "all", lookback_months: int = 24) -> CapPatternReport:
         """Run complete modular analysis pipeline for targeted AMC or ALL AMCs."""
-        pm = self.fetch_price_metrics("SMALLCAP")
+        pm = self.fetch_price_metrics(self.cfg["price_symbol"])
         amfi = self.fetch_amfi_flows()
         holdings = self.fetch_top_holdings(amc=amc)
         additions, trims = self.fetch_mom_shifts(amc=amc)
         cross = self.fetch_cross_conviction(lookback_months=lookback_months)
-        signal = self.fetch_quant_signal("SMALL250")
+        signal = self.fetch_quant_signal(self.cfg["signal_etf"])
 
-        return SmallcapPatternReport(
+        return CapPatternReport(
             amc=amc.upper(),
+            category_label=self.cfg["label"],
             price_metrics=pm,
             amfi_flows=amfi,
             top_holdings=holdings,
@@ -394,7 +428,7 @@ class SmallcapPatternAnalyzer:
             quant_signal=signal,
         )
 
-    def render_ascii_dashboard(self, report: SmallcapPatternReport) -> str:
+    def render_ascii_dashboard(self, report: CapPatternReport) -> str:
         """Render complete ASCII Visual Dashboard from report object."""
         pm = report.price_metrics
         df_price = pm.eod_series.tail(120).reset_index(drop=True)
@@ -416,7 +450,7 @@ class SmallcapPatternAnalyzer:
 
         lines = []
         lines.append("===============================================================")
-        lines.append(f"   SMALLCAP ETF PRICE TREND ({sampled_dates[0]} - {sampled_dates[-1]}) [Target AMC: {report.amc}]")
+        lines.append(f"   {report.category_label.upper()} ETF PRICE TREND ({sampled_dates[0]} - {sampled_dates[-1]}) [Target AMC: {report.amc}]")
         lines.append("===============================================================")
         for r in range(height):
             val_at_r = max_c - (r / (height - 1)) * (max_c - min_c)
@@ -428,7 +462,7 @@ class SmallcapPatternAnalyzer:
 
         # Top Holdings Chart
         lines.append("===============================================================")
-        lines.append(f"    SMALL CAP TOP EQUITY HOLDINGS (AMC: {report.amc})")
+        lines.append(f"    {report.category_label.upper()} TOP EQUITY HOLDINGS (AMC: {report.amc})")
         lines.append("===============================================================")
         if not report.top_holdings.empty:
             df_h = report.top_holdings.head(8)
@@ -443,7 +477,7 @@ class SmallcapPatternAnalyzer:
 
         # MoM Accumulation Chart
         lines.append("===============================================================")
-        lines.append(f"  TOP MoM NET ACCUMULATION IN SMALL CAP (AMC: {report.amc})")
+        lines.append(f"  TOP MoM NET ACCUMULATION IN {report.category_label.upper()} (AMC: {report.amc})")
         lines.append("===============================================================")
         if not report.mom_additions.empty:
             df_a = report.mom_additions.head(6)
@@ -473,9 +507,14 @@ class SmallcapPatternAnalyzer:
         return "\n".join(lines)
 
 
-def run_smallcap_analysis(amc: str = "all", lookback_months: int = 24, verbose: bool = True) -> SmallcapPatternReport:
-    """Convenience function to run analysis across target AMC or all AMCs."""
-    analyzer = SmallcapPatternAnalyzer()
+# Backward-compat alias — existing callers (src/main.py, smallcap_pattern_tool.py)
+# construct this with no args and get the Small Cap segment.
+SmallcapPatternAnalyzer = MFCapPatternAnalyzer
+
+
+def run_cap_pattern_analysis(category: str = "small", amc: str = "all", lookback_months: int = 24, verbose: bool = True) -> CapPatternReport:
+    """Run the cap-segment analyzer for the given category (small | mid | large)."""
+    analyzer = MFCapPatternAnalyzer(category=category)
     report = analyzer.analyze(amc=amc, lookback_months=lookback_months)
     if verbose:
         dashboard = analyzer.render_ascii_dashboard(report)
@@ -483,10 +522,16 @@ def run_smallcap_analysis(amc: str = "all", lookback_months: int = 24, verbose: 
     return report
 
 
+def run_smallcap_analysis(amc: str = "all", lookback_months: int = 24, verbose: bool = True) -> CapPatternReport:
+    """Backward-compat wrapper — Small Cap only. Use run_cap_pattern_analysis for mid/large."""
+    return run_cap_pattern_analysis("small", amc, lookback_months, verbose)
+
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Generic Multi-AMC Small Cap Pattern Analyzer")
+    parser = argparse.ArgumentParser(description="Generic Multi-AMC Market-Cap-Segment Pattern Analyzer")
+    parser.add_argument("--category", "-c", type=str, default="small", choices=["small", "mid", "large"], help="Cap segment to analyze (default small)")
     parser.add_argument("--amc", "-a", type=str, default="all", help="AMC group: all | dsp | nippon | hdfc | quant | icici | kotak | bajaj")
     parser.add_argument("--lookback-months", type=int, default=24, help="Months of holdings history to score cross-conviction persistence over")
     args = parser.parse_args()
-    run_smallcap_analysis(amc=args.amc, lookback_months=args.lookback_months, verbose=True)
+    run_cap_pattern_analysis(args.category, amc=args.amc, lookback_months=args.lookback_months, verbose=True)

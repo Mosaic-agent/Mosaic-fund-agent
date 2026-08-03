@@ -20,7 +20,7 @@ Use this skill when the user asks:
 Executes the `MosaicFundAgent` orchestrator (`src/agents/mosaic_fund_agent.py`):
 1. **Holdings Import & Verification**: Authenticates via Kite/Shoonya to fetch live holdings and market positions.
 2. **Parallel Asset Enrichment**: Runs multi-source enrichment (Shoonya live ticks, ClickHouse, yfinance, earnings, news) per holding.
-3. **ReAct Quantitative Q&A**: Uses registered quant tools (`query_clickhouse_db`, `analyze_smallcap_patterns`, `get_live_inav`, `scan_etf_setups`, `run_composite_anomaly`, `get_shoonya_quotes`) to answer complex portfolio queries.
+3. **ReAct Quantitative Q&A**: Uses registered quant tools (`query_clickhouse_db`, `analyze_smallcap_patterns`, `analyze_midcap_patterns`, `analyze_largecap_patterns`, `get_live_inav`, `scan_etf_setups`, `run_composite_anomaly`, `get_shoonya_quotes`) to answer complex portfolio queries.
 4. **Structured Report Generation**: Produces JSON and Markdown research notes summarizing risk, momentum, and position sizing.
 
 

@@ -68,7 +68,7 @@ from src.tools.mf_sector_analyzer import analyze_mf_sectors
 from src.tools.mf_sector_rotation import detect_amc_sector_rotation, audit_exhaustive_stock_shifts
 from src.tools.mf_rotation_thesis import explain_rotation_thesis
 from src.tools.cli_ux_dashboard import display_master_amc_dashboard
-from src.tools.smallcap_pattern_tool import analyze_smallcap_patterns
+from src.tools.smallcap_pattern_tool import analyze_smallcap_patterns, analyze_midcap_patterns, analyze_largecap_patterns
 
 # Tools bound directly to the main agent's ReAct loop. Kept deliberately narrow:
 # every entry here is either unique to "main" (broker/portfolio access, generic
@@ -82,7 +82,7 @@ ALL_TOOLS = ZERODHA_TOOLS + SUMMARIZATION_TOOLS + [
     scan_etf_setups, scan_etf_trends,
     run_autonomous_research, run_india_equity_research_workflow,
     run_multi_fund_consensus_workflow, run_portfolio_workflow,
-    query_clickhouse_db, get_live_inav, analyze_mf_sectors, detect_amc_sector_rotation, explain_rotation_thesis, audit_exhaustive_stock_shifts, display_master_amc_dashboard, analyze_smallcap_patterns,
+    query_clickhouse_db, get_live_inav, analyze_mf_sectors, detect_amc_sector_rotation, explain_rotation_thesis, audit_exhaustive_stock_shifts, display_master_amc_dashboard, analyze_smallcap_patterns, analyze_midcap_patterns, analyze_largecap_patterns,
     import_symbol_data, run_data_engineering_importer,
     plot_price_chart, plot_multi_price_chart,
     publish_consolidated_pdf,
