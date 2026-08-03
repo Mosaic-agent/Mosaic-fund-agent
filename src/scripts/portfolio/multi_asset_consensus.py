@@ -46,6 +46,7 @@ from rich.table import Table
 from rich import box
 
 from src.db.pool import get_pool
+from src.tools.mf_sector_analyzer import classify_sector
 
 console = Console()
 
@@ -331,6 +332,101 @@ def asset_class_rotation(lookback_months: int = 12, min_streak_months: int = 3) 
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Sector rotation within each fund's equity sleeve
+# ──────────────────────────────────────────────────────────────────────────
+
+def fund_equity_sector_weights(fund_filter: str, months: list[date]) -> pd.DataFrame:
+    """Monthly equity-sector weight_pct for one fund over the given months.
+
+    asset_type is a literal mf_holdings column (used by asset_class_rotation),
+    but there is no sector column — sector is derived per security via
+    classify_sector (same keyword classifier mf_sector_analyzer.py uses),
+    then weights are re-aggregated by (month, sector) in pandas.
+    """
+    pool = get_pool()
+    month_list_sql = ", ".join(f"'{m}'" for m in months)
+    df = pool.query_df(
+        f"""
+        SELECT as_of_month, security_name, sum(pct_of_nav) AS pct_of_nav
+        FROM market_data.mf_holdings FINAL
+        WHERE {fund_filter}
+          AND as_of_month IN ({month_list_sql})
+          AND lower(asset_type) = 'equity'
+        GROUP BY as_of_month, security_name
+        """
+    )
+    if df.empty:
+        return pd.DataFrame()
+    df["sector"] = df["security_name"].apply(classify_sector)
+    return df.groupby(["as_of_month", "sector"], as_index=False)["pct_of_nav"].sum()
+
+
+def sector_rotation(lookback_months: int = 12, min_streak_months: int = 3) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Persistence-ranked sector rotation *within the equity sleeve* of each
+    multi-asset fund — the sector-level analogue of asset_class_rotation
+    (which only sees equity/bond/gold/cash, not IT vs Banking vs Auto etc.
+    within the equity portion).
+
+    Returns:
+        by_fund   : one row per (fund, sector) — the direct "is fund X
+                    persistently rotating into/out of sector Y" answer.
+        by_sector : cross-fund aggregate, same shape as asset_class_rotation's
+                    summary — "which sectors are multi-asset funds as a group
+                    persistently rotating into/out of".
+    """
+    fund_rows = []
+    for f in MULTI_ASSET_FUNDS:
+        months = fund_month_list(f["filter"])
+        if len(months) < 2:
+            continue
+        window = months[-lookback_months:] if len(months) > lookback_months else months
+        if len(window) < 2:
+            continue
+
+        weights = fund_equity_sector_weights(f["filter"], window)
+        if weights.empty:
+            continue
+        pivot = weights.pivot_table(index="sector", columns="as_of_month",
+                                    values="pct_of_nav", fill_value=0.0)
+        month_cols = sorted(pivot.columns, key=lambda c: pd.to_datetime(c))
+        pivot = pivot[month_cols]
+
+        for sector, prow in pivot.iterrows():
+            series = prow.astype(float)
+            streak_months, direction = _rotation_streak(series)
+            fund_rows.append({
+                "fund": f["label"],
+                "sector": sector,
+                "latest_pct": float(series.iloc[-1]),
+                "total_delta_window": float(series.iloc[-1] - series.iloc[0]),
+                "streak_months": streak_months,
+                "direction": direction,
+                "is_persistent": streak_months >= min_streak_months,
+            })
+
+    if not fund_rows:
+        return pd.DataFrame(), pd.DataFrame()
+
+    by_fund = pd.DataFrame(fund_rows)
+    by_fund = by_fund.sort_values(["fund", "streak_months"], ascending=[True, False]).reset_index(drop=True)
+
+    by_fund["is_persistent_add"] = (by_fund["direction"] == "up") & by_fund["is_persistent"]
+    by_fund["is_persistent_trim"] = (by_fund["direction"] == "down") & by_fund["is_persistent"]
+    by_sector = by_fund.groupby("sector").agg(
+        n_funds_seen=("fund", "nunique"),
+        n_funds_persistent_add=("is_persistent_add", "sum"),
+        n_funds_persistent_trim=("is_persistent_trim", "sum"),
+        avg_streak_months=("streak_months", "mean"),
+        avg_total_delta=("total_delta_window", "mean"),
+    ).reset_index()
+    by_sector["net_funds"] = by_sector["n_funds_persistent_add"] - by_sector["n_funds_persistent_trim"]
+    by_sector = by_sector.sort_values(["net_funds", "avg_streak_months"], ascending=[False, False])
+
+    return by_fund, by_sector
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Overlap Analysis & Rendering
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -482,6 +578,80 @@ def render_asset_rotation(df: pd.DataFrame, lookback_months: int, min_streak_mon
     console.print(t)
 
 
+def render_fund_sector_rotation(by_fund: pd.DataFrame, lookback_months: int, min_streak_months: int) -> None:
+    if by_fund.empty:
+        console.print("[yellow]No sector rotation data.[/yellow]")
+        return
+    persistent = by_fund[by_fund["is_persistent"]].sort_values(
+        ["fund", "streak_months"], ascending=[True, False]
+    )
+    if persistent.empty:
+        console.print(
+            f"[dim]No fund shows a persistent (≥{min_streak_months}mo) sector rotation "
+            f"over the last {lookback_months} months.[/dim]"
+        )
+        return
+    t = Table(
+        title=(
+            f"Per-Fund Sector Rotation — persistent moves only "
+            f"({lookback_months}mo lookback, ≥{min_streak_months}mo streak)"
+        ),
+        box=box.ROUNDED,
+        header_style="bold magenta",
+    )
+    t.add_column("Fund", min_width=18)
+    t.add_column("Sector", min_width=14)
+    t.add_column("Direction", justify="center")
+    t.add_column("Streak (mo)", justify="right")
+    t.add_column("Latest wt %", justify="right")
+    t.add_column("Δ over window", justify="right")
+    for _, r in persistent.iterrows():
+        color = "green" if r["direction"] == "up" else "red"
+        arrow = "↑ IN" if r["direction"] == "up" else "↓ OUT"
+        t.add_row(
+            r["fund"], r["sector"],
+            f"[{color}]{arrow}[/{color}]",
+            str(int(r["streak_months"])),
+            f"{r['latest_pct']:.2f}%",
+            f"{r['total_delta_window']:+.2f}",
+        )
+    console.print(t)
+
+
+def render_sector_rotation_summary(by_sector: pd.DataFrame, lookback_months: int, min_streak_months: int) -> None:
+    if by_sector.empty:
+        console.print("[yellow]No cross-fund sector rotation data.[/yellow]")
+        return
+    t = Table(
+        title=(
+            f"Cross-Fund Sector Rotation — persistence-ranked "
+            f"({lookback_months}mo lookback, ≥{min_streak_months}mo streak = persistent)"
+        ),
+        box=box.ROUNDED,
+        header_style="bold cyan",
+    )
+    t.add_column("Sector", style="bold")
+    t.add_column("Funds seen", justify="right")
+    t.add_column("# persistent add", justify="right")
+    t.add_column("# persistent trim", justify="right")
+    t.add_column("Net", justify="right")
+    t.add_column("Avg streak (mo)", justify="right")
+    t.add_column("Avg Δ over window", justify="right")
+    for _, r in by_sector.iterrows():
+        net = int(r["net_funds"])
+        net_color = "green" if net > 0 else ("red" if net < 0 else "dim")
+        t.add_row(
+            r["sector"],
+            str(int(r["n_funds_seen"])),
+            str(int(r["n_funds_persistent_add"])),
+            str(int(r["n_funds_persistent_trim"])),
+            f"[{net_color}]{net:+d}[/{net_color}]",
+            f"{r['avg_streak_months']:.1f}",
+            f"{r['avg_total_delta']:+.2f}",
+        )
+    console.print(t)
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────────
@@ -509,6 +679,8 @@ def main() -> int:
                         help="Months of asset-class weight history to score rotation persistence over (default 12).")
     parser.add_argument("--min-streak-months", type=int, default=3,
                         help="Min consecutive same-direction months for a fund to count as 'persistent' (default 3).")
+    parser.add_argument("--no-sectors", action="store_true",
+                        help="Skip the per-fund equity sector rotation section.")
     args = parser.parse_args()
 
     period_label = "MoM" if args.period == "mom" else "YoY (12-mo)"
@@ -562,6 +734,13 @@ def main() -> int:
         rotation = asset_class_rotation(args.lookback_months, args.min_streak_months)
         if not rotation.empty:
             render_asset_rotation(rotation, args.lookback_months, args.min_streak_months)
+
+    if not args.no_sectors:
+        console.print()
+        by_fund, by_sector = sector_rotation(args.lookback_months, args.min_streak_months)
+        render_fund_sector_rotation(by_fund, args.lookback_months, args.min_streak_months)
+        console.print()
+        render_sector_rotation_summary(by_sector, args.lookback_months, args.min_streak_months)
 
     return 0
 

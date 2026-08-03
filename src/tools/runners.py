@@ -209,6 +209,7 @@ def run_multi_asset_consensus(
     no_rotation: bool = False,
     lookback_months: int = 12,
     min_streak_months: int = 3,
+    no_sectors: bool = False,
 ) -> str:
     """
     Cross-fund pattern detector across all 7 multi-asset Indian mutual funds in
@@ -226,6 +227,11 @@ def run_multi_asset_consensus(
     persistent rotation, distinct from one that ticked up in a single month
     and could reverse next — both would otherwise look like the same signal.
 
+    The sector rotation section applies the same persistence logic *within*
+    each fund's equity sleeve (IT, Banking, Auto, Pharma, ...) instead of
+    across asset classes — use it to answer "is [this multi-asset fund]
+    rotating sectors?" directly, per fund.
+
     Use this when the user asks:
       • "What are multi-asset funds collectively buying / selling?"
       • "Any pattern across multi-asset funds?"
@@ -241,8 +247,9 @@ def run_multi_asset_consensus(
         asset:             Optional filter — restrict to a single asset_type (e.g. 'gold', 'equity', 'bond').
         top:               Top N rows to show per side (default 15).
         no_rotation:       Skip the asset-class rotation roll-up.
-        lookback_months:   Months of history to score asset-class rotation persistence over (default 12).
+        lookback_months:   Months of history to score rotation persistence over (default 12).
         min_streak_months: Min consecutive same-direction months to count as 'persistent' (default 3).
+        no_sectors:        Skip the per-fund equity sector rotation section.
     """
     if period not in ("mom", "yoy"):
         return f"INVALID_PERIOD: '{period}' — must be 'mom' or 'yoy'."
@@ -259,6 +266,8 @@ def run_multi_asset_consensus(
         args.extend(["--asset", asset])
     if no_rotation:
         args.append("--no-rotation")
+    if no_sectors:
+        args.append("--no-sectors")
     return _run_cmd(args)
 
 
