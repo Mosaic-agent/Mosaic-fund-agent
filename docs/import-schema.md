@@ -31,7 +31,7 @@ python src/main.py import --category etfs --dry-run       # preview, no DB write
 
 ### High-Concurrency & Parallel Stock Imports
 
-For `stocks` and `us_stocks` categories, the sequential importer is automatically intercepted and routed to a high-concurrency parallel pipeline ([parallel_importer.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/parallel_importer.py)).
+For `stocks` and `us_stocks` categories, the sequential importer is automatically intercepted and routed to a high-concurrency parallel pipeline ([parallel_importer.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/data_importer/parallel_importer.py)).
 
 This pipeline concurrently processes each stock symbol using a thread pool to fetch pricing history (`daily_prices`), quarterly earnings, insider transactions, and valuation snapshots.
 - **Worker Limit:** Capped at 5 concurrent worker threads to balance speed and stability.
@@ -46,7 +46,7 @@ python src/scripts/portfolio/import_stocks_parallel.py --workers 5 [--dry-run] [
 
 ### Fetcher Adapter Pattern
 
-All general data categories have typed **Fetcher adapters** (`src/importer/fetchers/adapters.py`):
+All general data categories have typed **Fetcher adapters** (`src/data_importer/fetchers/adapters.py`):
 
 | Adapter | Category | Overlap | Description |
 |---|---|---|---|
@@ -71,7 +71,7 @@ Use `MarketDataRepository.run_fetcher(fetcher)` to execute the full watermark �
 
 ```python
 from src.db.repository import MarketDataRepository
-from src.importer.fetchers.adapters import get_registry
+from src.data_importer.fetchers.adapters import get_registry
 from src.db.pool import get_pool
 
 repo = MarketDataRepository(get_pool())
@@ -83,14 +83,14 @@ print(result)  # FetchResult: 8 rows  2026-05-07→2026-05-13 (dry-run)
 
 To add a new data source to Mosaic, follow these **2 steps**:
 
-#### Step 1: Subclass `Fetcher` in `src/importer/fetchers/adapters.py`
+#### Step 1: Subclass `Fetcher` in `src/data_importer/fetchers/adapters.py`
 Implement `fetch()`, `validate()`, `insert()`, and `max_date()`:
 
 ```python
 from datetime import date
 from typing import Any
 import logging
-from src.importer.base_fetcher import Fetcher
+from src.data_importer.base_fetcher import Fetcher
 
 log = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class MyNewDataFetcher(Fetcher):
 
     def fetch(self, from_date: date, to_date: date) -> list[dict[str, Any]]:
         """1. Fetch raw data from external API / scraper."""
-        from src.importer.fetchers.my_data_fetcher import fetch_my_data
+        from src.data_importer.fetchers.my_data_fetcher import fetch_my_data
         return fetch_my_data(from_date=from_date, to_date=to_date)
 
     def validate(self, rows: list[dict]) -> list[dict]:
@@ -123,7 +123,7 @@ class MyNewDataFetcher(Fetcher):
         return max(r["trade_date"] for r in rows)
 ```
 
-#### Step 2: Register in `_build_registry()` inside `src/importer/fetchers/adapters.py`
+#### Step 2: Register in `_build_registry()` inside `src/data_importer/fetchers/adapters.py`
 
 ```python
 def _build_registry() -> dict[str, Fetcher]:
@@ -200,7 +200,7 @@ OPTIMIZE TABLE market_data.daily_prices FINAL;
 30 15 * * 1-5  cd /path/to/project && .venv/bin/python src/main.py import --category nse_eod
 
 # FII/DII flows — daily after market close
-0 16 * * 1-5   cd /path/to/project && .venv/bin/python src/importer/fetchers/fii_dii_fetcher.py --insert
+0 16 * * 1-5   cd /path/to/project && .venv/bin/python src/data_importer/fetchers/fii_dii_fetcher.py --insert
 
 # COT — Fridays after 3:30 PM ET (CFTC release)
 30 22 * * 5    cd /path/to/project && .venv/bin/python src/main.py import --category cot

@@ -21,10 +21,10 @@ This skill manages the historical data ingestion pipeline from multiple sources 
 ## Core Workflows
 
 ### 1. Adding a New Data Source (Adapter Pattern)
-Preferred path — uses the `Fetcher` ABC (`src/importer/base_fetcher.py`):
+Preferred path — uses the `Fetcher` ABC (`src/data_importer/base_fetcher.py`):
 
 ```python
-# src/importer/fetchers/adapters.py
+# src/data_importer/fetchers/adapters.py
 class MySentimentFetcher(Fetcher):
     source_name = "sentiment_api"
     symbol_key  = "ALL"
@@ -43,7 +43,7 @@ get_registry()["sentiment"] = MySentimentFetcher()
 
 Then `repo.run_fetcher(get_registry()["sentiment"])` handles watermarks, dry-run, and fires `DataImportedEvent` with no extra wiring.
 
-All general data categories (`stocks`, `etfs`, `fii_dii`, `world_bank`, `imf_weo`, `amfi_flows`, `fx_rates`, `cot`, `cb_reserves`, etc.) are 100% adapter-driven. Adding a new category simply requires instantiating its `Fetcher` in `_build_registry()` inside `src/importer/fetchers/adapters.py`.
+All general data categories (`stocks`, `etfs`, `fii_dii`, `world_bank`, `imf_weo`, `amfi_flows`, `fx_rates`, `cot`, `cb_reserves`, etc.) are 100% adapter-driven. Adding a new category simply requires instantiating its `Fetcher` in `_build_registry()` inside `src/data_importer/fetchers/adapters.py`.
 
 ### 2. Nippon India AMC Importer — Dynamic URL Discovery
 
@@ -80,12 +80,12 @@ python src/main.py import --dry-run   # preview without writing
   ```
 
 ## Reference Material
-- Schema DDL lives in `src/importer/clickhouse.py` (search for `_DDL_` constants)
-- Category list and symbols: `src/importer/registry.py`
-- Delta-sync logic: `src/importer/cli.py` → `run_import()`
+- Schema DDL lives in `src/data_importer/clickhouse.py` (search for `_DDL_` constants)
+- Category list and symbols: `src/data_importer/registry.py`
+- Delta-sync logic: `src/data_importer/cli.py` → `run_import()`
 
 ## ClickHouse Connection Pattern
-All service modules use the shared pool at `src/db/pool.py` — never call `clickhouse_connect.get_client()` directly in `src/`. The importer (`src/importer/clickhouse.py`) is the only exception: it owns one long-lived connection for bulk inserts.
+All service modules use the shared pool at `src/db/pool.py` — never call `clickhouse_connect.get_client()` directly in `src/`. The importer (`src/data_importer/clickhouse.py`) is the only exception: it owns one long-lived connection for bulk inserts.
 
 ```python
 # Correct pattern for any new code in src/
@@ -106,4 +106,4 @@ New pool config vars (`.env`): `CLICKHOUSE_POOL_MIN` (default 2), `CLICKHOUSE_PO
 | "Add a new data source for US Bond yields" | Scaffold fetcher, define DDL, register in registry. |
 | "Backfill GOLDBEES data for the last 5 years" | `python src/main.py import --category etfs --lookback 1825 --full` |
 | "The daily prices seem wrong for Jan 2024" | DROP PARTITION '202401' and re-import. |
-| "I added a new ETF to the tracking list" | Add to `ETFS` in `src/importer/registry.py` and run `import`. |
+| "I added a new ETF to the tracking list" | Add to `ETFS` in `src/data_importer/registry.py` and run `import`. |

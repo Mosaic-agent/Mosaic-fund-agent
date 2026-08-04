@@ -1000,7 +1000,7 @@ def import_data(
     imports_market_prices = "all" in categories or bool({"stocks", "etfs"} & set(categories))
     reused_saved_source = False
     if imports_market_prices:
-        from src.importer.source_preference import resolve_data_source
+        from src.data_importer.source_preference import resolve_data_source
 
         try:
             data_source, reused_saved_source = resolve_data_source(data_source)
@@ -1116,7 +1116,7 @@ def macro_scan(
     print_macro_report(report, max_per_theme=max_per_theme)
 
     if save:
-        from src.importer.clickhouse import ClickHouseImporter
+        from src.data_importer.clickhouse import ClickHouseImporter
         from src.tools.macro_event_scanner import save_macro_events_to_db
         ch = ClickHouseImporter(
             host=settings.clickhouse_host,
@@ -1216,7 +1216,7 @@ def etf_news(
     print_etf_news_report(report)
 
     if save:
-        from src.importer.clickhouse import ClickHouseImporter
+        from src.data_importer.clickhouse import ClickHouseImporter
         from src.tools.etf_news_scanner import save_etf_news_to_db
         ch = ClickHouseImporter(
             host=settings.clickhouse_host,

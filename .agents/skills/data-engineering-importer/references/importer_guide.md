@@ -19,10 +19,10 @@ python -m src.main import [CATEGORIES...] [--lookback DAYS] [--full] [--dry-run]
 4. **Update Watermark**: Update `import_watermarks` with the `max(trade_date)` from the inserted data.
 
 ## Adding a New Data Source
-1. **Define Table**: Add DDL to `src/importer/clickhouse.py`.
-2. **Implement Fetcher**: Create a new file in `src/importer/fetchers/`.
-3. **Register Source**: Update `src/importer/registry.py` with new symbols or categories.
-4. **Update CLI**: Wire the new fetcher into `src/importer/cli.py`.
+1. **Define Table**: Add DDL to `src/data_importer/clickhouse.py`.
+2. **Implement Fetcher**: Create a new file in `src/data_importer/fetchers/`.
+3. **Register Source**: Update `src/data_importer/registry.py` with new symbols or categories.
+4. **Update CLI**: Wire the new fetcher into `src/data_importer/cli.py`.
 
 ## Data Sources & APIs
 - **yfinance**: OHLCV for most instruments.

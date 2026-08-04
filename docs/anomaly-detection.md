@@ -195,7 +195,7 @@ and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z t
 
 Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. The suppression logic is **category-aware** — ETF corporate actions are admin events with no signal, while stock corporate actions are real analysable price events.
 
-1. The fetcher [nse_corporate_actions_fetcher.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/fetchers/nse_corporate_actions_fetcher.py) scrapes corporate events from the NSE website.
+1. The fetcher [nse_corporate_actions_fetcher.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/data_importer/fetchers/nse_corporate_actions_fetcher.py) scrapes corporate events from the NSE website.
 2. The ex-dates are matched against the price history.
 3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [anomaly.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py).
 4. **ETFs only** (`category="etfs"`): suppressed rows are excluded from `df_flagged` — their regime is `🏢 Price Driven by Company Event` but they do not trigger anomaly alerts or Qdrant storage. ETF corporate actions (NAV resets, bonus units) carry no market-signal content.

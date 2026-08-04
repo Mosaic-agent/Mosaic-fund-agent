@@ -32,8 +32,8 @@ Be respectful. This is a personal research project — contributions should impr
 ## Getting started
 
 ```bash
-git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git
-cd Mosaic-fund-agent
+git clone https://github.com/Mosaic-agent/data_importer.git
+cd data_importer
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in your API keys

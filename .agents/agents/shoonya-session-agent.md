@@ -36,7 +36,7 @@ Use this skill when the user asks:
 ### Check Session Health
 
 ```bash
-ALLOW_LOCAL_RUN=1 .venv/bin/python -c "from src.importer.fetchers.shoonya_fetcher import get_shoonya_api; api = get_shoonya_api(); print('SHOONYA SESSION:', 'ACTIVE' if api else 'EXPIRED')"
+ALLOW_LOCAL_RUN=1 .venv/bin/python -c "from src.data_importer.fetchers.shoonya_fetcher import get_shoonya_api; api = get_shoonya_api(); print('SHOONYA SESSION:', 'ACTIVE' if api else 'EXPIRED')"
 ```
 
 ### Complete OAuth Login with Code

@@ -249,7 +249,7 @@ class TestDatasetAttribute(unittest.TestCase):
 
 
 class TestAmfiCategoryFlowsFetcher(unittest.TestCase):
-    @patch("src.importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
+    @patch("src.data_importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
     def test_months_back_matches_original_cli_formula(self, mock_fetch):
         """With overlap_days=0, run_fetcher passes from_date=watermark exactly,
         so months_back must reproduce cli.py's original month-diff arithmetic
@@ -268,7 +268,7 @@ class TestAmfiCategoryFlowsFetcher(unittest.TestCase):
 
         mock_fetch.assert_called_once_with(months_back=expected_months_back)
 
-    @patch("src.importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
+    @patch("src.data_importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
     def test_months_back_floor_of_two(self, mock_fetch):
         from src.importer.fetchers.adapters import AmfiCategoryFlowsFetcher
 
@@ -282,7 +282,7 @@ class TestAmfiCategoryFlowsFetcher(unittest.TestCase):
 
 
 class TestNseEodFetcher(unittest.TestCase):
-    @patch("src.importer.fetchers.nse_quote_fetcher.fetch_nse_eod")
+    @patch("src.data_importer.fetchers.nse_quote_fetcher.fetch_nse_eod")
     def test_fetch_combines_etfs_and_stocks(self, mock_fetch):
         from src.importer.fetchers.adapters import NseEodFetcher
 
@@ -303,7 +303,7 @@ class TestNseEodFetcher(unittest.TestCase):
 
 
 class TestMfHoldingsFetcher(unittest.TestCase):
-    @patch("src.importer.fetchers.mf_holdings_fetcher.fetch_holdings")
+    @patch("src.data_importer.fetchers.mf_holdings_fetcher.fetch_holdings")
     def test_fetch_insert_max_date(self, mock_fetch):
         from src.importer.fetchers.adapters import MfHoldingsFetcher
 
@@ -354,7 +354,7 @@ class TestFxRatesAndMfNavGroupWatermarkFix(unittest.TestCase):
 
 
 class TestCbReservesFetcher(unittest.TestCase):
-    @patch("src.importer.fetchers.imf_reserves_fetcher.fetch_cb_reserves")
+    @patch("src.data_importer.fetchers.imf_reserves_fetcher.fetch_cb_reserves")
     def test_fetch_converts_from_date_to_year(self, mock_fetch):
         from src.importer.fetchers.adapters import CbReservesFetcher
 
@@ -374,7 +374,7 @@ class TestCbReservesFetcher(unittest.TestCase):
 
 
 class TestEtfAumFetcher(unittest.TestCase):
-    @patch("src.importer.fetchers.etf_aum_fetcher.fetch_etf_aum")
+    @patch("src.data_importer.fetchers.etf_aum_fetcher.fetch_etf_aum")
     def test_fetch_insert_max_date(self, mock_fetch):
         from src.importer.fetchers.adapters import EtfAumFetcher
 
@@ -432,7 +432,7 @@ class TestFirstRunLookbackDays(unittest.TestCase):
 
         self.assertEqual(result.from_date, date.today() - timedelta(days=3650))
 
-    @patch("src.importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
+    @patch("src.data_importer.fetchers.amfi_flows_fetcher.fetch_amfi_category_flows")
     def test_amfi_flows_first_run_uses_24_months_not_120(self, mock_fetch):
         """With first_run_lookback_days=730 set, a brand-new install's first
         amfi_flows run should land near 24 months back, not ~120 (the
@@ -451,9 +451,9 @@ class TestFirstRunLookbackDays(unittest.TestCase):
 
 
 class TestFIIDIIFetcher(unittest.TestCase):
-    @patch("src.importer.fetchers.fii_dii_fetcher.fetch_fii_dii_monthly")
-    @patch("src.importer.fetchers.fii_dii_fetcher.fetch_fii_dii_fno")
-    @patch("src.importer.fetchers.fii_dii_fetcher.fetch_fii_dii")
+    @patch("src.data_importer.fetchers.fii_dii_fetcher.fetch_fii_dii_monthly")
+    @patch("src.data_importer.fetchers.fii_dii_fetcher.fetch_fii_dii_fno")
+    @patch("src.data_importer.fetchers.fii_dii_fetcher.fetch_fii_dii")
     def test_fii_dii_fetcher_stashes_from_date_and_passes_to_fno(self, mock_cash, mock_fno, mock_monthly):
         from src.importer.fetchers.adapters import FIIDIIFetcher
 

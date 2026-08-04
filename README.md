@@ -4,7 +4,7 @@
 
 ### Your AI research desk for Indian markets
 
-**[mosaic-agent.github.io/Mosaic-fund-agent](https://mosaic-agent.github.io/Mosaic-fund-agent/)**
+**[mosaic-agent.github.io/data_importer](https://mosaic-agent.github.io/data_importer/)**
 
 Signals · Smart-money tracking · Live portfolio intelligence — on your own machine.
 
@@ -118,8 +118,8 @@ Everything runs on **your own machine**. No portfolio data, no trades, no questi
 ### Docker (5 minutes)
 
 ```bash
-git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git
-cd Mosaic-fund-agent
+git clone https://github.com/Mosaic-agent/data_importer.git
+cd data_importer
 cp .env.example .env        # add your API keys (see below)
 ./run.sh                    # macOS/Linux  |  run.bat on Windows
 ```
@@ -222,6 +222,6 @@ Both stay in sync automatically — `python scripts/sync_agy_agents.py` regenera
 
 **Not financial advice.** Personal research tool — always verify before acting.
 
-[Apache 2.0 License](LICENSE) · [Report an issue](https://github.com/Mosaic-agent/Mosaic-fund-agent/issues)
+[Apache 2.0 License](LICENSE) · [Report an issue](https://github.com/Mosaic-agent/data_importer/issues)
 
 </div>
