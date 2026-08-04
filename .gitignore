@@ -34,6 +34,9 @@ temp/
 
 # Scratch / one-off scripts (not part of main package)
 scratch/
+scratch_*
+src/scratch_*
+src/host_telemetry.json
 
 # Generated report artifacts (PDF, HTML, MD, PNG outputs)
 *.pdf
