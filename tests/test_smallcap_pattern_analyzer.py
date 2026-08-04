@@ -4,8 +4,23 @@ tests/test_smallcap_pattern_analyzer.py
 Unit and integration tests for SmallcapPatternAnalyzer module.
 """
 
+import socket
 import pytest
 from src.scripts.portfolio.smallcap_pattern_analyzer import SmallcapPatternAnalyzer, run_smallcap_analysis
+
+
+def _clickhouse_reachable() -> bool:
+    try:
+        with socket.create_connection(("localhost", 8123), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _clickhouse_reachable(),
+    reason="ClickHouse not reachable at localhost:8123 — skipping live DB tests",
+)
 
 
 def test_smallcap_analyzer_all_amcs():

@@ -60,6 +60,7 @@ steps:
         params:
           symbol: "{{ symbol }}"
           days: 365
+        timeout: 90
         fail_on_error: false
       - tool_name: get_stock_news
         params:

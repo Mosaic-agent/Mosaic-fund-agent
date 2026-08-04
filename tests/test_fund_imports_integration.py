@@ -123,9 +123,9 @@ class TestRunImportDispatch:
 
     # ── icici ─────────────────────────────────────────────────────────────────
 
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_icici_calls_factory(self, mock_create, mock_ch_cls, _syms):
         mock_ch_cls.return_value = _mock_ch()
         mock_imp = MagicMock()
@@ -139,9 +139,9 @@ class TestRunImportDispatch:
 
     # ── icici-index ───────────────────────────────────────────────────────────
 
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_icici_index_calls_factory(self, mock_create, mock_ch_cls, _syms):
         mock_ch_cls.return_value = _mock_ch()
         mock_imp = MagicMock()
@@ -155,9 +155,9 @@ class TestRunImportDispatch:
 
     # ── nippon — full_reimport propagation ────────────────────────────────────
 
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_nippon_default_full_reimport_is_false(self, mock_create, mock_ch_cls, _syms):
         mock_ch_cls.return_value = _mock_ch()
         mock_imp = MagicMock()
@@ -169,9 +169,9 @@ class TestRunImportDispatch:
         mock_create.assert_called_once_with("nippon", full_reimport=False)
         mock_imp.run.assert_called_once_with(dry_run=True)
 
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_nippon_full_reimport_true_forwarded(self, mock_create, mock_ch_cls, _syms):
         mock_ch_cls.return_value = _mock_ch()
         mock_imp = MagicMock()
@@ -189,9 +189,9 @@ class TestRunImportDispatch:
 
     # ── all three AMC categories together ─────────────────────────────────────
 
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_all_three_amc_categories_each_get_one_call(self, mock_create, mock_ch_cls, _syms):
         mock_ch_cls.return_value = _mock_ch()
         mock_imp = MagicMock()
@@ -210,9 +210,9 @@ class TestRunImportDispatch:
         mock_create.assert_any_call("icici-index")
         assert mock_imp.run.call_count == 3
 
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_amc_order_is_icici_nippon_iciciindex_regardless_of_input_order(
         self, mock_create, mock_ch_cls, _syms
     ):
@@ -238,10 +238,10 @@ class TestRunImportDispatch:
     # directly — get_registry() is additionally mocked to {} here so the
     # price-category loop is a no-op instead of running (mocked-Shoonya-
     # bypassing) real network fetches against the full stock watchlist.
-    @patch("src.importer.fetchers.adapters.get_registry", return_value={})
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.fetchers.adapters.get_registry", return_value={})
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_yfinance_category_does_not_call_factory(self, mock_create, mock_ch_cls, _syms, _registry):
         mock_ch_cls.return_value = _mock_ch()
 
@@ -250,10 +250,10 @@ class TestRunImportDispatch:
 
         mock_create.assert_not_called()
 
-    @patch("src.importer.fetchers.adapters.get_registry", return_value={})
-    @patch("src.importer.registry.get_symbols_for_categories", return_value={})
-    @patch("src.importer.clickhouse.ClickHouseImporter")
-    @patch("src.scripts.fund_imports.factory.create_importer")
+    @patch("src.data_importer.fetchers.adapters.get_registry", return_value={})
+    @patch("src.data_importer.registry.get_symbols_for_categories", return_value={})
+    @patch("src.data_importer.clickhouse.ClickHouseImporter")
+    @patch("src.data_importer.amc_holdings.factory.create_importer")
     def test_mixed_yfinance_and_amc_categories(self, mock_create, mock_ch_cls, mock_syms, mock_registry):
         """Mixing stocks + icici: registry-driven price loop is a no-op (mocked empty) and factory is called once."""
         mock_ch_cls.return_value = _mock_ch()

@@ -13,7 +13,7 @@ The `Mosaic-agent` pipeline might recommend a "BUY" for an ETF like `MAFANG`, bu
 
 ### Proposed Solution
 
-1.  **Registry Update:** Modify `src/importer/registry.py` to include an `inflow_status` map for international ETFs.
+1.  **Registry Update:** Modify `src/data_importer/registry.py` to include an `inflow_status` map for international ETFs.
     ```python
     MF_INFLOW_STATUS = {
         "MAFANG": "BLOCKED",

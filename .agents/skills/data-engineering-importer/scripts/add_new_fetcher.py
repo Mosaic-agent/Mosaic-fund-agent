@@ -3,7 +3,7 @@ import os
 import sys
 
 TEMPLATE = '''"""
-src/importer/fetchers/{name}_fetcher.py
+src/data_importer/fetchers/{name}_fetcher.py
 ──────────────────────────────────────
 Data fetcher for {name} data.
 """
@@ -46,7 +46,7 @@ def main():
         sys.exit(1)
     
     name = sys.argv[1].lower().replace("-", "_")
-    filename = f"src/importer/fetchers/{name}_fetcher.py"
+    filename = f"src/data_importer/fetchers/{name}_fetcher.py"
     
     if os.path.exists(filename):
         print(f"Error: {filename} already exists.")
@@ -59,9 +59,9 @@ def main():
     print(f"✅ Created {filename}")
     print("\nNext steps:")
     print(f"1. Implement fetch_{name}() in {filename}")
-    print("2. Add DDL to src/importer/clickhouse.py if a new table is needed")
-    print("3. Register the source in src/importer/registry.py")
-    print("4. Add the fetch logic to run_import() in src/importer/cli.py")
+    print("2. Add DDL to src/data_importer/clickhouse.py if a new table is needed")
+    print("3. Register the source in src/data_importer/registry.py")
+    print("4. Add the fetch logic to run_import() in src/data_importer/cli.py")
 
 if __name__ == "__main__":
     main()

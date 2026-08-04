@@ -2300,10 +2300,11 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
             _ctx_size = settings.code_llm_context_window or settings.llm_context_window if _intent == "code" else settings.llm_context_window
 
             # Suppress the Chat REPL plan display for intents that have their own
-            # workflow plan (signal, macro, news, mf, research, india_equity).
+            # workflow plan (signal, macro, news, mf, research).
             # The workflow's _show_and_approve_plan() handles plan display + approval
             # with a richer Panel — showing one here would be redundant.
-            _WORKFLOW_INTENTS = frozenset({"signal", "macro", "news", "mf", "research", "india_equity"})
+            # india_equity uses the declarative runner which has no own plan panel.
+            _WORKFLOW_INTENTS = frozenset({"signal", "macro", "news", "mf", "research"})
             if _intent not in _WORKFLOW_INTENTS:
                 console.print(Panel(
                     _plan_text,

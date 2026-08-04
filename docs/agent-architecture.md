@@ -376,7 +376,7 @@ class ReplanDecision(BaseModel):
 
 #### ContextManager (`context_manager.py`)
 
-> **Full reference:** [docs/context-manager.md](context-manager.md) — deterministic compaction mechanics, `DatasetRef` audit ledger, thread safety model, `contextvars` scoping, and `_par_datasets()` workflow integration (Issue [#156](https://github.com/Mosaic-agent/Mosaic-fund-agent/issues/156)).
+> **Full reference:** [docs/context-manager.md](context-manager.md) — deterministic compaction mechanics, `DatasetRef` audit ledger, thread safety model, `contextvars` scoping, and `_par_datasets()` workflow integration (Issue [#156](https://github.com/Mosaic-agent/data_importer/issues/156)).
 
 **File:** `src/workflows/context_manager.py`
 

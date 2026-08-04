@@ -46,7 +46,7 @@ flowchart TD
 
     %% ── Import pipeline (Adapter + Repository + Observer) ──────────────────
     subgraph ImportPipeline ["Import Pipeline — Adapter + Repository + Observer"]
-        subgraph Adapters ["Fetcher Adapters  src/importer/fetchers/"]
+        subgraph Adapters ["Fetcher Adapters  src/data_importer/fetchers/"]
             FA1["YFinanceFetcher\nstocks · etfs · commodities · indices"]
             FA2["MFNavFetcher\nMFAPI.in NAV"]
             FA3["FIIDIIFetcher\nSensibull cash + F&O + monthly"]

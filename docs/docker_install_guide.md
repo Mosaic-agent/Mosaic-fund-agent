@@ -13,7 +13,7 @@ This guide walks you through setting up and running the Mosaic Fund Agent platfo
 4. Launch **Docker Desktop** from your Start menu and accept the agreement. Keep the application open.
 
 ### 2. Configure & Run
-1. Open the project folder (`Mosaic-fund-agent`) in Windows Explorer.
+1. Open the project folder (`data_importer`) in Windows Explorer.
 2. Double-click the file **`run.bat`**.
    - *First-run only:* The script will create a file named `.env` in the root folder and then exit.
 3. Open the new **`.env`** file using Notepad, fill in your API keys (e.g. `OPENAI_API_KEY`, Zerodha keys, etc.), and save it.
@@ -37,7 +37,7 @@ When you are done, double-click **`stop.bat`** to shut down the background conta
 ### 2. Configure & Run
 1. Open terminal and navigate to the project directory:
    ```bash
-   cd /path/to/Mosaic-fund-agent
+   cd /path/to/data_importer
    ```
 2. Run the startup script:
    ```bash
@@ -91,7 +91,7 @@ sudo usermod -aG docker $USER
 ### 2. Configure & Run
 1. Navigate to the project directory:
    ```bash
-   cd /path/to/Mosaic-fund-agent
+   cd /path/to/data_importer
    ```
 2. Run the startup script:
    ```bash

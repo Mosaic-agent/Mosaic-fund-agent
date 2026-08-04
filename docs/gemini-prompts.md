@@ -327,7 +327,7 @@ When adding a new ETF to the tracking universe, walk through the full process.
 ```
 I want to add a new ETF to the Mosaic Fund Agent tracking universe. Walk me through the full process:
 
-1. Check if the symbol exists in src/importer/registry.py under the ETFS list and INAV_SYMBOLS list.
+1. Check if the symbol exists in src/data_importer/registry.py under the ETFS list and INAV_SYMBOLS list.
 2. If not present, show me exactly what lines to add in registry.py.
 3. Then run these imports in sequence:
    python src/main.py import --category etfs --full --lookback 3650

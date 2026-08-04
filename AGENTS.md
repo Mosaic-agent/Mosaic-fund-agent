@@ -38,7 +38,7 @@ python src/scripts/db/fix_bad_data.py                              # Deduplicati
 | Declarative | `src/agents/declarative/` | Configuration-driven YAML playbooks (`config/agents/*.yaml`) & runner |
 | Analyzers | `src/analyzers/` | `asset_analyzer` (per-holding), `portfolio_analyzer` (aggregate) |
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame |
-| Importer | `src/importer/` | Delta-sync pipeline: fetchers → ClickHouse |
+| Importer | `src/data_importer/` | Delta-sync pipeline: fetchers → ClickHouse |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`) |
 | ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly.py`) |
 | Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks |

@@ -13,7 +13,7 @@ The codebase is built on four patterns that keep it extensible and testable. Und
 | Pattern | Where | What it buys you |
 |---|---|---|
 | **Repository** | `src/db/repository.py` | One typed access point for every ClickHouse read. `FINAL` dedup, return shapes, and the `run_fetcher()` loop live here — no raw SQL scattered across signal/ML code. |
-| **Adapter** | `src/importer/fetchers/` | Every data source implements one `Fetcher` ABC (`fetch → validate → insert`). Add a source = one class + one registry entry. |
+| **Adapter** | `src/data_importer/fetchers/` | Every data source implements one `Fetcher` ABC (`fetch → validate → insert`). Add a source = one class + one registry entry. |
 | **Strategy** | `src/agents/signal_sources.py` | Each composite-score pillar is a `SignalSource` subclass. Add a pillar = one class + one list append; the aggregator runs them all in parallel. |
 | **Observer** | `src/events/bus.py` | A live import publishes one `DataImportedEvent`; cache-invalidation, ML re-prediction, signal refresh, and sanity checks all react independently. |
 | **Façade** | `src/agents/sub_agents/` | The sub-agents package exposes a single `__init__.py` that re-exports all 20+ public and private symbols. Internal module layout (17 files) is hidden; all callers keep `from src.agents.sub_agents import X` unchanged. |
@@ -37,7 +37,7 @@ See [§ Design Patterns](#design-patterns) at the end for the full reference (co
 External Data Sources
         │
         ▼
-  Fetcher Adapters (src/importer/fetchers/adapters.py)
+  Fetcher Adapters (src/data_importer/fetchers/adapters.py)
         │  Fetcher ABC: fetch() → validate() → insert()
         ▼
   MarketDataRepository.run_fetcher()  (src/db/repository.py)
@@ -160,7 +160,7 @@ docker-compose.yml
 
 All importers are **watermark-based delta-sync**: each fetcher reads `import_watermarks.(source, symbol).last_date`, fetches only new rows, and writes back the watermark after a successful insert. Safe for repeated runs — `ReplacingMergeTree` handles duplicate dates.
 
-For `stocks` and `us_stocks` categories, the import manager redirects standard sequential download to a high-concurrency pipeline ([parallel_importer.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/importer/parallel_importer.py)). This pipeline concurrently processes each stock symbol using a thread pool (capped at 5 workers) to fetch prices, quarterly earnings, insider transactions, and valuation snapshots. Requests are staggered using random jitter delays to bypass Yahoo Finance rate-limiting defenses (401 Unauthorized).
+For `stocks` and `us_stocks` categories, the import manager redirects standard sequential download to a high-concurrency pipeline ([parallel_importer.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/data_importer/parallel_importer.py)). This pipeline concurrently processes each stock symbol using a thread pool (capped at 5 workers) to fetch prices, quarterly earnings, insider transactions, and valuation snapshots. Requests are staggered using random jitter delays to bypass Yahoo Finance rate-limiting defenses (401 Unauthorized).
 
 | Fetcher | External Source | ClickHouse Table(s) | Cadence |
 |---|---|---|---|
@@ -187,7 +187,7 @@ For `stocks` and `us_stocks` categories, the import manager redirects standard s
 | `signal_aggregator` | Reads ClickHouse | `signal_composite` | Daily / on-demand |
 | `trend_predictor` | Reads ClickHouse | `ml_predictions` | Daily after close |
 
-### Symbol Registry (`src/importer/registry.py`)
+### Symbol Registry (`src/data_importer/registry.py`)
 
 | Category | Count | Examples |
 |---|---|---|
@@ -541,7 +541,7 @@ The platform features a native **Terminal Charting** engine (in `src/tools/chart
 ### 6. Strategy Pattern (`src/agents/signal_sources.py`)
 `SignalSource` ABC defines `collect(repo) -> dict[etf, float]`. Each signal pillar is a subclass. The aggregator holds a `score_sources: list[SignalSource]` — adding a new pillar = one class + one list append. All sources run in parallel via `ThreadPoolExecutor`.
 
-### 7. Adapter Pattern (`src/importer/base_fetcher.py`)
+### 7. Adapter Pattern (`src/data_importer/base_fetcher.py`)
 `Fetcher` ABC defines `fetch() / validate() / insert() / max_date()`. Each external data source is a concrete subclass registered in `FETCHER_REGISTRY`. `repo.run_fetcher(fetcher)` handles watermarks, dry-run, and event publishing — the fetcher only knows its data.
 
 ### 8. Observer Pattern (`src/events/`)
@@ -580,7 +580,7 @@ Five agentic coding harnesses (Claude Code, Codex, Gemini CLI, Antigravity, inte
 A new agent pattern for open-ended queries where the data needed depends on previous results. The planner LLM decomposes the question into 2–6 steps; an executor runs each step with one tool call; a replanner assesses progress and either rewrites remaining steps or terminates. Interactive plan approval (`_show_and_approve_plan()`) gates execution. Token savings: 55–76% vs ReAct equivalent. Used by the MF Planner; extensible to any domain with dynamic data dependencies.
 
 ### 15. Context Compression (`src/workflows/context_manager.py`)
-Deterministic (no-LLM) context compression for workflow fetch results. `DatasetRef` tracks per-fetch audit metadata (original vs. compacted chars, dedup, truncation). `_par_datasets()` combines parallel fetch + compress in one call. `ContextRun` provides thread-safe per-run caching via `contextvars`. `PlanStore` (`plan_store.py`) adds SQLite-backed plan persistence with Jaccard similarity search for reuse. Implements Issue [#156](https://github.com/Mosaic-agent/Mosaic-fund-agent/issues/156). See [context-manager.md](context-manager.md) for full architecture and design.
+Deterministic (no-LLM) context compression for workflow fetch results. `DatasetRef` tracks per-fetch audit metadata (original vs. compacted chars, dedup, truncation). `_par_datasets()` combines parallel fetch + compress in one call. `ContextRun` provides thread-safe per-run caching via `contextvars`. `PlanStore` (`plan_store.py`) adds SQLite-backed plan persistence with Jaccard similarity search for reuse. Implements Issue [#156](https://github.com/Mosaic-agent/data_importer/issues/156). See [context-manager.md](context-manager.md) for full architecture and design.
 
 ---
 
