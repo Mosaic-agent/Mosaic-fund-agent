@@ -209,7 +209,7 @@ services:
     ports:
       - "8502:8502"
     volumes:
-      - ./output:/app/output ────────────────────────────────────────────────
+      - ./output:/app/output
   # Temporarily removed from compose (2026-07-01) — see git history to restore.
   # Was: serves the visual AI research workspace at http://localhost:8502,
   # built via the studio-builder stage in the Dockerfile.

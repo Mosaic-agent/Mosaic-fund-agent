@@ -140,8 +140,11 @@ def _upsert(points: list[Any]) -> None:
     if client is None or not _ensure_collection():
         return
     try:
-        client.upsert(collection_name=_COLLECTION, points=points)
-        log.debug("MarketVector: upserted %d points", len(points))
+        batch_size = 500
+        for i in range(0, len(points), batch_size):
+            batch = points[i : i + batch_size]
+            client.upsert(collection_name=_COLLECTION, points=batch)
+        log.debug("MarketVector: upserted %d points in batches", len(points))
     except Exception as e:
         log.warning("MarketVector: upsert failed: %s", e)
 
