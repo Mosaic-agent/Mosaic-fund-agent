@@ -90,6 +90,13 @@ spec:
               value: market_data
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "1"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
           volumeMounts:
             - name: clickhouse-storage
               mountPath: /var/lib/clickhouse
@@ -190,6 +197,10 @@ spec:
           image: ollama/ollama:latest
           ports:
             - containerPort: 11434
+          # To enable GPU acceleration in cloud/GPU clusters, uncomment the block below:
+          # resources:
+          #   limits:
+          #     nvidia.com/gpu: "1"
           volumeMounts:
             - name: ollama-storage
               mountPath: /root/.ollama
@@ -246,9 +257,8 @@ spec:
               mountPath: /app/output
       volumes:
         - name: shared-output
-          hostPath:
-            path: /tmp/mosaic-output
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: shared-output-pvc
 ---
 # Mosaic Files Service & Deployment
 apiVersion: v1
@@ -292,6 +302,18 @@ spec:
               mountPath: /app/output
       volumes:
         - name: shared-output
-          hostPath:
-            path: /tmp/mosaic-output
-            type: DirectoryOrCreate
+          persistentVolumeClaim:
+            claimName: shared-output-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-output-pvc
+  namespace: mosaic
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: standard
