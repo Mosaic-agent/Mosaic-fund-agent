@@ -24,6 +24,11 @@ steps:
         params:
           symbol: "{{ symbol }}"
         fail_on_error: false
+      - tool_name: plot_price_chart
+        params:
+          symbol: "{{ symbol }}"
+          days: 365
+        fail_on_error: false
       - tool_name: get_nse_announcements
         params:
           input_str: "{{ symbol }}"
@@ -136,6 +141,9 @@ steps:
 
       ### Market Metrics (Yahoo Finance)
       {{ batch_enrichment.get_yahoo_finance_data }}
+
+      ### 1-Year Price Chart
+      [CHART:price]
 
       ## 2. Price Momentum & Technical
       {{ batch_enrichment.get_price_momentum }}

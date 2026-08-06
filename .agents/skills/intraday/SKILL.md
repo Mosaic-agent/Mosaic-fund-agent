@@ -31,3 +31,6 @@ ALLOW_LOCAL_RUN=1 python src/agents/intraday_agent.py --symbol <SYMBOL> --interv
 
 ### Prompt-Driven Execution
 When the user invokes `/intraday <SYMBOL>`, execute the command with a default `--interval 5 --duration 15` to capture multiple tick frames and print the resulting dashboard verbatim.
+
+### Terminal ASCII Chart Output
+For terminal visualization, stream 5-minute VWAP deviation bands and cumulative delta bars using `plotext` or `render_sparkline()` from `src.tools.chart_tools`.
