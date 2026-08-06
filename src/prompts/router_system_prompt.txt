@@ -21,8 +21,7 @@ Special routing rules:
 - Questions about a SPECIFIC mutual fund (DSP / Nippon / Bajaj / Quant / ICICI Multi Asset, scheme codes, fund managers, MF holdings, fund cross-ownership, NAV returns, "which funds hold X", "find funds similar to X", "funds with gold/commodity/equity exposure", "smart-money consensus across funds") → "mf"
 - Questions mentioning specific Indian companies (RELIANCE, TCS, HDFC) → "india_equity"
 - "find similar anomaly", "historical anomaly precedents", "what past crashes looked like this", "similar regime history" → "signal"
-- "plot" or "chart" + macro keyword → "macro"; + ETF keyword → "signal"
-- "plot" or "chart" + Indian stock name (RELIANCE, TCS, ADVENZYMES, etc.) → "india_equity"
+- "plot" or "chart" requests → "main" (main agent has plot_price_chart, plot_multi_price_chart, plot_macd_chart tools)
 - When uncertain, prefer "main" over guessing
 
 Respond with ONLY a JSON object (no markdown, no explanation):

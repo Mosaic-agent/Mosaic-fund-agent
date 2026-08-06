@@ -17,8 +17,21 @@ from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
-_SPARKS = "▁▂▃▄▅▆▇█"
+from typing import Any, Sequence  # noqa: F401
+
+_SPARKS = " ▂▃▄▅▆▇█"
 _CHART_HEIGHT = 20
+
+
+def render_sparkline(values: Sequence[float]) -> str:
+    """Render a sequence of numerical values as a compact Unicode sparkline string."""
+    clean = [v for v in values if v is not None and not (isinstance(v, float) and (v != v))]
+    if not clean:
+        return ""
+    min_v, max_v = min(clean), max(clean)
+    if min_v == max_v:
+        return _SPARKS[0] * len(clean)
+    return "".join(_SPARKS[min(7, max(0, int(7 * (val - min_v) / (max_v - min_v))))] for val in clean)
 
 
 def _chart_width() -> int:
@@ -231,6 +244,14 @@ def _build(plt: Any) -> str:
     return f"[CHART:{key}]"
 
 
+def _build_raw(plt: Any) -> str:
+    """Build and return chart string without saving to active_charts store.
+    Used for independent subplot rendering to avoid cursor positioning escape code loss."""
+    out = plt.build()
+    plt.clear_figure()
+    return out
+
+
 def _data_table(headers: list[str], rows: list[list], title: str = "") -> str:
     """
     Format chart data as a compact Markdown table appended below the chart.
@@ -345,11 +366,19 @@ def plot_price_chart(
 
         plt = _plt()
         plt.clear_figure()
-        plt.subplots(3, 1)
         xs = list(range(len(prices)))
 
-        # Subplot 1: Price
-        plt.subplot(1, 1)
+        # Each panel is built and rendered independently (its own clear_figure()
+        # + build() pair) rather than via plt.subplots()+one build() call.
+        # plotext's multi-subplot grid emits absolute cursor-positioning ANSI
+        # codes that only resolve correctly on a live, attached TTY — captured
+        # non-interactively (piped script, LangChain tool return value), those
+        # codes overwrite each other and only the last panel survives. Three
+        # independent full-width builds concatenated as plain text render
+        # correctly in both contexts.
+        plt.plot_size(_chart_width(), 14)
+
+        # Panel 1: Price
         plt.plot(xs, prices, label=symbol)
 
         # Overlay anomalies
@@ -405,20 +434,28 @@ def plot_price_chart(
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
         plt.xticks(tick_idx, tick_lbl)
 
-        # Subplot 2: 20D Annualized Volatility %
-        plt.subplot(2, 1)
+        price_panel = plt.build()
+        plt.clear_figure()
+
+        # Panel 2: 20D Annualized Volatility %
+        plt.plot_size(_chart_width(), 10)
         plt.plot(xs, vol_s, label="20D Vol (%)", color="magenta")
         plt.ylabel("Vol (%)")
         plt.xticks(tick_idx, tick_lbl)
+        vol_panel = plt.build()
+        plt.clear_figure()
 
-        # Subplot 3: Volume
-        plt.subplot(3, 1)
+        # Panel 3: Volume
+        plt.plot_size(_chart_width(), 10)
         plt.bar(xs, volumes, label="Volume", color="cyan")
         plt.ylabel("Volume")
         plt.xticks(tick_idx, tick_lbl)
+        volume_panel = plt.build()
+        plt.clear_figure()
 
-        plt.plot_size(_chart_width(), 26)
-        chart = _build(plt)
+        chart_text = price_panel + "\n" + vol_panel + "\n" + volume_panel
+        save_active_chart("price", chart_text)
+        chart = "[CHART:price]"
         table = _data_table(
             ["Date", "Open", "High", "Low", "Close", "Volume"],
             [
