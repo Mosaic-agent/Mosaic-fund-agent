@@ -1,0 +1,319 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mosaic
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mosaic-config
+  namespace: mosaic
+data:
+  LLM_PROVIDER: "anthropic"
+  LLM_MODEL: "claude-3-5-sonnet-20241022"
+  LLM_TEMPERATURE: "1.0"
+  LLM_CONTEXT_WINDOW: "200000"
+  KITE_MCP_URL: "https://mcp.kite.trade/mcp"
+  KITE_MCP_TIMEOUT: "30"
+  NEWS_ARTICLES_PER_STOCK: "5"
+  NEWS_LOOKBACK_DAYS: "7"
+  NEWSAPI_CACHE_TTL_SECONDS: "3600"
+  LOG_LEVEL: "INFO"
+  MAX_HOLDINGS_PER_RUN: "0"
+  SCRAPE_DELAY_SECONDS: "2"
+  COMEX_CACHE_TTL_SECONDS: "3600"
+  CLICKHOUSE_HOST: "clickhouse"
+  CLICKHOUSE_PORT: "8123"
+  CLICKHOUSE_DATABASE: "market_data"
+  CLICKHOUSE_USER: "default"
+  QDRANT_HOST: "qdrant"
+  QDRANT_PORT: "6333"
+  OLLAMA_HOST: "http://ollama:11434"
+  OUTPUT_DIR: "/app/output"
+  LLM_LOCAL_DISABLED: "false"
+  LLM_CACHE_ENABLED: "true"
+  LLM_CACHE_TTL_HOURS: "24"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: mosaic
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# ClickHouse Service & StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: mosaic
+spec:
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: tcp
+      port: 9000
+      targetPort: 9000
+  selector:
+    app: clickhouse
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: mosaic
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24-alpine
+          ports:
+            - containerPort: 8123
+            - containerPort: 9000
+          env:
+            - name: CLICKHOUSE_DB
+              value: market_data
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: clickhouse-storage
+              mountPath: /var/lib/clickhouse
+  volumeClaimTemplates:
+    - metadata:
+        name: clickhouse-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Qdrant Service & StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: mosaic
+spec:
+  ports:
+    - name: rest
+      port: 6333
+      targetPort: 6333
+    - name: grpc
+      port: 6334
+      targetPort: 6334
+  selector:
+    app: qdrant
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: mosaic
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:latest
+          ports:
+            - containerPort: 6333
+            - containerPort: 6334
+          env:
+            - name: QDRANT_SERVICE__MAX_REQUEST_SIZE_MB
+              value: "128"
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+  volumeClaimTemplates:
+    - metadata:
+        name: qdrant-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 2Gi
+---
+# Ollama Service & Deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: mosaic
+spec:
+  ports:
+    - name: api
+      port: 11434
+      targetPort: 11434
+  selector:
+    app: ollama
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: mosaic
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          # To enable GPU acceleration in cloud/GPU clusters, uncomment the block below:
+          # resources:
+          #   limits:
+          #     nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+---
+# Mosaic UI Service & Deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: mosaic
+spec:
+  type: NodePort
+  ports:
+    - name: streamlit
+      port: 8501
+      targetPort: 8501
+      nodePort: 30501
+  selector:
+    app: ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: mosaic
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        app: ui
+    spec:
+      containers:
+        - name: ui
+          image: mosaic-fund-agent:latest
+          imagePullPolicy: Never
+          command: ["streamlit", "run", "src/ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: mosaic-config
+            - secretRef:
+                name: mosaic-secrets
+          volumeMounts:
+            - name: shared-output
+              mountPath: /app/output
+      volumes:
+        - name: shared-output
+          persistentVolumeClaim:
+            claimName: shared-output-pvc
+---
+# Mosaic Files Service & Deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: files
+  namespace: mosaic
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8502
+      targetPort: 8502
+      nodePort: 30502
+  selector:
+    app: files
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: files
+  namespace: mosaic
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: files
+  template:
+    metadata:
+      labels:
+        app: files
+    spec:
+      containers:
+        - name: files
+          image: python:3.11-slim
+          command: ["python", "-m", "http.server", "8502", "--directory", "/app/output/reports"]
+          ports:
+            - containerPort: 8502
+          volumeMounts:
+            - name: shared-output
+              mountPath: /app/output
+      volumes:
+        - name: shared-output
+          persistentVolumeClaim:
+            claimName: shared-output-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-output-pvc
+  namespace: mosaic
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: standard

@@ -57,3 +57,7 @@ data/*
 # has no regenerator, so it must be tracked or it silently vanishes on deletion.
 !data/news_quality_exemplars.json
 
+# Local Kubernetes Secrets
+mosaic-secrets.yaml
+
+
