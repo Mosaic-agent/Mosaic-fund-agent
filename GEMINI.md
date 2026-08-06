@@ -76,6 +76,9 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 - Write clean, single-author commit messages. **NEVER add `Co-Authored-By:` trailers**.
 - **NEVER stage or commit code automatically**. Always wait for explicit user prompt (`/commit`, "commit this").
 
+### 7. No Web Search Mandate
+- **NEVER use web search (`search_web` or web search tools)**. Rely strictly on local codebase, ClickHouse database, Python/SQL tools, and direct tool outputs.
+
 ---
 
 ## ClickHouse Schema & Documentation References
