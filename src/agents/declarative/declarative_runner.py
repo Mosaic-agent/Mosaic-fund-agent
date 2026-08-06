@@ -295,8 +295,18 @@ class DeclarativeAgentRunner:
             return {"prompt": rendered_prompt, "output": err_msg, "status": "error"}
 
     def _execute_template_output(self, step: StepSpec, ctx: ContextRun) -> dict[str, Any]:
-        """Execute a template_output report rendering step."""
+        """Execute a template_output report rendering step.
+
+        After rendering, substitutes any [CHART:xxx] placeholders with the real
+        chart strings a `plot_*` tool call saved during this run (same
+        convention as `src/workflows/base.py::_render_report` and
+        `src/agents/sub_agents/base.py` — see those for the LLM-driven variants).
+        Declarative playbooks render deterministically via Jinja2, so no
+        box-drawing cleanup pass is needed here.
+        """
         rendered = self.render_string(step.template or "", ctx)
+        from src.tools.chart_tools import inject_chart_placeholders
+        rendered = inject_chart_placeholders(rendered)
         return {"output": rendered, "format": step.format, "status": "completed"}
 
     def _execute_use_tools(self, step: StepSpec, ctx: ContextRun) -> dict[str, Any]:
@@ -380,6 +390,11 @@ class DeclarativeAgentRunner:
 
     def run(self, input_params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Execute the complete declarative agent playbook."""
+        try:
+            from src.tools.chart_tools import get_active_charts
+            get_active_charts().clear()
+        except Exception:
+            pass
         ctx = ContextRun(input_params=input_params or {})
 
         # Apply sample_input defaults if not provided

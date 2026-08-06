@@ -323,6 +323,7 @@ AGENT_SYSTEM_PROMPT = (
     "  • Mutual Funds (MF): Use `analyze_mf_sectors` for sector breakdowns, `detect_amc_sector_rotation` for MoM/YoY rotation detection, `explain_rotation_thesis` for investment thesis rationale, `audit_exhaustive_stock_shifts` for 100% complete additions/subtractions audit, and `display_master_amc_dashboard` for full visual executive CLI dashboards. For whale-tracking or single-fund deep dives, call `delegate_to_mf_agent`.\n"
     "  • Single-stock / company research (price, financials, quarterly results, news, MF ownership): call `run_india_equity_research_workflow` — it runs 12 data-fetch tools in parallel and returns a full 8-section note for NSE/BSE stocks.\n"
     "  • Importing Stocks/ETFs: The import tools reuse the user's saved data source for 24 hours. If a tool returns `DATA_SOURCE_REQUIRED`, ask the user which source to use: 1. Shoonya, 2. NSE, or 3. yfinance, then retry with `data_source`. Never choose a source on the user's behalf. If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES', 'refresh GOLDBEES'), call `import_symbol_data(symbol, data_source=...)` — never `run_data_engineering_importer` for a single symbol. Only use `run_data_engineering_importer(category='stocks', data_source=...)` when the user asks to import ALL stocks generically without naming one. When the user specifies a particular year (e.g. '2019'), date, or month range, parse the dates and pass them as `start_date` (format YYYY-MM-DD) and `end_date` (format YYYY-MM-DD) parameters to `import_symbol_data` and `plot_price_chart` (e.g. for year 2019, `start_date='2019-01-01'` and `end_date='2019-12-31'`).\n"
+    "  • Charts & Visualizations: Use `plot_price_chart`, `plot_candlestick_chart`, `plot_multi_price_chart`, `plot_fii_dii_chart`, or `plot_macd_chart` whenever asked for price trends, technical charts, or visual analysis. These tools return a `[CHART:xxx]` placeholder token (e.g. `[CHART:price]`) plus a data table — write that exact token verbatim on its own line in your final answer where the chart should appear; it gets replaced with the real high-density ASCII chart. Never invent, retype, or paraphrase chart content yourself.\n"
     "  • News sweeps / sentiment: call `delegate_to_news_agent`.\n"
     "  • Macro / COMEX / FII-DII flows: call `delegate_to_macro_agent`.\n"
     "  • International ETFs (MAFANG, HNGSNGBEES, MON100, etc.): call `delegate_to_intl_etf_agent`.\n"
@@ -1022,6 +1023,8 @@ class MosaicFundAgent:
             if not msgs:
                 return "No answer generated."
             
+            from src.tools.chart_tools import inject_chart_placeholders
+
             # Search from the end for the first message with text content that isn't just a tool call
             for m in reversed(msgs):
                 # If it's an AIMessage, it might have content or tool_calls
@@ -1030,13 +1033,13 @@ class MosaicFundAgent:
                     if isinstance(content, list):
                         texts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
                         if texts:
-                            return "\n".join(texts)
+                            return inject_chart_placeholders("\n".join(texts))
                     elif isinstance(content, str) and content.strip():
-                        return content
+                        return inject_chart_placeholders(content)
             
             # Fallback to the very last message content if no pure text message found
             content = msgs[-1].content
-            return str(content) if content else "No answer generated."
+            return inject_chart_placeholders(str(content)) if content else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
             is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])
@@ -1269,7 +1272,8 @@ class MosaicFundAgent:
                 config=config,
             )
             msgs = result.get("messages", [])
-            return _get_message_text(msgs[-1].content) if msgs else "No answer generated."
+            from src.tools.chart_tools import inject_chart_placeholders
+            return inject_chart_placeholders(_get_message_text(msgs[-1].content)) if msgs else "No answer generated."
         except Exception as exc:
             err_msg = str(exc).lower()
             is_connection_error = any(term in err_msg for term in ["connection refused", "connecterror", "connection error", "api connection"])

@@ -64,6 +64,27 @@ def save_active_chart(key: str, chart_str: str) -> None:
 def clear_active_charts() -> None:
     get_active_charts().clear()
 
+
+def inject_chart_placeholders(text: str) -> str:
+    """Replace [CHART:xxx] tokens in text with the real chart strings a plot_*
+    tool call saved this run (via save_active_chart). Shared by every agent path
+    that lets an LLM/template write [CHART:xxx] placeholders instead of
+    reproducing chart glyphs itself — declarative playbooks (declarative_runner.py)
+    and the main tool-calling agent (mosaic_fund_agent.py) both call this."""
+    try:
+        chart_by_type = get_active_charts().copy()
+        for tname, chart_str in chart_by_type.items():
+            placeholders = [f"[CHART:{tname}]"]
+            if tname.startswith("plot_") and tname.endswith("_chart"):
+                placeholders.append(f"[CHART:{tname[5:-6]}]")
+            for ph in placeholders:
+                if ph in text:
+                    text = text.replace(ph, chart_str)
+                    break
+    except Exception:
+        logger.warning("Chart placeholder substitution failed", exc_info=True)
+    return text
+
 def clean_chart_tool_output(func):
     """
     No-op decorator since _build() now intercepts the plotting output directly
