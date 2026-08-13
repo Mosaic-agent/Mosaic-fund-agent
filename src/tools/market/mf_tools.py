@@ -131,6 +131,8 @@ def find_similar_funds(
             f"| {r['bond_pct']:.1f}% | {r['cash_pct']:.1f}% "
             f"| `{r['primary']}` | {r['similarity']:.3f} |"
         )
+        if r.get("lead_fund_manager"):
+            lines.append(f"   Fund Manager: {r['lead_fund_manager']}")
     lines.append("\n**Top holdings of most similar fund:**")
     lines.append(f"> {results[0]['top5_text']}")
 

@@ -28,6 +28,7 @@ Text description format (embedded for each flagged row):
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import uuid
 from datetime import date, datetime
@@ -39,6 +40,7 @@ log = logging.getLogger(__name__)
 
 _COLLECTION = "market_anomalies"
 _EMBED_DIM = 768
+_DECAY_LAMBDA = 0.005  # Temporal decay: ~50% weight at 140 days, ~25% at 280 days
 
 # ── Qdrant lazy init (shared pattern with market_vector) ─────────────────────
 
@@ -380,6 +382,17 @@ def retrieve_similar_anomalies(
                     "attributed_confidence": p.get("attributed_confidence", ""),
                 })
 
+        # Apply temporal decay — recent precedents rank higher than stale ones.
+        # Preserves raw_similarity for debugging while ranking by
+        # recency-adjusted score:  score_adj = score × e^(-λ·Δt)
+        query_ts = _to_ts(trade_date)
+        for r in results_all:
+            r_ts = _to_ts(r.get("trade_date", "1970-01-01"))
+            days_delta = abs(query_ts - r_ts) / 86400.0
+            decay = math.exp(-_DECAY_LAMBDA * days_delta)
+            r["raw_similarity"] = r["similarity"]
+            r["similarity"] = r["similarity"] * decay
+            r["decay_factor"] = round(decay, 3)
         results_all.sort(key=lambda x: -x["similarity"])
         return results_all[:k]
 

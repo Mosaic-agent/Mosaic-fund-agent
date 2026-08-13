@@ -184,6 +184,8 @@ aggregations must be computed by Python or SQL, then narrated.
             run_all_multi_asset_importers,
         )
         from src.tools.market_context import get_dxy_context
+        from src.tools.market.market_context_tools import search_historical_market_context
+        from src.tools.market.fused_search import fused_multi_signal_search
         from src.tools.news_search import search_financial_news, get_stock_news, get_db_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.intl_etf_tools import get_intl_etf_correlation, get_intl_etf_performance
@@ -210,6 +212,8 @@ aggregations must be computed by Python or SQL, then narrated.
             run_daily_signal_composite,
             run_risk_governor_analysis,
             get_dxy_context,
+            search_historical_market_context,
+            fused_multi_signal_search,
             search_financial_news,
             get_stock_news,
             get_newsapi_stock_news,

@@ -338,3 +338,67 @@ def vectorize_macro(rows: list[dict]) -> None:
 def vectorize_cot(rows: list[dict]) -> None:
     if rows and _qdrant_available:
         _background(_do_vectorize_cot, rows)
+
+
+# ── Public read API ───────────────────────────────────────────────────────────
+
+def search_market_context(
+    query: str,
+    k: int = 5,
+    symbol: str = "",
+    category: str = "",
+    data_type: str = "",
+) -> list[dict]:
+    """Search market_data collection for historically similar market contexts.
+
+    Useful for finding periods when specific macro/price/FX conditions
+    co-occurred (e.g., "DXY falling while gold rising").
+
+    Args:
+        query:     Natural language description of the market context.
+        k:         Number of results.
+        symbol:    Optional filter to a specific symbol.
+        category:  Optional filter (e.g., 'etfs', 'fx_rates', 'macro_indicators').
+        data_type: Optional filter (e.g., 'price', 'nav', 'fx_rate', 'macro', 'cot').
+
+    Returns:
+        List of dicts with payload fields + similarity score.
+    """
+    client = _get_client()
+    if client is None or not _ensure_collection():
+        return []
+
+    vectors = _embed([query])
+    if all(v == 0.0 for v in vectors[0]):
+        return []
+
+    must_conditions = []
+    if symbol:
+        must_conditions.append(
+            FieldCondition(key="symbol", match=MatchValue(value=symbol))
+        )
+    if category:
+        must_conditions.append(
+            FieldCondition(key="category", match=MatchValue(value=category))
+        )
+    if data_type:
+        must_conditions.append(
+            FieldCondition(key="data_type", match=MatchValue(value=data_type))
+        )
+
+    try:
+        q_filter = Filter(must=must_conditions) if must_conditions else None
+        hits = client.query_points(
+            collection_name=_COLLECTION,
+            query=vectors[0],
+            query_filter=q_filter,
+            limit=k,
+            with_payload=True,
+        )
+        return [
+            {**(hit.payload or {}), "similarity": float(hit.score)}
+            for hit in hits.points
+        ]
+    except Exception as e:
+        log.warning("MarketVector: search failed: %s", e)
+        return []
