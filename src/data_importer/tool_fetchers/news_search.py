@@ -136,9 +136,9 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
     Args:
         symbol:       Zerodha trading symbol e.g. 'RELIANCE', 'TCS'
         company_name: Optional full company name for better query results.
-        target_date:  Optional target date in YYYY-MM-DD format (or "today"). 
-                      If omitted, defaults to today's date. Only articles published 
-                      on this date are returned.
+        target_date:  Optional target date in YYYY-MM-DD format. 
+                      If omitted, returns the most recent articles over the lookback window.
+                      If provided, only articles published on this date are returned.
 
     Returns:
         List of NewsItem models.
@@ -148,24 +148,25 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
     from dateutil import parser as date_parser
 
     # Resolve target_dt
-    if not target_date or target_date.lower() == "today":
-        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
-        target_dt = datetime.now(tz).date()
+    if not target_date or target_date.lower() == "today" or target_date.lower() == "recent":
+        target_dt = None
     else:
         try:
             target_dt = date_parser.parse(target_date).date()
         except Exception as exc:
-            logger.warning("Failed to parse target_date '%s': %s. Defaulting to today.", target_date, exc)
-            tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
-            target_dt = datetime.now(tz).date()
+            logger.warning("Failed to parse target_date '%s': %s. Defaulting to recent.", target_date, exc)
+            target_dt = None
 
     # RAG-first: check the Qdrant cache before touching the network. A prior
     # call (this run, an earlier run, or a different sub-agent) may have
     # already fetched and embedded this symbol/date.
     try:
         from src.ml.correlation.news_rag import retrieve_cached_news_for_symbol
-
-        cached = retrieve_cached_news_for_symbol(symbol, target_dt.isoformat())
+        
+        # Only use exact-match cache if a specific date was requested
+        cached = []
+        if target_dt:
+            cached = retrieve_cached_news_for_symbol(symbol, target_dt.isoformat())
     except Exception as exc:
         logger.debug("News cache lookup skipped for %s: %s", symbol, exc)
         cached = []
@@ -184,11 +185,13 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
             for c in cached[: settings.news_articles_per_stock]
         ]
 
-    # Calculate dynamic lookback needed to cover the target date
-    tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
-    today_dt = datetime.now(tz).date()
-    days_diff = (today_dt - target_dt).days
-    lookback_days = max(settings.news_lookback_days, days_diff + 1)
+    # Calculate dynamic lookback needed to cover the target date if provided
+    lookback_days = settings.news_lookback_days
+    if target_dt:
+        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+        today_dt = datetime.now(tz).date()
+        days_diff = (today_dt - target_dt).days
+        lookback_days = max(settings.news_lookback_days, days_diff + 1)
 
     client = _make_gnews_client(lookback_days)
     query = f"{company_name} NSE stock" if company_name else f"{symbol} NSE stock"
@@ -229,7 +232,7 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
         # indexing below, so a stock's Qdrant corpus builds up across its full
         # lookback window instead of only ever capturing "today"'s news.
         all_items.append(news_item)
-        if pub_dt == target_dt:
+        if target_dt is None or pub_dt == target_dt:
             filtered_items.append(news_item)
 
     items = filtered_items[: settings.news_articles_per_stock]
@@ -303,9 +306,9 @@ def get_stock_news(input_str: str, target_date: str = "") -> dict[str, Any]:
 
     Args:
         input_str:   The stock symbol (e.g., "RELIANCE") or symbol and company name.
-        target_date: Optional. The target date in YYYY-MM-DD format (or "today"). 
-                     If omitted, defaults to today's date. Only articles published 
-                     on this date are returned.
+        target_date: Optional. The target date in YYYY-MM-DD format. 
+                     If omitted, returns the most recent news over the lookback window.
+                     If provided, only articles published on this date are returned.
 
     Returns a list of news articles with title, source, date, URL,
     sentiment (POSITIVE/NEUTRAL/NEGATIVE), and overall sentiment summary.

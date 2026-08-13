@@ -686,8 +686,12 @@ def retrieve_articles(
     start_date = around_date - timedelta(days=days)
     end_date = around_date + timedelta(days=days)
     
-    start_ts = float(datetime.datetime.combine(start_date, datetime.time.min).timestamp())
-    end_ts = float(datetime.datetime.combine(end_date, datetime.time.max).timestamp())
+    import datetime
+    start_dt = datetime.datetime.combine(start_date, datetime.time.min).replace(tzinfo=datetime.timezone.utc)
+    end_dt = datetime.datetime.combine(end_date, datetime.time.max).replace(tzinfo=datetime.timezone.utc)
+    
+    start_ts = float(start_dt.timestamp())
+    end_ts = float(end_dt.timestamp())
 
     # 1. Try Qdrant retrieval first
     client = get_qdrant_client()
