@@ -1,6 +1,6 @@
 ---
 name: mf-tracker-agent
-description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, AMC-specific bullish small-cap stock picks, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, and multi-asset institutional Whale Tracking across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", "amc bullish small cap", or invokes /mf-tracker.
+description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, AMC-specific bullish small-cap stock picks, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, multi-asset institutional Whale Tracking, and cross-fund multi-asset consensus (smart-money overlap) across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", "amc bullish small cap", "multi asset consensus", "what are multi asset funds buying", "trend across multi asset funds", "smart money overlap", or invokes /mf-tracker.
 tools:
   - run_command
   - view_file
@@ -13,6 +13,12 @@ temperature: 0.1
 max_turns: 25
 ---
 
+# Complete Mutual Fund (MF) & AMC Research Suite (`/mf-tracker`)
+
+This skill is the single unified reference and execution guide for **ALL Mutual Fund capabilities** across Indian AMCs (DSP, Nippon India, ICICI Prudential, Quant, HDFC, Bajaj Finserv, AMFI category flows) with dedicated tools for **Sector Allocations**, **MoM/YoY Sector Rotation**, **Investment Thesis Rationale**, **100% Exhaustive Stock Shift Audits**, and **Master Executive CLI Dashboards**.
+
+---
+
 ## 🛠️ Registered Mutual Fund Analysis Tools (`MosaicFundAgent`)
 
 | Tool Name | Module | What it Does |
@@ -20,7 +26,13 @@ max_turns: 25
 | `smallcap` | `src/scripts/portfolio/smallcap_pattern_analyzer.py` | Multi-AMC Small Cap pattern & accumulation analyzer (CLI: `python src/main.py smallcap --amc <all\|dsp\|nippon\|hdfc\|quant>`) |
 | `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
 | `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
+| `run_multi_asset_consensus` | `src/scripts/portfolio/multi_asset_consensus.py` | Cross-fund "smart money overlap" — consensus adds/trims held or moved by ≥2 of the 7 tracked multi-asset funds, plus persistence-ranked asset-class and sector rotation |
+| `explain_rotation_thesis` | `src/tools/mf_rotation_thesis.py` | Macro, fundamental, and valuation investment thesis explaining WHY an AMC rotated |
+| `audit_exhaustive_stock_shifts` | `src/tools/mf_sector_rotation.py` | 100% complete audit of ALL stock additions (+₹ Cr) and subtractions (-₹ Cr) with zero data loss |
+| `display_master_amc_dashboard` | `src/tools/cli_ux_dashboard.py` | Master Executive CLI Dashboard (Left-to-Right Horizontal Sector Flow + Side-by-Side Stock Ledger) |
 
+
+---
 
 ## 🏛️ 1. AMC-Specific Bullish Small-Cap Stock Pick Queries
 
@@ -134,6 +146,50 @@ python src/scripts/market/whale_tracker.py
 | `120821` | **Quant Multi Asset** | 2 Months |
 | `120334` | **ICICI Prudential Multi Asset** | 1 Month |
 | `120716` | **ICICI Prudential Multi Asset II** | 1 Month |
+
+---
+
+## 🤝 4b. Cross-Fund Multi-Asset Consensus (Smart-Money Overlap)
+
+While the Whale Tracker (above) tracks predefined macro *themes* (gold/silver/nuclear/infra), this tool finds **consensus signals** — securities and asset classes that *multiple* multi-asset funds are simultaneously adding to or trimming in the same window. If 4 of 7 funds raise gold ETF exposure in the same month, that is a materially stronger signal than any single fund acting alone.
+
+```bash
+# Latest month MoM consensus across all 7 tracked multi-asset funds (default)
+python src/scripts/portfolio/multi_asset_consensus.py
+
+# YoY (latest vs 12 months back) instead of MoM
+python src/scripts/portfolio/multi_asset_consensus.py --period yoy
+
+# Lower the minimum-fund threshold (default 2 funds)
+python src/scripts/portfolio/multi_asset_consensus.py --min-funds 3
+
+# Restrict to one asset class (equity / gold / bond / cash / other)
+python src/scripts/portfolio/multi_asset_consensus.py --asset gold
+
+# Show more rows
+python src/scripts/portfolio/multi_asset_consensus.py --top 30
+```
+
+Outputs, in order: (1) Portfolio Overlap — core holdings shared by ≥2 funds, (2) Consensus ADDS / TRIMS for the chosen period, (3) Asset-Class Rotation persistence table (12mo lookback, ≥3mo streak = persistent), (4) Per-Fund and Cross-Fund Sector Rotation persistence tables.
+
+**Data-lag caveat — always check before calling a month "July" or "latest":** the 7 funds do not disclose on identical cadences. Some funds (e.g. DSP Multi Asset / DSP Multi Asset Omni) can lag a full month behind the others, and ICICI Multi Asset discloses closer to quarterly. The script's MoM/YoY comparison always uses each fund's own two most-recent snapshots — so a "MoM" read can silently mix a true latest-month change (for funds that reported on time) with a stale prior-month change (for funds still lagging). Verify per-fund `as_of_month` first:
+```sql
+SELECT fund_name, max(as_of_month) AS latest, count(DISTINCT as_of_month) AS n_months
+FROM market_data.mf_holdings FINAL
+WHERE scheme_code IN ('RLMF806','RLMF811','152056','154167','152639','120821','120334')
+GROUP BY fund_name;
+```
+
+Agent tool wrapper: `run_multi_asset_consensus` (`src/tools/runners.py`, registered on the MF sub-agent — see `src/agents/sub_agents/mf.py`).
+
+### ASCII chart views of the same data
+
+`multi_asset_consensus.py` prints Rich data tables; for an actual chart-style read (bar/heatmap, not rows), use:
+```bash
+python src/scripts/portfolio/multi_asset_ascii_viz.py
+python src/scripts/portfolio/multi_asset_ascii_viz.py --min-delta 0.25 --top 10
+```
+Renders (1) a Fund x Asset-Class MoM weight-shift matrix with an in-cell text bar per fund/asset-class pair, and (2) a diverging ASCII bar chart of consensus movers (securities ≥2 funds moved, joined on **ISIN** — not `security_name` text, since AMCs spell the same company inconsistently, e.g. "HDFC Bank Ltd" vs "HDFC Bank Limited", which fragments one company into false duplicates if joined on the raw name). Same data-lag caveat as §4b applies — each fund's row compares its own two most-recent snapshots, which are not all the same calendar month.
 
 ---
 

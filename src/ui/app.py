@@ -184,7 +184,231 @@ with st.sidebar:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_workflows, tab_whale, tab_reports = st.tabs(["📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "🤖 Workflows", "🐋 Whale Scanner", "📁 Reports"])
+tab_dashboard, tab_import, tab_query, tab_explorer, tab_anomaly, tab_wis, tab_holdings, tab_etf_scan, tab_news, tab_signals, tab_kite, tab_deepdive, tab_intl_etf, tab_workflows, tab_whale, tab_reports = st.tabs(["🛡️ Mosaic Dashboard", "📥 Import Data", "🔍 SQL Query", "📊 Explorer", "🔬 Anomaly Detection", "🕵️ Who Is Selling?", "📦 MF Holdings", "🏦 ETF Scanner", "📰 Market News", "🎛️ Signals", "🪁 Kite Dashboard", "🏢 Deep Dive", "🌍 Intl ETFs", "🤖 Workflows", "🐋 Whale Scanner", "📁 Reports"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 0 — MOSAIC DASHBOARD (ETF Investor Intelligence cockpit)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab_dashboard:
+    st.header("🛡️ Mosaic Agent — ETF Investor Intelligence Dashboard")
+    st.caption(
+        "Consolidated cockpit: live iNAV discount/premium scanner, cross-fund gold whale "
+        "tracking, GARCH position sizer, and GOLDBEES vs COMEX performance — pulled live "
+        "from the same ClickHouse tables as the dedicated tabs below."
+    )
+
+    if not ok:
+        st.warning("ClickHouse not connected.")
+        st.stop()
+
+    _dash_col_scan, _dash_col_whale = st.columns([7, 5])
+
+    with _dash_col_scan:
+        st.subheader("🎯 Live iNAV Scanner (Discount / Premium)")
+        _dash_syms = [
+            "GOLDBEES", "NIFTYBEES", "BANKBEES", "MID150BEES",
+            "HDFCNIFTY", "HNGSNGBEES", "MON100", "MAFANG",
+        ]
+        try:
+            _dash_syms_in = ", ".join(f"'{s}'" for s in _dash_syms)
+            _dash_df = _query_df(f"""
+                SELECT symbol,
+                       argMax(market_price, snapshot_at)          AS market_price,
+                       argMax(inav, snapshot_at)                  AS inav_value,
+                       argMax(premium_discount_pct, snapshot_at)  AS premium_pct
+                FROM market_data.inav_snapshots
+                WHERE symbol IN ({_dash_syms_in})
+                GROUP BY symbol
+            """)
+        except Exception as _dash_exc:
+            _dash_df = pd.DataFrame()
+            st.warning(f"iNAV query failed: {_dash_exc}")
+
+        if _dash_df.empty:
+            st.info("No iNAV snapshots yet — run **Import Data → iNAV** first.")
+        else:
+            def _dash_status(pct: float) -> str:
+                if pct <= -0.5:
+                    return "🟢 Buying Opportunity"
+                if pct < 0:
+                    return "🟢 Discount Entry"
+                if pct <= 1.0:
+                    return "⚪ Fair Value"
+                if pct <= 5.0:
+                    return "🔴 High Premium Warning"
+                return "⚠️ Extreme Premium Trap (Avoid Buying)"
+
+            _dash_df = _dash_df.sort_values("premium_pct")
+            _dash_df["Status"] = _dash_df["premium_pct"].apply(_dash_status)
+            _dash_show = _dash_df.rename(columns={
+                "symbol":       "Symbol",
+                "market_price": "Market Price (₹)",
+                "inav_value":   "iNAV (₹)",
+                "premium_pct":  "Disc/Prem (%)",
+            })
+            _gradient_dataframe(
+                _dash_show,
+                lambda styler: styler
+                    .format({"Market Price (₹)": "₹{:.2f}", "iNAV (₹)": "₹{:.2f}", "Disc/Prem (%)": "{:+.2f}%"})
+                    .background_gradient(subset=["Disc/Prem (%)"], cmap="RdYlGn_r"),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption("Full scanner with Z-scores + post-tax viability → **🏦 ETF Scanner** tab.")
+
+    with _dash_col_whale:
+        st.subheader("🐋 Smart-Money Gold Whale Tracking")
+        _gold_funds = [
+            "ICICI_MULTI_ASSET", "DSP_MULTI_ASSET",
+            "NIPPON_INDIA_MULTI_ASSET_ALLOCATION_FUND", "NIPPON_INDIA_MULTI_ASSET_OMNI_FOF",
+            "BAJAJ_FINSERV_MULTI_ASSET_ALLOCATION_FUND", "QUANT_MULTI_ASSET",
+        ]
+        try:
+            _gold_funds_in = ", ".join(f"'{f}'" for f in _gold_funds)
+            _gold_df = _query_df(f"""
+                SELECT scheme_code, fund_name, as_of_month,
+                       sum(pct_of_nav)      AS gold_pct,
+                       sum(market_value_cr) AS gold_value_cr
+                FROM market_data.mf_holdings FINAL
+                WHERE fund_name IN ({_gold_funds_in})
+                  AND asset_type ILIKE '%gold%'
+                  AND as_of_month >= toStartOfMonth(today() - INTERVAL 3 MONTH)
+                GROUP BY scheme_code, fund_name, as_of_month
+                ORDER BY scheme_code, as_of_month
+            """)
+        except Exception as _gold_exc:
+            _gold_df = pd.DataFrame()
+            st.warning(f"Gold-holdings query failed: {_gold_exc}")
+
+        if _gold_df.empty:
+            st.info("No multi-asset gold-holding data yet — run **Import Data → mf_holdings** first.")
+        else:
+            # Group by (scheme_code, fund_name), not fund_name alone — two distinct
+            # ICICI schemes (120716, 120334) share the identical fund_name text
+            # "ICICI_MULTI_ASSET" in this dataset, so a fund_name-only groupby would
+            # silently blend two unrelated funds into one card.
+            _sc_per_name = _gold_df.groupby("fund_name")["scheme_code"].nunique()
+            for (_fund, _scheme), _grp in _gold_df.groupby(["fund_name", "scheme_code"]):
+                _grp = _grp.sort_values("as_of_month")
+                _latest = _grp.iloc[-1]
+                _prev = _grp.iloc[-2] if len(_grp) > 1 else None
+                _delta_pp = float(_latest["gold_pct"] - _prev["gold_pct"]) if _prev is not None else 0.0
+                _delta_cr = float(_latest["gold_value_cr"] - _prev["gold_value_cr"]) if _prev is not None else 0.0
+                _action = (
+                    "Scale-in Accumulation" if _delta_pp > 0.3
+                    else "Trimming" if _delta_pp < -0.3
+                    else "Holding Steady"
+                )
+                _label = _fund.replace('_', ' ').title()
+                if _sc_per_name.get(_fund, 1) > 1:
+                    _label = f"{_label} [{_scheme}]"
+                with st.container(border=True):
+                    st.markdown(f"**{_label}**")
+                    _wc1, _wc2 = st.columns(2)
+                    _wc1.metric("Gold % of NAV", f"{_latest['gold_pct']:.2f}%", f"{_delta_pp:+.2f}pp")
+                    _wc2.metric("Gold Capital (₹ Cr)", f"{_latest['gold_value_cr']:,.1f}", f"{_delta_cr:+,.1f} Cr")
+                    st.caption(f"Action: **{_action}**  ·  as of {str(_latest['as_of_month'])[:10]}")
+            st.caption("Full cross-AMC equity consensus → **🐋 Whale Scanner** tab.")
+
+    st.divider()
+    _dash_col_sizer, _dash_col_perf = st.columns([5, 7])
+
+    with _dash_col_sizer:
+        st.subheader("⚡ GARCH Position Sizer")
+        _dash_capital = st.number_input(
+            "Total Portfolio Capital (₹)", min_value=0, value=1_000_000, step=50_000, key="dash_capital"
+        )
+        if st.button("Compute GOLDBEES Sizing", key="dash_sizer_btn"):
+            with st.spinner("Fetching 2y OHLCV → fitting GARCH(1,1) on GOLDBEES…"):
+                try:
+                    from src.tools.garch_position_sizer import size_position
+                    st.session_state["dash_decision"] = size_position("GOLDBEES", "NSE")
+                except Exception as _sizer_exc:
+                    st.session_state["dash_decision"] = None
+                    st.error(f"Sizer failed: {_sizer_exc}")
+
+        _dash_decision = st.session_state.get("dash_decision")
+        if _dash_decision:
+            _dash_alloc = _dash_capital * _dash_decision.final_weight
+            st.metric("GARCH Annualised Vol", f"{_dash_decision.garch_annual_vol_pct:.1f}%")
+            st.metric(
+                f"Recommended Allocation [{_dash_decision.tier}]",
+                f"₹{_dash_alloc:,.0f}",
+                f"{_dash_decision.final_weight:.0%} of capital",
+            )
+            st.caption(_dash_decision.tier_label)
+        else:
+            st.info("Click **Compute GOLDBEES Sizing** to fit GARCH and size the position.")
+
+    with _dash_col_perf:
+        st.subheader("📈 5-Year Performance: GOLDBEES vs COMEX Gold")
+        try:
+            _perf_df = _query_df("""
+                SELECT symbol, category, trade_date, close
+                FROM market_data.daily_prices FINAL
+                WHERE (
+                    (symbol = 'GOLDBEES' AND category = 'etfs')
+                    OR (symbol = 'GOLD' AND category = 'commodities')
+                )
+                AND trade_date >= today() - INTERVAL 5 YEAR
+                ORDER BY trade_date ASC
+            """)
+            _fx_df = _query_df("""
+                SELECT trade_date, close AS usdinr
+                FROM market_data.fx_rates FINAL
+                WHERE symbol = 'USDINR' AND trade_date >= today() - INTERVAL 5 YEAR
+                ORDER BY trade_date ASC
+            """)
+        except Exception as _perf_exc:
+            _perf_df = pd.DataFrame()
+            _fx_df = pd.DataFrame()
+            st.warning(f"Performance query failed: {_perf_exc}")
+
+        def _dash_cagr(first, last, years):
+            if first is None or last is None or first <= 0 or years <= 0:
+                return None
+            return ((last / first) ** (1 / years) - 1) * 100
+
+        if not _perf_df.empty:
+            _gb = _perf_df[_perf_df["symbol"] == "GOLDBEES"].sort_values("trade_date")
+            _gc = _perf_df[_perf_df["symbol"] == "GOLD"].sort_values("trade_date")
+            _years = None
+            _bars: dict[str, float] = {}
+            if not _gb.empty:
+                _years = (_gb["trade_date"].iloc[-1] - _gb["trade_date"].iloc[0]).days / 365.25
+                _v = _dash_cagr(_gb["close"].iloc[0], _gb["close"].iloc[-1], _years)
+                if _v is not None:
+                    _bars["GOLDBEES (INR)"] = _v
+            if not _gc.empty and _years:
+                _v = _dash_cagr(_gc["close"].iloc[0], _gc["close"].iloc[-1], _years)
+                if _v is not None:
+                    _bars["COMEX Gold (USD)"] = _v
+            if not _fx_df.empty and _years:
+                _v = _dash_cagr(_fx_df["usdinr"].iloc[0], _fx_df["usdinr"].iloc[-1], _years)
+                if _v is not None:
+                    _bars["USDINR Currency Alpha"] = _v
+
+            if _bars:
+                import plotly.graph_objects as _go_dash
+                _fig_dash = _go_dash.Figure(_go_dash.Bar(
+                    x=list(_bars.keys()), y=list(_bars.values()),
+                    marker_color=["#f59e0b", "#38bdf8", "#22c55e"][:len(_bars)],
+                    text=[f"{v:.2f}%" for v in _bars.values()],
+                    textposition="outside",
+                ))
+                _fig_dash.update_layout(
+                    yaxis_title="CAGR (%)", height=300,
+                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=20, b=20),
+                )
+                st.plotly_chart(_fig_dash, use_container_width=True)
+                st.caption(f"CAGR computed over {_years:.1f} years of available overlapping history.")
+            else:
+                st.info("Not enough overlapping history to compute CAGR.")
+        else:
+            st.info("No GOLDBEES/COMEX price history found — run **Import Data** first.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2781,13 +3005,6 @@ with tab_wis:
 with tab_holdings:
     st.header("📦 Multi-Asset Fund Holdings Tracker")
 
-    _FUND_LABELS = {
-        "DSP_MULTI_ASSET":   "DSP Multi Asset",
-        "DSP_MULTI_ASSET_OMNI_FOF": "DSP Multi Asset Omni FoF",
-        "QUANT_MULTI_ASSET": "Quant Multi Asset",
-        "ICICI_MULTI_ASSET": "ICICI Pru Multi Asset",
-        "BAJAJ_MULTI_ASSET": "Bajaj Multi Asset",
-    }
     _ASSET_COLORS = {
         "equity": "#1976D2",
         "gold":   "#FFA726",
@@ -2811,6 +3028,61 @@ with tab_holdings:
         )
         st.stop()
 
+    # ── Discover the multi-asset fund universe dynamically from the DB ─────
+    # Keyed on scheme_code (not fund_name) because this dataset has fund_name
+    # drift in both directions: some AMCs rename a fund while keeping the same
+    # scheme_code (Nippon renamed "...MULTI_ASSET_FUND" → "..._ALLOCATION_FUND"
+    # in 2024, same scheme RLMF806 — grouping by fund_name would fragment one
+    # continuous fund into two apparent funds), while two ICICI schemes
+    # (120334, 120716) share the identical fund_name text "ICICI_MULTI_ASSET"
+    # (grouping by fund_name would conflate two distinct funds into one).
+    # scheme_code itself can occasionally be reused across unrelated funds too
+    # (a known HDFC importer collision: 118989 spans HDFC_MULTI_ASSET AND
+    # HDFC_FLEXI_CAP in different months) — so every downstream query filters
+    # on the (scheme_code, fund_name) PAIR discovered here, never scheme_code
+    # alone.
+    _fund_groups_df = _query_df(
+        """
+        SELECT
+            scheme_code,
+            argMax(fund_name, as_of_month) AS display_fund_name,
+            count(DISTINCT as_of_month)    AS n_months,
+            groupUniqArray(fund_name)      AS fund_name_variants
+        FROM market_data.mf_holdings FINAL
+        WHERE fund_name ILIKE '%MULTI_ASSET%' OR fund_name ILIKE '%MULTI ASSET%'
+        GROUP BY scheme_code
+        ORDER BY n_months DESC
+        """
+    )
+    if _fund_groups_df.empty:
+        st.warning("No multi-asset fund holdings found. Run **📥 Import Data → mf_holdings** first.")
+        st.stop()
+    _fund_groups_df.columns = ["scheme_code", "display_fund_name", "n_months", "fund_name_variants"]
+
+    _ACRONYMS = {"Icici": "ICICI", "Dsp": "DSP", "Hdfc": "HDFC", "Sbi": "SBI", "Fof": "FoF"}
+
+    def _prettify(raw: str) -> str:
+        words = raw.replace("_", " ").title().split()
+        return " ".join(_ACRONYMS.get(w, w) for w in words)
+
+    _FUND_NAME_GROUPS: dict = {}   # scheme_code → [raw fund_name variants matched at discovery]
+    _FUND_LABELS: dict = {}        # scheme_code → display label
+    for _, _g in _fund_groups_df.iterrows():
+        _FUND_NAME_GROUPS[_g["scheme_code"]] = list(_g["fund_name_variants"])
+        _FUND_LABELS[_g["scheme_code"]] = _prettify(_g["display_fund_name"])
+
+    # Disambiguate schemes that share identical fund_name text (e.g. the two
+    # ICICI schemes above) by appending the scheme_code.
+    from collections import Counter as _Counter
+    _label_counts = _Counter(_FUND_LABELS.values())
+    for _sc in list(_FUND_LABELS):
+        if _label_counts[_FUND_LABELS[_sc]] > 1:
+            _FUND_LABELS[_sc] = f"{_FUND_LABELS[_sc]} [{_sc}]"
+
+    def _fund_pairs_clause(keys: list) -> str:
+        pairs = [(k, fn) for k in keys for fn in _FUND_NAME_GROUPS.get(k, [k])]
+        return ", ".join(f"('{sc}', '{fn}')" for sc, fn in pairs)
+
     # ── Available months — all months across mf_holdings (full history) ───
     _months_df = _query_df(
         "SELECT DISTINCT as_of_month FROM market_data.mf_holdings FINAL ORDER BY as_of_month DESC"
@@ -2820,14 +3092,21 @@ with tab_holdings:
         st.warning("No holdings data yet. Run **📥 Import Data → mf_holdings** first.")
         st.stop()
 
+    _all_keys = list(_FUND_LABELS.keys())
+    # Default to funds with >=2 months (enough for MoM) so a handful of
+    # newly-onboarded single-month funds (e.g. HDFC/Kotak/SBI Multi Asset)
+    # don't crowd the default view — still selectable manually.
+    _default_keys = [
+        row["scheme_code"] for _, row in _fund_groups_df.iterrows() if row["n_months"] >= 2
+    ] or _all_keys
     # ── Controls ────────────────────────────────────────────────────────────
     col_fund, col_month = st.columns([2, 1])
     with col_fund:
         selected_funds = st.multiselect(
             "Funds",
-            options=list(_FUND_LABELS.keys()),
-            default=list(_FUND_LABELS.keys()),
-            format_func=lambda k: _FUND_LABELS[k],
+            options=_all_keys,
+            default=_default_keys,
+            format_func=lambda k: _FUND_LABELS.get(k, k),
         )
     with col_month:
         selected_month = st.selectbox(
@@ -2849,15 +3128,15 @@ with tab_holdings:
         st.stop()
 
     # ── Load current month data ────────────────────────────────────────────
-    _fund_filter = ", ".join(f"'{f}'" for f in selected_funds)
+    _fund_filter = _fund_pairs_clause(selected_funds)
     _hold_df = _query_df(
         f"""
         SELECT scheme_code, fund_name, isin, security_name, asset_type,
                market_value_cr, pct_of_nav
         FROM market_data.mf_holdings FINAL
-        WHERE fund_name IN ({_fund_filter})
+        WHERE (scheme_code, fund_name) IN ({_fund_filter})
           AND as_of_month = '{_month_str}'
-        ORDER BY fund_name, pct_of_nav DESC
+        ORDER BY scheme_code, pct_of_nav DESC
         """
     )
     _HOLD_COLS = ["scheme_code", "fund_name", "isin", "security_name",
@@ -2869,32 +3148,34 @@ with tab_holdings:
 
     # ── Fallback: for funds with no data in selected month, load their latest ─
     _sel_month_label = selected_month.strftime("%b %Y") if hasattr(selected_month, "strftime") else str(selected_month)[:7]
-    _funds_with_data = set(_hold_df["fund_name"].unique())
+    _funds_with_data = set(_hold_df["scheme_code"].unique())
     _missing_keys = [k for k in selected_funds if k not in _funds_with_data]
-    _fallback_month_map: dict = {}  # fund_name → display label
+    _fallback_month_map: dict = {}  # scheme_code → display month label
 
     if _missing_keys:
-        _missing_filter = ", ".join(f"'{k}'" for k in _missing_keys)
+        _missing_filter = _fund_pairs_clause(_missing_keys)
         _fb_months_df = _query_df(
-            f"SELECT fund_name, max(as_of_month) AS latest_month"
+            f"SELECT scheme_code, max(as_of_month) AS latest_month"
             f" FROM market_data.mf_holdings FINAL"
-            f" WHERE fund_name IN ({_missing_filter})"
-            f" GROUP BY fund_name"
+            f" WHERE (scheme_code, fund_name) IN ({_missing_filter})"
+            f" GROUP BY scheme_code"
         )
         if not _fb_months_df.empty:
-            _fb_months_df.columns = ["fund_name", "latest_month"]
+            _fb_months_df.columns = ["scheme_code", "latest_month"]
             _fb_chunks = []
             for _, _fb_row in _fb_months_df.iterrows():
-                _fn  = _fb_row["fund_name"]
+                _sc  = _fb_row["scheme_code"]
                 _lm  = _fb_row["latest_month"]
                 _lm_str   = _lm.strftime("%Y-%m-%d") if hasattr(_lm, "strftime") else str(_lm)[:10]
                 _lm_label = _lm.strftime("%b %Y")    if hasattr(_lm, "strftime") else str(_lm)[:7]
+                _fn_variants = ", ".join(f"'{fn}'" for fn in _FUND_NAME_GROUPS.get(_sc, [_sc]))
                 _fb_fund_df = _query_df(
                     f"""
                     SELECT scheme_code, fund_name, isin, security_name, asset_type,
                            market_value_cr, pct_of_nav
                     FROM market_data.mf_holdings FINAL
-                    WHERE fund_name = '{_fn}' AND as_of_month = '{_lm_str}'
+                    WHERE scheme_code = '{_sc}' AND fund_name IN ({_fn_variants})
+                      AND as_of_month = '{_lm_str}'
                     ORDER BY pct_of_nav DESC
                     """
                 )
@@ -2902,11 +3183,11 @@ with tab_holdings:
                     _fb_fund_df.columns = ["scheme_code", "fund_name", "isin", "security_name",
                                            "asset_type", "market_value_cr", "pct_of_nav"]
                     _fb_chunks.append(_fb_fund_df)
-                    _fallback_month_map[_fn] = _lm_label
+                    _fallback_month_map[_sc] = _lm_label
             if _fb_chunks:
                 import pandas as _pd
                 _hold_df = _pd.concat([_hold_df] + _fb_chunks, ignore_index=True)
-                _notes = [f"**{_FUND_LABELS[fn]}** → {lbl}" for fn, lbl in _fallback_month_map.items()]
+                _notes = [f"**{_FUND_LABELS.get(sc, sc)}** → {lbl}" for sc, lbl in _fallback_month_map.items()]
                 st.info(f"No {_sel_month_label} data — showing latest available for: {', '.join(_notes)}")
 
     if _hold_df.empty:
@@ -2914,42 +3195,45 @@ with tab_holdings:
         st.stop()
 
     # fund_label: append "(fallback month)" suffix for funds not on selected month
-    def _make_fund_label(fn: str) -> str:
-        label = _FUND_LABELS.get(fn, fn)
-        if fn in _fallback_month_map:
-            label = f"{label} ({_fallback_month_map[fn]})"
+    def _make_fund_label(sc: str) -> str:
+        label = _FUND_LABELS.get(sc, sc)
+        if sc in _fallback_month_map:
+            label = f"{label} ({_fallback_month_map[sc]})"
         return label
 
-    _hold_df["fund_label"] = _hold_df["fund_name"].apply(_make_fund_label)
+    _hold_df["fund_label"] = _hold_df["scheme_code"].apply(_make_fund_label)
 
     # ══ 1. Asset allocation pie per fund ══════════════════════════════════
     st.subheader("Asset Allocation")
-    pie_cols = st.columns(len(selected_funds))
-    for i, fund_key in enumerate(selected_funds):
-        with pie_cols[i]:
-            _fd = _hold_df[_hold_df["fund_name"] == fund_key]
-            _alloc = _fd.groupby("asset_type")["pct_of_nav"].sum().reset_index()
-            _alloc.columns = ["asset_type", "weight"]
-            if _alloc.empty:
-                st.caption(f"_{_FUND_LABELS[fund_key]}_")
-                st.info("No data")
-            else:
-                import plotly.express as px  # type: ignore[import]
-                fig_pie = px.pie(
-                    _alloc,
-                    values="weight",
-                    names="asset_type",
-                    title=_make_fund_label(fund_key),
-                    color="asset_type",
-                    color_discrete_map=_ASSET_COLORS,
-                    hole=0.35,
-                )
-                fig_pie.update_layout(
-                    margin=dict(t=40, b=0, l=0, r=0),
-                    legend=dict(orientation="h", y=-0.1),
-                    height=320,
-                )
-                st.plotly_chart(fig_pie, width="stretch")
+    _PIE_PER_ROW = 4  # wrap into rows instead of squeezing all funds into one
+    for _row_start in range(0, len(selected_funds), _PIE_PER_ROW):
+        _row_keys = selected_funds[_row_start:_row_start + _PIE_PER_ROW]
+        pie_cols = st.columns(len(_row_keys))
+        for i, fund_key in enumerate(_row_keys):
+            with pie_cols[i]:
+                _fd = _hold_df[_hold_df["scheme_code"] == fund_key]
+                _alloc = _fd.groupby("asset_type")["pct_of_nav"].sum().reset_index()
+                _alloc.columns = ["asset_type", "weight"]
+                if _alloc.empty:
+                    st.caption(f"_{_FUND_LABELS.get(fund_key, fund_key)}_")
+                    st.info("No data")
+                else:
+                    import plotly.express as px  # type: ignore[import]
+                    fig_pie = px.pie(
+                        _alloc,
+                        values="weight",
+                        names="asset_type",
+                        title=_make_fund_label(fund_key),
+                        color="asset_type",
+                        color_discrete_map=_ASSET_COLORS,
+                        hole=0.35,
+                    )
+                    fig_pie.update_layout(
+                        margin=dict(t=40, b=0, l=0, r=0),
+                        legend=dict(orientation="h", y=-0.1),
+                        height=320,
+                    )
+                    st.plotly_chart(fig_pie, width="stretch")
 
     # ══ 2. Holdings table ══════════════════════════════════════════════════
     st.subheader("Holdings Detail")
@@ -2975,19 +3259,19 @@ with tab_holdings:
     # Which months are being compared per fund?
     _cmp_df = _query_df(
         f"""
-        SELECT fund_name,
+        SELECT scheme_code,
                maxIf(as_of_month, rn = 1) AS cur_month,
                maxIf(as_of_month, rn = 2) AS prev_month
         FROM (
-            SELECT fund_name, as_of_month,
-                   row_number() OVER (PARTITION BY fund_name ORDER BY as_of_month DESC) AS rn
+            SELECT scheme_code, as_of_month,
+                   row_number() OVER (PARTITION BY scheme_code ORDER BY as_of_month DESC) AS rn
             FROM (
-                SELECT DISTINCT fund_name, as_of_month
+                SELECT DISTINCT scheme_code, as_of_month
                 FROM market_data.mf_holdings FINAL
-                WHERE fund_name IN ({_fund_filter})
+                WHERE (scheme_code, fund_name) IN ({_fund_filter})
             ) AS t1
         ) AS t2
-        GROUP BY fund_name
+        GROUP BY scheme_code
         HAVING prev_month != toDate('1970-01-01')
         """
     )
@@ -2995,74 +3279,89 @@ with tab_holdings:
     if _cmp_df.empty:
         st.info("Need at least 2 months of data per fund to show drift.")
     else:
-        _cmp_df.columns = ["fund_name", "cur_month", "prev_month"]
+        _cmp_df.columns = ["scheme_code", "cur_month", "prev_month"]
         _cmp_labels = {
-            row["fund_name"]: (
+            row["scheme_code"]: (
                 f"{row['cur_month'].strftime('%b %Y') if hasattr(row['cur_month'], 'strftime') else str(row['cur_month'])[:7]}"
                 f" vs "
                 f"{row['prev_month'].strftime('%b %Y') if hasattr(row['prev_month'], 'strftime') else str(row['prev_month'])[:7]}"
             )
             for _, row in _cmp_df.iterrows()
         }
-        _cmp_caption = "  |  ".join(f"**{_FUND_LABELS.get(fn, fn)}**: {lbl}" for fn, lbl in _cmp_labels.items())
+        _cmp_caption = "  |  ".join(f"**{_make_fund_label(sc)}**: {lbl}" for sc, lbl in _cmp_labels.items())
         st.caption(_cmp_caption)
 
         _drift_df = _query_df(
             f"""
             WITH
             months_ranked AS (
-                SELECT fund_name, as_of_month,
-                       row_number() OVER (PARTITION BY fund_name ORDER BY as_of_month DESC) AS rn
+                SELECT scheme_code, as_of_month,
+                       row_number() OVER (PARTITION BY scheme_code ORDER BY as_of_month DESC) AS rn
                 FROM (
-                    SELECT DISTINCT fund_name, as_of_month
+                    SELECT DISTINCT scheme_code, as_of_month
                     FROM market_data.mf_holdings FINAL
-                    WHERE fund_name IN ({_fund_filter})
+                    WHERE (scheme_code, fund_name) IN ({_fund_filter})
                 ) AS t1
             ),
+            -- Pre-aggregate to a unique (scheme_code, isin) key on each side
+            -- before joining — a defensive dedup in case a single scheme's own
+            -- snapshot ever contains a literal duplicate ISIN row.
             cur AS (
-                SELECT fund_name, isin, security_name, asset_type, pct_of_nav
+                SELECT scheme_code, isin, any(security_name) AS security_name,
+                       any(asset_type) AS asset_type, sum(pct_of_nav) AS pct_of_nav,
+                       1 AS in_cur
                 FROM market_data.mf_holdings FINAL
-                WHERE (fund_name, as_of_month) IN (
-                    SELECT fund_name, as_of_month FROM months_ranked WHERE rn = 1
+                WHERE (scheme_code, fund_name) IN ({_fund_filter})
+                  AND (scheme_code, as_of_month) IN (
+                    SELECT scheme_code, as_of_month FROM months_ranked WHERE rn = 1
                 )
+                GROUP BY scheme_code, isin
             ),
             prev AS (
-                SELECT fund_name, isin, security_name, pct_of_nav
+                SELECT scheme_code, isin, any(security_name) AS security_name,
+                       sum(pct_of_nav) AS pct_of_nav, 1 AS in_prev
                 FROM market_data.mf_holdings FINAL
-                WHERE (fund_name, as_of_month) IN (
-                    SELECT fund_name, as_of_month FROM months_ranked WHERE rn = 2
+                WHERE (scheme_code, fund_name) IN ({_fund_filter})
+                  AND (scheme_code, as_of_month) IN (
+                    SELECT scheme_code, as_of_month FROM months_ranked WHERE rn = 2
                 )
+                GROUP BY scheme_code, isin
             )
             SELECT *
             FROM (
                 SELECT
-                    coalesce(cur.fund_name, prev.fund_name)           AS fund_name,
+                    coalesce(cur.scheme_code, prev.scheme_code)       AS scheme_code,
                     coalesce(cur.isin, prev.isin)                     AS isin,
                     coalesce(cur.security_name, prev.security_name)   AS security_name,
                     coalesce(cur.asset_type, '')                      AS asset_type,
                     coalesce(cur.pct_of_nav, 0.0)                     AS pct_cur,
                     coalesce(prev.pct_of_nav, 0.0)                    AS pct_prev,
                     coalesce(cur.pct_of_nav, 0.0) - coalesce(prev.pct_of_nav, 0.0) AS drift,
+                    -- Presence is tested via in_cur/in_prev (NULL only when the outer
+                    -- join found no row on that side), NOT via isin = '' — several real
+                    -- holdings (TREPS, cash offsets, futures) legitimately have a blank
+                    -- isin field while still present in both months.
                     CASE
-                        WHEN prev.isin IS NULL OR prev.isin = '' THEN 'ENTERED'
-                        WHEN cur.isin  IS NULL OR cur.isin  = '' THEN 'EXITED'
-                        WHEN abs(cur.pct_of_nav - prev.pct_of_nav) >= 2               THEN 'CHANGED'
+                        WHEN prev.in_prev IS NULL THEN 'ENTERED'
+                        WHEN cur.in_cur   IS NULL THEN 'EXITED'
+                        WHEN abs(cur.pct_of_nav - prev.pct_of_nav) >= 2 THEN 'CHANGED'
                         ELSE 'UNCHANGED'
                     END AS event
                 FROM cur
-                FULL OUTER JOIN prev ON cur.fund_name = prev.fund_name AND cur.isin = prev.isin
+                FULL OUTER JOIN prev ON cur.scheme_code = prev.scheme_code AND cur.isin = prev.isin
             ) AS joined
             WHERE event != 'UNCHANGED'
-            ORDER BY fund_name, event, abs(drift) DESC
+            ORDER BY scheme_code, event, abs(drift) DESC
+            SETTINGS join_use_nulls = 1
             """
         )
 
         if _drift_df.empty:
             st.success("No significant changes vs prior month (no ENTERED/EXITED, all weight shifts < 2 pp).")
         else:
-            _drift_df.columns = ["fund_name", "isin", "security_name", "asset_type",
+            _drift_df.columns = ["scheme_code", "isin", "security_name", "asset_type",
                                   "pct_cur", "pct_prev", "drift", "event"]
-            _drift_df["fund_label"] = _drift_df["fund_name"].map(_FUND_LABELS).fillna(_drift_df["fund_name"])
+            _drift_df["fund_label"] = _drift_df["scheme_code"].apply(_make_fund_label)
             _event_color = {"ENTERED": "🟢", "EXITED": "🔴", "CHANGED": "🟡"}
             _drift_df["🔔"] = _drift_df["event"].map(_event_color).fillna("")
             st.dataframe(
@@ -3085,36 +3384,49 @@ with tab_holdings:
     # ══ 4. Asset allocation trend over time ═══════════════════════════════
     if len(_available_months) >= 2:
         st.subheader("Allocation Trend Over Time")
+        # scheme_code is now the canonical, non-colliding identity (see the
+        # discovery block above), so a plain sum per (as_of_month, scheme_code,
+        # asset_type) is correct — no cross-scheme blending needed.
         _trend_df = _query_df(
             f"""
-            SELECT as_of_month, fund_name, asset_type, sum(pct_of_nav) AS weight
+            SELECT as_of_month, scheme_code, lower(asset_type) AS asset_type,
+                   sum(pct_of_nav) AS weight
             FROM market_data.mf_holdings FINAL
-            WHERE fund_name IN ({_fund_filter})
-            GROUP BY as_of_month, fund_name, asset_type
-            ORDER BY as_of_month, fund_name, asset_type
+            WHERE (scheme_code, fund_name) IN ({_fund_filter})
+            GROUP BY as_of_month, scheme_code, asset_type
+            ORDER BY as_of_month, scheme_code, asset_type
             """
         )
         if not _trend_df.empty:
-            _trend_df.columns = ["month", "fund_name", "asset_type", "weight"]
+            _trend_df.columns = ["month", "scheme_code", "asset_type", "weight"]
             import plotly.express as px  # noqa: F811
-            _trend_df["fund_label"] = _trend_df["fund_name"].map(_FUND_LABELS).fillna(_trend_df["fund_name"])
+            _trend_df["fund_label"] = _trend_df["scheme_code"].apply(_make_fund_label)
             
-            # Stacked Area Chart
+            # Wrap facets into a grid (was: all funds squeezed into one row via
+            # facet_col_wrap=len(selected_funds), which never wraps) and give each
+            # fund its OWN x-axis range. Funds have wildly different history depth
+            # (e.g. DSP: 35 months since 2023 vs ICICI: 5 months since Apr 2026) —
+            # a shared x-axis squeezes a short-history fund into a sliver of a
+            # multi-year timeline it doesn't actually span.
+            _n_funds = max(1, len(selected_funds))
+            _facet_wrap = min(3, _n_funds)
+            _n_rows = -(-_n_funds // _facet_wrap)  # ceil division
             fig_trend = px.area(
                 _trend_df,
                 x="month",
                 y="weight",
                 color="asset_type",
                 facet_col="fund_label",
-                facet_col_wrap=len(selected_funds),
+                facet_col_wrap=_facet_wrap,
                 color_discrete_map=_ASSET_COLORS,
                 labels={"month": "", "weight": "Weight (%)", "asset_type": "Type"},
-                height=380,
-                markers=True,
+                height=300 * _n_rows,
             )
+            fig_trend.update_xaxes(matches=None, showticklabels=True)
+            fig_trend.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
             fig_trend.update_layout(
-                margin=dict(t=30, b=0),
-                legend=dict(orientation="h", y=-0.2)
+                margin=dict(t=40, b=0),
+                legend=dict(orientation="h", y=-0.12)
             )
             st.plotly_chart(fig_trend, width="stretch")
 
@@ -3126,11 +3438,11 @@ with tab_holdings:
             SELECT
                 security_name,
                 any(asset_type)                                                    AS asset_type,
-                count(DISTINCT fund_name)                                          AS n_funds,
+                count(DISTINCT scheme_code)                                        AS n_funds,
                 sum(pct_of_nav)                                                    AS total_weight,
                 groupArray(concat(fund_name, ' (', toString(round(pct_of_nav, 1)), '%)')) AS breakdown
             FROM market_data.mf_holdings FINAL
-            WHERE fund_name IN ({_fund_filter})
+            WHERE (scheme_code, fund_name) IN ({_fund_filter})
               AND as_of_month = '{_month_str}'
             GROUP BY security_name
             HAVING total_weight > 0.5
@@ -3170,6 +3482,100 @@ with tab_holdings:
                 )
         else:
             st.info("No holdings above 0.5% weight found for the selected funds/month.")
+
+    # ══ 6. Cross-Fund Multi-Asset Consensus ─ heatmap + diverging bar chart ══
+    st.divider()
+    st.subheader("🤝 Cross-Fund Multi-Asset Consensus")
+    st.caption(
+        "Smart-money overlap across all 7 tracked multi-asset funds (Nippon, Nippon FoF, "
+        "DSP, DSP Omni, Bajaj, Quant, ICICI) — independent of the fund/month filters above. "
+        "Securities are matched across funds by **ISIN**, not name text, since AMCs spell the "
+        "same company differently. Each fund compares its own two most-recent snapshots, so rows "
+        "may span different calendar months where a fund's disclosure lags the others."
+    )
+    _ascii_col_delta, _ascii_col_top, _ascii_col_run = st.columns([1, 1, 1])
+    with _ascii_col_delta:
+        _ascii_min_delta = st.number_input(
+            "Min |Δ| pct-pts", min_value=0.05, max_value=2.0, value=0.10, step=0.05,
+            key="mf_ascii_min_delta",
+        )
+    with _ascii_col_top:
+        _ascii_top_n = st.slider("Names shown", 6, 40, 20, 2, key="mf_ascii_top_n")
+    with _ascii_col_run:
+        st.write("")
+        st.write("")
+        _ascii_run = st.button("▶ Run Consensus View", key="mf_ascii_viz_run", use_container_width=True)
+
+    if _ascii_run:
+        with st.spinner("Querying mf_holdings for all 7 multi-asset funds…"):
+            from src.scripts.portfolio.multi_asset_ascii_viz import (
+                ASSET_ORDER as _MAV_ASSET_ORDER,
+                build_asset_class_matrix,
+                build_consensus_moves,
+            )
+            try:
+                _mat_df = build_asset_class_matrix()
+                _moves_df = build_consensus_moves(min_delta=float(_ascii_min_delta))
+            except Exception as _ascii_exc:
+                st.error(f"Consensus view query failed: {_ascii_exc}")
+                _mat_df, _moves_df = pd.DataFrame(), pd.DataFrame()
+
+            if _mat_df.empty:
+                st.info("No funds with ≥2 months of holdings history.")
+            else:
+                import plotly.graph_objects as _go_mav
+                _z = _mat_df[_MAV_ASSET_ORDER].values
+                _fig_heat = _go_mav.Figure(data=_go_mav.Heatmap(
+                    z=_z,
+                    x=[a.upper() for a in _MAV_ASSET_ORDER],
+                    y=_mat_df["fund"],
+                    colorscale="RdYlGn",
+                    zmid=0,
+                    text=[[f"{v:+.2f}" for v in row] for row in _z],
+                    texttemplate="%{text}",
+                    hovertemplate="<b>%{y}</b><br>%{x}: %{z:+.2f} pct-pts<extra></extra>",
+                    colorbar=dict(title="Δ pp"),
+                ))
+                _fig_heat.update_layout(
+                    title="Fund × Asset-Class MoM Weight Shift (pct-pts)",
+                    height=320,
+                    margin=dict(t=50, b=10, l=10, r=10),
+                )
+                st.plotly_chart(_fig_heat, use_container_width=True)
+                _snap_caption = "  |  ".join(
+                    f"**{row['fund']}**: {row['prev']} → {row['curr']}" for _, row in _mat_df.iterrows()
+                )
+                st.caption(_snap_caption)
+
+            if _moves_df.empty:
+                st.info("No security moved by ≥2 funds at this threshold.")
+            else:
+                _half = max(1, int(_ascii_top_n) // 2)
+                _top_df = (
+                    pd.concat([_moves_df.head(_half), _moves_df.tail(_half)])
+                    .drop_duplicates(subset="isin")
+                    .sort_values("avg_delta")
+                )
+                _fig_moves = _go_mav.Figure(_go_mav.Bar(
+                    x=_top_df["avg_delta"],
+                    y=_top_df["security"],
+                    orientation="h",
+                    marker_color=["#ef4444" if v < 0 else "#22c55e" for v in _top_df["avg_delta"]],
+                    text=[f"{v:+.2f} ({int(n)} funds, net {int(net):+d})" for v, n, net in
+                          zip(_top_df["avg_delta"], _top_df["n_funds"], _top_df["net"])],
+                    textposition="outside",
+                ))
+                _fig_moves.add_vline(x=0, line_color="#888888", line_width=1)
+                _fig_moves.update_layout(
+                    title="Consensus Movers — avg Δ pct-pts (≥2 funds, ISIN-matched)",
+                    xaxis_title="Avg Δ (pct-pts)",
+                    height=max(320, 28 * len(_top_df)),
+                    margin=dict(t=50, b=10, l=10, r=60),
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(_fig_moves, use_container_width=True)
+    else:
+        st.info("Click **▶ Run Consensus View** to render the fund×asset-class heatmap and consensus-movers bar chart.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
