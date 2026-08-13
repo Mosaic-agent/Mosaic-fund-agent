@@ -316,11 +316,54 @@ def _do_vectorize_profiles(rows: list[dict]) -> None:
     if client is None or not _ensure_collection(_PROFILES_COLLECTION, is_holdings=False):
         return
 
+    # Enrich with fund manager metadata from ClickHouse (if available)
+    meta_by_code: dict[str, dict] = {}
+    try:
+        from src.db.pool import get_client as _get_ch_client
+        ch = _get_ch_client()
+        meta_rows = ch.query(
+            "SELECT scheme_code, lead_fund_manager, fund_house, scheme_category, "
+            "benchmark_index FROM market_data.mf_scheme_metadata FINAL"
+        ).result_rows
+        meta_by_code = {
+            str(r[0]): {
+                "lead_fund_manager": r[1] or "",
+                "fund_house": r[2] or "",
+                "scheme_category": r[3] or "",
+                "benchmark_index": r[4] or "",
+            }
+            for r in meta_rows
+        }
+        ch.close()
+    except Exception as exc:
+        log.debug("MFVector: mf_scheme_metadata lookup failed (non-fatal): %s", exc)
+
     profiles = _build_fund_profiles(rows)
     if not profiles:
         return
 
-    texts = [_profile_text(p) for p in profiles]
+    # Build enriched text for embeddings
+    texts = []
+    for p in profiles:
+        meta = meta_by_code.get(str(p.get("scheme_code", "")), {})
+        manager = meta.get("lead_fund_manager", "")
+        house = meta.get("fund_house", "")
+        base = _profile_text(p)
+        if manager or house:
+            enriched = (
+                f"{p['fund_name']} portfolio {p['as_of_month']}: "
+                f"fund_house={house} fund_manager={manager} "
+                f"equity {p['equity_pct']:.1f}% "
+                f"gold {p['gold_pct']:.1f}% "
+                f"bond {p['bond_pct']:.1f}% "
+                f"cash {p['cash_pct']:.1f}% "
+                f"other {p['other_pct']:.1f}% "
+                f"— top holdings: {p['top5_text']}"
+            )
+            texts.append(enriched)
+        else:
+            texts.append(base)
+
     vectors = _embed(texts)
 
     points = [
@@ -342,6 +385,11 @@ def _do_vectorize_profiles(rows: list[dict]) -> None:
                 "total_holdings":      p["total_holdings"],
                 "top5_text":           p["top5_text"],
                 "text":                texts[i],
+                # Fund manager enrichment (empty strings if metadata unavailable)
+                "lead_fund_manager":   meta_by_code.get(str(p.get("scheme_code", "")), {}).get("lead_fund_manager", ""),
+                "fund_house":          meta_by_code.get(str(p.get("scheme_code", "")), {}).get("fund_house", ""),
+                "scheme_category":     meta_by_code.get(str(p.get("scheme_code", "")), {}).get("scheme_category", ""),
+                "benchmark_index":     meta_by_code.get(str(p.get("scheme_code", "")), {}).get("benchmark_index", ""),
             },
         )
         for i, p in enumerate(profiles)
@@ -484,6 +532,9 @@ def find_similar_fund_profiles(
                 "top5_text":    h.payload.get("top5_text", ""),
                 "primary":      h.payload.get("asset_type_primary", ""),
                 "similarity":   float(h.score),
+                "lead_fund_manager": h.payload.get("lead_fund_manager", ""),
+                "fund_house": h.payload.get("fund_house", ""),
+                "scheme_category": h.payload.get("scheme_category", ""),
             }
             for h in hits.points
         ]

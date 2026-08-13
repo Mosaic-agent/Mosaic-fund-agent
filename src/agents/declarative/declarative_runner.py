@@ -113,9 +113,11 @@ class DeclarativeAgentRunner:
             ("src.tools.news_search",         ["get_stock_news", "search_financial_news"]),
             ("src.tools.newsapi_search",      ["get_newsapi_stock_news"]),
             ("src.tools.market.equity",       ["search_anomaly_events"]),
+            ("src.tools.market.market_context_tools", ["search_historical_market_context"]),
             ("src.tools.chart_tools",         ["plot_price_chart", "plot_shareholding_bar",
                                                "plot_macd_chart", "plot_signal_scores"]),
             ("src.tools.agent_tools",         ["check_and_refresh_symbol_data"]),
+            ("src.tools.market.fused_search", ["fused_multi_signal_search"]),
         ]
         for module_path, names in _equity_modules:
             try:

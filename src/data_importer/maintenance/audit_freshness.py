@@ -170,7 +170,103 @@ def audit_freshness():
     else:
         console.print("\n[bold green]✅ All database categories are FRESH![/bold green]")
         
+    audit_qdrant_freshness(console)
     client.close()
+
+def audit_qdrant_freshness(console):
+    """Compare latest dates in Qdrant collections vs ClickHouse source tables."""
+    try:
+        from qdrant_client import QdrantClient
+        import os
+        host = os.environ.get("QDRANT_HOST", "localhost")
+        port = int(os.environ.get("QDRANT_PORT", "6333"))
+        qc = QdrantClient(url=f"http://{host}:{port}", timeout=10)
+        # Quick connectivity check
+        qc.get_collections()
+    except Exception:
+        console.print("\n[yellow]⚠ Qdrant not available — skipping vector staleness check[/yellow]")
+        return
+
+    from src.db.pool import get_client
+    ch = get_client()
+
+    checks = [
+        # (qdrant_collection, ch_query_for_max_date, payload_date_field, label)
+        ("mf_holdings",      "SELECT max(as_of_month) FROM market_data.mf_holdings FINAL",
+         "as_of_month",      "as_of_timestamp",   "MF Holdings"),
+        ("mf_fund_profiles", "SELECT max(as_of_month) FROM market_data.mf_holdings FINAL",
+         "as_of_month",      "as_of_timestamp",   "MF Fund Profiles"),
+        ("news_articles",    "SELECT max(toString(toDate(published_at))) FROM market_data.news_articles FINAL",
+         "published_date",   "published_timestamp", "News Articles"),
+        ("market_anomalies", "SELECT max(toString(trade_date)) FROM market_data.daily_prices FINAL WHERE category='etfs'",
+         "trade_date",       "trade_timestamp",   "Market Anomalies"),
+        ("market_data",      "SELECT max(toString(trade_date)) FROM market_data.daily_prices FINAL",
+         "trade_date",       "trade_timestamp",   "Market Data"),
+    ]
+
+    table = Table(title="Qdrant vs ClickHouse Staleness", show_header=True, header_style="bold blue")
+    table.add_column("Collection", style="cyan")
+    table.add_column("Qdrant Latest", justify="center")
+    table.add_column("ClickHouse Latest", justify="center")
+    table.add_column("Qdrant Points", justify="right")
+    table.add_column("Status", justify="center")
+
+    for coll_name, ch_query, date_field, ts_field, label in checks:
+        # Get ClickHouse max date
+        try:
+            ch_res = ch.query(ch_query)
+            ch_date = str(ch_res.result_rows[0][0]) if ch_res.result_rows else "?"
+        except Exception:
+            ch_date = "ERROR"
+
+        # Get Qdrant collection info
+        try:
+            info = qc.get_collection(coll_name)
+            point_count = info.points_count
+            if point_count == 0:
+                qdrant_date = "EMPTY"
+            else:
+                # Scroll to get a sample of recent points by ordering
+                try:
+                    hits = qc.scroll(
+                        collection_name=coll_name,
+                        limit=1,
+                        order_by=ts_field,
+                        with_payload=[date_field],
+                    )
+                    if hits[0]:
+                        qdrant_date = str(hits[0][0].payload.get(date_field, "?"))
+                    else:
+                        qdrant_date = "?"
+                except Exception:
+                    # Fallback: scroll without ordering
+                    hits = qc.scroll(
+                        collection_name=coll_name,
+                        limit=1,
+                        with_payload=[date_field],
+                    )
+                    qdrant_date = str(hits[0][0].payload.get(date_field, "?")) if hits[0] else "?"
+        except Exception:
+            point_count = 0
+            qdrant_date = "N/A"
+
+        is_stale = (
+            ch_date not in ("ERROR", "?")
+            and qdrant_date not in ("N/A", "EMPTY", "?")
+            and str(qdrant_date) < str(ch_date)
+        )
+        if qdrant_date in ("N/A", "EMPTY"):
+            status = "[yellow]EMPTY[/yellow]"
+        elif is_stale:
+            status = "[bold red]STALE[/bold red]"
+        else:
+            status = "[bold green]SYNCED[/bold green]"
+
+        table.add_row(label, str(qdrant_date), str(ch_date), str(point_count), status)
+
+    console.print("\n")
+    console.print(table)
+    qc.close()
 
 if __name__ == "__main__":
     audit_freshness()
