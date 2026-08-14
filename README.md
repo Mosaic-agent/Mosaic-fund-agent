@@ -115,54 +115,114 @@ Everything runs on **your own machine**. No portfolio data, no trades, no questi
 
 ## Quick Start
 
-### Docker (5 minutes)
+### Prerequisites
+- **Docker Desktop** (or Docker Engine + Compose) — required for ClickHouse and Qdrant DB services.
+- **Python 3.11+** (if running natively outside Docker).
+
+---
+
+### Option A: Docker (Fastest — Zero Local Python Setup)
 
 ```bash
-git clone https://github.com/Mosaic-agent/data_importer.git
-cd data_importer
-cp .env.example .env        # add your API keys (see below)
-./run.sh                    # macOS/Linux  |  run.bat on Windows
+# 1. Clone repository
+git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git
+cd Mosaic-fund-agent
+
+# 2. Run the automated installer (checks pre-flight, sets up .env, builds and starts services)
+chmod +x install.sh
+./install.sh
+
+# Or start directly with the click-to-run bootstrap:
+# ./run.sh         (macOS / Linux)
+# run.bat          (Windows)
 ```
 
-Open **http://localhost:8501** — dashboard is ready.
+Once started:
+- **Streamlit Data Hub UI:** [http://localhost:8501](http://localhost:8501)
+- **Reports File Server:** [http://localhost:8502](http://localhost:8502)
+- **Qdrant Vector Dashboard:** [http://localhost:6333/dashboard](http://localhost:6333/dashboard)
 
-**Minimum keys needed:**
-```env
-OPENAI_API_KEY=sk-...       # or ANTHROPIC_API_KEY
-NEWSAPI_KEY=...             # free at newsapi.org
-GOLD_API_KEY=...            # free at gold-api.com
-```
-
-### First things to do
-
+Use the zero-dependency Docker CLI wrapper:
 ```bash
 ./mosaic.sh import --category etfs,stocks,fii_dii   # sync market data (~5 min)
-./mosaic.sh signals --save                           # today's ETF signals
-./mosaic.sh ask "what should I know about gold today?"
+./mosaic.sh signals --save                           # calculate today's ETF signals
+./mosaic.sh ask "What is the macro picture for gold today?"
 ```
 
 ---
 
-## Use without Zerodha
+### Option B: Native Local Python (For Developers & Quant Research)
 
-Zerodha is optional. You can use every signal, research, and charting feature without connecting a broker account. Only the `analyze` portfolio command requires a live Zerodha connection.
+```bash
+# 1. Clone repository
+git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git
+cd Mosaic-fund-agent
+
+# 2. Automated native installer (creates .venv, installs dependencies, launches DBs):
+chmod +x install_local.sh
+./install_local.sh
+
+# ── OR Manual Setup ──────────────────────────────────────────────────────────
+# Create & activate virtual environment (Python 3.11+)
+python3 -m venv .venv
+source .venv/bin/activate     # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Configure environment settings
+python setup_wizard.py        # Interactive setup wizard (or: cp .env.example .env)
+
+# Spin up ClickHouse and Qdrant DB services
+docker compose up clickhouse qdrant -d
+
+# Initialize database schemas & vector memory
+python src/scripts/db_metadata_init.py
+
+# Launch UI or CLI
+python src/main.py ui                                # Start web UI at :8501
+python src/main.py import --category etfs,fii_dii    # Sync market data
+python src/main.py signals --save --verbose          # Run composite ETF signals
+python src/main.py ask "Should I buy GOLDBEES today?"
+```
 
 ---
 
-## Run with a local AI (no API key)
+## AI & LLM Configuration
 
+Mosaic supports Cloud LLMs, Local AI (100% offline & free), and Pure Quant Mode (no LLM needed):
+
+### 1. Cloud AI (OpenAI / Anthropic / OpenRouter)
+Set in `.env`:
+```env
+LLM_PROVIDER=openai           # or "anthropic" / "openrouter"
+LLM_MODEL=gpt-4o-mini        # or "claude-3-5-sonnet-20241022"
+OPENAI_API_KEY=sk-...         # or ANTHROPIC_API_KEY / OPENROUTER_API_KEY
+```
+
+### 2. Local AI with Ollama (100% Free & Offline)
 ```bash
 ollama pull gemma4:latest
 ollama create mosaic-gemma4 -f ollama/Modelfile
 ```
-
+In `.env`:
 ```env
 LLM_PROVIDER=openai
 LLM_MODEL=mosaic-gemma4
 LLM_BASE_URL=http://localhost:11434/v1
 ```
 
-All signals, charts, and data imports work without any LLM. The AI is only needed for natural-language Q&A and research reports.
+### 3. Pure Quant Mode (Zero LLM Required)
+All market data ingestion, ClickHouse storage, GARCH volatility scaling, LightGBM price models, 6-pillar ETF composite scores, and mutual fund institutional flow tracking run 100% natively without any LLM API key. The AI is only invoked for natural-language Q&A and narrative research reports.
+
+---
+
+## Optional Integrations
+
+- **Zerodha Kite (MCP):** Connect your Zerodha account for live portfolio rebalancing and risk analysis via `analyze`. (Read-only; Mosaic cannot execute trades).
+- **NewsAPI.org (`NEWSAPI_KEY`):** Free API key for curated global financial news (falls back to free Google News RSS if omitted).
+- **Gold-API (`GOLD_API_KEY`):** Free API key for COMEX pre-market precious metal spot prices.
 
 ---
 
@@ -222,6 +282,6 @@ Both stay in sync automatically — `python scripts/sync_agy_agents.py` regenera
 
 **Not financial advice.** Personal research tool — always verify before acting.
 
-[Apache 2.0 License](LICENSE) · [Report an issue](https://github.com/Mosaic-agent/data_importer/issues)
+[Apache 2.0 License](LICENSE) · [Report an issue](https://github.com/Mosaic-agent/Mosaic-fund-agent/issues)
 
 </div>
