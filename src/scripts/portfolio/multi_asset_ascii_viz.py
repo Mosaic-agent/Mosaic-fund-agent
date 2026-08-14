@@ -43,13 +43,13 @@ console = Console()
 
 # Canonical roster — kept identical to multi_asset_consensus.py's MULTI_ASSET_FUNDS.
 FUNDS = [
-    ("Nippon Multi Asset",     "scheme_code = 'RLMF806'"),
-    ("Nippon Multi Asset FoF", "scheme_code = 'RLMF811'"),
-    ("DSP Multi Asset",        "scheme_code = '152056'"),
-    ("DSP Multi Asset Omni",   "scheme_code = '154167'"),
-    ("Bajaj Multi Asset",      "scheme_code = '152639'"),
-    ("Quant Multi Asset",      "scheme_code = '120821'"),
-    ("ICICI Multi Asset",      "scheme_code = '120334'"),
+    ("Nippon Multi Asset",     "fund_name LIKE 'NIPPON%MULTI_ASSET%' OR scheme_code = 'RLMF806'"),
+    ("Nippon Multi Asset FoF", "fund_name LIKE 'NIPPON%MULTI_ASSET%FOF' OR scheme_code = 'RLMF811'"),
+    ("DSP Multi Asset",        "fund_name = 'DSP_MULTI_ASSET' OR scheme_code = '152056'"),
+    ("DSP Multi Asset Omni",   "fund_name = 'DSP_MULTI_ASSET_OMNI_FOF' OR scheme_code = '154167'"),
+    ("Bajaj Multi Asset",      "fund_name = 'BAJAJ_MULTI_ASSET' OR scheme_code = '152639'"),
+    ("Quant Multi Asset",      "fund_name = 'QUANT_MULTI_ASSET' OR scheme_code = '120821'"),
+    ("ICICI Multi Asset",      "fund_name = 'ICICI_MULTI_ASSET' OR scheme_code IN ('120334', '120716')"),
 ]
 ASSET_ORDER = ["equity", "gold", "bond", "cash", "other"]
 
@@ -58,8 +58,10 @@ def months_for(fund_filter: str) -> list:
     pool = get_pool()
     df = pool.query_df(
         f"SELECT DISTINCT as_of_month FROM market_data.mf_holdings FINAL "
-        f"WHERE {fund_filter} ORDER BY as_of_month"
+        f"WHERE ({fund_filter}) ORDER BY as_of_month"
     )
+    if df.empty or "as_of_month" not in df.columns:
+        return []
     return [pd.to_datetime(m).date() for m in df["as_of_month"].tolist()]
 
 
@@ -69,23 +71,28 @@ def asset_class_snapshot(fund_filter: str, as_of_month) -> dict:
         f"""
         SELECT lower(asset_type) AS asset_type, sum(pct_of_nav) AS pct
         FROM market_data.mf_holdings FINAL
-        WHERE {fund_filter} AND as_of_month = '{as_of_month}'
+        WHERE ({fund_filter}) AND as_of_month = '{as_of_month}'
         GROUP BY asset_type
         """
     )
-    return dict(zip(df["asset_type"], df["pct"])) if not df.empty else {}
+    if df.empty or "asset_type" not in df.columns or "pct" not in df.columns:
+        return {}
+    return dict(zip(df["asset_type"], df["pct"]))
 
 
 def security_snapshot(fund_filter: str, as_of_month) -> pd.DataFrame:
     pool = get_pool()
-    return pool.query_df(
+    df = pool.query_df(
         f"""
         SELECT isin, any(security_name) AS security_name, sum(pct_of_nav) AS pct
         FROM market_data.mf_holdings FINAL
-        WHERE {fund_filter} AND as_of_month = '{as_of_month}' AND isin != ''
+        WHERE ({fund_filter}) AND as_of_month = '{as_of_month}' AND isin != ''
         GROUP BY isin
         """
     )
+    if df.empty or "isin" not in df.columns:
+        return pd.DataFrame(columns=["isin", "security_name", "pct"])
+    return df
 
 
 def _bar(value: float, max_abs: float, width: int, up_char: str = "#", down_char: str = "-") -> str:

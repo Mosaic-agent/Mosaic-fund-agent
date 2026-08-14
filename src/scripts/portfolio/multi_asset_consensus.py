@@ -57,13 +57,13 @@ console = Console()
 # ──────────────────────────────────────────────────────────────────────────
 
 MULTI_ASSET_FUNDS = [
-    {"label": "Nippon Multi Asset",     "filter": "scheme_code = 'RLMF806'"},
-    {"label": "Nippon Multi Asset FoF", "filter": "scheme_code = 'RLMF811'"},
-    {"label": "DSP Multi Asset",        "filter": "scheme_code = '152056'"},
-    {"label": "DSP Multi Asset Omni",   "filter": "scheme_code = '154167'"},
-    {"label": "Bajaj Multi Asset",      "filter": "scheme_code = '152639'"},
-    {"label": "Quant Multi Asset",      "filter": "scheme_code = '120821'"},
-    {"label": "ICICI Multi Asset",      "filter": "scheme_code = '120334'"},
+    {"label": "Nippon Multi Asset",     "filter": "fund_name LIKE 'NIPPON%MULTI_ASSET%' OR scheme_code = 'RLMF806'"},
+    {"label": "Nippon Multi Asset FoF", "filter": "fund_name LIKE 'NIPPON%MULTI_ASSET%FOF' OR scheme_code = 'RLMF811'"},
+    {"label": "DSP Multi Asset",        "filter": "fund_name = 'DSP_MULTI_ASSET' OR scheme_code = '152056'"},
+    {"label": "DSP Multi Asset Omni",   "filter": "fund_name = 'DSP_MULTI_ASSET_OMNI_FOF' OR scheme_code = '154167'"},
+    {"label": "Bajaj Multi Asset",      "filter": "fund_name = 'BAJAJ_MULTI_ASSET' OR scheme_code = '152639'"},
+    {"label": "Quant Multi Asset",      "filter": "fund_name = 'QUANT_MULTI_ASSET' OR scheme_code = '120821'"},
+    {"label": "ICICI Multi Asset",      "filter": "fund_name = 'ICICI_MULTI_ASSET' OR scheme_code IN ('120334', '120716')"},
 ]
 
 
@@ -77,11 +77,11 @@ def fund_month_list(fund_filter: str) -> list[date]:
         f"""
         SELECT DISTINCT as_of_month
         FROM market_data.mf_holdings FINAL
-        WHERE {fund_filter}
+        WHERE ({fund_filter})
         ORDER BY as_of_month
         """
     )
-    if df.empty:
+    if df.empty or "as_of_month" not in df.columns:
         return []
     return [pd.to_datetime(m).date() for m in df["as_of_month"].tolist()]
 
@@ -98,7 +98,7 @@ def fund_snapshot(fund_filter: str, as_of_month: date,
             sum(pct_of_nav)      AS pct_of_nav,
             sum(market_value_cr) AS market_value_cr
         FROM market_data.mf_holdings FINAL
-        WHERE {fund_filter}
+        WHERE ({fund_filter})
           AND as_of_month = '{as_of_month}'
           {extra}
         GROUP BY security_name
@@ -106,6 +106,8 @@ def fund_snapshot(fund_filter: str, as_of_month: date,
     )
     if not df.empty and "sec_asset_type" in df.columns:
         df = df.rename(columns={"sec_asset_type": "asset_type"})
+    elif df.empty:
+        return pd.DataFrame(columns=["security_name", "asset_type", "pct_of_nav", "market_value_cr"])
     return df
 
 

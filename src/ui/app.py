@@ -3508,14 +3508,13 @@ with tab_holdings:
 
     if _ascii_run:
         with st.spinner("Querying mf_holdings for all 7 multi-asset funds…"):
-            from src.scripts.portfolio.multi_asset_ascii_viz import (
-                ASSET_ORDER as _MAV_ASSET_ORDER,
-                build_asset_class_matrix,
-                build_consensus_moves,
-            )
+            import importlib
+            import src.scripts.portfolio.multi_asset_ascii_viz as _mav_mod
+            importlib.reload(_mav_mod)
+            _MAV_ASSET_ORDER = _mav_mod.ASSET_ORDER
             try:
-                _mat_df = build_asset_class_matrix()
-                _moves_df = build_consensus_moves(min_delta=float(_ascii_min_delta))
+                _mat_df = _mav_mod.build_asset_class_matrix()
+                _moves_df = _mav_mod.build_consensus_moves(min_delta=float(_ascii_min_delta))
             except Exception as _ascii_exc:
                 st.error(f"Consensus view query failed: {_ascii_exc}")
                 _mat_df, _moves_df = pd.DataFrame(), pd.DataFrame()
