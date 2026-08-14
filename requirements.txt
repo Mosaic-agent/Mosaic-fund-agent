@@ -52,6 +52,7 @@ tenacity>=8.2.0                  # Exponential-backoff retry wrapper for fetcher
 
 # ── Web UI ────────────────────────────────────────────────────────────────────
 streamlit>=1.35.0                # Data management UI (streamlit run src/ui/app.py)
+starlette>=0.49.1,<1.4.0         # Pin <1.4.0: Starlette 1.4.0 breaking change in GZipResponder breaks Streamlit
 altair>=5.0.0                    # Declarative charts for anomaly detection tab
 scikit-learn>=1.4.0              # Isolation Forest anomaly detection (Random Forest removed — use GARCH)
 arch>=6.3.0                      # GARCH(1,1) Student-t conditional volatility — replaces RF in anomaly pipeline
