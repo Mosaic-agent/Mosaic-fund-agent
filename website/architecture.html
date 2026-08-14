@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Architecture · Mosaic</title>
   <meta name="description" content="How Mosaic works under the hood: data ingestion, five quant engines, the multi-agent orchestrator, Qdrant vector RAG, and the full agent roster." />
-  <link rel="canonical" href="https://mosaic-agent.github.io/data_importer/architecture.html" />
+  <link rel="canonical" href="https://mosaic-agent.github.io/Mosaic-fund-agent/architecture.html" />
   <meta name="theme-color" content="#0b0f19" />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -224,7 +224,7 @@
       <a href="#rag">Vector RAG</a>
       <a href="#features">Engines</a>
       <a href="#agents">Agents</a>
-      <a href="https://github.com/Mosaic-agent/data_importer" class="nav-cta">GitHub →</a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" class="nav-cta">GitHub →</a>
     </div>
   </div>
 </nav>
@@ -510,14 +510,14 @@
     <div class="section-label">Documentation</div>
     <h2 class="section-title">Learn the system</h2>
     <div class="docs-grid">
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/architecture.md" class="doc-link"><span class="doc-icon">🏗️</span><div><div class="doc-link-title">Architecture</div><div class="doc-link-desc">Data flow, design patterns, ClickHouse schema, ML pipeline</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/agent-architecture.md" class="doc-link"><span class="doc-icon">🤖</span><div><div class="doc-link-title">Agent Architecture</div><div class="doc-link-desc">Intent routing, 10 sub-agents, tracing, budget middleware</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/anomaly-detection.md" class="doc-link"><span class="doc-icon">🔬</span><div><div class="doc-link-title">Anomaly Detection</div><div class="doc-link-desc">5-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT → Company Events · Correlation Engine · Qdrant historical precedents</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/ml-forecast.md" class="doc-link"><span class="doc-icon">📈</span><div><div class="doc-link-title">ML Forecast</div><div class="doc-link-desc">LightGBM 25-feature set, quantile CI, walk-forward CV</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/user_guide.md" class="doc-link"><span class="doc-icon">📖</span><div><div class="doc-link-title">User Guide</div><div class="doc-link-desc">Tutorials, CLI commands, database explorer, offline setup</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/configuration.md" class="doc-link"><span class="doc-icon">⚙️</span><div><div class="doc-link-title">Configuration</div><div class="doc-link-desc">All .env settings, LLM providers, local model setup</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/import-schema.md" class="doc-link"><span class="doc-icon">🗄️</span><div><div class="doc-link-title">Import Schema</div><div class="doc-link-desc">All categories, ClickHouse tables, cron schedules</div></div></a>
-      <a href="https://github.com/Mosaic-agent/data_importer/blob/main/docs/data-sources.md" class="doc-link"><span class="doc-icon">🌐</span><div><div class="doc-link-title">Data Sources</div><div class="doc-link-desc">APIs, feeds, and scraping strategy for all 14+ sources</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/architecture.md" class="doc-link"><span class="doc-icon">🏗️</span><div><div class="doc-link-title">Architecture</div><div class="doc-link-desc">Data flow, design patterns, ClickHouse schema, ML pipeline</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/agent-architecture.md" class="doc-link"><span class="doc-icon">🤖</span><div><div class="doc-link-title">Agent Architecture</div><div class="doc-link-desc">Intent routing, 10 sub-agents, tracing, budget middleware</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/anomaly-detection.md" class="doc-link"><span class="doc-icon">🔬</span><div><div class="doc-link-title">Anomaly Detection</div><div class="doc-link-desc">5-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT → Company Events · Correlation Engine · Qdrant historical precedents</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md" class="doc-link"><span class="doc-icon">📈</span><div><div class="doc-link-title">ML Forecast</div><div class="doc-link-desc">LightGBM 25-feature set, quantile CI, walk-forward CV</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/user_guide.md" class="doc-link"><span class="doc-icon">📖</span><div><div class="doc-link-title">User Guide</div><div class="doc-link-desc">Tutorials, CLI commands, database explorer, offline setup</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/configuration.md" class="doc-link"><span class="doc-icon">⚙️</span><div><div class="doc-link-title">Configuration</div><div class="doc-link-desc">All .env settings, LLM providers, local model setup</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/import-schema.md" class="doc-link"><span class="doc-icon">🗄️</span><div><div class="doc-link-title">Import Schema</div><div class="doc-link-desc">All categories, ClickHouse tables, cron schedules</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/data-sources.md" class="doc-link"><span class="doc-icon">🌐</span><div><div class="doc-link-title">Data Sources</div><div class="doc-link-desc">APIs, feeds, and scraping strategy for all 14+ sources</div></div></a>
     </div>
   </div>
 </section>

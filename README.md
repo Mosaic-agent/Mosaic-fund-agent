@@ -4,7 +4,7 @@
 
 ### Your AI research desk for Indian markets
 
-**[mosaic-agent.github.io/data_importer](https://mosaic-agent.github.io/data_importer/)**
+**[mosaic-agent.github.io/Mosaic-fund-agent](https://mosaic-agent.github.io/Mosaic-fund-agent/)**
 
 Signals · Smart-money tracking · Live portfolio intelligence — on your own machine.
 
