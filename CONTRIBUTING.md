@@ -32,12 +32,13 @@ Be respectful. This is a personal research project — contributions should impr
 ## Getting started
 
 ```bash
-git clone https://github.com/Mosaic-agent/data_importer.git
-cd data_importer
+git clone https://github.com/Mosaic-agent/Mosaic-fund-agent.git
+cd Mosaic-fund-agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in your API keys
-docker compose up clickhouse -d
+docker compose up clickhouse qdrant -d
+python src/scripts/db_metadata_init.py
 python src/main.py config   # verify setup
 ```
 
