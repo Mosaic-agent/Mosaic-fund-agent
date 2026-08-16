@@ -1,6 +1,6 @@
 ---
 name: mf-tracker
-description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, AMC-specific bullish small-cap stock picks, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, multi-asset institutional Whale Tracking, and cross-fund multi-asset consensus (smart-money overlap) across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", "amc bullish small cap", "multi asset consensus", "what are multi asset funds buying", "trend across multi asset funds", "smart money overlap", or invokes /mf-tracker.
+description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, AMC-specific bullish small-cap stock picks, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, multi-asset institutional Whale Tracking, cross-fund multi-asset consensus (smart-money overlap), and full-universe cross-AMC whale accumulation scanning with optional RSI/drawdown/volume-surge technical confirmation, across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", "amc bullish small cap", "multi asset consensus", "what are multi asset funds buying", "trend across multi asset funds", "smart money overlap", "cross-amc consensus buys", "institutional accumulation", "which consensus buys are technically attractive", "whale accumulation scan", or invokes /mf-tracker.
 ---
 
 # Complete Mutual Fund (MF) & AMC Research Suite (`/mf-tracker`)
@@ -18,6 +18,8 @@ This skill is the single unified reference and execution guide for **ALL Mutual 
 | `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
 | `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
 | `run_multi_asset_consensus` | `src/scripts/portfolio/multi_asset_consensus.py` | Cross-fund "smart money overlap" — consensus adds/trims held or moved by ≥2 of the 7 tracked multi-asset funds, plus persistence-ranked asset-class and sector rotation |
+| `scan_whale_accumulation` | `src/scripts/portfolio/whale_accumulation_scanner.py` (`src/tools/whale_tools.py`) | Cross-AMC consensus scan across the FULL active-equity universe (15+ AMC groups, not just multi-asset funds) — consensus_score, zero-to-hero fresh entries, and optional RSI/drawdown/volume-surge technical confirmation (`with_technicals=True`) |
+| `get_whale_consensus` | `src/tools/whale_tools.py` | Single-stock lookup: which AMCs hold it, weight, MoM delta, and months-held conviction tenure, across the same full active-equity universe |
 | `explain_rotation_thesis` | `src/tools/mf_rotation_thesis.py` | Macro, fundamental, and valuation investment thesis explaining WHY an AMC rotated |
 | `audit_exhaustive_stock_shifts` | `src/tools/mf_sector_rotation.py` | 100% complete audit of ALL stock additions (+₹ Cr) and subtractions (-₹ Cr) with zero data loss |
 | `display_master_amc_dashboard` | `src/tools/cli_ux_dashboard.py` | Master Executive CLI Dashboard (Left-to-Right Horizontal Sector Flow + Side-by-Side Stock Ledger) |
@@ -220,6 +222,63 @@ python src/scripts/portfolio/multi_asset_ascii_viz.py
 python src/scripts/portfolio/multi_asset_ascii_viz.py --min-delta 0.25 --top 10
 ```
 Renders (1) a Fund x Asset-Class MoM weight-shift matrix with an in-cell text bar per fund/asset-class pair, and (2) a diverging ASCII bar chart of consensus movers (securities ≥2 funds moved, joined on **ISIN** — not `security_name` text, since AMCs spell the same company inconsistently, e.g. "HDFC Bank Ltd" vs "HDFC Bank Limited", which fragments one company into false duplicates if joined on the raw name). Same data-lag caveat as §4b applies — each fund's row compares its own two most-recent snapshots, which are not all the same calendar month.
+
+---
+
+## 🐋 4c. Cross-AMC Whale Accumulation Scanner (Full Active-Equity Universe + Technical Confirmation)
+
+Unlike §4/§4b (scoped to the 19 tracked multi-asset funds), this scans **every active
+equity fund across 15+ AMC groups** (ABAKKUS, AXIS, BAJAJ, CANARA, DSP, HDFC, HELIOS,
+ICICI, INVESCO, KOTAK, MIRAE, MOTILAL, NIPPON, QUANT, SBI) for stocks where multiple
+independent AMCs are simultaneously building positions — the broadest cross-AMC
+consensus signal in this codebase.
+
+```bash
+# Full-universe scan, default 3-month lookback, min 2 AMCs
+python src/scripts/portfolio/whale_accumulation_scanner.py
+
+# Restrict to one AMC group, longer lookback, lower the consensus threshold
+python src/scripts/portfolio/whale_accumulation_scanner.py --amc dsp --months 6 --min-amcs 3
+
+# Add RSI-14 / drawdown-from-52w-high / volume-surge technical confirmation per
+# accumulator (via yfinance) and a blended opportunity_score — turns "N AMCs are
+# buying X" into "N AMCs are buying X and it's technically confirmed". Adds
+# noticeable latency (bulk yfinance download of up to 25 candidates) — only ask
+# for this when technical/price confirmation is actually wanted.
+python src/scripts/portfolio/whale_accumulation_scanner.py --with-technicals
+
+# Save a Markdown report to output/whale_accumulation_report.md
+python src/scripts/portfolio/whale_accumulation_scanner.py --save
+```
+
+Outputs, in order: (1) Top Accumulators ranked by `consensus_score = num_amcs ×
+avg_delta_pp` (plus RSI/Drawdown/Vol Surge/Opp. Score columns when
+`--with-technicals` is passed), (2) Zero-to-Hero fresh entries (stocks that had 0%
+weight before and are now held by `min_amcs`+ AMCs), (3) largest institutional bets
+by aggregate ₹ value.
+
+**Two data-quality fixes baked into this scanner that matter if you're debugging an
+unexpectedly narrow AMC list in the output:**
+- `security_name` is normalized for the "Ltd" vs "Limited" company-suffix spelling
+  difference between importers (older BRAND_SCHEME importers use "Ltd"; the newer
+  Abakkus/Axis/Canara Robeco/Helios/Invesco/Mirae Asset/Motilal Oswal importers use
+  "Limited" for the same companies) before grouping — otherwise the same real stock
+  silently splits into two consensus rows and looks like less cross-AMC overlap than
+  there really is.
+- "Latest" and "comparison" snapshot dates are resolved **independently per fund**,
+  not via one shared calendar-month bucket — different AMCs' importers stamp their
+  monthly disclosure differently (e.g. one AMC's latest row dated the 1st of the next
+  month vs another's dated the actual month-end, a day apart in reality), so a shared
+  bucket would silently exclude whichever AMCs' latest row lands in an earlier
+  calendar month.
+
+Agent tools: `scan_whale_accumulation(amc, lookback_months, min_amcs, with_technicals)`
+and `get_whale_consensus(symbol)` (`src/tools/whale_tools.py`, registered on the MF
+sub-agent — see `src/agents/sub_agents/mf.py`). Ask for these (rather than
+`run_multi_asset_consensus` / `run_whale_tracker`) when the question is about the full
+AMC universe or wants technical confirmation, e.g. "what is everyone accumulating",
+"which consensus buys are also technically attractive", "is DSP or Nippon buying
+<stock>".
 
 ---
 
