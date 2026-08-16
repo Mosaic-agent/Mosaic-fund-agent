@@ -100,6 +100,7 @@ python src/main.py import --category bajaj        # Bajaj Finserv funds
 python src/main.py import --category abakkus      # Abakkus Mutual Fund (Flexi Cap, Small Cap, Liquid)
 python src/main.py import --category helios       # Helios Mutual Fund (Small Cap, Flexi Cap, Mid Cap, BAF, etc.)
 python src/main.py import --category invesco      # Invesco Mutual Fund (Smallcap, Contra, Multi Asset, Flexi Cap, etc.)
+python src/main.py import --category canara       # Canara Robeco Mutual Fund (Small Cap, Flexi Cap, Value, Multi Cap, etc.)
 python src/main.py import --category amfi         # AMFI category flows & AUM
 ```
 
@@ -113,6 +114,7 @@ python src/scripts/fund_imports/run.py bajaj        # Bajaj holdings backfill
 python src/scripts/fund_imports/run.py abakkus      # Abakkus holdings backfill
 python src/scripts/fund_imports/run.py helios       # Helios holdings backfill
 python src/scripts/fund_imports/run.py invesco      # Invesco holdings backfill
+python src/scripts/fund_imports/run.py canara       # Canara Robeco holdings backfill
 python src/scripts/fund_imports/run.py amfi         # AMFI category-wise net flows
 python src/scripts/fund_imports/run.py all          # Run all registered AMC importers
 ```
