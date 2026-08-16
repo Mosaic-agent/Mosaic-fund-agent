@@ -306,6 +306,19 @@ python src/scripts/portfolio/fund_mom_returns.py --scheme <SCHEME_CODE>
 | **DSP Value** | `148595` | Value |
 | **DSP Healthcare** | `145454` | Pharma / Healthcare |
 
+### Any Fund by Name (not just DSP)
+
+Don't know the scheme code? Search by name first — works for any AMC/fund, not just the DSP table above:
+```bash
+python src/scripts/portfolio/fund_mom_returns.py --search "<fund name>"   # lists matching scheme codes (e.g. Direct vs Regular Plan), then pick one
+python src/scripts/portfolio/fund_mom_returns.py --scheme <CODE> --months <N>
+```
+Agent tool: `run_fund_mom_returns(scheme_code, search_query, months=12)` (`src/tools/runners.py`).
+
+**NAV is always fetched live from mfapi.in** — no ClickHouse import step exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist gets imported into `market_data.mf_nav`, see `MF_SCHEME_CODES` in `src/data_importer/registry.py`).
+
+**Expense ratio is NOT available** from this tool or anywhere else in the codebase — mfapi.in's scheme metadata only has `fund_house`/`scheme_type`/`scheme_category`/`scheme_code`/`scheme_name`/ISINs. Don't invent a number from training knowledge; say it's unavailable (see `docs/CLAUDE.md` grounding rules).
+
 ---
 
 ## 🔍 6. DSP Active-Fund Conviction Signal (Single-Name Research)

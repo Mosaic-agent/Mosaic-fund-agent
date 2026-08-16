@@ -24,6 +24,7 @@ python src/scripts/goldbees_report.py                              # Pre-baked G
 python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc all  # Multi-AMC Small Cap accumulation & conviction analyzer
 python src/scripts/portfolio/run_stock_quant_workflow.py BAJFINANCE  # Stock ASCII chart, anomalies & MF holdings
 python src/scripts/portfolio/fund_mom_returns.py --scheme 152056   # MoM NAV returns
+python src/scripts/portfolio/fund_mom_returns.py --search "<name>"  # resolve scheme code by fund name (any AMC)
 
 python src/scripts/market/whale_tracker.py                         # All 7 multi-asset funds
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import
@@ -78,6 +79,11 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 
 ### 7. No Web Search Mandate
 - **NEVER use web search (`search_web` or web search tools)**. Rely strictly on local codebase, ClickHouse database, Python/SQL tools, and direct tool outputs.
+
+### 8. Fund NAV Lookup & Expense Ratio
+- For "what's fund X's scheme code / NAV returns" questions, use `src/scripts/portfolio/fund_mom_returns.py` directly: `--search "<name>"` resolves the AMFI scheme code (any AMC, not just DSP), `--scheme <CODE> --months N` computes MoM returns.
+- NAV is fetched **live** from mfapi.in every run — no ClickHouse import exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist is imported into `market_data.mf_nav`).
+- **Expense ratio is not available anywhere** — mfapi.in's scheme metadata has no such field, and nothing in this codebase tracks TER. Do not substitute a number from training knowledge (see Rule 1) — state it's unavailable.
 
 ---
 

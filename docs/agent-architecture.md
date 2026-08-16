@@ -207,11 +207,11 @@ class _SubAgent:
 
 ### MFSubAgent
 
-- **Purpose:** Indian mutual-fund analysis — holdings, NAV returns, cross-fund consensus, whale tracking
-- **Tools (~12):** `run_multi_asset_holdings_mom_yoy`, `run_multi_asset_consensus`, `run_whale_tracker`, `run_dsp_multi_asset_comparison`, `run_fund_mom_returns`, `run_dsp_multi_asset_importer`, `run_nippon_importer`, `get_mf_holdings_for_stock`, `plot_fund_holdings_chart`, `plot_price_chart`, `query_clickhouse_db`, `publish_consolidated_pdf`
+- **Purpose:** Indian mutual-fund analysis — holdings, NAV returns, cross-fund consensus, whale tracking (both the per-fund theme tracker AND the full-universe cross-AMC accumulation scanner)
+- **Tools (~23):** `run_multi_asset_holdings_mom_yoy`, `run_multi_asset_consensus`, `run_whale_tracker`, `run_dsp_multi_asset_comparison`, `run_fund_mom_returns`, `run_dsp_multi_asset_importer`, `run_nippon_importer`, `run_icici_importer`, `run_all_multi_asset_importers`, `scan_whale_accumulation`, `get_whale_consensus`, `get_mf_holdings_for_stock`, `find_funds_holding`, `find_similar_funds`, `search_mf_exposure`, `plot_fund_holdings_chart`, `plot_price_chart`, `query_clickhouse_db`, `describe_db_table`, `list_db_tables`, `sample_db_table`, `search_db_metadata`, `get_stock_news`, `publish_consolidated_pdf`
 - **Recursion limit:** 30
-- **Routing keywords:** "mutual fund", "DSP multi asset", "cross-fund consensus", "which funds hold", "NAV return", "holding pattern"
-- **Fallback:** keyword-routed — `consensus/pattern` → `run_multi_asset_consensus`; `mom/yoy/changes` → `run_multi_asset_holdings_mom_yoy`; `which funds hold` → `get_mf_holdings_for_stock`; `whale/theme` → `run_whale_tracker`; `nav return` → `run_fund_mom_returns`
+- **Routing keywords:** "mutual fund", "DSP multi asset", "cross-fund consensus", "which funds hold", "NAV return", "holding pattern", "institutional accumulation", "which consensus buys are technically attractive"
+- **Fallback:** keyword-routed — `consensus/accumulation/institutions buying` → `scan_whale_accumulation` (checked before the theme branch below since both can match "whale"; `technical/rsi/breakout/oversold/drawdown` in the query sets `with_technicals=True`); `mom/yoy/changes` → `run_multi_asset_holdings_mom_yoy`; `which funds hold` → `get_mf_holdings_for_stock`; `whale/theme/thematic` → `run_whale_tracker`; `nav return` → `run_fund_mom_returns`
 
 ### NewsSubAgent
 

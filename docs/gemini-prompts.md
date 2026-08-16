@@ -695,3 +695,24 @@ Step 3 — Answer these questions from the data:
   DSP_MULTI_ASSET the safer choice for long-term allocation analysis?
 - Recommended choice for a conservative multi-asset investor and why.
 ```
+
+### 25. Fund Lookup by Name — Resolve Scheme Code & Compute Returns
+
+For any fund (not just DSP/pre-known scheme codes) — resolve its AMFI scheme code by name, then compute NAV returns.
+
+```
+I don't know the scheme code for "Abakkus Small Cap Fund". Resolve it and compute returns:
+
+Step 1 — Search for matching scheme codes (may list both Direct and Regular Plan):
+  python src/scripts/portfolio/fund_mom_returns.py --search "Abakkus Small Cap Fund"
+
+Step 2 — Compute MoM returns for the Direct Plan-Growth code found above:
+  python src/scripts/portfolio/fund_mom_returns.py --scheme <CODE> --months 24
+
+Report: period return, best/worst month, average MoM return, positive vs negative month count.
+
+Note: NAV is fetched live from mfapi.in — no ClickHouse import is needed or possible for this
+fund (only a fixed ETF/index watchlist is imported into market_data.mf_nav). Expense ratio is
+NOT available from mfapi.in or anywhere else in this codebase — don't estimate it, state it's
+unavailable if asked.
+```
