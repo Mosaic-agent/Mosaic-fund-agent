@@ -6,8 +6,8 @@ from typing import Any
 import httpx
 
 from src.data_importer.amc_holdings.base import BaseFundImporter
-from src.data_importer.dsp_holdings.import_all_dsp_equity import process_month, ZIP_FILES, BASE_URL as MEDIA_BASE
-from src.data_importer.dsp_holdings.import_latest_dsp import discover_latest_zip
+from src.data_importer.amc_downloaders.dsp_holdings.import_all_dsp_equity import process_month, ZIP_FILES, BASE_URL as MEDIA_BASE
+from src.data_importer.amc_downloaders.dsp_holdings.import_latest_dsp import discover_latest_zip
 
 logger = logging.getLogger(__name__)
 

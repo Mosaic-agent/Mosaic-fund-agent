@@ -1,13 +1,13 @@
 """
-src/data_importer/abakkus_holdings/import_all_abakkus.py
+src/data_importer/amc_downloaders/abakkus_holdings/import_all_abakkus.py
 ────────────────────────────────────────────────────────
 Standalone script to fetch and import Abakkus Mutual Fund portfolio holdings into ClickHouse.
 
 Usage:
-    python src/data_importer/abakkus_holdings/import_all_abakkus.py
-    python src/data_importer/abakkus_holdings/import_all_abakkus.py --full
-    python src/data_importer/abakkus_holdings/import_all_abakkus.py --dry-run
-    python src/data_importer/abakkus_holdings/import_all_abakkus.py --month 2026-07
+    python src/data_importer/amc_downloaders/abakkus_holdings/import_all_abakkus.py
+    python src/data_importer/amc_downloaders/abakkus_holdings/import_all_abakkus.py --full
+    python src/data_importer/amc_downloaders/abakkus_holdings/import_all_abakkus.py --dry-run
+    python src/data_importer/amc_downloaders/abakkus_holdings/import_all_abakkus.py --month 2026-07
 """
 
 from __future__ import annotations

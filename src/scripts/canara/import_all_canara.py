@@ -17,7 +17,7 @@ import sys
 # Ensure project root is on sys.path
 sys.path.insert(0, os.getcwd())
 
-from src.data_importer.canara_holdings.import_all_canara import main
+from src.data_importer.amc_downloaders.canara_holdings.import_all_canara import main
 
 if __name__ == "__main__":
     main()

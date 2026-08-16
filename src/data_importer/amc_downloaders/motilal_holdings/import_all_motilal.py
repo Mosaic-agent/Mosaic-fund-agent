@@ -1,10 +1,10 @@
 """
-src/data_importer/motilal_holdings/import_all_motilal.py
+src/data_importer/amc_downloaders/motilal_holdings/import_all_motilal.py
 ─────────────────────────────────────────────────────────
 CLI entry-point for importing Motilal Oswal Mutual Fund portfolio holdings into ClickHouse.
 
 Usage:
-    python -m src.data_importer.motilal_holdings.import_all_motilal [--dry-run] [--full] [--from-year YYYY] [--month YYYY-MM]
+    python -m src.data_importer.amc_downloaders.motilal_holdings.import_all_motilal [--dry-run] [--full] [--from-year YYYY] [--month YYYY-MM]
     python src/scripts/motilal/import_all_motilal.py [--dry-run] [--full] [--month YYYY-MM]
 """
 

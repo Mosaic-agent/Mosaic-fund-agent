@@ -1,13 +1,13 @@
 """
-src/data_importer/axis_holdings/import_all_axis.py
+src/data_importer/amc_downloaders/axis_holdings/import_all_axis.py
 ───────────────────────────────────────────────────
 Standalone CLI script to import Axis Mutual Fund monthly portfolio disclosures.
 
 Usage:
-    python -m src.data_importer.axis_holdings.import_all_axis
-    python -m src.data_importer.axis_holdings.import_all_axis --dry-run
-    python -m src.data_importer.axis_holdings.import_all_axis --month 2026-07
-    python -m src.data_importer.axis_holdings.import_all_axis --full
+    python -m src.data_importer.amc_downloaders.axis_holdings.import_all_axis
+    python -m src.data_importer.amc_downloaders.axis_holdings.import_all_axis --dry-run
+    python -m src.data_importer.amc_downloaders.axis_holdings.import_all_axis --month 2026-07
+    python -m src.data_importer.amc_downloaders.axis_holdings.import_all_axis --full
 """
 
 from __future__ import annotations
