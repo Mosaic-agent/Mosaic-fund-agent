@@ -27,6 +27,7 @@ from src.data_importer.amc_holdings.importers.amfi import AmfiImporter
 from src.data_importer.amc_holdings.importers.hdfc import HdfcImporter
 from src.data_importer.amc_holdings.importers.kotak import KotakImporter
 from src.data_importer.amc_holdings.importers.abakkus import AbakkusImporter
+from src.data_importer.amc_holdings.importers.helios import HeliosImporter
 
 REGISTRY: dict[str, type[BaseFundImporter]] = {
     "icici":       IciciMFImporter,
@@ -40,6 +41,7 @@ REGISTRY: dict[str, type[BaseFundImporter]] = {
     "hdfc":        HdfcImporter,
     "abakkus":     AbakkusImporter,
     "abacus":      AbakkusImporter,
+    "helios":      HeliosImporter,
 }
 
 

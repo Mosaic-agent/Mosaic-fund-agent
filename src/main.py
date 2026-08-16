@@ -939,7 +939,7 @@ def import_data(
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, amfi_flows, "
             "earnings, insider, valuation, "
             "world_bank, imf_weo, indian_macro, indian_macro_indicators, "
-            "icici, nippon, icici-index, dsp, bajaj, quant, hdfc, kotak, abakkus, all. "
+            "icici, nippon, icici-index, dsp, bajaj, quant, hdfc, kotak, abakkus, helios, all. "
             "Default: all."
         ),
     ),
