@@ -103,6 +103,7 @@ python src/main.py import --category invesco      # Invesco Mutual Fund (Smallca
 python src/main.py import --category canara       # Canara Robeco Mutual Fund (Small Cap, Flexi Cap, Value, Multi Cap, etc.)
 python src/main.py import --category mirae        # Mirae Asset Mutual Fund (Large Cap, Small Cap, Midcap, Multi Asset, etc.)
 python src/main.py import --category axis         # Axis Mutual Fund (Small Cap, Midcap, Multi Asset, Flexi Cap, etc.)
+python src/main.py import --category motilal      # Motilal Oswal Mutual Fund (Small Cap, Midcap, Flexi Cap, Nasdaq 100, etc.)
 python src/main.py import --category amfi         # AMFI category flows & AUM
 ```
 
@@ -119,6 +120,7 @@ python src/scripts/fund_imports/run.py invesco      # Invesco holdings backfill
 python src/scripts/fund_imports/run.py canara       # Canara Robeco holdings backfill
 python src/scripts/fund_imports/run.py mirae        # Mirae Asset holdings backfill
 python src/scripts/fund_imports/run.py axis         # Axis Mutual Fund holdings backfill
+python src/scripts/fund_imports/run.py motilal      # Motilal Oswal Mutual Fund holdings backfill
 python src/scripts/fund_imports/run.py amfi         # AMFI category-wise net flows
 python src/scripts/fund_imports/run.py all          # Run all registered AMC importers
 ```

@@ -94,7 +94,8 @@ class TestFactory:
         expected = {
             "icici", "nippon", "icici-index", "dsp", "quant", "bajaj", "amfi", "kotak", "hdfc",
             "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco",
-            "mirae", "mirae_asset", "mirae-asset", "axis", "axis_mf", "axis-mf"
+            "mirae", "mirae_asset", "mirae-asset", "axis", "axis_mf", "axis-mf",
+            "motilal", "motilal_oswal", "motilal-oswal"
         }
         assert set(REGISTRY.keys()) == expected
 
