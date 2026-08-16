@@ -38,19 +38,17 @@ from rich.console import Console
 from rich.table import Table
 
 from src.db.pool import get_pool
+from src.tools.mf_multi_asset import get_all_multi_asset_funds
 
 console = Console()
 
-# Canonical roster — kept identical to multi_asset_consensus.py's MULTI_ASSET_FUNDS.
-FUNDS = [
-    ("Nippon Multi Asset",     "fund_name LIKE 'NIPPON%MULTI_ASSET%' OR scheme_code = 'RLMF806'"),
-    ("Nippon Multi Asset FoF", "fund_name LIKE 'NIPPON%MULTI_ASSET%FOF' OR scheme_code = 'RLMF811'"),
-    ("DSP Multi Asset",        "fund_name = 'DSP_MULTI_ASSET' OR scheme_code = '152056'"),
-    ("DSP Multi Asset Omni",   "fund_name = 'DSP_MULTI_ASSET_OMNI_FOF' OR scheme_code = '154167'"),
-    ("Bajaj Multi Asset",      "fund_name = 'BAJAJ_MULTI_ASSET' OR scheme_code = '152639'"),
-    ("Quant Multi Asset",      "fund_name = 'QUANT_MULTI_ASSET' OR scheme_code = '120821'"),
-    ("ICICI Multi Asset",      "fund_name = 'ICICI_MULTI_ASSET' OR scheme_code IN ('120334', '120716')"),
-]
+# Multi-asset roster across all AMCs
+try:
+    _all_funds = get_all_multi_asset_funds()
+    FUNDS = [(f["label"], f["filter"]) for f in _all_funds]
+except Exception:
+    FUNDS = []
+
 ASSET_ORDER = ["equity", "gold", "bond", "cash", "other"]
 
 

@@ -47,6 +47,7 @@ from src.tools.runners import (  # noqa: E402
     run_icici_importer,
     run_all_multi_asset_importers,
     run_multi_asset_holdings_mom_yoy,
+    run_mf_concentration_risk,
     run_multi_asset_consensus,
     run_data_engineering_importer,
     run_comex_analysis,

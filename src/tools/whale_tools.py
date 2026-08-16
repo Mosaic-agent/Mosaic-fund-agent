@@ -25,6 +25,7 @@ def scan_whale_accumulation(
     amc: str = "all",
     lookback_months: int = 3,
     min_amcs: int = 2,
+    with_technicals: bool = False,
 ) -> str:
     """
     Scan mutual fund holdings for stocks where multiple independent AMCs
@@ -39,14 +40,21 @@ def scan_whale_accumulation(
       - "Show me cross-AMC consensus buys"
       - "Whale accumulation scan"
       - "New stock entries by active funds"
+      - "Which consensus buys are also technically attractive right now?"
+      - "Are institutions buying stocks that are also oversold / breaking out?"
 
     Args:
         amc:             AMC filter — "all", "dsp", "nippon", "bajaj", "icici", "quant"
         lookback_months: MoM comparison window in months (default 3)
         min_amcs:        Minimum distinct AMC groups to qualify as consensus (default 2)
+        with_technicals: When True, adds RSI-14 / drawdown-from-52w-high / volume-surge
+                          and a blended opportunity_score per accumulator (via yfinance).
+                          Adds noticeable latency — only enable when the user is asking
+                          about technical confirmation, not for a quick consensus check.
 
     Returns a formatted Markdown report with:
-      - Top Accumulators (sorted by consensus_score)
+      - Top Accumulators (sorted by consensus_score, or by opportunity_score when
+        with_technicals=True)
       - Zero-to-Hero fresh entries (stocks newly entered by min_amcs+ AMCs)
       - Largest institutional bets by ₹ value
     """
@@ -56,6 +64,7 @@ def scan_whale_accumulation(
         amc=amc,
         lookback_months=lookback_months,
         min_amcs=min_amcs,
+        with_technicals=with_technicals,
     )
 
     if "error" in results:
@@ -73,18 +82,41 @@ def scan_whale_accumulation(
 
     # Top accumulators
     acc = results["top_accumulators"]
+    has_tech = results.get("with_technicals", False)
     if acc:
+        header = "| Security | Score | AMCs | AMC Groups | Avg Δ (pp) | Total (₹ Cr) |"
+        sep    = "| :--- | ---: | ---: | :--- | ---: | ---: |"
+        if has_tech:
+            header += " RSI-14 | Drawdown % | Vol Surge | Opp. Score |"
+            sep    += " ---: | ---: | ---: | ---: |"
         lines += [
             "### 🔺 Top Consensus Accumulators",
             "",
-            "| Security | Score | AMCs | AMC Groups | Avg Δ (pp) | Total (₹ Cr) |",
-            "| :--- | ---: | ---: | :--- | ---: | ---: |",
+            header,
+            sep,
         ]
         for r in acc[:15]:
-            lines.append(
+            row = (
                 f"| {r['security_name']} | {r['consensus_score']:.3f} "
                 f"| {r['num_amcs']} | {', '.join(r['amcs'])} "
                 f"| {r['avg_delta_pp']:+.3f} | ₹{r['total_value_cr']:,.2f} |"
+            )
+            if has_tech:
+                rsi_v = r.get("rsi")
+                dd_v = r.get("drawdown_pct")
+                vol_v = r.get("volume_surge")
+                score_v = r.get("opportunity_score")
+                rsi_str = f"{rsi_v:.1f}" if rsi_v is not None else "—"
+                dd_str = f"{dd_v:+.1f}%" if dd_v is not None else "—"
+                vol_str = f"{vol_v:.2f}x" if vol_v is not None else "—"
+                score_str = f"{score_v:.1f}/100" if score_v is not None else "—"
+                row += f" {rsi_str} | {dd_str} | {vol_str} | {score_str} |"
+            lines.append(row)
+        if has_tech:
+            lines.append(
+                "\n_Opp. Score = 50% consensus conviction + 50% technical setup "
+                "(low RSI / deep drawdown = higher). RSI < 35 and drawdown < -15% "
+                "are typically the more attractive setups._"
             )
         lines.append("")
 
@@ -178,10 +210,16 @@ def get_whale_consensus(symbol: str) -> str:
         )
 
     # Filter passives and debt instruments (asset_type is stamped per-fund at
-    # import time, not per-holding, so G-Sec/NCD lines can leak in as 'equity')
-    from src.scripts.portfolio.whale_accumulation_scanner import _is_passive, _get_amc_group, _is_debt_instrument
+    # import time, not per-holding, so G-Sec/NCD lines can leak in as 'equity').
+    # Also normalize the 'Ltd' vs 'Limited' company-suffix spelling difference
+    # between importers so this single-stock lookup isn't silently missing the
+    # AMCs that stamp the other spelling for the same company.
+    from src.scripts.portfolio.whale_accumulation_scanner import (
+        _is_passive, _get_amc_group, _is_debt_instrument, _normalize_security_name,
+    )
     df = df[~df["fund_name"].apply(_is_passive)].copy()
     df = df[~df["security_name"].apply(_is_debt_instrument)].copy()
+    df["security_name"] = df["security_name"].apply(_normalize_security_name)
     if df.empty:
         return f"No **active** fund holdings found for **{symbol}** (only passive/index funds hold it)."
 

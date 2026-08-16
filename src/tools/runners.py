@@ -200,6 +200,33 @@ def run_multi_asset_holdings_mom_yoy(
 
 
 @tool
+def run_mf_concentration_risk(
+    fund: str = "",
+    scheme_code: str = "",
+    all_funds: bool = False,
+) -> str:
+    """Report an Indian mutual fund's latest equity-sleeve concentration risk.
+
+    Returns HHI, effective stock count, top-three/top-ten concentration, named
+    top-three equity holdings, single-stock ceiling alerts, and sector weights.
+    Set exactly one of ``fund``, ``scheme_code``, or ``all_funds``. Use this for
+    concentration, diversification, largest-position, or top-holdings questions.
+    """
+    selectors = sum(bool(value) for value in (fund, scheme_code, all_funds))
+    if selectors != 1:
+        return "SELECTOR_REQUIRED: Provide exactly one of fund, scheme_code, or all_funds=True."
+
+    args = ["src/scripts/portfolio/concentration_risk.py"]
+    if all_funds:
+        args.append("--all")
+    elif fund:
+        args.extend(["--fund", fund])
+    else:
+        args.extend(["--scheme", str(scheme_code)])
+    return _run_cmd(args)
+
+
+@tool
 def run_multi_asset_consensus(
     period: str = "mom",
     min_funds: int = 2,
@@ -334,14 +361,23 @@ def run_comex_analysis() -> str:
 
 
 @tool
-def run_whale_tracker() -> str:
+def run_whale_tracker(amc: str | None = None, archetypes_only: bool = False) -> str:
     """
-    Track weight shifts and institutional moves in core macro themes (Gold, Silver, Nuclear/Grid, Energy, Infra)
-    across all 7 major multi-asset funds: Nippon India, DSP Multi Asset, DSP Omni FoF, Bajaj, Quant, and ICICI.
-    Use this to identify what large institutional multi-asset funds are accumulating or trimming.
+    Track weight shifts, institutional macro moves (Gold, Silver, Nuclear/Grid, Energy, Infra),
+    and AMC style archetypes & asset allocations across all Multi-Asset Allocation funds (Nippon India,
+    DSP, ICICI Prudential, Quant, Bajaj Finserv, Axis, Invesco, Mirae Asset, Motilal Oswal, HDFC, Kotak, SBI, etc.).
+
+    Args:
+        amc: Optional filter by AMC name (e.g. 'dsp', 'nippon', 'icici', 'quant', 'sbi', 'bajaj', 'axis').
+        archetypes_only: Set True to retrieve only the AMC Multi-Asset Archetype & Asset Allocation Scorecard.
     """
-    raw_output = _run_cmd(["src/scripts/market/whale_tracker.py"])
-    return _summarize_whale_tracker_output(raw_output)
+    cmd = ["src/scripts/market/whale_tracker.py"]
+    if amc:
+        cmd.extend(["--amc", amc])
+    if archetypes_only:
+        cmd.append("--archetypes")
+    return _run_cmd(cmd)
+
 
 
 @tool
@@ -454,6 +490,7 @@ RUNNER_TOOLS = [
     run_icici_importer,
     run_all_multi_asset_importers,
     run_multi_asset_holdings_mom_yoy,
+    run_mf_concentration_risk,
     run_multi_asset_consensus,
     run_data_engineering_importer,
     run_comex_analysis,
