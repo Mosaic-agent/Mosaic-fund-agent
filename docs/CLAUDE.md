@@ -262,6 +262,18 @@ SELECT ... FROM market_data.mf_holdings FINAL WHERE ...
 **Never use** `weight_pct` or `name` — those columns do not exist.
 Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 
+### Token-Efficient Exploration
+When investigating a bug or exploring unfamiliar code, default to the narrowest
+query/read that answers the specific question, and push open-ended investigation
+(many queries/files, root-cause digs) into a forked/sub-agent task so only the
+conclusion lands back in the main session — not the raw exploration output.
+
+- ✅ `SELECT count() ...` / `.head(10)` / grep with the final pattern on the first call
+- ❌ Dumping a 200-row DataFrame or a whole 500-line file when only one function or one count is needed
+- Batch related SQL into one query (CTEs or multi-statement) instead of several sequential one-off calls
+- Read targeted line ranges, not whole files, once you roughly know where the relevant section lives
+- Don't rerun the full test suite after every micro-change — batch verification to right before declaring a fix done
+
 → MosaicFundAgent.run()
 ...
 - **Tool registration:** Tools are lists of `@tool`-decorated functions (e.g., `YAHOO_TOOLS`, `NEWS_TOOLS`). `ALL_TOOLS` in `mosaic_fund_agent.py` is the union passed to `create_react_agent`.
