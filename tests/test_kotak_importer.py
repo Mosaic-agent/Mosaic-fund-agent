@@ -13,12 +13,12 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 import pytest
 
-from src.scripts.fund_imports.importers.kotak import (
+from src.data_importer.amc_holdings.importers.kotak import (
     KOTAK_FUNDS,
     KotakImporter,
     _COLUMNS,
 )
-from src.scripts.fund_imports.factory import create_importer, REGISTRY
+from src.data_importer.amc_holdings.factory import create_importer, REGISTRY
 
 
 class TestKotakImporterCatalogue:

@@ -6,6 +6,12 @@ Flat-file CSV store for iNAV snapshots.
 Layout: market_data/inav/{SYMBOL}/{YYYY}/{MM}/{DD}.csv
 
 Schema: snapshot_at,inav,market_price,premium_discount_pct,source
+
+AMC fetchers hand write_inav_rows() naive-UTC timestamps (the convention used
+throughout data_importer.fetchers for staleness checks etc.). write_inav_rows
+converts to naive IST before persisting, so the CSV — and the folder date it's
+filed under — reflect the local trading day/time an analyst reading these
+files expects.
 """
 
 from __future__ import annotations
@@ -13,14 +19,16 @@ from __future__ import annotations
 import csv
 import os
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable, Mapping
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 
 CSV_COLUMNS = ["snapshot_at", "inav", "market_price", "premium_discount_pct", "source"]
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def _resolve_base_dir(base_dir: str | os.PathLike | None) -> Path:
@@ -56,6 +64,11 @@ def _coerce_snapshot_at(value) -> datetime:
     return datetime.fromisoformat(str(value))
 
 
+def _to_ist_naive(dt_utc: datetime) -> datetime:
+    """Convert a naive-UTC datetime (as produced by the AMC fetchers) to naive IST."""
+    return dt_utc.replace(tzinfo=timezone.utc).astimezone(IST).replace(tzinfo=None)
+
+
 def write_inav_rows(
     rows: Iterable[Mapping],
     base_dir: str | os.PathLike | None = None,
@@ -68,7 +81,7 @@ def write_inav_rows(
     grouped: dict[Path, list[dict]] = defaultdict(list)
     for row in rows:
         symbol = row["symbol"]
-        snap = _coerce_snapshot_at(row["snapshot_at"])
+        snap = _to_ist_naive(_coerce_snapshot_at(row["snapshot_at"]))
         path = inav_csv_path(symbol, snap, base_dir)
         grouped[path].append({
             "snapshot_at": snap.isoformat(timespec="seconds"),
@@ -99,6 +112,9 @@ def read_inav(
 ) -> pd.DataFrame:
     """
     Read iNAV rows for `symbol` between `start` and `end` (inclusive).
+
+    `start`/`end` and the returned `snapshot_at` column are IST, matching what
+    write_inav_rows persisted.
 
     Returns an empty DataFrame with correct columns if no files exist.
     """

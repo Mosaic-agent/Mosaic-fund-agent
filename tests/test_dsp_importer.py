@@ -13,9 +13,9 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 import pytest
 
-from src.scripts.fund_imports.importers.dsp import DspImporter
-from src.scripts.fund_imports.factory import create_importer, REGISTRY
-from src.scripts.dsp.import_all_dsp_equity import ZIP_FILES, DSP_SCHEME_MAP
+from src.data_importer.amc_holdings.importers.dsp import DspImporter
+from src.data_importer.amc_holdings.factory import create_importer, REGISTRY
+from src.data_importer.dsp_holdings.import_all_dsp_equity import ZIP_FILES, DSP_SCHEME_MAP
 
 
 class TestDspImporterCatalogue:
@@ -49,7 +49,7 @@ class TestDspImporterParams:
         assert importer.table_name() == "market_data.mf_holdings"
         assert importer.watermark_source() == "mf_holdings"
 
-    @patch("src.scripts.fund_imports.importers.dsp.discover_latest_zip")
+    @patch("src.data_importer.amc_holdings.importers.dsp.discover_latest_zip")
     def test_fetch_sources_full_reimport(self, mock_discover):
         """Verify fetch_sources returns ZIP_FILES when full_reimport is True."""
         mock_discover.return_value = None
@@ -60,7 +60,7 @@ class TestDspImporterParams:
 
 
 class TestDspImporterParsing:
-    @patch("src.scripts.fund_imports.importers.dsp.process_month")
+    @patch("src.data_importer.amc_holdings.importers.dsp.process_month")
     def test_parse_source(self, mock_process_month):
         """Mock process_month and verify parse_source outputs correctly formatted rows."""
         mock_process_month.return_value = [

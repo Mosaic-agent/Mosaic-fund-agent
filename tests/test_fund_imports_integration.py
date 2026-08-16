@@ -91,7 +91,12 @@ class TestFactory:
 
     def test_registry_keys(self):
         from src.scripts.fund_imports.factory import REGISTRY
-        assert set(REGISTRY.keys()) == {"icici", "nippon", "icici-index", "dsp", "quant", "bajaj", "amfi", "kotak", "hdfc"}
+        expected = {
+            "icici", "nippon", "icici-index", "dsp", "quant", "bajaj", "amfi", "kotak", "hdfc",
+            "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco",
+            "mirae", "mirae_asset", "mirae-asset", "axis", "axis_mf", "axis-mf"
+        }
+        assert set(REGISTRY.keys()) == expected
 
     def test_nippon_from_year_stored(self):
         from src.scripts.fund_imports.factory import create_importer
