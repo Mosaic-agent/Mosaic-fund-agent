@@ -25,7 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Valid values for the `amc` argument — mirrors factory.REGISTRY keys.
-AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant", "amfi", "hdfc", "kotak", "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco"})
+AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant", "amfi", "hdfc", "kotak", "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco", "mirae", "mirae_asset", "mirae-asset"})
 
 
 def fetch_amc_holdings(
