@@ -79,6 +79,7 @@ STOCKS: list[tuple[str, str]] = [
     ("CHOLAFIN",    "CHOLAFIN.NS"),      # Cholamandalam Investment & Finance (Murugappa)
     ("ALKYLAMINE",  "ALKYLAMINE.NS"),    # Alkyl Amines Chemicals — specialty amines
     ("BECTORFOOD",  "BECTORFOOD.NS"),    # Mrs. Bectors Food Specialities Limited
+    ("INDIGRID",    "INDIGRID.NS"),      # IndiGrid Infrastructure Trust — InvIT, power transmission assets
 ]
 
 ETFS: list[tuple[str, str]] = [
