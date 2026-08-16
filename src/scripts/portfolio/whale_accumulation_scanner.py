@@ -308,36 +308,48 @@ def run_whale_scan(
 
     df_raw["as_of_month"] = pd.to_datetime(df_raw["as_of_month"])
 
-    # ── 3. Identify latest and comparison month (by calendar month) ──────────
-    # Different AMCs snapshot on different calendar days (1st, 15th, month-end),
-    # so comparing by *exact* as_of_month date starves the scan of cross-AMC
-    # breadth whenever one family's snapshot date happens to be globally latest
-    # (e.g. only BAJAJ_FINSERV_* funds report on the 15th while every other AMC
-    # reports on the 1st/month-end — the exact-date max used to resolve to a
-    # date where only one AMC group had any data at all).  Bucket to calendar
-    # month instead so every AMC's most recent snapshot in that month counts.
-    df_raw["report_month"] = df_raw["as_of_month"].values.astype("datetime64[M]")
-    all_report_months = sorted(df_raw["report_month"].unique())
-    latest_report_month = all_report_months[-1]
-    target_prev = pd.Timestamp(latest_report_month) - pd.DateOffset(months=lookback_months)
-    prev_report_month = min(all_report_months, key=lambda m: abs((pd.Timestamp(m) - target_prev).days))
+    # ── 3. Identify each fund's own latest & comparison snapshot ─────────────
+    # Different AMCs' importers stamp their monthly disclosure with different
+    # as_of_month conventions — some snapshot on the 1st/15th/month-end of a
+    # given month, others stamp the FOLLOWING month's 1st for what is really
+    # the prior month's month-end data. A single shared "latest calendar month"
+    # bucket (a prior version of this fix) only fixed same-month day drift —
+    # it still silently drops every AMC whose latest row happens to land in an
+    # earlier *calendar month* than another AMC's (observed live: HDFC/ICICI/
+    # KOTAK's latest row was dated the 1st of the next month while all 12 other
+    # AMCs' latest row was dated the last day of the prior month — one day
+    # apart in reality, but a different report_month bucket, so only
+    # HDFC/ICICI/KOTAK ever appeared in "latest" and no other AMC could ever
+    # reach num_amcs >= min_amcs). Resolve "latest" and "comparison"
+    # independently PER FUND instead, so every AMC's own most recent snapshot
+    # always counts regardless of how far ahead/behind another AMC's is.
+    def _latest_per_fund(df: pd.DataFrame) -> pd.DataFrame:
+        """Each fund's own most recent as_of_month — ALL securities from that
+        date (guards against rare double-imports/backfills landing on the same
+        date collapsing to a single row)."""
+        max_dates = df.groupby("fund_name")["as_of_month"].transform("max")
+        return df[df["as_of_month"] == max_dates].copy()
 
-    def _latest_per_fund(df: pd.DataFrame, report_month) -> pd.DataFrame:
-        """Within a calendar month, keep each fund's most recent snapshot DATE
-        (guards against rare double-imports/backfills landing in the same month) —
-        ALL securities from that date, not a single collapsed row. (A prior
-        `groupby(...).idxmax()` + `.loc[idx]` here silently kept only one
-        arbitrary security per fund per month, discarding the rest of that
-        fund's holdings from the scan entirely.)"""
-        sub = df[df["report_month"] == report_month]
-        max_dates = sub.groupby("fund_name")["as_of_month"].transform("max")
-        return sub[sub["as_of_month"] == max_dates].copy()
+    def _comparison_per_fund(df: pd.DataFrame, own_latest: "pd.Series") -> pd.DataFrame:
+        """For each fund, the snapshot closest to (that fund's own latest date
+        minus lookback_months) — independent of any other fund's timeline."""
+        parts = []
+        for fund_name, grp in df.groupby("fund_name"):
+            latest_date = own_latest.get(fund_name)
+            if latest_date is None:
+                continue
+            target = latest_date - pd.DateOffset(months=lookback_months)
+            dates = grp["as_of_month"].unique()
+            closest = min(dates, key=lambda d: abs((pd.Timestamp(d) - target).days))
+            parts.append(grp[grp["as_of_month"] == closest])
+        return pd.concat(parts) if parts else df.iloc[0:0].copy()
 
-    df_latest = _latest_per_fund(df_raw, latest_report_month)
-    df_prev   = _latest_per_fund(df_raw, prev_report_month)
+    df_latest = _latest_per_fund(df_raw)
+    fund_latest_dates = df_latest.groupby("fund_name")["as_of_month"].first()
+    df_prev = _comparison_per_fund(df_raw, fund_latest_dates)
 
-    latest_month = pd.Timestamp(latest_report_month)
-    prev_month   = pd.Timestamp(prev_report_month)
+    latest_month = df_latest["as_of_month"].max()
+    prev_month   = df_prev["as_of_month"].max()
 
     # ── 4. Aggregate per security_name × amc_group per month ─────────────────
     def _agg(df: pd.DataFrame) -> pd.DataFrame:

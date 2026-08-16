@@ -150,6 +150,48 @@ class TestWhaleAccumulationScan(unittest.TestCase):
         self.assertIsInstance(reliance["opportunity_score"], float)
 
 
+class TestPerFundDateResolution(unittest.TestCase):
+    """
+    Regression coverage for a real bug found QA'ing against live ClickHouse
+    data: a shared calendar-month bucket (report_month) excluded every AMC
+    whose latest snapshot landed in an earlier calendar month than another
+    AMC's — even when the two dates were only a day apart (e.g. one AMC's
+    importer stamps the 1st of the next month for what is really the prior
+    month's month-end disclosure, while another AMC's importer stamps the
+    actual month-end date). run_whale_scan must resolve "latest" and
+    "comparison" independently per fund so this drift can't silently exclude
+    an AMC from the scan entirely.
+    """
+
+    @patch(f"{MODULE}.query_df", side_effect=lambda sql, *a, **k: (
+        pd.DataFrame() if "amfi_category_flows" in sql else pd.DataFrame(
+            [
+                # HDFC's importer stamps the 1st of the *next* month for
+                # July's month-end disclosure; KOTAK's importer stamps the
+                # actual month-end date. Same real-world disclosure cycle,
+                # different calendar-month bucket under naive bucketing.
+                ("HDFC_FLEXI_CAP",  "2026-08-01", "Reliance Industries Ltd.", 2.5, 130.0, RELIANCE_ISIN),
+                ("HDFC_FLEXI_CAP",  "2026-05-01", "Reliance Industries Ltd.", 2.0, 100.0, RELIANCE_ISIN),
+                ("KOTAK_FLEXI_CAP", "2026-07-31", "Reliance Industries Ltd.", 2.0, 90.0,  RELIANCE_ISIN),
+                ("KOTAK_FLEXI_CAP", "2026-04-30", "Reliance Industries Ltd.", 1.5, 60.0,  RELIANCE_ISIN),
+            ],
+            columns=["fund_name", "as_of_month", "security_name", "pct_of_nav", "market_value_cr", "isin"],
+        ).assign(asset_type="equity")
+    ))
+    @patch("yfinance.download")
+    def test_amcs_a_calendar_day_apart_still_both_count(self, mock_yf_download, mock_query_df):
+        results = run_whale_scan(amc="all", lookback_months=3, min_amcs=2)
+
+        self.assertNotIn("error", results)
+        acc_by_name = {r["security_name"]: r for r in results["top_accumulators"]}
+        self.assertIn("Reliance Industries Ltd.", acc_by_name)
+        reliance = acc_by_name["Reliance Industries Ltd."]
+        # Both HDFC (Aug-1-dated) and KOTAK (Jul-31-dated) must count, even
+        # though a naive calendar-month bucket would keep only HDFC's.
+        self.assertEqual(reliance["num_amcs"], 2)
+        self.assertEqual(set(reliance["amcs"]), {"HDFC", "KOTAK"})
+
+
 class TestAmcGroupingAndFilters(unittest.TestCase):
     """
     Direct unit coverage for the three pure helper functions that a stale,
