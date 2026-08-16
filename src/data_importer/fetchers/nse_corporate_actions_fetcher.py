@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from datetime import date
 from typing import Any
@@ -41,19 +42,67 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _NSE_CA_URL  = "https://www.nseindia.com/api/corporates-corporateActions"
-_NSE_WARMUP  = "https://www.nseindia.com/"
+_NSE_WARMUP  = "https://www.nseindia.com/get-quotes/equity"
+# Full browser-equivalent header set + HTTP/2 (both required — NSE's Akamai bot
+# manager 403s a plain HTTP/1.1 client with a minimal header set even though the
+# underlying API has real data; verified working manually against
+# corporates-corporateActions and top-corp-info before landing this).
 _NSE_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept":          "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer":         "https://www.nseindia.com/",
-    "Connection":      "keep-alive",
+    "Accept":            "application/json, text/plain, */*",
+    "Accept-Language":   "en-US,en;q=0.9",
+    "Accept-Encoding":   "gzip, deflate, br",
+    "Connection":        "keep-alive",
+    "Sec-Fetch-Dest":    "empty",
+    "Sec-Fetch-Mode":    "cors",
+    "Sec-Fetch-Site":    "same-origin",
 }
 _TIMEOUT = 15
+
+# ── Warmed-up session reuse ────────────────────────────────────────────────────
+# NSE's session cookies (nsit/ak_bmsc/bm_sz) are valid for ~2h, so re-warming
+# (extra GET + 0.8s sleep) on every single symbol lookup is pure waste once more
+# than one symbol is queried in the same process. Cache one warmed client and
+# reuse it; per-symbol Referer is passed per-request instead of baked into the
+# client so the cached client stays symbol-agnostic.
+_SESSION_TTL = 1800  # 30 min — conservative vs NSE's ~2h cookie expiry
+_session_lock = threading.Lock()
+_cached_client: httpx.Client | None = None
+_cached_client_ts: float = 0.0
+
+
+def _get_warmed_client() -> httpx.Client:
+    global _cached_client, _cached_client_ts
+    with _session_lock:
+        now = time.monotonic()
+        if _cached_client is not None and (now - _cached_client_ts) < _SESSION_TTL:
+            return _cached_client
+        if _cached_client is not None:
+            _cached_client.close()
+        client = httpx.Client(
+            headers=_NSE_HEADERS,
+            follow_redirects=True,
+            timeout=_TIMEOUT,
+            http2=True,
+        )
+        client.get(_NSE_WARMUP, params={"symbol": "NIFTY"}, timeout=10)
+        time.sleep(0.8)
+        _cached_client = client
+        _cached_client_ts = now
+        return client
+
+
+def _invalidate_cached_client() -> None:
+    global _cached_client, _cached_client_ts
+    with _session_lock:
+        if _cached_client is not None:
+            _cached_client.close()
+        _cached_client = None
+        _cached_client_ts = 0.0
 
 # Action types whose ex-dates suppress anomaly detection (price jumps on these
 # dates are mechanical, not informational).
@@ -130,33 +179,41 @@ def fetch_corporate_actions(symbol: str) -> list[dict[str, Any]]:
     symbol_upper = symbol.strip().upper()
     rows: list[dict[str, Any]] = []
     data = None
+    referer = {"Referer": f"{_NSE_WARMUP}?symbol={symbol_upper}"}
 
-    try:
-        with httpx.Client(
-            headers=_NSE_HEADERS,
-            follow_redirects=True,
-            timeout=_TIMEOUT,
-        ) as client:
-            # Warm-up: obtain NSE session cookies (required — NSE blocks cookie-less requests)
-            client.get(_NSE_WARMUP, timeout=10)
-            time.sleep(0.8)
-
+    for attempt in (1, 2):
+        try:
+            client = _get_warmed_client()
             resp = client.get(
                 _NSE_CA_URL,
                 params={"index": "equities", "symbol": symbol_upper},
+                headers=referer,
                 timeout=_TIMEOUT,
             )
             resp.raise_for_status()
             data = resp.json()
+            break
 
-    except Exception as exc:
-        logger.warning("NSE corporate actions fetch failed for %s: %s", symbol_upper, exc)
+        except Exception as exc:
+            logger.warning(
+                "NSE corporate actions fetch failed for %s (attempt %d): %s",
+                symbol_upper, attempt, exc,
+            )
+            # The cached session may have gone stale (expired cookies, one-off
+            # 403) — drop it and retry once with a freshly warmed client before
+            # falling through to the yfinance fallback below.
+            _invalidate_cached_client()
 
     if isinstance(data, list):
         for item in data:
-            purpose    = str(item.get("purpose") or "").strip()
+            # NSE's corporateActions JSON uses "subject" and "recDate" (not the
+            # "purpose"/"recordDate" this fetcher originally expected — a schema
+            # drift that silently produced 0 rows for every symbol and fell through
+            # to the yfinance fallback below). Keep the old keys as a fallback in
+            # case NSE reverts or another endpoint variant uses them.
+            purpose    = str(item.get("subject") or item.get("purpose") or "").strip()
             ex_raw     = str(item.get("exDate") or item.get("ex_date") or "")
-            rec_raw    = str(item.get("recordDate") or item.get("record_date") or "")
+            rec_raw    = str(item.get("recDate") or item.get("recordDate") or item.get("record_date") or "")
             series     = str(item.get("series") or "EQ").strip()
             face_val_s = str(item.get("faceVal") or item.get("face_val") or "0")
 
