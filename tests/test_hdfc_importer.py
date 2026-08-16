@@ -13,12 +13,12 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 import pytest
 
-from src.scripts.fund_imports.importers.hdfc import (
+from src.data_importer.amc_holdings.importers.hdfc import (
     HDFC_FUNDS,
     HdfcImporter,
     _COLUMNS,
 )
-from src.scripts.fund_imports.factory import create_importer, REGISTRY
+from src.data_importer.amc_holdings.factory import create_importer, REGISTRY
 
 
 class TestHdfcImporterCatalogue:

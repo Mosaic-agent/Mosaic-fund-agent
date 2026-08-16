@@ -25,7 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Valid values for the `amc` argument — mirrors factory.REGISTRY keys.
-AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant", "amfi", "hdfc", "kotak", "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco", "mirae", "mirae_asset", "mirae-asset"})
+AMC_KEYS: frozenset[str] = frozenset({"nippon", "dsp", "icici", "icici-index", "bajaj", "quant", "amfi", "hdfc", "kotak", "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco", "mirae", "mirae_asset", "mirae-asset", "axis", "axis_mf", "axis-mf"})
 
 
 def fetch_amc_holdings(
@@ -56,7 +56,7 @@ def fetch_amc_holdings(
     from src.data_importer.amc_holdings.factory import create_importer
 
     kwargs: dict = {}
-    if amc in ("nippon", "dsp", "bajaj", "quant", "amfi", "hdfc", "kotak", "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco"):
+    if amc in ("nippon", "dsp", "bajaj", "quant", "amfi", "hdfc", "kotak", "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco", "mirae", "mirae_asset", "mirae-asset", "axis", "axis_mf", "axis-mf"):
         kwargs["full_reimport"] = full_reimport
 
     if target_month:
