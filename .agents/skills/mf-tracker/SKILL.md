@@ -97,6 +97,7 @@ python src/main.py import --category icici        # ICICI Prudential multi-asset
 python src/main.py import --category icici-index  # ICICI Index funds
 python src/main.py import --category quant        # Quant active funds
 python src/main.py import --category bajaj        # Bajaj Finserv funds
+python src/main.py import --category abakkus      # Abakkus Mutual Fund (Flexi Cap, Small Cap, Liquid)
 python src/main.py import --category amfi         # AMFI category flows & AUM
 ```
 
@@ -107,6 +108,7 @@ python src/scripts/fund_imports/run.py nippon       # Nippon holdings backfill
 python src/scripts/fund_imports/run.py icici        # ICICI holdings backfill
 python src/scripts/fund_imports/run.py quant        # Quant holdings backfill
 python src/scripts/fund_imports/run.py bajaj        # Bajaj holdings backfill
+python src/scripts/fund_imports/run.py abakkus      # Abakkus holdings backfill
 python src/scripts/fund_imports/run.py amfi         # AMFI category-wise net flows
 python src/scripts/fund_imports/run.py all          # Run all registered AMC importers
 ```
