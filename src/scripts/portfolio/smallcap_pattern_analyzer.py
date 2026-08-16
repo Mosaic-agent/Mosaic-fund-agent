@@ -44,6 +44,7 @@ AMC_ALIAS_MAP = {
     "abakkus": "lower(fund_name) LIKE 'abakkus%'",
     "abacus": "lower(fund_name) LIKE 'abakkus%'",
     "helios": "lower(fund_name) LIKE 'helios%'",
+    "invesco": "lower(fund_name) LIKE 'invesco%'",
 }
 
 # Per-category fund_name / AMFI-category membership rules and the ETF symbols
