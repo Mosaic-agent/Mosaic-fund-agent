@@ -405,6 +405,33 @@ class FIIDIIFetcher(Fetcher):
         return max(r["trade_date"] for r in rows)
 
 
+# ── NSE Delivery Position (bulk bhavcopy, all symbols) ───────────────────────
+
+class NseDeliveryFetcher(Fetcher):
+    """
+    Daily delivery quantity / % delivery-to-traded for every NSE-listed
+    security, from NSE's bulk bhavcopy (one file/day covers the whole market,
+    not a per-symbol fetch like STOCKS/ETFS).
+    """
+
+    source_name  = "nse_delivery"
+    symbol_key   = "MARKET"
+    description  = "NSE daily delivery position (all symbols, bhavcopy)"
+    overlap_days = 3
+    first_run_lookback_days = 1095  # 3 years — matches verified NSE archive depth
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        try:
+            from src.data_importer.fetchers.nse_delivery_fetcher import fetch_nse_delivery
+            return fetch_nse_delivery(from_date, to_date)
+        except Exception as exc:
+            log.warning("%s fetch failed: %s", self, exc)
+            return []
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_nse_delivery(rows)
+
+
 # ── FX Rates (USD pairs via Yahoo Finance) ───────────────────────────────────
 
 class FXRatesFetcher(Fetcher):
@@ -826,6 +853,7 @@ def _build_registry() -> dict[str, Fetcher]:
     registry["mf"]      = MFNavFetcher(MF_SCHEME_CODES)
     registry["fii_dii"] = FIIDIIFetcher()
     registry["fx_rates"] = FXRatesFetcher()
+    registry["nse_delivery"] = NseDeliveryFetcher()
     registry["cot"]     = COTGoldFetcher()
     registry["cb_reserves"] = CbReservesFetcher()
     registry["etf_aum"]     = EtfAumFetcher()
