@@ -53,8 +53,11 @@ class MFSubAgent(_SubAgent):
         "| Intent                                    | Tool                                        |\n"
         "|-------------------------------------------|---------------------------------------------|\n"
         "| MoM/YoY position changes in ONE fund      | `run_multi_asset_holdings_mom_yoy`          |\n"
+        "| Fund concentration, diversification, top holdings | `run_mf_concentration_risk`          |\n"
         "| Cross-fund consensus / smart-money overlap| `run_multi_asset_consensus`                 |\n"
-        "| Theme tracking (gold/silver/nuclear/infra)| `run_whale_tracker`                         |\n"
+        "| Theme tracking (gold/silver/nuclear/infra) & AMC archetypes| `run_whale_tracker`                         |\n"
+        "| Cross-AMC consensus buys (+technical confirmation)| `scan_whale_accumulation`                   |\n"
+        "| Single-stock institutional consensus lookup| `get_whale_consensus`                       |\n"
         "| NAV MoM returns for any MF                | `run_fund_mom_returns`                      |\n"
         "| DSP cross-fund weighted comparison        | `run_dsp_multi_asset_comparison`            |\n"
         "| Top holdings bar chart for a fund         | `plot_fund_holdings_chart`                  |\n"
@@ -75,8 +78,18 @@ class MFSubAgent(_SubAgent):
         "## Routing rules\n"
         "- 'pattern across multi-asset funds', 'what are funds collectively buying', "
         "'smart money consensus' → `run_multi_asset_consensus`\n"
+        "- 'AMC multi asset archetypes', 'compare AMC styles', 'what pattern across AMCs', "
+        "'gold/silver/nuclear theme exposure across funds' → `run_whale_tracker`\n"
+        "- 'what are institutions accumulating', 'which stocks are multiple AMCs buying', "
+        "'cross-AMC consensus buys', 'institutional accumulation', 'which consensus buys are "
+        "technically attractive too' → `scan_whale_accumulation` (pass `with_technicals=True` "
+        "only when the user asks about technical/price confirmation, not for a plain consensus check)\n"
+        "- 'is DSP/Nippon buying <stock>', 'which AMCs hold <stock>', 'institutional consensus "
+        "on <stock>' → `get_whale_consensus(symbol=<stock>)`\n"
         "- 'how did <fund> change MoM/YoY', 'top adds/exits in <fund>' → "
         "`run_multi_asset_holdings_mom_yoy(fund=...)`\n"
+        "- 'concentration risk for <fund>', 'is <fund> diversified', 'top holdings in <fund>' → "
+        "`run_mf_concentration_risk(fund=...)`; use `all_funds=True` only for a multi-asset comparison\n"
         "  Examples:\n"
         "  - 'DSP multi asset MoM' → `fund='DSP_MULTI_ASSET'`\n"
         "  - 'Nippon multi asset changes', 'how did Nippon change' → "
@@ -173,8 +186,10 @@ class MFSubAgent(_SubAgent):
             run_nippon_importer,
             run_icici_importer,
             run_all_multi_asset_importers,
+            run_mf_concentration_risk,
             query_clickhouse_db,
         )
+        from src.tools.whale_tools import scan_whale_accumulation, get_whale_consensus
         from src.tools.db_tools import describe_db_table, list_db_tables, sample_db_table, search_db_metadata
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
         from src.tools.chart_tools import plot_fund_holdings_chart, plot_price_chart
@@ -191,6 +206,9 @@ class MFSubAgent(_SubAgent):
             run_nippon_importer,
             run_icici_importer,
             run_all_multi_asset_importers,
+            run_mf_concentration_risk,
+            scan_whale_accumulation,
+            get_whale_consensus,
             get_mf_holdings_for_stock,
             find_funds_holding,
             find_similar_funds,
@@ -292,6 +310,19 @@ class MFSubAgent(_SubAgent):
             )
             logger.info("MFSubAgent._fallback: search_mf_exposure → %r", cat)
             return search_mf_exposure.invoke({"category": cat})
+
+        # ── Cross-AMC consensus accumulation (checked before the theme-tracker
+        # branch below, since both can match on "whale") ─────────────────────
+        if any(kw in q for kw in (
+            "consensus", "accumulation", "accumulating", "institutions buying",
+            "institutional buying", "cross-amc", "cross amc",
+        )):
+            logger.info("MFSubAgent._fallback: whale accumulation consensus path")
+            from src.tools.whale_tools import scan_whale_accumulation
+            with_tech = any(kw in q for kw in (
+                "technical", "technically", "rsi", "breakout", "oversold", "drawdown",
+            ))
+            return scan_whale_accumulation.invoke({"with_technicals": with_tech})
 
         # ── Whale-tracker theme ───────────────────────────────────────────────
         if any(kw in q for kw in ("whale", "theme", "thematic", "rotation theme")):

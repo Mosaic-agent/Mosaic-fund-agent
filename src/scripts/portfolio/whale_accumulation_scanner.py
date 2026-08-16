@@ -62,13 +62,42 @@ def _is_debt_instrument(security_name: str) -> bool:
     return bool(_DEBT_NAME_RE.search(security_name))
 
 
-def _get_amc_group(fund_name: str) -> str:
-    """Derive the parent AMC group from a fund_name's BRAND_SCHEME naming convention.
+# ── Company-suffix spelling normalization ─────────────────────────────────────
+# Older BRAND_SCHEME importers (HDFC/ICICI/Kotak/DSP/Nippon/Bajaj/Quant/SBI) stamp
+# security_name with the "Ltd" suffix; the newer AMFI-sourced importers (Abakkus,
+# Axis, Canara Robeco, Helios, Invesco, Mirae Asset, Motilal Oswal) use "Limited"
+# for the exact same companies (e.g. "Reliance Industries Ltd" vs "Reliance
+# Industries Limited"). Without normalizing this, the same real-world stock is
+# silently split into two separate consensus rows and can never show the full
+# cross-AMC picture. Only the suffix token itself is swapped — trailing
+# derivative/rights/partly-paid/expiry-dated suffixes (e.g. "... Limited Apr25",
+# "... Limited - Partly Paid Up") are deliberately left as distinct strings since
+# those are genuinely different instruments, not spelling variants of the same one.
+_LIMITED_SUFFIX_RE = re.compile(r"\bLimited\b", re.IGNORECASE)
 
-    fund_name is always BRAND_SCHEME_TYPE (e.g. HDFC_FLEXI_CAP, BAJAJ_FINSERV_LIQUID_FUND),
-    so the brand token is a reliable, self-updating group key — no hardcoded whitelist needed
-    (a whitelist previously collapsed every non-listed AMC, including HDFC/Kotak/SBI, into a
-    single meaningless 'OTHER' bucket, undercounting true cross-AMC consensus).
+
+def _normalize_security_name(security_name: str) -> str:
+    return _LIMITED_SUFFIX_RE.sub("Ltd", security_name).strip()
+
+
+def _get_amc_group(fund_name: str) -> str:
+    """Derive the parent AMC group from fund_name, which arrives in one of two
+    conventions depending on which importer sourced it:
+
+      1. BRAND_SCHEME_TYPE (e.g. HDFC_FLEXI_CAP, BAJAJ_FINSERV_LIQUID_FUND) — the
+         brand is the first underscore-delimited token.
+      2. "Human Readable Fund Name" (e.g. 'Axis Flexi Cap Fund', 'Canara Robeco Mid
+         Cap Fund', 'Motilal Oswal Multicap Fund') — used by the Abakkus/Axis/Canara
+         Robeco/Helios/Invesco/Mirae Asset/Motilal Oswal importers. This has no
+         underscore, so the brand is the first space-delimited word instead.
+         (A prior version always took fn.split("_")[0] regardless of convention,
+         which for every space-separated name returned the ENTIRE uppercased fund
+         name as a one-off "AMC group" — each such fund was bucketed alone and could
+         never satisfy num_amcs >= min_amcs, silently excluding all 7 of those AMCs'
+         holdings from every cross-AMC consensus scan.)
+
+    No hardcoded per-AMC whitelist is used for either convention — the token itself is
+    the group key — so newly-imported AMCs need no code change here to be counted.
 
     Historical Reliance Mutual Fund filings (pre-2019 rename) are folded into NIPPON so the
     same AMC's holdings aren't split across the brand change.
@@ -76,7 +105,9 @@ def _get_amc_group(fund_name: str) -> str:
     fn = fund_name.upper()
     if fn.startswith("RELIANCE"):
         return "NIPPON"
-    return fn.split("_")[0]
+    if "_" in fn:
+        return fn.split("_")[0]
+    return fn.split(" ")[0]
 
 
 # ── AMFI category flow context ────────────────────────────────────────────────
@@ -127,12 +158,79 @@ def _get_category_flow_context() -> dict[str, dict]:
     return result
 
 
+# ── Optional technical confirmation (RSI / drawdown / volume surge) ──────────
+
+def _compute_technical_confirmation(isin_map: dict[str, str]) -> dict[str, dict]:
+    """
+    Bulk-download 1y OHLCV per ISIN via yfinance and compute RSI-14, drawdown from
+    the 52-week high, and volume surge (latest / 20d avg volume) — the same
+    technical-setup calculation dsp_opportunity_scanner.py already uses for DSP-only
+    conviction picks, generalized here to any cross-AMC consensus pick.
+
+    isin_map: {security_name: isin}. Returns {security_name: {rsi, drawdown_pct,
+    volume_surge, ticker}} — securities with no usable price history are omitted;
+    caller falls back to a neutral tech_score for those.
+    """
+    import yfinance as yf
+    from src.scripts.portfolio.dsp_opportunity_scanner import _rsi
+
+    isins = list(isin_map.values())
+    if not isins:
+        return {}
+
+    try:
+        df_prices = yf.download(isins, period="1y", group_by="ticker", progress=False)
+    except Exception:
+        return {}
+
+    out: dict[str, dict] = {}
+    for security_name, isin in isin_map.items():
+        close_series = pd.Series(dtype=float)
+        vol_series = pd.Series(dtype=float)
+        has_data = False
+
+        if len(isins) == 1:
+            if not df_prices.empty:
+                close_series = df_prices["Close"]
+                vol_series = df_prices["Volume"]
+                has_data = True
+        elif isin in df_prices.columns.levels[0]:
+            close_series = df_prices[isin]["Close"].dropna()
+            vol_series = df_prices[isin]["Volume"].dropna()
+            has_data = True
+
+        if not has_data or len(close_series) <= 20:
+            continue
+
+        latest_close = float(close_series.iloc[-1])
+        high_52w = float(close_series.max())
+        drawdown_pct = float((latest_close - high_52w) / high_52w * 100) if high_52w > 0 else 0.0
+        avg_vol_20d = float(vol_series.rolling(20).mean().iloc[-1])
+        latest_vol = float(vol_series.iloc[-1])
+        volume_surge = float(latest_vol / avg_vol_20d) if avg_vol_20d > 0 else 1.0
+
+        ticker_symbol = isin
+        try:
+            ticker_symbol = yf.Ticker(isin).info.get("symbol", isin)
+        except Exception:
+            pass
+
+        out[security_name] = {
+            "rsi": _rsi(close_series),
+            "drawdown_pct": drawdown_pct,
+            "volume_surge": volume_surge,
+            "ticker": ticker_symbol,
+        }
+    return out
+
+
 # ── Core scan logic ───────────────────────────────────────────────────────────
 
 def run_whale_scan(
     amc: str = "all",
     lookback_months: int = 3,
     min_amcs: int = 2,
+    with_technicals: bool = False,
 ) -> dict[str, Any]:
     """
     Run the cross-AMC consensus accumulation scan.
@@ -146,6 +244,10 @@ def run_whale_scan(
     min_amcs : int
         Minimum distinct AMC groups a stock must be held by to qualify as
         consensus (default 2).
+    with_technicals : bool
+        When True, enrich the top 25 accumulators with RSI-14 / drawdown-from-52w-high /
+        volume-surge (via yfinance) and a blended opportunity_score. Adds network latency
+        (bulk yfinance download) — off by default.
 
     Returns
     -------
@@ -162,7 +264,7 @@ def run_whale_scan(
     try:
         df_raw = query_df(
             f"""
-            SELECT fund_name, as_of_month, security_name, asset_type,
+            SELECT fund_name, as_of_month, security_name, asset_type, isin,
                    toFloat64(pct_of_nav) AS pct_of_nav,
                    toFloat64(market_value_cr) AS market_value_cr
             FROM market_data.mf_holdings FINAL
@@ -181,6 +283,8 @@ def run_whale_scan(
         return {"error": "No mf_holdings data found — run `import --category nippon dsp` first.",
                 "top_accumulators": [], "fresh_entries": [], "top_by_value": []}
 
+    df_raw["security_name"] = df_raw["security_name"].apply(_normalize_security_name)
+
     # ── 2. Assign AMC group + drop passive funds ──────────────────────────────
     df_raw["amc_group"] = df_raw["fund_name"].apply(_get_amc_group)
     df_raw = df_raw[~df_raw["fund_name"].apply(_is_passive)].copy()
@@ -189,6 +293,18 @@ def run_whale_scan(
     if df_raw.empty:
         return {"error": "No active equity holdings after passive fund filter.",
                 "top_accumulators": [], "fresh_entries": [], "top_by_value": []}
+
+    # ── ISIN lookup for optional technical confirmation (most common non-empty,
+    # non-placeholder ISIN per security; mf_holdings occasionally stamps a synthetic
+    # 'PH_'-prefixed ISIN for unlisted/non-tradeable lines) ───────────────────────
+    _valid_isin = df_raw[
+        df_raw["isin"].notna() & (df_raw["isin"] != "") & (~df_raw["isin"].str.startswith("PH_"))
+    ]
+    isin_lookup: dict[str, str] = (
+        _valid_isin.groupby("security_name")["isin"]
+        .agg(lambda s: s.value_counts().index[0])
+        .to_dict()
+    )
 
     df_raw["as_of_month"] = pd.to_datetime(df_raw["as_of_month"])
 
@@ -207,11 +323,15 @@ def run_whale_scan(
     prev_report_month = min(all_report_months, key=lambda m: abs((pd.Timestamp(m) - target_prev).days))
 
     def _latest_per_fund(df: pd.DataFrame, report_month) -> pd.DataFrame:
-        """Within a calendar month, keep each fund's most recent snapshot
-        (guards against rare double-imports/backfills landing in the same month)."""
+        """Within a calendar month, keep each fund's most recent snapshot DATE
+        (guards against rare double-imports/backfills landing in the same month) —
+        ALL securities from that date, not a single collapsed row. (A prior
+        `groupby(...).idxmax()` + `.loc[idx]` here silently kept only one
+        arbitrary security per fund per month, discarding the rest of that
+        fund's holdings from the scan entirely.)"""
         sub = df[df["report_month"] == report_month]
-        idx = sub.groupby("fund_name")["as_of_month"].idxmax()
-        return sub.loc[idx].copy()
+        max_dates = sub.groupby("fund_name")["as_of_month"].transform("max")
+        return sub[sub["as_of_month"] == max_dates].copy()
 
     df_latest = _latest_per_fund(df_raw, latest_report_month)
     df_prev   = _latest_per_fund(df_raw, prev_report_month)
@@ -327,7 +447,29 @@ def run_whale_scan(
             "category_flow_confirms": category_flow_confirms,
             "flow_pct_of_aum":        flow_pct_of_aum,
             "amfi_report_month":      amfi_report_month,
+            "isin":                   isin_lookup.get(row["security_name"]),
         })
+
+    # ── 9b. Optional technical confirmation (RSI/drawdown/volume) ────────────────
+    if with_technicals and accumulators:
+        isin_map = {a["security_name"]: a["isin"] for a in accumulators if a.get("isin")}
+        technicals = _compute_technical_confirmation(isin_map)
+        for a in accumulators:
+            t = technicals.get(a["security_name"])
+            conviction_score = min(100.0, a["num_amcs"] * 25.0 + max(0.0, a["avg_delta_pp"]) * 40.0)
+            rsi_val = t.get("rsi") if t else None
+            dd_val = t.get("drawdown_pct") if t else None
+            tech_score = 50.0
+            if rsi_val is not None and dd_val is not None:
+                tech_score = (
+                    min(50.0, max(0.0, -dd_val * 1.5))
+                    + min(50.0, max(0.0, 75.0 - rsi_val))
+                )
+            a["rsi"] = rsi_val
+            a["drawdown_pct"] = dd_val
+            a["volume_surge"] = t.get("volume_surge") if t else None
+            a["ticker"] = t.get("ticker") if t else None
+            a["opportunity_score"] = round(conviction_score * 0.5 + tech_score * 0.5, 1)
 
     fresh_entries: list[dict] = []
     for _, row in fresh_by_sec.head(20).iterrows():
@@ -359,6 +501,7 @@ def run_whale_scan(
         "top_by_value":         top_val,
         "amfi_report_month":    amfi_report_month,
         "flow_confirms_available": flow_confirms_available,
+        "with_technicals":      with_technicals,
     }
 
 
@@ -417,6 +560,12 @@ def print_whale_report(results: dict[str, Any], console=None, save: bool = False
         if has_flow_ctx:
             tbl.add_column("Flow Confirms?", justify="center", min_width=14)
             tbl.add_column("Cat %AUM",       justify="right",  min_width=9)
+        has_tech = results.get("with_technicals", False)
+        if has_tech:
+            tbl.add_column("RSI-14",     justify="right", min_width=7)
+            tbl.add_column("Drawdown %", justify="right", min_width=10)
+            tbl.add_column("Vol Surge",  justify="right", min_width=9)
+            tbl.add_column("Opp. Score", justify="right", min_width=9, style="bold green")
 
         for r in acc[:15]:
             delta_str = f"[green]{r['avg_delta_pp']:+.3f}[/green]" if r["avg_delta_pp"] >= 0 \
@@ -439,6 +588,19 @@ def print_whale_report(results: dict[str, Any], console=None, save: bool = False
                 )
                 fpct_str = f"{fpct:+.2f}%" if fpct is not None else "—"
                 row_data += [flow_str, fpct_str]
+            if has_tech:
+                rsi_v = r.get("rsi")
+                dd_v = r.get("drawdown_pct")
+                vol_v = r.get("volume_surge")
+                score_v = r.get("opportunity_score")
+                rsi_col = "green" if rsi_v is not None and rsi_v < 35 else "red" if rsi_v is not None and rsi_v > 70 else "white"
+                dd_col = "green" if dd_v is not None and dd_v < -15 else "white"
+                row_data += [
+                    f"[{rsi_col}]{rsi_v:.1f}[/{rsi_col}]" if rsi_v is not None else "—",
+                    f"[{dd_col}]{dd_v:+.1f}%[/{dd_col}]" if dd_v is not None else "—",
+                    f"{vol_v:.2f}x" if vol_v is not None else "—",
+                    f"{score_v:.1f}/100" if score_v is not None else "—",
+                ]
             tbl.add_row(*row_data)
         console.print(tbl)
         if has_flow_ctx:
@@ -502,6 +664,13 @@ def print_whale_report(results: dict[str, Any], console=None, save: bool = False
 
 def _save_markdown(results: dict[str, Any]) -> None:
     """Save a Markdown summary of the scan to output/whale_accumulation_report.md."""
+    has_tech = results.get("with_technicals", False)
+    acc_header = "| Security | Score | AMCs | AMC Groups | Avg Δ (pp) | Total (₹ Cr) | Flow Confirms | Cat %AUM |"
+    acc_sep    = "| :--- | ---: | ---: | :--- | ---: | ---: | :---: | ---: |"
+    if has_tech:
+        acc_header += " RSI-14 | Drawdown % | Vol Surge | Opp. Score |"
+        acc_sep    += " ---: | ---: | ---: | ---: |"
+
     lines = [
         f"# 🐋 Whale Accumulation Report",
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  ",
@@ -514,20 +683,31 @@ def _save_markdown(results: dict[str, Any]) -> None:
         "",
         "## 🔺 Top Accumulators (consensus_score)",
         "",
-        "| Security | Score | AMCs | AMC Groups | Avg Δ (pp) | Total (₹ Cr) | Flow Confirms | Cat %AUM |",
-        "| :--- | ---: | ---: | :--- | ---: | ---: | :---: | ---: |",
+        acc_header,
+        acc_sep,
     ]
     for r in results["top_accumulators"][:20]:
         confirms = r.get("category_flow_confirms")
         fpct = r.get("flow_pct_of_aum")
         flow_str = "✅" if confirms is True else ("⚠️" if confirms is False else "N/A")
         fpct_str = f"{fpct:+.2f}%" if fpct is not None else "—"
-        lines.append(
+        row = (
             f"| {r['security_name']} | {r['consensus_score']:.3f} "
             f"| {r['num_amcs']} | {', '.join(r['amcs'])} "
             f"| {r['avg_delta_pp']:+.3f} | ₹{r['total_value_cr']:,.2f} "
             f"| {flow_str} | {fpct_str} |"
         )
+        if has_tech:
+            rsi_v = r.get("rsi")
+            dd_v = r.get("drawdown_pct")
+            vol_v = r.get("volume_surge")
+            score_v = r.get("opportunity_score")
+            rsi_str = f"{rsi_v:.1f}" if rsi_v is not None else "—"
+            dd_str = f"{dd_v:+.1f}%" if dd_v is not None else "—"
+            vol_str = f"{vol_v:.2f}x" if vol_v is not None else "—"
+            score_str = f"{score_v:.1f}/100" if score_v is not None else "—"
+            row += f" {rsi_str} | {dd_str} | {vol_str} | {score_str} |"
+        lines.append(row)
 
     lines += ["", "---", "", "## 🆕 Zero-to-Hero Fresh Entries", "",
               "| Security | AMCs Entered | # AMCs | Total (₹ Cr) | Wt % |",
@@ -575,6 +755,11 @@ def main() -> None:
         "--save", action="store_true",
         help="Save Markdown report to output/whale_accumulation_report.md"
     )
+    parser.add_argument(
+        "--with-technicals", action="store_true",
+        help="Enrich top accumulators with RSI/drawdown/volume-surge technical "
+             "confirmation (adds yfinance latency)"
+    )
     args = parser.parse_args()
 
     from rich.console import Console
@@ -583,6 +768,7 @@ def main() -> None:
         amc=args.amc,
         lookback_months=args.months,
         min_amcs=args.min_amcs,
+        with_technicals=args.with_technicals,
     )
     print_whale_report(results, console, save=args.save)
 

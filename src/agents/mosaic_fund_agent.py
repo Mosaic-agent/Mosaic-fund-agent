@@ -44,6 +44,7 @@ from src.tools.skills_tools import (
     run_india_equity_research_workflow,
     run_multi_fund_consensus_workflow,
     run_portfolio_workflow,
+    run_mf_concentration_risk,
 )
 from src.tools.chart_tools import plot_price_chart, plot_multi_price_chart
 from src.tools.report_publisher import publish_consolidated_pdf
@@ -83,6 +84,7 @@ ALL_TOOLS = ZERODHA_TOOLS + SUMMARIZATION_TOOLS + [
     scan_etf_setups, scan_etf_trends,
     run_autonomous_research, run_india_equity_research_workflow,
     run_multi_fund_consensus_workflow, run_portfolio_workflow,
+    run_mf_concentration_risk,
     query_clickhouse_db, get_live_inav, analyze_mf_sectors, detect_amc_sector_rotation, explain_rotation_thesis, audit_exhaustive_stock_shifts, display_master_amc_dashboard, analyze_smallcap_patterns, analyze_midcap_patterns, analyze_largecap_patterns,
     import_symbol_data, run_data_engineering_importer,
     plot_price_chart, plot_multi_price_chart,
@@ -354,6 +356,7 @@ AGENT_SYSTEM_PROMPT = (
     "number, state that the data is unavailable — do NOT approximate.\n\n"
     "MATERIALIZED VIEW RULE: For ultra-fast (<100ms) aggregate queries on mutual fund cross-ownership totals and fund count per stock/month, query the pre-aggregated Materialized View table `market_data.mf_holding_summaries FINAL` (`isin`, `security_name`, `as_of_month`, `active_funds_count`, `total_market_val_cr`). For full fund-by-fund breakdowns, query `market_data.mf_holdings FINAL`.\n\n"
     "AMC BULLISH SMALL-CAP PICKS RULE: When asked for specific small-cap stocks an AMC is bullish on, query `market_data.mf_holdings FINAL` for the highest % NAV allocation (`pct_of_nav`) in active small-cap funds (e.g. `DSP_SMALL_CAP` -> Thangamayil Jewellery 4.81% NAV, `QUANT_SMALL_CAP` -> HFCL 6.03% NAV, `BAJAJ_FINSERV_SMALL_CAP_FUND` -> Rubicon Research 4.18% NAV).\n\n"
+    "MF CONCENTRATION RULE: For fund concentration, diversification, single-stock ceiling, or top-holdings questions, call `run_mf_concentration_risk` with exactly one of `fund`, `scheme_code`, or `all_funds=True`. Use its reported HHI and named top-three holdings verbatim.\n\n"
     "CLICKHOUSE SYNTAX RULE (mandatory — never violate): "
     "When writing ad-hoc SQL queries using `query_clickhouse_db`, every ReplacingMergeTree table MUST use the `FINAL` modifier. "
     "If you declare an alias for the table, the alias MUST be declared BEFORE the `FINAL` modifier. "

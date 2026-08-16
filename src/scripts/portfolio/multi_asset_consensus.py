@@ -47,24 +47,20 @@ from rich import box
 
 from src.db.pool import get_pool
 from src.tools.mf_sector_analyzer import classify_sector
+from src.tools.mf_multi_asset import get_all_multi_asset_funds
 
 console = Console()
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# The 7 multi-asset funds tracked by whale_tracker.py.
-# Kept here as the canonical roster for cross-fund analysis.
+# Multi-asset funds across all supported AMCs with dynamic discovery
 # ──────────────────────────────────────────────────────────────────────────
 
-MULTI_ASSET_FUNDS = [
-    {"label": "Nippon Multi Asset",     "filter": "fund_name LIKE 'NIPPON%MULTI_ASSET%' OR scheme_code = 'RLMF806'"},
-    {"label": "Nippon Multi Asset FoF", "filter": "fund_name LIKE 'NIPPON%MULTI_ASSET%FOF' OR scheme_code = 'RLMF811'"},
-    {"label": "DSP Multi Asset",        "filter": "fund_name = 'DSP_MULTI_ASSET' OR scheme_code = '152056'"},
-    {"label": "DSP Multi Asset Omni",   "filter": "fund_name = 'DSP_MULTI_ASSET_OMNI_FOF' OR scheme_code = '154167'"},
-    {"label": "Bajaj Multi Asset",      "filter": "fund_name = 'BAJAJ_MULTI_ASSET' OR scheme_code = '152639'"},
-    {"label": "Quant Multi Asset",      "filter": "fund_name = 'QUANT_MULTI_ASSET' OR scheme_code = '120821'"},
-    {"label": "ICICI Multi Asset",      "filter": "fund_name = 'ICICI_MULTI_ASSET' OR scheme_code IN ('120334', '120716')"},
-]
+try:
+    MULTI_ASSET_FUNDS = get_all_multi_asset_funds()
+except Exception:
+    MULTI_ASSET_FUNDS = []
+
 
 
 # ──────────────────────────────────────────────────────────────────────────

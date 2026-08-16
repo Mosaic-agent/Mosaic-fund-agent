@@ -14,6 +14,7 @@ This skill is the single unified reference and execution guide for **ALL Mutual 
 | Tool Name | Module | What it Does |
 | :--- | :--- | :--- |
 | `smallcap` | `src/scripts/portfolio/smallcap_pattern_analyzer.py` | Multi-AMC Small Cap pattern & accumulation analyzer (CLI: `python src/main.py smallcap --amc <all\|dsp\|nippon\|hdfc\|quant>`) |
+| `run_mf_concentration_risk` | `src/scripts/portfolio/concentration_risk.py` | Latest equity-sleeve HHI, effective stock count, named top-three holdings, concentration alerts, and sector weights for any fund or all multi-asset funds |
 | `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
 | `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
 | `run_multi_asset_consensus` | `src/scripts/portfolio/multi_asset_consensus.py` | Cross-fund "smart money overlap" — consensus adds/trims held or moved by ≥2 of the 7 tracked multi-asset funds, plus persistence-ranked asset-class and sector rotation |
@@ -21,6 +22,25 @@ This skill is the single unified reference and execution guide for **ALL Mutual 
 | `audit_exhaustive_stock_shifts` | `src/tools/mf_sector_rotation.py` | 100% complete audit of ALL stock additions (+₹ Cr) and subtractions (-₹ Cr) with zero data loss |
 | `display_master_amc_dashboard` | `src/tools/cli_ux_dashboard.py` | Master Executive CLI Dashboard (Left-to-Right Horizontal Sector Flow + Side-by-Side Stock Ledger) |
 
+
+---
+
+## 📊 Fund Concentration Risk & Top Holdings
+
+Use this report for any fund category, including small-cap and multi-asset schemes. It evaluates the latest disclosure available for the selected fund, normalizes weights within its equity sleeve, and renders the named top-three holdings alongside HHI, top-three/top-ten concentration, single-stock alerts, and sector concentration.
+
+```bash
+# Exact fund name
+python src/scripts/portfolio/concentration_risk.py --fund DSP_SMALL_CAP
+
+# AMFI scheme code
+python src/scripts/portfolio/concentration_risk.py --scheme 120821
+
+# Cross-fund multi-asset comparison
+python src/scripts/portfolio/concentration_risk.py --all
+```
+
+The Gemini MF agent should call `run_mf_concentration_risk` for requests such as “is this fund diversified?”, “show concentration risk”, or “what are the top holdings?”. Provide exactly one selector: `fund`, `scheme_code`, or `all_funds=True`.
 
 ---
 
@@ -133,32 +153,38 @@ python src/scripts/dsp/import_latest_dsp.py       # Latest month disclosures onl
 
 ---
 
-## 🐳 4. Institutional Whale Tracker (7 Multi-Asset Funds)
+## 🐳 4. Institutional Whale Tracker (All AMCs with Multi-Asset Funds)
 
-Runs the multi-asset fund allocation scanner and single-name cross-ownership conviction index:
+Runs the multi-asset fund allocation scanner and single-name cross-ownership conviction index across **all AMCs with Multi-Asset Allocation funds** (19+ schemes including Nippon India, DSP, ICICI Prudential, Quant, Bajaj Finserv, Axis, Invesco, Mirae Asset, Motilal Oswal, HDFC, Kotak Mahindra, SBI, Canara Robeco, etc.):
 ```bash
 python src/scripts/market/whale_tracker.py
 ```
 
-### Tracked Multi-Asset Funds Matrix:
-| Scheme Code | Fund Name | History Depth |
+### Tracked Multi-Asset Funds Matrix (Exhaustive & Dynamic Discovery):
+| AMC / Provider | Fund Name | Scheme Identifier |
 | :--- | :--- | :--- |
-| `RLMF806` | **Nippon India Multi Asset** | 57 Months (Deepest; dynamic import from 2024) |
-| `152056` | **DSP Multi Asset Allocation** | 33 Months |
-| `154167` | **DSP Multi Asset Omni FoF** | 3 Months |
-| `152639` | **Bajaj Finserv Multi Asset** | 2 Months |
-| `120821` | **Quant Multi Asset** | 2 Months |
-| `120334` | **ICICI Prudential Multi Asset** | 1 Month |
-| `120716` | **ICICI Prudential Multi Asset II** | 1 Month |
+| **Nippon India** | Nippon India Multi Asset Fund / FoF | `RLMF806`, `RLMF811` |
+| **DSP** | DSP Multi Asset Allocation / Omni FoF / Dynamic Asset Allocation | `152056`, `154167`, `126393` |
+| **Quant** | Quant Multi Asset Fund / Dynamic Asset Allocation | `120821`, `120833` |
+| **Bajaj Finserv** | Bajaj Finserv Multi Asset Allocation | `152639` |
+| **ICICI Prudential** | ICICI Prudential Multi Asset Fund | `120334`, `120716` |
+| **Axis** | Axis Multi Asset Allocation / Active FoF | `AXIS_MULTI_ASSET_ALLOCATION` |
+| **Invesco** | Invesco India Multi Asset Allocation | `INVESCO_MULTI_ASSET_ALLOCATION` |
+| **Mirae Asset** | Mirae Asset Multi Asset Allocation / Allocator FoF | `MIRAE_MULTI_ASSET_ALLOCATION` |
+| **Motilal Oswal** | Motilal Oswal Asset Allocation FoF (Conservative / Aggressive) | `MOTILAL_ASSET_ALLOCATION_*` |
+| **HDFC** | HDFC Multi-Asset Allocation | `HDFC_MULTI_ASSET` / `119047` |
+| **Kotak Mahindra** | Kotak Multi Asset Allocation | `152064` / `KOTAK_MULTI_ASSET` |
+| **SBI** | SBI Multi Asset Allocation | `119843` / `SBI_MULTI_ASSET` |
+| **Canara Robeco** | Canara Robeco Multi Asset Allocation | `CANARA_MULTI_ASSET_ALLOCATION` |
 
 ---
 
 ## 🤝 4b. Cross-Fund Multi-Asset Consensus (Smart-Money Overlap)
 
-While the Whale Tracker (above) tracks predefined macro *themes* (gold/silver/nuclear/infra), this tool finds **consensus signals** — securities and asset classes that *multiple* multi-asset funds are simultaneously adding to or trimming in the same window. If 4 of 7 funds raise gold ETF exposure in the same month, that is a materially stronger signal than any single fund acting alone.
+While the Whale Tracker (above) tracks predefined macro *themes* (gold/silver/nuclear/infra), this tool finds **consensus signals** — securities and asset classes that *multiple* multi-asset funds across all AMCs are simultaneously adding to or trimming in the same window.
 
 ```bash
-# Latest month MoM consensus across all 7 tracked multi-asset funds (default)
+# Latest month MoM consensus across all multi-asset funds (default)
 python src/scripts/portfolio/multi_asset_consensus.py
 
 # YoY (latest vs 12 months back) instead of MoM
@@ -174,13 +200,13 @@ python src/scripts/portfolio/multi_asset_consensus.py --asset gold
 python src/scripts/portfolio/multi_asset_consensus.py --top 30
 ```
 
-Outputs, in order: (1) Portfolio Overlap — core holdings shared by ≥2 funds, (2) Consensus ADDS / TRIMS for the chosen period, (3) Asset-Class Rotation persistence table (12mo lookback, ≥3mo streak = persistent), (4) Per-Fund and Cross-Fund Sector Rotation persistence tables.
+Outputs, in order: (1) Portfolio Overlap — core holdings shared by ≥2 funds across all AMCs, (2) Consensus ADDS / TRIMS for the chosen period, (3) Asset-Class Rotation persistence table (12mo lookback, ≥3mo streak = persistent), (4) Per-Fund and Cross-Fund Sector Rotation persistence tables.
 
-**Data-lag caveat — always check before calling a month "July" or "latest":** the 7 funds do not disclose on identical cadences. Some funds (e.g. DSP Multi Asset / DSP Multi Asset Omni) can lag a full month behind the others, and ICICI Multi Asset discloses closer to quarterly. The script's MoM/YoY comparison always uses each fund's own two most-recent snapshots — so a "MoM" read can silently mix a true latest-month change (for funds that reported on time) with a stale prior-month change (for funds still lagging). Verify per-fund `as_of_month` first:
+**Data-lag caveat — always check before calling a month "July" or "latest":** funds do not disclose on identical cadences. Verify per-fund `as_of_month` first:
 ```sql
 SELECT fund_name, max(as_of_month) AS latest, count(DISTINCT as_of_month) AS n_months
 FROM market_data.mf_holdings FINAL
-WHERE scheme_code IN ('RLMF806','RLMF811','152056','154167','152639','120821','120334')
+WHERE fund_name ILIKE '%multi%asset%' OR scheme_code IN ('RLMF806','RLMF811','152056','154167','152639','120821','120334','120716','152064','119843')
 GROUP BY fund_name;
 ```
 
