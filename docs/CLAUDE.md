@@ -262,6 +262,15 @@ SELECT ... FROM market_data.mf_holdings FINAL WHERE ...
 **Never use** `weight_pct` or `name` — those columns do not exist.
 Coverage: 62 DSP funds Sep 2023–Mar 2026; Top 10 funds back to Jun 2022.
 
+### Fund NAV Returns & Expense Ratio
+For "what's fund X's scheme code / NAV returns" questions, use
+`src/scripts/portfolio/fund_mom_returns.py` directly instead of re-discovering it:
+- `--search "<fund name>"` resolves the AMFI scheme code (works for any AMC, not just DSP)
+- `--scheme <CODE> --months N` computes MoM returns
+- NAV is fetched **live** from mfapi.in every run — no ClickHouse import exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist is imported into `market_data.mf_nav`)
+
+**Expense ratio is not available anywhere** — mfapi.in's scheme metadata has no such field, and nothing in this codebase (ClickHouse, importers, factsheet scrapers) tracks TER. Do not substitute a number from training knowledge (see Number Sources rule above) — state it's unavailable and offer to scrape an AMC factsheet/SID as a one-off if the user needs it.
+
 ### Token-Efficient Exploration
 When investigating a bug or exploring unfamiliar code, default to the narrowest
 query/read that answers the specific question, and push open-ended investigation
@@ -296,6 +305,6 @@ conclusion lands back in the main session — not the raw exploration output.
   - `fund_imports/` — Factory-pattern AMC importers; run via `python src/scripts/fund_imports/run.py <icici|nippon|icici-index|all> [--dry-run] [--test]`. `base.py` has the `BaseFundImporter` ABC; `importers/` has one class per AMC; `factory.py` has `create_importer(name)`.
   - `etf/` — ETF comparison, CAGR validation, risk analysis
   - `ml/` — ML prediction backfill and evaluation
-  - `portfolio/` — portfolio tracking, health checks, opportunity scan, parallel stock import (`import_stocks_parallel.py`)
-  - `market/` — macro themes, FII/DII, metals, sentiment, whale tracker
+  - `portfolio/` — portfolio tracking, health checks, opportunity scan, parallel stock import (`import_stocks_parallel.py`); cross-AMC whale accumulation scanner (`whale_accumulation_scanner.py` — consensus_score + optional RSI/drawdown/volume-surge technical confirmation); concentration risk/HHI, crowding & contrarian signal, fund overlap matrix, portfolio X-ray, rolling returns, SIP backtester
+  - `market/` — macro themes, FII/DII, metals, sentiment, per-fund whale/theme tracker (`whale_tracker.py`)
   - `db/` — ClickHouse backup, restore, sanity checks, and data quality repairs (`fix_bad_data.py`)

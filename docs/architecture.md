@@ -134,6 +134,16 @@ src/
     trend_predictor.py    LightGBM 5-day predictor + joblib model cache
     anomaly.py            Composite anomaly (MAD-Z + GARCH + Isolation Forest + PELT CPD + corp action suppression)
   models/                 Pydantic data schemas
+  scripts/                Standalone domain scripts — `python src/scripts/<subdir>/<name>.py`
+    dsp/                  DSP AMC import, analysis, backtests
+    fund_imports/         Factory-pattern AMC importers (BaseFundImporter ABC + per-AMC classes)
+    etf/                  ETF comparison, CAGR validation, risk analysis
+    ml/                   ML prediction backfill and evaluation
+    portfolio/            Portfolio tracking/health, concentration-HHI, crowding-contrarian, fund
+                          overlap matrix, portfolio X-ray, rolling returns, SIP backtester,
+                          cross-AMC whale accumulation scanner (+ optional technical confirmation)
+    market/               Macro themes, FII/DII, metals, sentiment, per-fund whale/theme tracker
+    db/                   ClickHouse backup, restore, sanity checks, data quality repairs
   tools/                  @tool wrappers + standalone signal functions
     skills_tools.py       General-purpose tools (query, import, iNAV, deep-dive) + SKILLS_TOOLS list
     runners.py            Thin shell-command runners (run_goldbees_pipeline, run_macro_scanner, …)
@@ -280,6 +290,8 @@ Most tools are standalone functions returning a dict/DataFrame — no DB writes,
 | **Get Corporate Actions** | `market/equity.py` | NSE corporate actions (splits/bonuses/demergers/rights/dividends) → upserts to `corporate_actions` table → history table |
 | **Chart Tools** | `chart_tools.py` | plotext terminal charts — price (🔴 GARCH anomaly markers + 🏦 corporate action markers, session-cached), signal scores, GARCH vol, MACD |
 | **Zerodha MCP Tools** | `zerodha_mcp_tools.py` | Holdings, positions, orders via Zerodha Kite MCP |
+| **Scan Whale Accumulation** | `whale_tools.py` | Cross-AMC consensus scan (`consensus_score = num_amcs × avg_delta_pp`), zero-to-hero fresh entries, optional RSI/drawdown/volume-surge technical confirmation + blended opportunity_score |
+| **Get Whale Consensus** | `whale_tools.py` | Single-stock lookup — which AMCs hold it, MoM delta, months-held conviction tenure |
 
 ### Quant Scorecard Pillars (`quant_scorecard.py`)
 
@@ -421,23 +433,24 @@ Adding a 7th pillar: subclass `SignalSource`, implement `collect(repo)`, append 
 
 Covers 18 core ETFs. Output optionally written to `signal_composite` table via `--save`.
 
-> **Planned 7th pillar — DSP Smart Money (pending):** MoM delta of DSP Multi Asset gold/equity allocation (`mf_holdings` table) as a contrarian tactical signal. Source: `scripts/dsp_quant_strategy_analyzer.py`. GSR correlation R=0.68 identified as primary driver of DSP allocation shifts.
+> **Planned 7th pillar — DSP Smart Money (pending):** MoM delta of DSP Multi Asset gold/equity allocation (`mf_holdings` table) as a contrarian tactical signal. Source: `src/scripts/dsp/dsp_quant_strategy_analyzer.py`. GSR correlation R=0.68 identified as primary driver of DSP allocation shifts.
 
 ---
 
-## Scripts (`scripts/`)
+## Scripts (`src/scripts/`)
 
-Standalone scripts that run analyses against the live database and print Rich console output.
+Standalone scripts that run analyses against the live database and print Rich console output, organised by domain under `src/scripts/<subdir>/`. Run from the project root: `python src/scripts/<subdir>/<name>.py` (moved out of a top-level `scripts/` dir, which now holds only cron/shell wrappers).
 
-| Script | Purpose |
-|---|---|
-| `metals_quant_scorecard.py` | Run Gold + Silver quant scorecards side-by-side |
-| `opportunity_scan.py` | Cross-asset DB scan — momentum, drawdown, RSI, iNAV, flows → ranked opportunity table |
-| `gold_quant_scorecard.py` | Gold-only 4-pillar scorecard (GOLDBEES) |
-| `fii_pattern_check.py` | FII historical buying/selling pattern analysis |
-| `import_dsp_history.py` | One-time ETL backfill: 31-month DSP Multi Asset holdings (Sep 2023–Mar 2026) from DSP website ZIPs into `mf_holdings`; writes watermark on completion |
-| `dsp_quant_strategy_analyzer.py` | Reverse-engineer DSP's trading rules by correlating monthly allocation deltas against Mosaic quant signals (DXY, COT, iNAV, GSR, ML). Identifies GSR as primary tactical lever (R=0.68). |
-| `whale_tracker.py` | Large FII/DII flow detection and alerts |
+| Subdir | Key scripts | Purpose |
+|---|---|---|
+| `market/` | `metals_quant_scorecard.py`, `gold_quant_scorecard.py`, `fii_pattern_check.py`, `whale_tracker.py`, `macro_theme_agent.py` | Gold+Silver / gold-only quant scorecards, FII historical pattern analysis, per-fund theme/archetype tracker (gold/silver/nuclear/infra + AMC archetype scorecard — NOT FII/DII flow), macro theme scanner |
+| `portfolio/` | `opportunity_scan.py`, `whale_accumulation_scanner.py`, `dsp_opportunity_scanner.py`, `smallcap_pattern_analyzer.py`, `multi_asset_consensus.py`, `concentration_risk.py`, `crowding_contrarian.py`, `fund_overlap_matrix.py`, `portfolio_xray.py`, `rolling_returns.py`, `sip_backtester.py` | Cross-asset opportunity scan; cross-AMC whale consensus scan (`consensus_score` + optional RSI/drawdown/volume-surge confirmation); DSP conviction+technical scanner; small/mid-cap cross-ownership; multi-asset smart-money overlap; HHI concentration; crowding/contrarian signal; fund overlap matrix; portfolio X-ray; rolling returns; SIP backtesting |
+| `dsp/` | `import_dsp_history.py`, `dsp_quant_strategy_analyzer.py`, `backtest_dsp_strategies.py` | One-time ETL backfill (31-month DSP Multi Asset holdings, Sep 2023–Mar 2026); reverse-engineers DSP's trading rules by correlating allocation deltas against Mosaic quant signals (GSR primary lever, R=0.68); strategy backtests |
+| `fund_imports/` | `run.py`, `factory.py`, `importers/*.py` | Factory-pattern AMC importers (`BaseFundImporter` ABC + one class per AMC) |
+| `etf/` | `validate_etf_cagr.py`, `yoy_etf_comparison.py`, `run_all_etf_risk.py` | ETF comparison, CAGR validation, risk analysis |
+| `db/` | `fix_bad_data.py` | ClickHouse backup, restore, sanity checks, data quality repairs |
+
+`goldbees_report.py` (pre-baked GOLDBEES signal, ~2s) lives directly under `src/scripts/`.
 
 ---
 

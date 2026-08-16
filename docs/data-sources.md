@@ -11,6 +11,7 @@ All data sources used by Mosaic Fund Agent are free unless noted.
 | Currency exchange rates (FX) | Yahoo Finance | Free, daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD. Used in macro and anomaly models |
 | ETF iNAV — live | NSE API | Free, 15-second refresh (9:15 AM – 3:30 PM IST) |
 | ETF iNAV — historic / NAV | MFAPI.in (AMFI official) | Free |
+| MF scheme lookup by name / NAV MoM returns (any AMC) | MFAPI.in (AMFI official) | Free; use `src/scripts/portfolio/fund_mom_returns.py --search "<name>"` then `--scheme <code>`; fetched live, no ClickHouse import step exists for actively-managed schemes. **No expense ratio field** — not available from this source or tracked anywhere else in the codebase. |
 | COMEX spot prices | gold-api.com | Free with API key |
 | COMEX previous close | Yahoo Finance futures | Free |
 
