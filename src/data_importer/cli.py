@@ -135,7 +135,7 @@ def run_import(
         if c in {"stocks", "us_stocks", "etfs", "commodities", "indices",
                  "nse_indices", "nse_eod", "indian_macro", "fx_rates",
                  "cot", "cb_reserves", "etf_aum", "mf", "fii_dii",
-                 "world_bank", "imf_weo", "amfi_flows"}
+                 "world_bank", "imf_weo", "amfi_flows", "nse_delivery"}
     ]
     for category in registry_categories:
         fetcher = get_registry().get(category)

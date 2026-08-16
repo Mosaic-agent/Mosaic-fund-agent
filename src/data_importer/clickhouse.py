@@ -217,6 +217,31 @@ PARTITION BY toYYYYMM(trade_date)
 ORDER BY (symbol, trade_date)
 """
 
+_DDL_NSE_DELIVERY = """
+CREATE TABLE IF NOT EXISTS market_data.nse_delivery (
+    trade_date    Date,
+    symbol        String,
+    series        LowCardinality(String) DEFAULT 'EQ',
+    prev_close    Float64,
+    open_price    Float64,
+    high_price    Float64,
+    low_price     Float64,
+    last_price    Float64,
+    close_price   Float64,
+    avg_price     Float64,
+    ttl_trd_qty   UInt64,
+    turnover_lacs Float64,
+    no_of_trades  UInt64,
+    deliv_qty     Nullable(UInt64),   -- NULL where NSE doesn't publish delivery (e.g. some debt series)
+    deliv_per     Nullable(Float64),  -- NULL, not 0 — distinguishes "not published" from "0% delivered"
+    source        LowCardinality(String) DEFAULT 'nse',
+    imported_at   DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+PARTITION BY toYYYYMM(trade_date)
+ORDER BY (symbol, trade_date, series)
+"""
+
 _DDL_INAV_SNAPSHOTS = """
 CREATE TABLE IF NOT EXISTS market_data.inav_snapshots (
     symbol                String,
@@ -763,7 +788,7 @@ class ClickHouseImporter:
         for ddl in (
             _DDL_DATABASE, _DDL_DAILY_PRICES, _DDL_MF_NAV, _DDL_WATERMARKS,
             _DDL_INAV_SNAPSHOTS, _DDL_COT_GOLD, _DDL_CB_GOLD_RESERVES, _DDL_ETF_AUM,
-            _DDL_FX_RATES, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
+            _DDL_FX_RATES, _DDL_NSE_DELIVERY, _DDL_ML_PREDICTIONS, _DDL_MF_HOLDINGS, _DDL_FII_DII_FLOWS,
             _DDL_FII_DII_MONTHLY, _DDL_FII_DII_FNO_DAILY, _DDL_NEWS_ARTICLES,
             _DDL_SIGNAL_COMPOSITE, _DDL_WEIGHT_CHECKPOINTS, _DDL_PIPELINE_MANIFEST,
             _DDL_STOCK_EARNINGS, _DDL_STOCK_INSIDER, _DDL_STOCK_VALUATION,
@@ -1449,6 +1474,33 @@ class ClickHouseImporter:
         )
         from src.db.market_vector import vectorize_fx_rates
         vectorize_fx_rates(rows)
+        return len(rows)
+
+    # ── Bulk insert: nse_delivery ──────────────────────────────────────────
+
+    def insert_nse_delivery(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """Insert NSE daily delivery-position rows. Returns row count."""
+        if not rows:
+            return 0
+        if dry_run:
+            return len(rows)
+        cols = [
+            "trade_date", "symbol", "series", "prev_close", "open_price",
+            "high_price", "low_price", "last_price", "close_price", "avg_price",
+            "ttl_trd_qty", "turnover_lacs", "no_of_trades", "deliv_qty",
+            "deliv_per", "source",
+        ]
+        self._client.insert(
+            "market_data.nse_delivery",
+            [[r.get(c) for c in cols] for r in rows],
+            column_names=cols,
+            settings={"max_partitions_per_insert_block": 300},
+        )
         return len(rows)
 
     # ── Bulk insert: fii_dii_flows ────────────────────────────────────────────
