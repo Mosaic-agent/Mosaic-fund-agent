@@ -15,7 +15,7 @@ import pytest
 
 from src.data_importer.amc_holdings.importers.dsp import DspImporter
 from src.data_importer.amc_holdings.factory import create_importer, REGISTRY
-from src.data_importer.dsp_holdings.import_all_dsp_equity import ZIP_FILES, DSP_SCHEME_MAP
+from src.data_importer.amc_downloaders.dsp_holdings.import_all_dsp_equity import ZIP_FILES, DSP_SCHEME_MAP
 
 
 class TestDspImporterCatalogue:

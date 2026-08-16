@@ -14,7 +14,7 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.data_importer.mirae_holdings.import_all_mirae import main
+from src.data_importer.amc_downloaders.mirae_holdings.import_all_mirae import main
 
 if __name__ == "__main__":
     main()

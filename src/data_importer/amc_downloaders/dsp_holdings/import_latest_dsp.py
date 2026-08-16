@@ -19,7 +19,7 @@ from rich.console import Console
 
 sys.path.append(os.getcwd())
 
-from src.data_importer.dsp_holdings.import_all_dsp_equity import run_import, ZIP_FILES, BASE_URL as MEDIA_BASE
+from src.data_importer.amc_downloaders.dsp_holdings.import_all_dsp_equity import run_import, ZIP_FILES, BASE_URL as MEDIA_BASE
 
 console = Console()
 

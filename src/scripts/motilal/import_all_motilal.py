@@ -18,7 +18,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.data_importer.motilal_holdings.import_all_motilal import main
+from src.data_importer.amc_downloaders.motilal_holdings.import_all_motilal import main
 
 if __name__ == "__main__":
     main()
