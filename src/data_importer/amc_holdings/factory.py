@@ -30,6 +30,7 @@ from src.data_importer.amc_holdings.importers.abakkus import AbakkusImporter
 from src.data_importer.amc_holdings.importers.helios import HeliosImporter
 from src.data_importer.amc_holdings.importers.invesco import InvescoImporter
 from src.data_importer.amc_holdings.importers.canara_robeco import CanaraRobecoImporter
+from src.data_importer.amc_holdings.importers.mirae import MiraeImporter
 
 REGISTRY: dict[str, type[BaseFundImporter]] = {
     "icici":         IciciMFImporter,
@@ -48,6 +49,9 @@ REGISTRY: dict[str, type[BaseFundImporter]] = {
     "canara":        CanaraRobecoImporter,
     "canara_robeco": CanaraRobecoImporter,
     "canara-robeco": CanaraRobecoImporter,
+    "mirae":         MiraeImporter,
+    "mirae_asset":   MiraeImporter,
+    "mirae-asset":   MiraeImporter,
 }
 
 

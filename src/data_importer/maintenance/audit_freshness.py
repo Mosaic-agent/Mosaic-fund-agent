@@ -155,7 +155,7 @@ def audit_freshness():
             elif import_name == "inav": import_name = "inav"
             elif import_name == "indian_macro": import_name = "indian_macro"
             elif import_name == "fii_dii": import_name = "fii_dii"
-            elif import_name == "amc_holdings": import_name = "dsp,nippon,icici,quant,bajaj,hdfc,kotak,abakkus,helios,invesco,canara"
+            elif import_name == "amc_holdings": import_name = "dsp,nippon,icici,quant,bajaj,hdfc,kotak,abakkus,helios,invesco,canara,mirae"
             stale_categories.append(import_name)
 
         table.add_row(cat, tbl_name, str(max_date), status)
