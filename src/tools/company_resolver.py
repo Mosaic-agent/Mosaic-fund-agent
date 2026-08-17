@@ -552,6 +552,10 @@ _ALIAS: dict[str, str] = {
     "welspun india": "WELSPUNLIV",
     "welspun enterprises": "WELENT",
     "welspun corp": "WELCORP",
+    "leap india": "LEAPIND",
+    "leap india ltd": "LEAPIND",
+    "leap india limited": "LEAPIND",
+    "leapind": "LEAPIND",
 }
 
 

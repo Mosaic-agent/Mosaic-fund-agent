@@ -131,6 +131,7 @@ SYMBOL_TO_COMPANY: dict[str, str] = {
     "WELSPUNLIV": "Welspun Living",
     "WELENT": "Welspun Enterprises",
     "WELCORP": "Welspun Corp",
+    "LEAPIND": "LEAP India",
 }
 
 # ── Lookup helpers ─────────────────────────────────────────────────────────────
