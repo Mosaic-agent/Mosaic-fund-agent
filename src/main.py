@@ -1783,6 +1783,34 @@ def smallcap(
     run_smallcap_analysis(amc=amc, verbose=verbose)
 
 
+@app.command(name="discover")
+def discover(
+    min_turnover: float = typer.Option(20.0, "--min-turnover", "-t", help="Minimum turnover in ₹ Crore (default: 20)"),
+    min_rvol: float = typer.Option(2.0, "--min-rvol", "-r", help="Minimum Relative Volume multiple vs 20D SMA (default: 2.0)"),
+    top: int = typer.Option(10, "--top", "-n", help="Number of top candidates to display (default: 10)"),
+    loop: bool = typer.Option(False, "--loop", "-l", help="Run continuously in a polling loop through market hours"),
+    interval: int = typer.Option(180, "--interval", "-i", help="Loop polling interval in seconds (default: 180s / 3 mins)"),
+    all_hours: bool = typer.Option(False, "--all-hours", help="Run loop even outside market hours for simulation/testing"),
+) -> None:
+    """
+    Live market-hour institutional discovery and breakout pipeline.
+
+    Scans active NSE equities in real-time, calculates time-of-day RVOL,
+    detects block deal crossings, checks mutual fund cross-ownership,
+    and formulates 2-tranche trade levels.
+    """
+    from src.scripts.market.live_discovery_pipeline import run_live_discovery_cycle, run_continuous_discovery_loop
+    if loop:
+        run_continuous_discovery_loop(
+            min_turnover_cr=min_turnover,
+            min_rvol=min_rvol,
+            top_n=top,
+            interval_sec=interval,
+            market_hours_only=not all_hours,
+        )
+    else:
+        run_live_discovery_cycle(min_turnover_cr=min_turnover, min_rvol=min_rvol, top_n=top)
+
 
 if __name__ == "__main__":
     app()
