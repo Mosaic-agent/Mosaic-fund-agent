@@ -101,10 +101,40 @@ class AsyncLiveDiscoveryEngine:
         print(f"⚡ In-Memory Cache Pre-warmed: {len(self.v_baseline_cache)} volume baselines, {len(self.mf_holdings_cache)} MF holdings in {t_elapsed:.2f}ms")
 
     async def fetch_live_equities_async(self, client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-        """Non-blocking async fetch of NSE active equities with zero-copy fallback."""
-        import nselib.capital_market as cm
-        # Run nselib fetch in threadpool to keep event loop unblocked
+        """Non-blocking fetch prioritizing Shoonya WebSocket live ticks (Priority 1), then async NSE feed (Priority 2), then ClickHouse (Priority 3)."""
         loop = asyncio.get_running_loop()
+
+        # Priority 1: Shoonya Live Session & Ticks
+        try:
+            from src.data_importer.fetchers.shoonya_fetcher import ShoonyaFetcher
+            shoonya = ShoonyaFetcher()
+            if shoonya.api is not None:
+                # Fetch live quotes via authenticated broker API
+                quotes = await loop.run_in_executor(None, shoonya.get_live_quotes, list(self.v_baseline_cache.keys())[:50])
+                if quotes:
+                    records = []
+                    for q in quotes:
+                        sym = q.get("symbol", "").upper()
+                        ltp = float(q.get("lp", 0.0))
+                        vol = float(q.get("v", 0.0))
+                        open_p = float(q.get("o", ltp))
+                        pct = ((ltp - open_p) / open_p * 100) if open_p else 0.0
+                        records.append({
+                            "symbol": sym,
+                            "ltp": ltp,
+                            "p_change": pct,
+                            "volume": vol,
+                            "turnover_cr": (ltp * vol) / 1e7,
+                            "day_high": float(q.get("h", ltp)),
+                            "day_low": float(q.get("l", ltp)),
+                        })
+                    if records:
+                        return records
+        except Exception:
+            pass
+
+        # Priority 2: Live NSE Active Equities via nselib
+        import nselib.capital_market as cm
         try:
             df = await loop.run_in_executor(None, cm.most_active_equities)
             if not df.empty:
@@ -124,7 +154,7 @@ class AsyncLiveDiscoveryEngine:
         except Exception:
             pass
 
-        # Fast fallback to ClickHouse
+        # Priority 3: Fast fallback to ClickHouse
         pool = get_pool()
         ch_client = pool.get_client()
         res = ch_client.query("""
