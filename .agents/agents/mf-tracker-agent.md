@@ -1,6 +1,6 @@
 ---
 name: mf-tracker-agent
-description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, AMC-specific bullish small-cap stock picks, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, multi-asset institutional Whale Tracking, and cross-fund multi-asset consensus (smart-money overlap) across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", "amc bullish small cap", "multi asset consensus", "what are multi asset funds buying", "trend across multi asset funds", "smart money overlap", or invokes /mf-tracker.
+description: Complete Mutual Fund (MF) research, portfolio disclosures, AMC importers, AMC-specific bullish small-cap stock picks, DSP active-fund cross-ownership conviction signals, small-cap & mid-cap cross-ownership screening, AMFI category flows, MoM NAV returns, multi-asset institutional Whale Tracking, cross-fund multi-asset consensus (smart-money overlap), and full-universe cross-AMC whale accumulation scanning with optional RSI/drawdown/volume-surge technical confirmation, across all supported AMCs. Trigger when the user asks "track mf holdings", "whale tracker", "mf whale tracker", "dsp holdings", "fund holdings", "amfi flows", "fund returns", "small cap cross ownership", "mid cap conviction", "amc bullish small cap", "multi asset consensus", "what are multi asset funds buying", "trend across multi asset funds", "smart money overlap", "cross-amc consensus buys", "institutional accumulation", "which consensus buys are technically attractive", "whale accumulation scan", or invokes /mf-tracker.
 tools:
   - run_command
   - view_file
@@ -24,13 +24,35 @@ This skill is the single unified reference and execution guide for **ALL Mutual 
 | Tool Name | Module | What it Does |
 | :--- | :--- | :--- |
 | `smallcap` | `src/scripts/portfolio/smallcap_pattern_analyzer.py` | Multi-AMC Small Cap pattern & accumulation analyzer (CLI: `python src/main.py smallcap --amc <all\|dsp\|nippon\|hdfc\|quant>`) |
+| `run_mf_concentration_risk` | `src/scripts/portfolio/concentration_risk.py` | Latest equity-sleeve HHI, effective stock count, named top-three holdings, concentration alerts, and sector weights for any fund or all multi-asset funds |
 | `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
 | `detect_amc_sector_rotation` | `src/tools/mf_sector_rotation.py` | MoM / YoY sector weight shifts (% AUM), capital deltas (₹ Cr), rotation status tags |
 | `run_multi_asset_consensus` | `src/scripts/portfolio/multi_asset_consensus.py` | Cross-fund "smart money overlap" — consensus adds/trims held or moved by ≥2 of the 7 tracked multi-asset funds, plus persistence-ranked asset-class and sector rotation |
+| `scan_whale_accumulation` | `src/scripts/portfolio/whale_accumulation_scanner.py` (`src/tools/whale_tools.py`) | Cross-AMC consensus scan across the FULL active-equity universe (15+ AMC groups, not just multi-asset funds) — consensus_score, zero-to-hero fresh entries, and optional RSI/drawdown/volume-surge technical confirmation (`with_technicals=True`) |
+| `get_whale_consensus` | `src/tools/whale_tools.py` | Single-stock lookup: which AMCs hold it, weight, MoM delta, and months-held conviction tenure, across the same full active-equity universe |
 | `explain_rotation_thesis` | `src/tools/mf_rotation_thesis.py` | Macro, fundamental, and valuation investment thesis explaining WHY an AMC rotated |
 | `audit_exhaustive_stock_shifts` | `src/tools/mf_sector_rotation.py` | 100% complete audit of ALL stock additions (+₹ Cr) and subtractions (-₹ Cr) with zero data loss |
 | `display_master_amc_dashboard` | `src/tools/cli_ux_dashboard.py` | Master Executive CLI Dashboard (Left-to-Right Horizontal Sector Flow + Side-by-Side Stock Ledger) |
 
+
+---
+
+## 📊 Fund Concentration Risk & Top Holdings
+
+Use this report for any fund category, including small-cap and multi-asset schemes. It evaluates the latest disclosure available for the selected fund, normalizes weights within its equity sleeve, and renders the named top-three holdings alongside HHI, top-three/top-ten concentration, single-stock alerts, and sector concentration.
+
+```bash
+# Exact fund name
+python src/scripts/portfolio/concentration_risk.py --fund DSP_SMALL_CAP
+
+# AMFI scheme code
+python src/scripts/portfolio/concentration_risk.py --scheme 120821
+
+# Cross-fund multi-asset comparison
+python src/scripts/portfolio/concentration_risk.py --all
+```
+
+The Gemini MF agent should call `run_mf_concentration_risk` for requests such as “is this fund diversified?”, “show concentration risk”, or “what are the top holdings?”. Provide exactly one selector: `fund`, `scheme_code`, or `all_funds=True`.
 
 ---
 
@@ -107,6 +129,13 @@ python src/main.py import --category icici        # ICICI Prudential multi-asset
 python src/main.py import --category icici-index  # ICICI Index funds
 python src/main.py import --category quant        # Quant active funds
 python src/main.py import --category bajaj        # Bajaj Finserv funds
+python src/main.py import --category abakkus      # Abakkus Mutual Fund (Flexi Cap, Small Cap, Liquid)
+python src/main.py import --category helios       # Helios Mutual Fund (Small Cap, Flexi Cap, Mid Cap, BAF, etc.)
+python src/main.py import --category invesco      # Invesco Mutual Fund (Smallcap, Contra, Multi Asset, Flexi Cap, etc.)
+python src/main.py import --category canara       # Canara Robeco Mutual Fund (Small Cap, Flexi Cap, Value, Multi Cap, etc.)
+python src/main.py import --category mirae        # Mirae Asset Mutual Fund (Large Cap, Small Cap, Midcap, Multi Asset, etc.)
+python src/main.py import --category axis         # Axis Mutual Fund (Small Cap, Midcap, Multi Asset, Flexi Cap, etc.)
+python src/main.py import --category motilal      # Motilal Oswal Mutual Fund (Small Cap, Midcap, Flexi Cap, Nasdaq 100, etc.)
 python src/main.py import --category amfi         # AMFI category flows & AUM
 ```
 
@@ -117,6 +146,13 @@ python src/scripts/fund_imports/run.py nippon       # Nippon holdings backfill
 python src/scripts/fund_imports/run.py icici        # ICICI holdings backfill
 python src/scripts/fund_imports/run.py quant        # Quant holdings backfill
 python src/scripts/fund_imports/run.py bajaj        # Bajaj holdings backfill
+python src/scripts/fund_imports/run.py abakkus      # Abakkus holdings backfill
+python src/scripts/fund_imports/run.py helios       # Helios holdings backfill
+python src/scripts/fund_imports/run.py invesco      # Invesco holdings backfill
+python src/scripts/fund_imports/run.py canara       # Canara Robeco holdings backfill
+python src/scripts/fund_imports/run.py mirae        # Mirae Asset holdings backfill
+python src/scripts/fund_imports/run.py axis         # Axis Mutual Fund holdings backfill
+python src/scripts/fund_imports/run.py motilal      # Motilal Oswal Mutual Fund holdings backfill
 python src/scripts/fund_imports/run.py amfi         # AMFI category-wise net flows
 python src/scripts/fund_imports/run.py all          # Run all registered AMC importers
 ```
@@ -129,32 +165,38 @@ python src/scripts/dsp/import_latest_dsp.py       # Latest month disclosures onl
 
 ---
 
-## 🐳 4. Institutional Whale Tracker (7 Multi-Asset Funds)
+## 🐳 4. Institutional Whale Tracker (All AMCs with Multi-Asset Funds)
 
-Runs the multi-asset fund allocation scanner and single-name cross-ownership conviction index:
+Runs the multi-asset fund allocation scanner and single-name cross-ownership conviction index across **all AMCs with Multi-Asset Allocation funds** (19+ schemes including Nippon India, DSP, ICICI Prudential, Quant, Bajaj Finserv, Axis, Invesco, Mirae Asset, Motilal Oswal, HDFC, Kotak Mahindra, SBI, Canara Robeco, etc.):
 ```bash
 python src/scripts/market/whale_tracker.py
 ```
 
-### Tracked Multi-Asset Funds Matrix:
-| Scheme Code | Fund Name | History Depth |
+### Tracked Multi-Asset Funds Matrix (Exhaustive & Dynamic Discovery):
+| AMC / Provider | Fund Name | Scheme Identifier |
 | :--- | :--- | :--- |
-| `RLMF806` | **Nippon India Multi Asset** | 57 Months (Deepest; dynamic import from 2024) |
-| `152056` | **DSP Multi Asset Allocation** | 33 Months |
-| `154167` | **DSP Multi Asset Omni FoF** | 3 Months |
-| `152639` | **Bajaj Finserv Multi Asset** | 2 Months |
-| `120821` | **Quant Multi Asset** | 2 Months |
-| `120334` | **ICICI Prudential Multi Asset** | 1 Month |
-| `120716` | **ICICI Prudential Multi Asset II** | 1 Month |
+| **Nippon India** | Nippon India Multi Asset Fund / FoF | `RLMF806`, `RLMF811` |
+| **DSP** | DSP Multi Asset Allocation / Omni FoF / Dynamic Asset Allocation | `152056`, `154167`, `126393` |
+| **Quant** | Quant Multi Asset Fund / Dynamic Asset Allocation | `120821`, `120833` |
+| **Bajaj Finserv** | Bajaj Finserv Multi Asset Allocation | `152639` |
+| **ICICI Prudential** | ICICI Prudential Multi Asset Fund | `120334`, `120716` |
+| **Axis** | Axis Multi Asset Allocation / Active FoF | `AXIS_MULTI_ASSET_ALLOCATION` |
+| **Invesco** | Invesco India Multi Asset Allocation | `INVESCO_MULTI_ASSET_ALLOCATION` |
+| **Mirae Asset** | Mirae Asset Multi Asset Allocation / Allocator FoF | `MIRAE_MULTI_ASSET_ALLOCATION` |
+| **Motilal Oswal** | Motilal Oswal Asset Allocation FoF (Conservative / Aggressive) | `MOTILAL_ASSET_ALLOCATION_*` |
+| **HDFC** | HDFC Multi-Asset Allocation | `HDFC_MULTI_ASSET` / `119047` |
+| **Kotak Mahindra** | Kotak Multi Asset Allocation | `152064` / `KOTAK_MULTI_ASSET` |
+| **SBI** | SBI Multi Asset Allocation | `119843` / `SBI_MULTI_ASSET` |
+| **Canara Robeco** | Canara Robeco Multi Asset Allocation | `CANARA_MULTI_ASSET_ALLOCATION` |
 
 ---
 
 ## 🤝 4b. Cross-Fund Multi-Asset Consensus (Smart-Money Overlap)
 
-While the Whale Tracker (above) tracks predefined macro *themes* (gold/silver/nuclear/infra), this tool finds **consensus signals** — securities and asset classes that *multiple* multi-asset funds are simultaneously adding to or trimming in the same window. If 4 of 7 funds raise gold ETF exposure in the same month, that is a materially stronger signal than any single fund acting alone.
+While the Whale Tracker (above) tracks predefined macro *themes* (gold/silver/nuclear/infra), this tool finds **consensus signals** — securities and asset classes that *multiple* multi-asset funds across all AMCs are simultaneously adding to or trimming in the same window.
 
 ```bash
-# Latest month MoM consensus across all 7 tracked multi-asset funds (default)
+# Latest month MoM consensus across all multi-asset funds (default)
 python src/scripts/portfolio/multi_asset_consensus.py
 
 # YoY (latest vs 12 months back) instead of MoM
@@ -170,13 +212,13 @@ python src/scripts/portfolio/multi_asset_consensus.py --asset gold
 python src/scripts/portfolio/multi_asset_consensus.py --top 30
 ```
 
-Outputs, in order: (1) Portfolio Overlap — core holdings shared by ≥2 funds, (2) Consensus ADDS / TRIMS for the chosen period, (3) Asset-Class Rotation persistence table (12mo lookback, ≥3mo streak = persistent), (4) Per-Fund and Cross-Fund Sector Rotation persistence tables.
+Outputs, in order: (1) Portfolio Overlap — core holdings shared by ≥2 funds across all AMCs, (2) Consensus ADDS / TRIMS for the chosen period, (3) Asset-Class Rotation persistence table (12mo lookback, ≥3mo streak = persistent), (4) Per-Fund and Cross-Fund Sector Rotation persistence tables.
 
-**Data-lag caveat — always check before calling a month "July" or "latest":** the 7 funds do not disclose on identical cadences. Some funds (e.g. DSP Multi Asset / DSP Multi Asset Omni) can lag a full month behind the others, and ICICI Multi Asset discloses closer to quarterly. The script's MoM/YoY comparison always uses each fund's own two most-recent snapshots — so a "MoM" read can silently mix a true latest-month change (for funds that reported on time) with a stale prior-month change (for funds still lagging). Verify per-fund `as_of_month` first:
+**Data-lag caveat — always check before calling a month "July" or "latest":** funds do not disclose on identical cadences. Verify per-fund `as_of_month` first:
 ```sql
 SELECT fund_name, max(as_of_month) AS latest, count(DISTINCT as_of_month) AS n_months
 FROM market_data.mf_holdings FINAL
-WHERE scheme_code IN ('RLMF806','RLMF811','152056','154167','152639','120821','120334')
+WHERE fund_name ILIKE '%multi%asset%' OR scheme_code IN ('RLMF806','RLMF811','152056','154167','152639','120821','120334','120716','152064','119843')
 GROUP BY fund_name;
 ```
 
@@ -190,6 +232,63 @@ python src/scripts/portfolio/multi_asset_ascii_viz.py
 python src/scripts/portfolio/multi_asset_ascii_viz.py --min-delta 0.25 --top 10
 ```
 Renders (1) a Fund x Asset-Class MoM weight-shift matrix with an in-cell text bar per fund/asset-class pair, and (2) a diverging ASCII bar chart of consensus movers (securities ≥2 funds moved, joined on **ISIN** — not `security_name` text, since AMCs spell the same company inconsistently, e.g. "HDFC Bank Ltd" vs "HDFC Bank Limited", which fragments one company into false duplicates if joined on the raw name). Same data-lag caveat as §4b applies — each fund's row compares its own two most-recent snapshots, which are not all the same calendar month.
+
+---
+
+## 🐋 4c. Cross-AMC Whale Accumulation Scanner (Full Active-Equity Universe + Technical Confirmation)
+
+Unlike §4/§4b (scoped to the 19 tracked multi-asset funds), this scans **every active
+equity fund across 15+ AMC groups** (ABAKKUS, AXIS, BAJAJ, CANARA, DSP, HDFC, HELIOS,
+ICICI, INVESCO, KOTAK, MIRAE, MOTILAL, NIPPON, QUANT, SBI) for stocks where multiple
+independent AMCs are simultaneously building positions — the broadest cross-AMC
+consensus signal in this codebase.
+
+```bash
+# Full-universe scan, default 3-month lookback, min 2 AMCs
+python src/scripts/portfolio/whale_accumulation_scanner.py
+
+# Restrict to one AMC group, longer lookback, lower the consensus threshold
+python src/scripts/portfolio/whale_accumulation_scanner.py --amc dsp --months 6 --min-amcs 3
+
+# Add RSI-14 / drawdown-from-52w-high / volume-surge technical confirmation per
+# accumulator (via yfinance) and a blended opportunity_score — turns "N AMCs are
+# buying X" into "N AMCs are buying X and it's technically confirmed". Adds
+# noticeable latency (bulk yfinance download of up to 25 candidates) — only ask
+# for this when technical/price confirmation is actually wanted.
+python src/scripts/portfolio/whale_accumulation_scanner.py --with-technicals
+
+# Save a Markdown report to output/whale_accumulation_report.md
+python src/scripts/portfolio/whale_accumulation_scanner.py --save
+```
+
+Outputs, in order: (1) Top Accumulators ranked by `consensus_score = num_amcs ×
+avg_delta_pp` (plus RSI/Drawdown/Vol Surge/Opp. Score columns when
+`--with-technicals` is passed), (2) Zero-to-Hero fresh entries (stocks that had 0%
+weight before and are now held by `min_amcs`+ AMCs), (3) largest institutional bets
+by aggregate ₹ value.
+
+**Two data-quality fixes baked into this scanner that matter if you're debugging an
+unexpectedly narrow AMC list in the output:**
+- `security_name` is normalized for the "Ltd" vs "Limited" company-suffix spelling
+  difference between importers (older BRAND_SCHEME importers use "Ltd"; the newer
+  Abakkus/Axis/Canara Robeco/Helios/Invesco/Mirae Asset/Motilal Oswal importers use
+  "Limited" for the same companies) before grouping — otherwise the same real stock
+  silently splits into two consensus rows and looks like less cross-AMC overlap than
+  there really is.
+- "Latest" and "comparison" snapshot dates are resolved **independently per fund**,
+  not via one shared calendar-month bucket — different AMCs' importers stamp their
+  monthly disclosure differently (e.g. one AMC's latest row dated the 1st of the next
+  month vs another's dated the actual month-end, a day apart in reality), so a shared
+  bucket would silently exclude whichever AMCs' latest row lands in an earlier
+  calendar month.
+
+Agent tools: `scan_whale_accumulation(amc, lookback_months, min_amcs, with_technicals)`
+and `get_whale_consensus(symbol)` (`src/tools/whale_tools.py`, registered on the MF
+sub-agent — see `src/agents/sub_agents/mf.py`). Ask for these (rather than
+`run_multi_asset_consensus` / `run_whale_tracker`) when the question is about the full
+AMC universe or wants technical confirmation, e.g. "what is everyone accumulating",
+"which consensus buys are also technically attractive", "is DSP or Nippon buying
+<stock>".
 
 ---
 
@@ -216,6 +315,19 @@ python src/scripts/portfolio/fund_mom_returns.py --scheme <SCHEME_CODE>
 | **DSP Quant** | `147306` | Factor / Quant |
 | **DSP Value** | `148595` | Value |
 | **DSP Healthcare** | `145454` | Pharma / Healthcare |
+
+### Any Fund by Name (not just DSP)
+
+Don't know the scheme code? Search by name first — works for any AMC/fund, not just the DSP table above:
+```bash
+python src/scripts/portfolio/fund_mom_returns.py --search "<fund name>"   # lists matching scheme codes (e.g. Direct vs Regular Plan), then pick one
+python src/scripts/portfolio/fund_mom_returns.py --scheme <CODE> --months <N>
+```
+Agent tool: `run_fund_mom_returns(scheme_code, search_query, months=12)` (`src/tools/runners.py`).
+
+**NAV is always fetched live from mfapi.in** — no ClickHouse import step exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist gets imported into `market_data.mf_nav`, see `MF_SCHEME_CODES` in `src/data_importer/registry.py`).
+
+**Expense ratio is NOT available** from this tool or anywhere else in the codebase — mfapi.in's scheme metadata only has `fund_house`/`scheme_type`/`scheme_category`/`scheme_code`/`scheme_name`/ISINs. Don't invent a number from training knowledge; say it's unavailable (see `docs/CLAUDE.md` grounding rules).
 
 ---
 

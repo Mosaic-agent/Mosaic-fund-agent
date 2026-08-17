@@ -231,6 +231,8 @@ All market data ingestion, ClickHouse storage, GARCH volatility scaling, LightGB
 | What you want | Command |
 |---|---|
 | Today's buy/sell signal for 18 ETFs | `signals` |
+| Live market-hour institutional discovery radar | `discover --loop -i 60` |
+| 360° Institutional stock research dossier & ASCII charts | `python src/scripts/portfolio/stock_research_report.py <SYMBOL>` |
 | Pre-market gold/silver/crude outlook | `comex` |
 | FII/DII flow summary | `ask "show me institutional flows"` |
 | Is my ETF trading at a premium? | `premium-alerts` |

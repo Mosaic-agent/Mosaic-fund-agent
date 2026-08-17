@@ -39,12 +39,15 @@ Run the consolidated script inside Docker:
 - `--z-threshold` (optional): Raw GARCH residual Z-score cutoff (default `5.0`).
 - `--contamination` (optional): Isolation Forest outlier contamination rate (default `0.01`).
 
-## Output Files
+## Output Files & ASCII Visualizations
 
 The script generates a comprehensive markdown report in the output directory:
 - Report Path: `output/<symbol>_anomaly_report.md`
 - Visual timeline plots are saved to `output/reports/<SYMBOL>_correlation_timeline.png`
 - Lead-lag grids are saved to `output/reports/<SYMBOL>_lead_lag_grid.png`
+
+### Terminal ASCII Chart Integration
+For interactive CLI responses or inline summary reports, call `plot_price_chart(symbol, days)` or `render_sparkline(prices)` from `src.tools.chart_tools` to render ASCII candlestick charts and volume spike flags directly in the terminal output.
 
 ## Framework for Interpreting Results
 
