@@ -1789,8 +1789,9 @@ def discover(
     min_rvol: float = typer.Option(2.0, "--min-rvol", "-r", help="Minimum Relative Volume multiple vs 20D SMA (default: 2.0)"),
     top: int = typer.Option(10, "--top", "-n", help="Number of top candidates to display (default: 10)"),
     loop: bool = typer.Option(False, "--loop", "-l", help="Run continuously in a polling loop through market hours"),
-    interval: int = typer.Option(180, "--interval", "-i", help="Loop polling interval in seconds (default: 180s / 3 mins)"),
+    interval: int = typer.Option(60, "--interval", "-i", help="Loop polling interval in seconds (default: 60s)"),
     all_hours: bool = typer.Option(False, "--all-hours", help="Run loop even outside market hours for simulation/testing"),
+    fast: bool = typer.Option(True, "--fast/--standard", help="Use high-performance asynchronous low-latency engine (<300ms)"),
 ) -> None:
     """
     Live market-hour institutional discovery and breakout pipeline.
@@ -1799,17 +1800,31 @@ def discover(
     detects block deal crossings, checks mutual fund cross-ownership,
     and formulates 2-tranche trade levels.
     """
-    from src.scripts.market.live_discovery_pipeline import run_live_discovery_cycle, run_continuous_discovery_loop
-    if loop:
-        run_continuous_discovery_loop(
-            min_turnover_cr=min_turnover,
-            min_rvol=min_rvol,
-            top_n=top,
-            interval_sec=interval,
-            market_hours_only=not all_hours,
-        )
+    if fast:
+        import asyncio
+        from src.scripts.market.async_live_discovery import AsyncLiveDiscoveryEngine
+        engine = AsyncLiveDiscoveryEngine(min_turnover_cr=min_turnover, min_rvol=min_rvol, top_n=top)
+        if loop:
+            asyncio.run(engine.run_async_loop(interval_sec=interval, all_hours=all_hours))
+        else:
+            import httpx
+            engine.prewarm_memory_caches()
+            async def _run_once():
+                async with httpx.AsyncClient(headers=engine._headers, timeout=5.0) as http_client:
+                    await engine.run_discovery_cycle_async(http_client)
+            asyncio.run(_run_once())
     else:
-        run_live_discovery_cycle(min_turnover_cr=min_turnover, min_rvol=min_rvol, top_n=top)
+        from src.scripts.market.live_discovery_pipeline import run_live_discovery_cycle, run_continuous_discovery_loop
+        if loop:
+            run_continuous_discovery_loop(
+                min_turnover_cr=min_turnover,
+                min_rvol=min_rvol,
+                top_n=top,
+                interval_sec=interval,
+                market_hours_only=not all_hours,
+            )
+        else:
+            run_live_discovery_cycle(min_turnover_cr=min_turnover, min_rvol=min_rvol, top_n=top)
 
 
 if __name__ == "__main__":
