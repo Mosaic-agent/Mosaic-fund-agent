@@ -7,7 +7,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 from config.settings import settings
-from src.importer.fetchers.shoonya_fetcher import _save_session
+try:
+    from src.data_importer.fetchers.shoonya_fetcher import _save_session
+except ImportError:
+    from src.importer.fetchers.shoonya_fetcher import _save_session
 
 def main():
     parser = argparse.ArgumentParser(description="Authenticate Shoonya Broker Session")
