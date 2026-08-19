@@ -30,10 +30,12 @@ WEIGHTS = {
     "anomaly":   0.10,
 }
 
-# ── Dynamic Regime-Adaptive Weights (Bayesian Calibration) ────────────────────
+# ── Dynamic Regime-Adaptive Weights (static lookup, hand-tuned) ──────────────
 # In dislocation/breakout regimes, static mean-reverting valuation and short-term
 # ML models decay, while Macro and Anomaly/Precedent signals carry higher SNR.
 # In persistent trend regimes, ML directional momentum and institutional Flows lead.
+# NOTE: these weight sets are fixed constants, not Bayesian-updated — there is no
+# prior/posterior or calibration procedure here, just a per-regime lookup table.
 REGIME_WEIGHTS: dict[str, dict[str, float]] = {
     "Volatile Breakout": {
         "macro": 0.28, "anomaly": 0.18, "sentiment": 0.14, "valuation": 0.16, "ml": 0.14, "flow": 0.10,
@@ -57,7 +59,7 @@ REGIME_WEIGHTS: dict[str, dict[str, float]] = {
 
 
 def _get_regime_weights(flag: str) -> dict[str, float]:
-    """Retrieve dynamically calibrated pillar weights based on the active market regime."""
+    """Look up the fixed pillar weights for the active market regime label."""
     if flag in REGIME_WEIGHTS:
         return REGIME_WEIGHTS[flag]
     flag_lower = flag.lower()
