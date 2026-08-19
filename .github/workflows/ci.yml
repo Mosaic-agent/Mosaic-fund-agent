@@ -58,6 +58,7 @@ jobs:
       - name: Run Unit Tests
         env:
           # Tell scripts we are running in CI / allow bypass
+          CI: "true"
           ALLOW_LOCAL_RUN: "1"
           LLM_PROVIDER: openai
           LLM_MODEL: ${{ secrets.LLM_MODEL || 'gemini-1.5-flash' }}
