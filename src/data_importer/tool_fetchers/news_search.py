@@ -87,14 +87,27 @@ except Exception:
 
 # ── GNews Client ─────────────────────────────────────────────────────────────
 
-def _make_gnews_client(lookback_days: int) -> GNews:
-    """Create a GNews client configured for Indian English financial news with a dynamic lookback."""
-    return GNews(
+def _make_gnews_client(
+    lookback_days: int | None = None,
+    start_date: tuple[int, int, int] | None = None,
+    end_date: tuple[int, int, int] | None = None,
+) -> GNews:
+    """Create a GNews client configured for Indian English financial news.
+
+    Pass either ``lookback_days`` (relative rolling period) or both
+    ``start_date``/``end_date`` (absolute calendar window) -- not both.
+    """
+    client = GNews(
         language="en",
         country="IN",
         max_results=min(settings.news_articles_per_stock * 3, 30),
-        period=f"{lookback_days}d",
     )
+    if start_date is not None and end_date is not None:
+        client.start_date = start_date
+        client.end_date = end_date
+    else:
+        client.period = f"{lookback_days}d"
+    return client
 
 
 # ── Sentiment heuristic ───────────────────────────────────────────────────────
@@ -218,14 +231,11 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
             if start_chunk >= end_chunk:
                 break
             
-            client = GNews(
-                language="en",
-                country="IN",
-                max_results=30,
+            client = _make_gnews_client(
+                start_date=(start_chunk.year, start_chunk.month, start_chunk.day),
+                end_date=(end_chunk.year, end_chunk.month, end_chunk.day),
             )
-            client.start_date = (start_chunk.year, start_chunk.month, start_chunk.day)
-            client.end_date = (end_chunk.year, end_chunk.month, end_chunk.day)
-            
+
             chunk_res = _gnews_get_news(client, query) or _gnews_get_news(client, symbol)
             for a in (chunk_res or []):
                 u = a.get("url") or a.get("link") or a.get("title", "")
