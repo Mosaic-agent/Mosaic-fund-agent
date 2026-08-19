@@ -73,7 +73,8 @@ def _get_client() -> Any:
 
             host = os.environ.get("QDRANT_HOST") or getattr(settings, "qdrant_host", "localhost")
             port = int(os.environ.get("QDRANT_PORT") or getattr(settings, "qdrant_port", 6333))
-            _client = QdrantClient(url=f"http://{host}:{port}", timeout=15.0)
+            grpc_port = int(os.environ.get("QDRANT_GRPC_PORT") or getattr(settings, "qdrant_grpc_port", 6334))
+            _client = QdrantClient(host=host, port=port, grpc_port=grpc_port, prefer_grpc=True, timeout=15.0)
             log.debug("MarketVector: Qdrant client connected at %s:%s", host, port)
         except Exception as e:
             log.debug("MarketVector: Qdrant client init failed: %s", e)
