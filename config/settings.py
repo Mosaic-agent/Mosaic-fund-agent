@@ -411,6 +411,9 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Qdrant port (default 6333)
     qdrant_port: int = Field(default=6333, description="Qdrant port")
 
+    # [NON-SENSITIVE] Qdrant gRPC port (default 6334) — used when prefer_grpc=True
+    qdrant_grpc_port: int = Field(default=6334, description="Qdrant gRPC port")
+
     # ── Indian Market Constants ───────────────────────────────────────────────
 
     # [NON-SENSITIVE] Yahoo Finance suffix for NSE-listed stocks

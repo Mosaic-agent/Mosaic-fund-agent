@@ -53,7 +53,8 @@ def get_qdrant_client() -> Optional[QdrantClient]:
             from config.settings import settings
             host = os.environ.get("QDRANT_HOST") or getattr(settings, "qdrant_host", "localhost")
             port = int(os.environ.get("QDRANT_PORT") or getattr(settings, "qdrant_port", 6333))
-            _qdrant_client = QdrantClient(url=f"http://{host}:{port}", timeout=10.0)
+            grpc_port = int(os.environ.get("QDRANT_GRPC_PORT") or getattr(settings, "qdrant_grpc_port", 6334))
+            _qdrant_client = QdrantClient(host=host, port=port, grpc_port=grpc_port, prefer_grpc=True, timeout=10.0)
         except Exception as e:
             log.debug("Failed to initialize QdrantClient: %s", e)
             _qdrant_client = None

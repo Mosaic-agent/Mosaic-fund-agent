@@ -180,7 +180,8 @@ def audit_qdrant_freshness(console):
         import os
         host = os.environ.get("QDRANT_HOST", "localhost")
         port = int(os.environ.get("QDRANT_PORT", "6333"))
-        qc = QdrantClient(url=f"http://{host}:{port}", timeout=10)
+        grpc_port = int(os.environ.get("QDRANT_GRPC_PORT", "6334"))
+        qc = QdrantClient(host=host, port=port, grpc_port=grpc_port, prefer_grpc=True, timeout=10)
         # Quick connectivity check
         qc.get_collections()
     except Exception:
