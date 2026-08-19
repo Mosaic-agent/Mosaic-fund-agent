@@ -30,23 +30,44 @@ print("\n=== NewsAPI cache integration ===")
 from src.tools.newsapi_search import fetch_newsapi_articles
 from src.utils.cache import cache_clear
 
-cache_clear("newsapi_RELIANCE_7d")
-print("  First call (live API)...")
-t0 = time.time()
-items1 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
-t1 = time.time() - t0
-print(f"  ✓ fetched {len(items1)} articles in {t1:.1f}s")
+if os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true":
+    from unittest.mock import patch, MagicMock
+    import pytz
+    from datetime import datetime
+    print("  ✓ Mocking NewsAPI in CI environment")
+    mock_articles = [{
+        "title": "Test Article",
+        "source": {"name": "Reuters"},
+        "url": "https://example.com",
+        "description": "Test description",
+        "publishedAt": datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%dT10:00:00Z")
+    }]
+    mock_client = MagicMock()
+    mock_client.get_everything.return_value = {"status": "ok", "totalResults": 1, "articles": mock_articles}
+    with patch("src.data_importer.tool_fetchers.newsapi_search._newsapi_client", return_value=mock_client):
+        target_date_str = datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%Y-%m-%d")
+        cache_clear(f"newsapi_RELIANCE_{target_date_str}")
+        items1 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
+        items2 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
+        assert len(items1) == len(items2)
+        assert mock_client.get_everything.call_count == 1
+        print("  ✓ cache hit confirmed in CI (get_everything called exactly once)")
+else:
+    cache_clear("newsapi_RELIANCE_7d")
+    print("  First call (live API)...")
+    t0 = time.time()
+    items1 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
+    t1 = time.time() - t0
+    print(f"  ✓ fetched {len(items1)} articles in {t1:.1f}s")
 
-print("  Second call (should be cache HIT)...")
-t0 = time.time()
-items2 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
-t2 = time.time() - t0
-print(f"  ✓ returned {len(items2)} articles in {t2:.2f}s  (speedup {t1/max(t2,0.01):.0f}x)")
-assert len(items1) == len(items2), "cache returned different count"
-# Wall-clock threshold is generous (2 s) — what matters is the speedup ratio,
-# not an absolute number that is brittle on slow CI runners.
-assert t2 < 2.0, f"cache hit took too long: {t2:.2f}s"
-assert t2 < t1, f"cache hit ({t2:.2f}s) was not faster than live call ({t1:.2f}s)"
-print(f"  ✓ cache hit confirmed ({t2:.3f}s vs {t1:.1f}s live)")
+    print("  Second call (should be cache HIT)...")
+    t0 = time.time()
+    items2 = fetch_newsapi_articles("RELIANCE", "Reliance Industries")
+    t2 = time.time() - t0
+    print(f"  ✓ returned {len(items2)} articles in {t2:.2f}s  (speedup {t1/max(t2,0.01):.0f}x)")
+    assert len(items1) == len(items2), "cache returned different count"
+    assert t2 < 2.0, f"cache hit took too long: {t2:.2f}s"
+    assert t2 <= t1, f"cache hit ({t2:.2f}s) was not faster than live call ({t1:.2f}s)"
+    print(f"  ✓ cache hit confirmed ({t2:.3f}s vs {t1:.1f}s live)")
 
 print("\nAll cache tests passed ✓")

@@ -520,8 +520,6 @@ _HTML_TEMPLATE = """\
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>{{ title }}</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-
   :root {
     --bg:       #ffffff;
     --surface:  #f8f9fc;
@@ -538,7 +536,7 @@ _HTML_TEMPLATE = """\
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'Inter', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     font-size: 10pt;

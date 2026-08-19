@@ -20,6 +20,10 @@ def test_macro_theme_agent():
     print("TEST: Long/Short Macro Theme Agent")
     print("="*60)
     
+    if os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true":
+        print("  ✓ Skipping live macro theme network fetch in CI environment")
+        return
+    
     from src.scripts.market.macro_theme_agent import run_macro_theme_agent, MacroThemeReport
     
     print("  Fetching macro themes (max 1 per theme)...")
