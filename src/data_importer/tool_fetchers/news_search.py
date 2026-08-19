@@ -143,8 +143,9 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
     Returns:
         List of NewsItem models.
     """
+    import math
     import pytz
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from dateutil import parser as date_parser
 
     # Resolve target_dt
@@ -185,22 +186,53 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
             for c in cached[: settings.news_articles_per_stock]
         ]
 
+    tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
+    today_dt = datetime.now(tz).date()
+
     # Calculate dynamic lookback needed to cover the target date if provided
     lookback_days = settings.news_lookback_days
     if target_dt:
-        tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
-        today_dt = datetime.now(tz).date()
         days_diff = (today_dt - target_dt).days
         lookback_days = max(settings.news_lookback_days, days_diff + 1)
 
-    client = _make_gnews_client(lookback_days)
     query = f"{company_name} NSE stock" if company_name else f"{symbol} NSE stock"
 
-    articles = _gnews_get_news(client, query)
+    # Multi-window chunking for lookbacks > 30 days to bypass single-feed 100-item caps
+    articles: list[dict] = []
+    seen_urls: set[str] = set()
 
-    # Fallback: bare symbol query if primary returned nothing
-    if not articles:
-        articles = _gnews_get_news(client, symbol)
+    if lookback_days <= 30:
+        client = _make_gnews_client(lookback_days)
+        raw_res = _gnews_get_news(client, query) or _gnews_get_news(client, symbol)
+        for a in (raw_res or []):
+            u = a.get("url") or a.get("link") or a.get("title", "")
+            if u not in seen_urls:
+                seen_urls.add(u)
+                articles.append(a)
+    else:
+        # Sliced calendar chunking (30-day non-overlapping windows)
+        num_chunks = min(math.ceil(lookback_days / 30), 6) # max 6 months
+        for chunk_idx in range(num_chunks):
+            end_chunk = today_dt - timedelta(days=chunk_idx * 30)
+            start_chunk = max(today_dt - timedelta(days=(chunk_idx + 1) * 30), today_dt - timedelta(days=lookback_days))
+            if start_chunk >= end_chunk:
+                break
+            
+            client = GNews(
+                language="en",
+                country="IN",
+                max_results=30,
+            )
+            client.start_date = (start_chunk.year, start_chunk.month, start_chunk.day)
+            client.end_date = (end_chunk.year, end_chunk.month, end_chunk.day)
+            
+            chunk_res = _gnews_get_news(client, query) or _gnews_get_news(client, symbol)
+            for a in (chunk_res or []):
+                u = a.get("url") or a.get("link") or a.get("title", "")
+                if u not in seen_urls:
+                    seen_urls.add(u)
+                    articles.append(a)
+            time.sleep(random.uniform(0.5, 1.2)) # polite inter-chunk delay
 
     filtered_items: list[NewsItem] = []
     all_items: list[NewsItem] = []

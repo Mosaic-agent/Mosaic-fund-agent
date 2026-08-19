@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 # SIGNAL_ETFS is now owned by signal_sources to avoid circular imports.
 from src.agents.signal_sources import SIGNAL_ETFS  # noqa: E402
 
-# ── Weights for each pillar ───────────────────────────────────────────────────
+# ── Weights for each pillar (Baseline) ────────────────────────────────────────
 
 WEIGHTS = {
     "macro":     0.20,
@@ -29,11 +29,43 @@ WEIGHTS = {
     "ml":        0.20,
     "anomaly":   0.10,
 }
-# Weights sum to 1.00.  Valuation, ML, and Anomaly are prioritised over Flow
-# because FII/DII net-flow is a single scalar applied uniformly to equity vs.
-# haven buckets — it currently adds zero cross-ETF ranking power when the
-# 5-day net is flat.  When per-ETF AUM flow data is added, Flow weight can
-# be revisited.
+
+# ── Dynamic Regime-Adaptive Weights (Bayesian Calibration) ────────────────────
+# In dislocation/breakout regimes, static mean-reverting valuation and short-term
+# ML models decay, while Macro and Anomaly/Precedent signals carry higher SNR.
+# In persistent trend regimes, ML directional momentum and institutional Flows lead.
+REGIME_WEIGHTS: dict[str, dict[str, float]] = {
+    "Volatile Breakout": {
+        "macro": 0.28, "anomaly": 0.18, "sentiment": 0.14, "valuation": 0.16, "ml": 0.14, "flow": 0.10,
+    },
+    "Panic": {
+        "macro": 0.30, "anomaly": 0.20, "sentiment": 0.15, "valuation": 0.15, "ml": 0.10, "flow": 0.10,
+    },
+    "Flash Crash (Contrarian BUY)": {
+        "macro": 0.25, "anomaly": 0.25, "valuation": 0.20, "sentiment": 0.10, "ml": 0.10, "flow": 0.10,
+    },
+    "🔀 Regime Shift (Change Point)": {
+        "macro": 0.25, "anomaly": 0.20, "sentiment": 0.15, "valuation": 0.15, "ml": 0.15, "flow": 0.10,
+    },
+    "Strong Trend (HODL)": {
+        "ml": 0.25, "macro": 0.20, "flow": 0.15, "sentiment": 0.15, "valuation": 0.15, "anomaly": 0.10,
+    },
+    "Normal": {
+        "valuation": 0.25, "ml": 0.20, "macro": 0.20, "sentiment": 0.15, "flow": 0.10, "anomaly": 0.10,
+    },
+}
+
+
+def _get_regime_weights(flag: str) -> dict[str, float]:
+    """Retrieve dynamically calibrated pillar weights based on the active market regime."""
+    if flag in REGIME_WEIGHTS:
+        return REGIME_WEIGHTS[flag]
+    flag_lower = flag.lower()
+    for key, weights_dict in REGIME_WEIGHTS.items():
+        if key.lower() in flag_lower:
+            return weights_dict
+    return WEIGHTS
+
 
 # ── Anomaly regime → numeric score ───────────────────────────────────────────
 # Regime labels from the GARCH+IF+PELT anomaly pipeline are mapped to 0-100
@@ -91,25 +123,22 @@ def _anomaly_to_score(flag: str) -> float:
     return 50.0  # unknown → neutral
 
 
-def _build_breakdown(scores: dict[str, float]) -> str:
+def _build_breakdown(scores: dict[str, float], active_weights: dict[str, float] | None = None) -> str:
     """
     Build a human-readable, auditable per-pillar breakdown.
 
     Each line shows the pillar, its effective weight, its raw 0–100 score,
     and its *weighted contribution* (score × weight).  The sum of contributions
     equals the composite score.
-
-    Example output:
-        Macro=75 ×0.20=+15.0 | Sent.=40 ×0.15=+6.0 | Val.=60 ×0.25=+15.0
-        Flow=55 ×0.10=+5.5 | ML=52 ×0.20=+10.4 | Anom.=70 ×0.10=+7.0
     """
+    w_map = active_weights if active_weights is not None else WEIGHTS
     parts = []
     for label, key in [
         ("Macro", "macro"), ("Sent.", "sentiment"), ("Val.", "valuation"),
         ("Flow", "flow"), ("ML", "ml"), ("Anom.", "anomaly"),
     ]:
         raw = scores[key]
-        w = WEIGHTS[key]
+        w = w_map[key]
         parts.append(f"{label}={raw:.0f} ×{w:.2f}={raw * w:+.1f}")
 
     # Split into two lines of 3 for readability
@@ -122,31 +151,31 @@ def _compute_composite(
 ) -> list[ETFSignal]:
     """Compute weighted composite score and action for each ETF.
 
-    All six pillars (including anomaly) are weighted numerically.
-    The anomaly regime label is converted to a 0–100 score via
-    ANOMALY_REGIME_SCORES and participates in the weighted sum.
-    Weights sum to 1.00 — no extra allocation hacks.
+    All six pillars (including anomaly) are weighted dynamically based
+    on the underlying regime. Weights sum to 1.00.
     """
     signals = []
     for etf in SIGNAL_ETFS:
-        m      = macro.get(etf, 50)
-        s      = sentiment.get(etf, 50)
-        v      = valuation.get(etf, 50)
-        f      = flow.get(etf, 50)
-        ml_s   = ml.get(etf, 50)
-        a_flag = anomaly.get(etf, "Normal")
+        m       = macro.get(etf, 50)
+        s       = sentiment.get(etf, 50)
+        v       = valuation.get(etf, 50)
+        f       = flow.get(etf, 50)
+        ml_s    = ml.get(etf, 50)
+        a_flag  = anomaly.get(etf, "Normal")
         a_score = _anomaly_to_score(a_flag)
+
+        # Dynamic regime weights
+        eff_weights = _get_regime_weights(a_flag)
 
         # Fully weighted composite — all 6 pillars, weights sum to 1.00
         composite = (
-            m       * WEIGHTS["macro"]
-            + s     * WEIGHTS["sentiment"]
-            + v     * WEIGHTS["valuation"]
-            + f     * WEIGHTS["flow"]
-            + ml_s  * WEIGHTS["ml"]
-            + a_score * WEIGHTS["anomaly"]
+            m       * eff_weights["macro"]
+            + s     * eff_weights["sentiment"]
+            + v     * eff_weights["valuation"]
+            + f     * eff_weights["flow"]
+            + ml_s  * eff_weights["ml"]
+            + a_score * eff_weights["anomaly"]
         )
-
 
         composite = round(composite, 1)
 
@@ -167,7 +196,7 @@ def _compute_composite(
             "macro": m, "sentiment": s, "valuation": v,
             "flow": f, "ml": ml_s, "anomaly": a_score,
         }
-        breakdown = _build_breakdown(pillar_scores)
+        breakdown = _build_breakdown(pillar_scores, active_weights=eff_weights)
 
         signals.append(ETFSignal(
             etf=etf,
