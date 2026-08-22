@@ -43,8 +43,14 @@ def fit_garch_residuals(
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        am  = arch_model(returns, vol="Garch", p=1, q=1, dist="t", rescale=False)
-        res = am.fit(disp="off", show_warning=False)
+        try:
+            # GJR-GARCH(1,1,1) with Student-t innovations to capture asymmetric downside volatility leverage
+            am  = arch_model(returns, p=1, o=1, q=1, vol="Garch", dist="t", rescale=False)
+            res = am.fit(disp="off", show_warning=False)
+        except Exception:
+            # Fallback to standard symmetric GARCH(1,1)
+            am  = arch_model(returns, vol="Garch", p=1, q=1, dist="t", rescale=False)
+            res = am.fit(disp="off", show_warning=False)
 
     # arch returns vectors aligned to the *non-NaN* log_return rows (N-1 values)
     # We need to map them back to the full df index (N rows).
