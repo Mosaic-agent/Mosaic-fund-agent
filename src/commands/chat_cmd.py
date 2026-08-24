@@ -1836,7 +1836,6 @@ def _dispatch_slash(
 
     # ── /analyze [--max N] ─────────────────────────────────────────────────
     if name == "analyze":
-        import os
         max_n = 0
         p = parts[1:]
         while p:
@@ -1911,12 +1910,10 @@ def _dispatch_slash(
     if name == "telemetry":
         sub_arg = parts[1].lower() if len(parts) > 1 else ""
         if sub_arg in ("on", "enable", "start"):
-            import os
             os.environ["MOSAIC_AUTO_TELEMETRY"] = "1"
             console.print("[green]✓ Auto telemetry overlay enabled. Will display system stats after each query.[/green]\n")
             return "", thread_id
         elif sub_arg in ("off", "disable", "stop"):
-            import os
             os.environ.pop("MOSAIC_AUTO_TELEMETRY", None)
             console.print("[yellow]✓ Auto telemetry overlay disabled.[/yellow]\n")
             return "", thread_id
@@ -1927,7 +1924,6 @@ def _dispatch_slash(
 
     # ── /caveman [level] ───────────────────────────────────────────────────
     if name == "caveman":
-        import os
         level = parts[1].lower() if len(parts) > 1 else "full"
         if level in ("off", "stop", "normal", "disabled"):
             os.environ.pop("CAVEMAN_LEVEL", None)

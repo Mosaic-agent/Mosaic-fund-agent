@@ -139,6 +139,9 @@ def check_and_refresh_symbol_data(symbol: str, auto_import: bool = True) -> str:
 
     # Trigger the importer for the specific symbol only
     try:
+        import sys
+        sys.stdout.write(f"  {sym} data {status_label} in ClickHouse — triggering import...\n")
+        sys.stdout.flush()
         from src.tools.skills_tools import import_symbol_data_impl
         import_symbol_data_impl(sym)
 

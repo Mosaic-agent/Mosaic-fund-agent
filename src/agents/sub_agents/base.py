@@ -21,6 +21,7 @@ from src.agents.sub_agents.infra import (
     _make_context_trimmer,
     _print_thinking_blocks,
     _wrap_tool_for_dedup,
+    _wrap_tool_strip_ansi,
 )
 from src.agents.sub_agents.prompts import NO_LLM_CALC_RULE, CLICKHOUSE_FINAL_ALIAS_RULE
 
@@ -135,7 +136,7 @@ class _SubAgent:
         try:
             from langgraph.prebuilt import create_react_agent, ToolNode
             tools = self._get_tools()
-            tools = [_wrap_tool_for_dedup(t) for t in tools]
+            tools = [_wrap_tool_strip_ansi(_wrap_tool_for_dedup(t)) for t in tools]
             tool_node = ToolNode(tools)
             from src.utils.caveman import get_caveman_prompt
             from src.agents.mosaic_fund_agent import _cacheable_system_prompt
