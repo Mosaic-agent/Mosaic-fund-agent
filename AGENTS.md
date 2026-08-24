@@ -85,12 +85,18 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 - NAV is fetched **live** from mfapi.in every run — no ClickHouse import exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist is imported into `market_data.mf_nav`).
 - **Expense ratio is not available anywhere** — mfapi.in's scheme metadata has no such field, and nothing in this codebase tracks TER. Do not substitute a number from training knowledge (see Rule 1) — state it's unavailable.
 
+### 9. Always Use Color in Console
+- ALWAYS use rich colors, ANSI escape sequences, or Rich library console styling in terminal outputs and scripts (e.g., green for gains/freshness, red for losses/anomalies, cyan/bold for headers, yellow for warnings). Ensure console reports are visually distinct and easy to read.
+
+### 10. Always Use Charts Where Possible
+- Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich) and Mermaid diagrams alongside data tables for maximum visual clarity.
+
 ---
 
 ## ClickHouse Schema & Documentation References
 
 - **Database:** `market_data` (ReplacingMergeTree tables; always query with `FINAL`).
-- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`.
+- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `amfi_market_cap`.
 - **Full Architecture & Details:**
   - System & Data Pipelines: [docs/architecture.md](docs/architecture.md)
   - Agent Orchestration & Playbooks: [docs/agent-architecture.md](docs/agent-architecture.md)

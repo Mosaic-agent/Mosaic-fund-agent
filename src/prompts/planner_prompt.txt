@@ -16,10 +16,9 @@ AGENT GUIDE — read every entry before choosing
 ── signal ──────────────────────────────────────
 When: ETF composite scores, GOLDBEES ML pipeline, Kelly / blended position weights,
       GARCH risk governor, live iNAV / NAV queries, premium alerts, ETF category news sentiment,
-      explaining price anomalies / chart spikes / daily return shocks.
+      ETF-level anomalies and ETF regime signals. (NOT for single Indian stocks).
 Key tools: run_goldbees_pipeline · run_daily_signal_composite · run_risk_governor_analysis ·
            get_live_inav(symbol) · run_etf_news_sentiment · run_premium_alerts ·
-           explain_price_anomalies(symbol, days) · find_similar_anomaly_events(symbol, regime) ·
            plot_signal_scores · plot_signal_breakdown · plot_weight_recommendations · plot_garch_volatility_chart
 Examples:
   "GOLDBEES signal today"        → 1. run_goldbees_pipeline() — report prob_up, regime_signal, blended_50
@@ -33,9 +32,6 @@ Examples:
   "GOLDBEES current NAV"         → 1. get_live_inav("GOLDBEES")
   "is HNGSNGBEES at premium"     → 1. get_live_inav("HNGSNGBEES")
   "ETF news sentiment"           → 1. run_etf_news_sentiment()
-  "explain GOLDBEES price anomalies last 30 days" → 1. explain_price_anomalies(symbol="GOLDBEES", days=30)
-  "what historical crashes looked like this GOLDBEES flash crash" → 1. find_similar_anomaly_events(symbol="GOLDBEES", regime="⚡ Flash Crash / Black Swan (EXIT)")
-  "similar anomaly history for RELIANCE"  → 1. find_similar_anomaly_events(symbol="RELIANCE", k=5)
 
 ── macro ────────────────────────────────────────
 When: ANY geopolitical event (Iran, Russia, China, Ukraine, Israel, Gaza, Pakistan, OPEC),
@@ -64,12 +60,16 @@ Examples:
   "saved news bearish"           → 1. get_db_news(category="gold", sentiment="bearish")
 
 ── equity ───────────────────────────────────────
-When: Research on a specific Indian NSE/BSE listed stock — price, valuation, earnings,
+When: Research on a specific Indian NSE/BSE listed stock — price anomalies / shocks / spikes,
+      news correlation for shocks, price charts, valuation, earnings, quarterly results,
       cash flow, MF holding pattern, institutional ownership. NOT for US stocks (→ deepdive).
-Key tools: resolve_company · get_yahoo_finance_data · get_price_momentum · get_quarterly_results ·
+Key tools: resolve_company · search_anomaly_events · get_yahoo_finance_data · get_price_momentum · get_quarterly_results ·
            get_stock_cashflow · get_mf_holdings_for_stock · get_fii_dii_summary · get_stock_news ·
            plot_price_chart · plot_fund_holdings_chart · plot_macd_chart
 Examples:
+  "anomalies in Nuvoco Vistas"   → 1. resolve_company("Nuvoco Vistas")  2. search_anomaly_events("NUVOCO", 365)  3. plot_price_chart("NUVOCO", 90)
+  "price shocks on RELIANCE"     → 1. resolve_company("RELIANCE")  2. search_anomaly_events("RELIANCE", 365)  3. plot_price_chart("RELIANCE", 90)
+  "what caused drop in BAJFINANCE" → 1. resolve_company("BAJFINANCE")  2. search_anomaly_events("BAJFINANCE", 180)  3. get_quarterly_results("BAJFINANCE:NSE")
   "RELIANCE fundamentals"        → 1. resolve_company("RELIANCE")  2. get_yahoo_finance_data("RELIANCE:NSE")  3. get_quarterly_results("RELIANCE:NSE")  4. get_mf_holdings_for_stock("Reliance")
   "HDFC Bank cashflow"           → 1. resolve_company("HDFC Bank")  2. get_stock_cashflow("HDFCBANK:NSE")
   "TCS MF holdings trend"        → 1. get_mf_holdings_for_stock("TCS")  2. plot_fund_holdings_chart("DSP Top 100", 10)

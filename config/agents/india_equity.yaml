@@ -57,6 +57,10 @@ steps:
         params:
           company_name_or_symbol: "{{ symbol }}"
         fail_on_error: false
+      - tool_name: plot_shareholding_bar
+        params:
+          symbol: "{{ symbol }}"
+        fail_on_error: false
       - tool_name: get_db_price_summary
         params:
           symbol: "{{ symbol }}"
@@ -65,6 +69,12 @@ steps:
         params:
           symbol: "{{ symbol }}"
           days: 365
+        timeout: 90
+        fail_on_error: false
+      - tool_name: find_anomaly_correlations
+        params:
+          symbol: "{{ symbol }}"
+          lookback_days: 365
         timeout: 90
         fail_on_error: false
       - tool_name: get_stock_news
@@ -95,12 +105,17 @@ steps:
       <anomalies>
       {{ batch_enrichment.search_anomaly_events }}
       </anomalies>
+
+      <correlations>
+      {{ batch_enrichment.find_anomaly_correlations }}
+      </correlations>
       </source_data>
 
       <instructions>
       1. Analyze the core growth drivers and cash flow quality.
       2. Check for promoter dilution (verify QIP/preferential allotment before assuming promoter sale).
-      3. Write a concise 3-sentence executive investment thesis summary.
+      3. Correlate price anomalies with underlying corporate announcements, quarterly earnings, and news events.
+      4. Write a concise 3-sentence executive investment thesis summary.
       </instructions>
 
   - id: format_equity_note
@@ -140,31 +155,68 @@ steps:
       {{ batch_enrichment.get_nse_announcements }}
 
       ### Market Metrics (Yahoo Finance)
-      {{ batch_enrichment.get_yahoo_finance_data }}
+      {% set yf = batch_enrichment.get_yahoo_finance_data %}
+      {% if yf is mapping and yf.sector is defined %}
+      * **Sector / Industry**: {{ yf.sector }} | {{ yf.industry }}
+      * **Market Cap**: {{ yf.market_cap_formatted }} ({{ yf.cap_category }})
+      * **Valuation Multiples**: P/E: {{ yf.pe_ratio | round(2) if yf.pe_ratio else 'N/A' }} | P/B: {{ yf.pb_ratio | round(2) if yf.pb_ratio else 'N/A' }} | Div Yield: {{ yf.dividend_yield_pct | round(2) if yf.dividend_yield_pct else '0.00' }}%
+      * **52-Week Range**: ₹{{ yf.fifty_two_week_low_inr }} – ₹{{ yf.fifty_two_week_high_inr }}
+      {% else %}
+      {{ yf }}
+      {% endif %}
 
       ### 1-Year Price Chart
-      [CHART:price]
+      {{ batch_enrichment.plot_price_chart }}
 
       ## 2. Price Momentum & Technical
-      {{ batch_enrichment.get_price_momentum }}
+      {% set mom = batch_enrichment.get_price_momentum %}
+      {% if mom is mapping and mom.momentum_signal is defined %}
+      * **Technical Momentum**: `{{ mom.momentum_signal }}`
+      * **Returns**: 30d: {{ mom.return_30d_pct | round(2) if mom.return_30d_pct else 'N/A' }}% | 90d: {{ mom.return_90d_pct | round(2) if mom.return_90d_pct else 'N/A' }}% | 1-Year: {{ mom.return_1y_pct | round(2) if mom.return_1y_pct else 'N/A' }}%
+      {% else %}
+      {{ mom }}
+      {% endif %}
 
       ### Data Freshness
       {{ batch_enrichment.check_and_refresh_symbol_data }}
 
-      ### Price History (ClickHouse)
-      {{ batch_enrichment.get_db_price_summary }}
-
       ## 3. Quarterly Financials
-      {{ batch_enrichment.get_quarterly_results }}
+      {% set qf = batch_enrichment.get_quarterly_results %}
+      {% if qf is mapping and qf.revenue_cr is defined %}
+      **Period:** {{ qf.period }}
+
+      | Metric | Value | YoY Growth |
+      | :--- | :--- | :--- |
+      | **Revenue** | ₹{{ qf.revenue_cr | round(1) }} Cr | {{ qf.revenue_yoy_pct | round(1) }}% |
+      | **Net Profit** | ₹{{ qf.net_profit_cr | round(1) }} Cr | {{ qf.profit_yoy_pct | round(1) }}% |
+      | **EPS** | ₹{{ qf.eps | round(2) }} | {{ qf.eps_yoy_pct | round(1) }}% |
+      {% else %}
+      {{ qf }}
+      {% endif %}
 
       ## 4. Cash Flow Quality
-      {{ batch_enrichment.get_stock_cashflow }}
+      {% set cf = batch_enrichment.get_stock_cashflow %}
+      {% if cf is mapping and cf.annual_cashflows is defined %}
+      | Fiscal Year | Free Cash Flow (₹M) | Operating CF (₹M) | Capex (₹M) |
+      | :--- | :--- | :--- | :--- |
+      {% for row in cf.annual_cashflows %}
+      | {{ row.fiscal_year_end }} | ₹{{ row.free_cash_flow_usd_m }} | ₹{{ row.operating_cash_flow_usd_m }} | ₹{{ row.capex_usd_m }} |
+      {% endfor %}
+      {% else %}
+      {{ cf }}
+      {% endif %}
 
-      ## 5. Institutional Ownership — DSP MF Cross-Fund Holdings
+      ## 5. Institutional Ownership & Shareholding Pattern
+      {{ batch_enrichment.plot_shareholding_bar }}
+
+      ### DSP MF Cross-Fund Holdings
       {{ batch_enrichment.get_mf_holdings_for_stock }}
 
       ## 6. Price Anomaly & Event Detection (365d)
       {{ batch_enrichment.search_anomaly_events }}
+
+      ### Event Correlation Analysis
+      {{ batch_enrichment.find_anomaly_correlations }}
 
       ## 7. News Sentiment
       {{ batch_enrichment.get_stock_news }}

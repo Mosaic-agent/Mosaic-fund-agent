@@ -65,22 +65,80 @@ def clear_active_charts() -> None:
     get_active_charts().clear()
 
 
+def _extract_symbol_for_chart(text: str) -> str | None:
+    """Extract stock or ETF symbol from markdown headings/context."""
+    import re
+    # Match "# SYMBOL —", "# SYMBOL (NSE)", "**SYMBOL (EXCHANGE)**"
+    m = re.search(r"^[#\s]*([A-Z0-9_\-\.]{2,15})\s+[—–\-\(]", text, re.MULTILINE)
+    if m:
+        return m.group(1).strip().upper()
+    m = re.search(r"\b([A-Z0-9_\-\.]{2,15})\s+—\s+Equity Research", text)
+    if m:
+        return m.group(1).strip().upper()
+    m = re.search(r"\b([A-Z0-9_\-\.]{2,15})\s+VISTAS", text, re.IGNORECASE)
+    if m:
+        return m.group(1).strip().upper()
+    m = re.search(r"\b(NUVOCO|RELIANCE|TCS|INFY|HDFCBANK|TATAMOTORS|ITC|SBIN|BAJFINANCE|GOLDBEES|NIFTYBEES|SILVERBEES)\b", text)
+    if m:
+        return m.group(1).strip().upper()
+    return None
+
+
 def inject_chart_placeholders(text: str) -> str:
     """Replace [CHART:xxx] tokens in text with the real chart strings a plot_*
-    tool call saved this run (via save_active_chart). Shared by every agent path
-    that lets an LLM/template write [CHART:xxx] placeholders instead of
-    reproducing chart glyphs itself — declarative playbooks (declarative_runner.py)
-    and the main tool-calling agent (mosaic_fund_agent.py) both call this."""
+    tool call saved this run (via save_active_chart). If a placeholder remains
+    and wasn't rendered yet, automatically extracts the symbol from text and
+    generates the chart on demand."""
     try:
         chart_by_type = get_active_charts().copy()
         for tname, chart_str in chart_by_type.items():
             placeholders = [f"[CHART:{tname}]"]
             if tname.startswith("plot_") and tname.endswith("_chart"):
                 placeholders.append(f"[CHART:{tname[5:-6]}]")
+            if "macd" in tname.lower() or "mcad" in tname.lower():
+                placeholders.extend(["[CHART:macd]", "[CHART:mcad]", "[CHART:plot_macd_chart]"])
             for ph in placeholders:
                 if ph in text:
                     text = text.replace(ph, chart_str)
                     break
+
+        # Fallback on-demand generation if placeholders are still present in text
+        if "[CHART:price]" in text or "[CHART:plot_price_chart]" in text:
+            sym = _extract_symbol_for_chart(text)
+            if sym:
+                try:
+                    plot_price_chart.invoke({"symbol": sym, "days": 365})
+                    latest_charts = get_active_charts()
+                    if "price" in latest_charts:
+                        text = text.replace("[CHART:price]", latest_charts["price"])
+                        text = text.replace("[CHART:plot_price_chart]", latest_charts["price"])
+                except Exception as exc:
+                    logger.debug("On-demand plot_price_chart failed for %s: %s", sym, exc)
+
+        if "[CHART:shareholding]" in text or "[CHART:plot_shareholding_bar]" in text:
+            sym = _extract_symbol_for_chart(text)
+            if sym:
+                try:
+                    plot_shareholding_bar.invoke({"symbol": sym})
+                    latest_charts = get_active_charts()
+                    if "shareholding" in latest_charts:
+                        text = text.replace("[CHART:shareholding]", latest_charts["shareholding"])
+                        text = text.replace("[CHART:plot_shareholding_bar]", latest_charts["shareholding"])
+                except Exception as exc:
+                    logger.debug("On-demand plot_shareholding_bar failed for %s: %s", sym, exc)
+
+        if "[CHART:macd]" in text or "[CHART:plot_macd_chart]" in text or "[CHART:mcad]" in text:
+            sym = _extract_symbol_for_chart(text)
+            if sym:
+                try:
+                    plot_macd_chart.invoke({"symbol": sym})
+                    latest_charts = get_active_charts()
+                    if "macd" in latest_charts:
+                        for ph in ["[CHART:macd]", "[CHART:mcad]", "[CHART:plot_macd_chart]"]:
+                            text = text.replace(ph, latest_charts["macd"])
+                except Exception as exc:
+                    logger.debug("On-demand plot_macd_chart failed for %s: %s", sym, exc)
+
     except Exception:
         logger.warning("Chart placeholder substitution failed", exc_info=True)
     return text
@@ -228,6 +286,10 @@ def _plt():
     """Lazy import of plotext — raises ImportError with a helpful message if missing."""
     try:
         import plotext as _p
+        if not hasattr(_p, "clear_figure"):
+            _p.clear_figure = getattr(_p, "clf", getattr(_p, "clc", lambda: None))
+        if not hasattr(_p, "clf"):
+            _p.clf = getattr(_p, "clear_figure", lambda: None)
         return _p
     except ImportError:
         raise ImportError(
@@ -254,6 +316,8 @@ def _build(plt: Any) -> str:
                     key = "price"
                 elif "shareholding" in func_name.lower():
                     key = "shareholding"
+                elif "macd" in func_name.lower() or "mcad" in func_name.lower():
+                    key = "macd"
                 else:
                     key = func_name
                 break
@@ -262,7 +326,7 @@ def _build(plt: Any) -> str:
         del frame
         
     save_active_chart(key, out)
-    return f"[CHART:{key}]"
+    return out
 
 
 def _build_raw(plt: Any) -> str:
@@ -476,7 +540,6 @@ def plot_price_chart(
 
         chart_text = price_panel + "\n" + vol_panel + "\n" + volume_panel
         save_active_chart("price", chart_text)
-        chart = "[CHART:price]"
         table = _data_table(
             ["Date", "Open", "High", "Low", "Close", "Volume"],
             [
@@ -488,7 +551,7 @@ def plot_price_chart(
             ],
             title=f"{symbol} — Price Data",
         )
-        return chart + table
+        return chart_text + "\n" + table
     except ImportError as exc:
         return str(exc)
     except Exception as exc:
@@ -1450,7 +1513,7 @@ def plot_shareholding_bar(symbol: str) -> str:
 
         res = "\n".join(lines)
         save_active_chart("shareholding", res)
-        return "[CHART:shareholding]"
+        return res
     except Exception as exc:
         return f"Error plotting shareholding for {symbol}: {exc}"
 
@@ -1477,6 +1540,16 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         from src.db.pool import query_df
 
         sym = symbol.upper().strip()
+        if sym.endswith(".NS") or sym.endswith(".BO"):
+            sym = sym[:-3]
+        if ":" in sym:
+            parts = sym.split(":")
+            if parts[0] in ("NSE", "BSE"):
+                sym = parts[1]
+            else:
+                sym = parts[0]
+        sym = sym.strip()
+
         lookback = max(60, days)
         cat_filter = f"AND category = '{category}'" if category else ""
         df = query_df(f"""
@@ -1505,7 +1578,31 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
                     ORDER BY trade_date ASC
                 """)
             except Exception as imp_exc:
-                return f"No price data for {sym} and auto-import failed: {imp_exc}"
+                logger.debug("plot_macd_chart auto-import attempt failed for %s: %s", sym, imp_exc)
+
+        # Fallback to Yahoo Finance price history if ClickHouse has insufficient data
+        if df.empty or len(df) < 35:
+            try:
+                from src.tools.yahoo_finance import fetch_price_history
+                exchange = "BSE" if symbol.upper().endswith(".BO") or ":BSE" in symbol.upper() else "NSE"
+                if lookback <= 90:
+                    yf_period = "6mo"
+                elif lookback <= 180:
+                    yf_period = "1y"
+                elif lookback <= 365:
+                    yf_period = "2y"
+                else:
+                    yf_period = "5y"
+                hist = fetch_price_history(sym, exchange, period=yf_period)
+                if hist:
+                    yf_df = pd.DataFrame(hist)
+                    if "close" in yf_df.columns and "date" in yf_df.columns:
+                        yf_df = yf_df.rename(columns={"date": "trade_date"})
+                        yf_df["trade_date"] = pd.to_datetime(yf_df["trade_date"])
+                        yf_df["close"] = yf_df["close"].astype(float)
+                        df = yf_df.sort_values("trade_date").reset_index(drop=True)
+            except Exception as yf_exc:
+                logger.debug("plot_macd_chart yfinance fallback failed for %s: %s", sym, yf_exc)
 
         if df.empty or len(df) < 35:
             return f"Insufficient price history for {sym} (need ≥35 bars for MACD, got {len(df)})."
@@ -1522,65 +1619,73 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         dates  = view["trade_date"].astype(str).tolist()
         xs     = list(range(len(view)))
 
-        plt = _plt()
-        plt.clear_figure()
-        # Stacked layout: top = price/EMAs, bottom = MACD/Signal + histogram
-        plt.subplots(2, 1)
-
-        plt.subplot(1, 1)
-        plt.plot(xs, view["close"].tolist(),  label="Close",  color="white")
-        plt.plot(xs, view["ema12"].tolist(),  label="EMA-12", color="cyan")
-        plt.plot(xs, view["ema26"].tolist(),  label="EMA-26", color="magenta")
-        last_close = view["close"].iloc[-1]
-        last_macd  = view["macd"].iloc[-1]
-        last_sig   = view["signal"].iloc[-1]
-        last_hist  = view["hist"].iloc[-1]
-        cross = "BULL" if last_macd > last_sig else "BEAR"
-        plt.title(f"{sym} — MACD(12,26,9) | Close ₹{last_close:.2f} | MACD {last_macd:+.2f} | Signal {last_sig:+.2f} | Hist {last_hist:+.2f} ({cross})")
-        plt.ylabel("Price (₹)")
-
-        plt.subplot(2, 1)
-        plt.plot(xs, view["macd"].tolist(),   label="MACD",   color="cyan")
-        plt.plot(xs, view["signal"].tolist(), label="Signal", color="orange")
-        # Histogram as bars; plotext supports plot bar
-        plt.bar(xs, view["hist"].tolist(),    label="Hist",   color="green")
-        plt.ylabel("MACD")
-
-        plt.plot_size(_chart_width(), _CHART_HEIGHT * 2)
-
-        # Shared date ticks on the bottom subplot
+        # Shared date ticks on both subplots
         n = len(dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
         if tick_idx and tick_idx[-1] != n - 1:
             tick_idx.append(n - 1)
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
-        plt.xticks(tick_idx, tick_lbl)
 
-        chart_str = _build(plt)
+        last_close = float(view["close"].iloc[-1])
+        last_macd  = float(view["macd"].iloc[-1])
+        last_sig   = float(view["signal"].iloc[-1])
+        last_hist  = float(view["hist"].iloc[-1])
+        cross = "BULL" if last_macd > last_sig else "BEAR"
+
+        plt = _plt()
+        plt.clear_figure()
+
+        # Panel 1: Price + EMA12 + EMA26 (rendered independently)
+        plt.plot_size(_chart_width(), 13)
+        plt.plot(xs, view["close"].tolist(),  label="Close",  color="white")
+        plt.plot(xs, view["ema12"].tolist(),  label="EMA-12", color="cyan")
+        plt.plot(xs, view["ema26"].tolist(),  label="EMA-26", color="magenta")
+        plt.title(f"{sym} — MACD(12,26,9) | Close ₹{last_close:.2f} | MACD {last_macd:+.2f} | Signal {last_sig:+.2f} | Hist {last_hist:+.2f} ({cross})")
+        if sym.endswith("=F") or "=F" in sym:
+            plt.ylabel("Price ($)")
+        else:
+            plt.ylabel("Price (₹)")
+        plt.xticks(tick_idx, tick_lbl)
+        price_panel = plt.build()
+        plt.clear_figure()
+
+        # Panel 2: MACD + Signal + Histogram (rendered independently)
+        plt.plot_size(_chart_width(), 10)
+        plt.plot(xs, view["macd"].tolist(),   label="MACD",   color="cyan")
+        plt.plot(xs, view["signal"].tolist(), label="Signal", color="orange")
+        plt.bar(xs, view["hist"].tolist(),    label="Hist",   color="green")
+        plt.ylabel("MACD")
+        plt.xticks(tick_idx, tick_lbl)
+        macd_panel = plt.build()
+        plt.clear_figure()
+
+        chart_str = price_panel + "\n" + macd_panel
+        save_active_chart("macd", chart_str)
+        save_active_chart("plot_macd_chart", chart_str)
 
         # Compute technical analysis metrics
-        ema12_val = view["ema12"].iloc[-1]
-        ema26_val = view["ema26"].iloc[-1]
+        ema12_val = float(view["ema12"].iloc[-1])
+        ema26_val = float(view["ema26"].iloc[-1])
 
         # 1. Crossover state & history
-        is_bullish = last_macd > last_sig
+        is_bullish = bool(last_macd > last_sig)
         crossover_label = "BULLISH (MACD Line > Signal Line)" if is_bullish else "BEARISH (MACD Line < Signal Line)"
 
         crossover_days_ago = None
         crossover_date = None
         for i in range(len(view) - 2, -1, -1):
-            prev_bullish = view["macd"].iloc[i] > view["signal"].iloc[i]
+            prev_bullish = bool(view["macd"].iloc[i] > view["signal"].iloc[i])
             if prev_bullish != is_bullish:
                 crossover_days_ago = len(view) - 1 - i
-                crossover_date = view["trade_date"].iloc[i+1]
+                crossover_date = str(view["trade_date"].iloc[i+1])[:10]
                 break
 
         # 2. Histogram Momentum Trend
         hist_trend = "strengthening"
         if len(view) >= 3:
-            h1 = view["hist"].iloc[-2]
-            h2 = view["hist"].iloc[-1]
+            h1 = float(view["hist"].iloc[-2])
+            h2 = float(view["hist"].iloc[-1])
             if abs(h2) > abs(h1):
                 hist_trend = "strengthening / expanding"
             else:
@@ -1594,7 +1699,6 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         else:
             ema_alignment = "Mixed (Price between EMA-12 and EMA-26)"
 
-        import re
         analysis_lines = [
             "",
             "════════════════════════════════════════════════════════════════════════════════",
@@ -1608,14 +1712,21 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         ]
 
         if crossover_days_ago is not None:
-            price_at_crossover = view["close"].iloc[-crossover_days_ago]
-            pct_chg = ((last_close - price_at_crossover) / price_at_crossover) * 100
-            analysis_lines.append(
-                f"• Crossover State:  {crossover_label} since {crossover_date} "
-                f"({crossover_days_ago} trading days ago; price change: {pct_chg:+.2f}%)"
-            )
+            crossover_idx = len(view) - crossover_days_ago
+            price_at_crossover = float(view["close"].iloc[crossover_idx])
+            if price_at_crossover > 0:
+                pct_chg = ((last_close - price_at_crossover) / price_at_crossover) * 100
+                analysis_lines.append(
+                    f"• Crossover State:  {crossover_label} since {crossover_date} "
+                    f"({crossover_days_ago} trading days ago; price change: {pct_chg:+.2f}%)"
+                )
+            else:
+                analysis_lines.append(
+                    f"• Crossover State:  {crossover_label} since {crossover_date} "
+                    f"({crossover_days_ago} trading days ago)"
+                )
         else:
-            analysis_lines.append(f"• Crossover State:  {crossover_label} (No crossover in the last {days} trading days)")
+            analysis_lines.append(f"• Crossover State:  {crossover_label} (No crossover in the last {len(view)} trading days)")
 
         analysis_lines.append("════════════════════════════════════════════════════════════════════════════════")
 
@@ -1625,6 +1736,175 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
     except Exception as exc:
         logger.error("plot_macd_chart failed for %s: %s", symbol, exc)
         return f"Error plotting MACD for {symbol}: {exc}"
+
+
+@tool
+@clean_chart_tool_output
+def plot_rsi_chart(symbol: str, days: int = 180, category: str = "") -> str:
+    """
+    Plot a Relative Strength Index (RSI-14) indicator chart for an NSE symbol from ClickHouse.
+
+    Renders a stacked ASCII chart:
+      • Top:    Close price
+      • Bottom: RSI(14) oscillator with 30 (oversold) / 70 (overbought) reference lines
+
+    Args:
+        symbol:   NSE ticker — e.g. ADVENZYMES, RELIANCE, GOLDBEES
+        days:     Trading-day lookback window (default 180; min 60)
+        category: 'stocks' or 'etfs' — leave blank to auto-detect
+
+    RSI math (Wilder's smoothing) is computed in pandas, never in the LLM.
+    """
+    try:
+        import pandas as pd
+        from src.db.pool import query_df
+
+        sym = symbol.upper().strip()
+        if sym.endswith(".NS") or sym.endswith(".BO"):
+            sym = sym[:-3]
+        if ":" in sym:
+            parts = sym.split(":")
+            if parts[0] in ("NSE", "BSE"):
+                sym = parts[1]
+            else:
+                sym = parts[0]
+        sym = sym.strip()
+
+        lookback = max(60, days)
+        cat_filter = f"AND category = '{category}'" if category else ""
+        df = query_df(f"""
+            SELECT trade_date,
+                   toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = '{sym}' {cat_filter}
+              AND trade_date >= today() - {lookback + 30}
+            GROUP BY trade_date
+            ORDER BY trade_date ASC
+        """)
+
+        if df.empty:
+            try:
+                from src.tools.agent_tools import check_and_refresh_symbol_data
+                status = check_and_refresh_symbol_data.invoke({"symbol": sym})
+                logger.info("plot_rsi_chart auto-import for %s: %s", sym, status)
+                df = query_df(f"""
+                    SELECT trade_date,
+                           toFloat64(argMax(close, imported_at)) AS close
+                    FROM market_data.daily_prices FINAL
+                    WHERE symbol = '{sym}' {cat_filter}
+                      AND trade_date >= today() - {lookback + 30}
+                    GROUP BY trade_date
+                    ORDER BY trade_date ASC
+                """)
+            except Exception as imp_exc:
+                logger.debug("plot_rsi_chart auto-import attempt failed for %s: %s", sym, imp_exc)
+
+        if df.empty or len(df) < 20:
+            try:
+                from src.tools.yahoo_finance import fetch_price_history
+                exchange = "BSE" if symbol.upper().endswith(".BO") or ":BSE" in symbol.upper() else "NSE"
+                if lookback <= 90:
+                    yf_period = "6mo"
+                elif lookback <= 180:
+                    yf_period = "1y"
+                elif lookback <= 365:
+                    yf_period = "2y"
+                else:
+                    yf_period = "5y"
+                hist = fetch_price_history(sym, exchange, period=yf_period)
+                if hist:
+                    yf_df = pd.DataFrame(hist)
+                    if "close" in yf_df.columns and "date" in yf_df.columns:
+                        yf_df = yf_df.rename(columns={"date": "trade_date"})
+                        yf_df["trade_date"] = pd.to_datetime(yf_df["trade_date"])
+                        yf_df["close"] = yf_df["close"].astype(float)
+                        df = yf_df.sort_values("trade_date").reset_index(drop=True)
+            except Exception as yf_exc:
+                logger.debug("plot_rsi_chart yfinance fallback failed for %s: %s", sym, yf_exc)
+
+        if df.empty or len(df) < 20:
+            return f"Insufficient price history for {sym} (need ≥ 20 bars for RSI, got {len(df)})."
+
+        # Wilder's RSI(14)
+        delta = df["close"].diff()
+        gain = delta.clip(lower=0.0)
+        loss = -delta.clip(upper=0.0)
+        avg_gain = gain.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0.0, 1e-9)
+        df["rsi"] = (100 - (100 / (1 + rs))).fillna(50.0)
+
+        view = df.tail(days).reset_index(drop=True)
+        dates = view["trade_date"].astype(str).tolist()
+        xs = list(range(len(view)))
+
+        n = len(dates)
+        step = max(1, n // 5)
+        tick_idx = list(range(0, n, step))
+        if tick_idx and tick_idx[-1] != n - 1:
+            tick_idx.append(n - 1)
+        tick_lbl = [str(dates[i])[:10] for i in tick_idx]
+
+        last_close = float(view["close"].iloc[-1])
+        last_rsi = float(view["rsi"].iloc[-1])
+        if last_rsi >= 70:
+            regime = "OVERBOUGHT"
+        elif last_rsi <= 30:
+            regime = "OVERSOLD"
+        else:
+            regime = "NEUTRAL"
+
+        plt = _plt()
+        plt.clear_figure()
+
+        plt.plot_size(_chart_width(), 13)
+        plt.plot(xs, view["close"].tolist(), label="Close", color="white")
+        plt.title(f"{sym} — RSI(14) | Close ₹{last_close:.2f} | RSI {last_rsi:.1f} ({regime})")
+        plt.ylabel("Price ($)" if "=F" in sym else "Price (₹)")
+        plt.xticks(tick_idx, tick_lbl)
+        price_panel = plt.build()
+        plt.clear_figure()
+
+        plt.plot_size(_chart_width(), 10)
+        plt.plot(xs, view["rsi"].tolist(), label="RSI(14)", color="cyan")
+        plt.plot(xs, [70] * n, label="Overbought (70)", color="red")
+        plt.plot(xs, [30] * n, label="Oversold (30)", color="green")
+        plt.ylabel("RSI")
+        plt.xticks(tick_idx, tick_lbl)
+        rsi_panel = plt.build()
+        plt.clear_figure()
+
+        chart_str = price_panel + "\n" + rsi_panel
+        save_active_chart("rsi", chart_str)
+        save_active_chart("plot_rsi_chart", chart_str)
+
+        cross_days_ago = None
+        for i in range(len(view) - 2, -1, -1):
+            prev = float(view["rsi"].iloc[i])
+            was_overbought, was_oversold = prev >= 70, prev <= 30
+            is_overbought, is_oversold = last_rsi >= 70, last_rsi <= 30
+            if (was_overbought != is_overbought) or (was_oversold != is_oversold):
+                cross_days_ago = len(view) - 1 - i
+                break
+
+        analysis_lines = [
+            "",
+            "═" * 84,
+            f"📊 RSI Technical Analysis: {sym}",
+            "═" * 84,
+            f"• Close Price:   ₹{last_close:.2f}",
+            f"• RSI(14):       {last_rsi:.1f}  ({regime})",
+        ]
+        if cross_days_ago is not None:
+            analysis_lines.append(f"• Regime Change: entered {regime} {cross_days_ago} trading days ago")
+        analysis_lines.append("═" * 84)
+
+        return chart_str + "\n" + "\n".join(analysis_lines)
+    except ImportError as exc:
+        return str(exc)
+    except Exception as exc:
+        logger.error("plot_rsi_chart failed for %s: %s", symbol, exc)
+        return f"Error plotting RSI for {symbol}: {exc}"
 
 
 CHART_TOOLS = [
@@ -1643,4 +1923,5 @@ CHART_TOOLS = [
     plot_ou_premium_chart,
     plot_shareholding_bar,
     plot_macd_chart,
+    plot_rsi_chart,
 ]

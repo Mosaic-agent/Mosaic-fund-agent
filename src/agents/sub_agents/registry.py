@@ -28,10 +28,14 @@ _registry: dict[str, _SubAgent] = {}
 def get_subagent(name: str) -> _SubAgent:
     """Return (lazily creating) a sub-agent by name."""
     if name not in _registry:
-        # Check if a declarative YAML playbook exists for this intent
+        # Only auto-discover YAML playbooks for purely declarative agents.
+        # Reactive agents (signal, news, macro, mf, database, intl_etf) have
+        # StateGraph workflows and keyword-based fallbacks that handle open-ended
+        # questions — their YAML playbooks exist for explicit invocation only.
+        _YAML_FIRST_AGENTS = {"india_equity", "goldbees_pipeline"}
         from pathlib import Path
         yaml_path = Path(f"config/agents/{name}.yaml")
-        if yaml_path.is_file():
+        if name in _YAML_FIRST_AGENTS and yaml_path.is_file():
             try:
                 from src.agents.declarative.declarative_runner import DeclarativeAgentRunner
 
@@ -139,16 +143,20 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     from src.agents.budget import BudgetCallbackHandler
     import time
 
-    # india_equity: narrow single-metric asks ("ITC dividend yield") don't need
-    # the full 8-section research note — answer from one Yahoo Finance call.
+    # india_equity: narrow single-metric asks ("ITC dividend yield") or bare
+    # chart requests ("NUVOCO price chart 2 month") don't need the full
+    # 14-tool research playbook - answer them directly from one tool call.
     if intent == "india_equity":
         try:
-            from .india_equity import try_quick_stat_answer
+            from .india_equity import try_quick_stat_answer, try_chart_only_fast_path
             quick = try_quick_stat_answer(question)
             if quick is not None:
                 return quick
+            chart = try_chart_only_fast_path(question)
+            if chart is not None:
+                return chart
         except Exception as exc:
-            logger.debug("run_subagent_for: quick-stat fast path failed (%s) — using full agent", exc)
+            logger.debug("run_subagent_for: india_equity fast path failed (%s) - using full agent", exc)
 
     cloud_llm = None
     if _needs_cloud(question) or intent in ("deepdive", "research"):

@@ -78,7 +78,14 @@ def generate_plan_llm(
         )
 
         resp = llm.invoke(prompt)
-        text = resp.content if hasattr(resp, "content") else str(resp)
+        raw_content = resp.content if hasattr(resp, "content") else str(resp)
+        if isinstance(raw_content, list):
+            text = "\n".join(
+                item.get("text", "") if isinstance(item, dict) else getattr(item, "text", str(item))
+                for item in raw_content
+            )
+        else:
+            text = str(raw_content)
 
         lines = []
         for line in text.strip().splitlines():
@@ -247,25 +254,8 @@ def _render_report(result: Any) -> str:
     # Real chart strings (with box-drawing + ANSI colour) are inserted AFTER
     # cleanup so the cleanup regex never touches the actual chart output.
     try:
-        from src.tools.chart_tools import get_active_charts
-        chart_by_type = get_active_charts().copy()
-
-        for tname in list(chart_by_type.keys()):
-            placeholders = [f"[CHART:{tname}]"]
-            if tname.startswith("plot_") and tname.endswith("_chart"):
-                short = tname[5:-6]  # "plot_price_chart" → "price"
-                placeholders.append(f"[CHART:{short}]")
-
-            for ph in placeholders:
-                if ph in text:
-                    text = text.replace(ph, chart_by_type.pop(tname))
-                    break
-
-        # Append any charts not placed by placeholder (e.g. charts from
-        # workflows that didn't include a [CHART:xxx] directive in the prompt).
-        for tname, chart_str in chart_by_type.items():
-            title = tname.replace("plot_", "").replace("_chart", "").replace("_", " ").title()
-            text += f"\n\n### {title}\n\n{chart_str}"
+        from src.tools.chart_tools import inject_chart_placeholders
+        text = inject_chart_placeholders(text)
     except Exception:
         pass
 

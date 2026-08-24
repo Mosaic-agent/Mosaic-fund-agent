@@ -930,10 +930,8 @@ def test_multi_price_chart_fallback():
          patch("src.tools.yahoo_finance.fetch_price_history", side_effect=mock_fetch):
         output = plot_multi_price_chart.invoke({"symbols": "TATAPOWER,^CNXENERGY", "days": 30})
         
-        # Verify placeholder is returned (since ASCII chart is intercepted by @clean_chart_tool_output)
-        assert "[CHART:price]" in output
-        
-        # Verify the actual chart was saved to active charts store
+        # Verify the ASCII chart is directly returned and saved to active charts store
+        assert "Normalised price comparison" in output
         charts = get_active_charts()
         assert "price" in charts
         chart_output = charts["price"]

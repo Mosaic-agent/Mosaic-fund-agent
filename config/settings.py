@@ -41,10 +41,10 @@ class Settings(BaseSettings):
     nvidia_api_key: str = Field(default="", description="NVIDIA NIM API key (nvapi-...)")
 
     # [NON-SENSITIVE] Which LLM provider to use: "openai", "anthropic", or "openrouter"
-    llm_provider: str = Field(default="openai", description="LLM provider")
+    llm_provider: str = Field(default="anthropic", description="LLM provider")
 
-    # [NON-SENSITIVE] Model name to use (gpt-4o-mini, claude-3-haiku, deepseek-r1:7b, etc.)
-    llm_model: str = Field(default="gpt-4o-mini", description="LLM model name")
+    # [NON-SENSITIVE] Model name to use (claude-sonnet-5, gpt-4o-mini, deepseek-r1:7b, etc.)
+    llm_model: str = Field(default="claude-sonnet-5", description="LLM model name")
 
     # [NON-SENSITIVE] Custom base URL for OpenAI-compatible local inference servers.
     # Ollama:    http://localhost:11434/v1
@@ -259,7 +259,7 @@ class Settings(BaseSettings):
 
         # 4. Direct Anthropic
         if prov_lower == "anthropic" or "claude" in model_lower:
-            return 200000
+            return 1000000
 
         # 5. Direct OpenAI
         if prov_lower == "openai":
@@ -319,11 +319,21 @@ class Settings(BaseSettings):
     def llm_token_budget(self) -> int:
         """
         Max *output* tokens to request from the model.
-        = 25 % of the context window, floored at 1024.
-        The 1024 minimum ensures DeepSeek <think>…</think> reasoning blocks
-        always have enough room even on the smallest local context.
+        Caps output tokens safely so cloud provider limits (e.g. Anthropic 64k/128k, OpenAI 16k)
+        are never exceeded, while flooring at 1024 for local models.
         """
-        return max(1024, self.llm_context_window // 4)
+        prov = self.llm_provider.lower()
+        model = self.llm_model.lower()
+        if "anthropic" in prov or "claude" in model:
+            max_allowed = 64000
+        elif "openai" in prov or "gpt" in model:
+            max_allowed = 16384
+        elif "google" in prov or "gemini" in model:
+            max_allowed = 65536
+        else:
+            max_allowed = 8192
+
+        return max(1024, min(max_allowed, self.llm_context_window // 4))
 
     @property
     def llm_prompt_budget(self) -> int:
@@ -610,6 +620,10 @@ try:
             kwargs.pop("temperature", None)
             kwargs.pop("top_p", None)
             kwargs.pop("top_k", None)
+
+        # Enforce max output tokens ceiling for Anthropic
+        if "max_tokens" in kwargs and kwargs["max_tokens"] and kwargs["max_tokens"] > 64000:
+            kwargs["max_tokens"] = 64000
             
         # Claude Thinking configuration control
         if not settings.llm_think:

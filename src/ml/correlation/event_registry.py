@@ -179,13 +179,25 @@ class EventRegistry:
                     pub_dt = datetime.fromisoformat(r["published_at"]).date()
                 except Exception:
                     continue
+                cat = str(r.get("category") or "").strip()
+                title = str(r.get("title") or "").strip()
+                if not cat or cat.lower() in ("nse_announcements", "general updates", "updates"):
+                    if ":" in title:
+                        cat = title.split(":", 1)[1].strip()
+                    else:
+                        cat = title or "Corporate Disclosure"
+
+                desc = str(r.get("description") or "").strip()
+                if not desc or desc.lower() == "nse_announcements":
+                    desc = title or cat
+
                 events.append(
                     CandidateEvent(
                         trade_date=pub_dt,
                         event_type=EventType.COMPANY_FILING,
-                        label=r["category"],
-                        description=r["description"],
-                        metadata={"source": "nse", "url": r["url"]},
+                        label=cat,
+                        description=desc,
+                        metadata={"source": "nse", "url": r.get("url", "")},
                     )
                 )
         except Exception as e:

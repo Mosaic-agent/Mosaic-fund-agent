@@ -45,6 +45,11 @@ _GOLDBEES_PATTERN = re.compile(
     r"^(?:goldbees|goldbees\s+signal|goldbees\s+pipeline|today's\s+goldbees|goldbees\s+report)$",
     re.IGNORECASE
 )
+_MACD_PATTERN = re.compile(
+    r"^(?:plot\s+)?(?:macd|mcad)\s+(?:chart\s+)?(?:for\s+)?([a-zA-Z0-9_.:-]+)$|"
+    r"^(?:plot\s+)?([a-zA-Z0-9_.:-]+)\s+(?:macd|mcad)(?:\s+chart)?$",
+    re.IGNORECASE
+)
 
 
 def try_fast_path(question: str) -> dict[str, Any] | None:
@@ -101,6 +106,23 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
         if res:
             return {"handled": True, "intent": "fast_path_intraday", "response": res}
 
+    # 7. MACD / MCAD Chart Lookup
+    match_macd = _MACD_PATTERN.match(q_clean)
+    if match_macd:
+        symbol = (match_macd.group(1) or match_macd.group(2)).upper()
+        res = _handle_macd_lookup(symbol)
+        if res:
+            return {"handled": True, "intent": "fast_path_macd", "response": res}
+
+    # 8. Single-Metric Stock Lookup (Market Cap, P/E, P/B, Dividend Yield, 52-Week Range via Yahoo Finance)
+    try:
+        from src.agents.sub_agents.india_equity import try_quick_stat_answer
+        quick_stat_res = try_quick_stat_answer(question)
+        if quick_stat_res:
+            return {"handled": True, "intent": "fast_path_quick_stat", "response": quick_stat_res}
+    except Exception as exc:
+        logger.debug("Fast-path quick stat lookup failed for %s: %s", question, exc)
+
     return None
 
 
@@ -139,7 +161,29 @@ def _handle_quote_lookup(symbol: str) -> str | None:
 * **Depth (B/S)**: {q.get('tbq', 0):,} buy qty / {q.get('tsq', 0):,} sell qty
 """
     except Exception as exc:
-        logger.debug("Fast-path quote lookup failed for %s: %s", symbol, exc)
+        logger.debug("Shoonya quote lookup failed for %s: %s", symbol, exc)
+
+    # Fallback to Yahoo Finance quote
+    try:
+        from src.tools.yahoo_finance import get_yahoo_finance_data
+        yf_data = get_yahoo_finance_data.invoke({"symbol": symbol})
+        if yf_data and yf_data.get("current_price_inr"):
+            price = yf_data.get("current_price_inr")
+            yoy = yf_data.get("price_yoy_change_pct")
+            yoy_str = f" ({yoy:+.2f}% YoY)" if yoy is not None else ""
+            return f"""### **Quote: {symbol}**
+*Source: Yahoo Finance API (Zero-Latency Fast-Path)*
+
+* **Current Price**: **₹{price:,.2f}**{yoy_str}
+* **Market Cap**: {yf_data.get('market_cap_formatted', 'N/A')}
+* **52-Week Range**: ₹{yf_data.get('52_week_low', 0):,.2f} – ₹{yf_data.get('52_week_high', 0):,.2f}
+* **P/E Ratio**: {yf_data.get('pe_ratio', 0):.2f} | **P/B Ratio**: {yf_data.get('pb_ratio', 0):.2f}
+* **Dividend Yield**: {yf_data.get('dividend_yield_pct', 0):.2f}%
+* **Sector / Industry**: {yf_data.get('sector', '')} / {yf_data.get('industry', '')}
+"""
+    except Exception as exc:
+        logger.debug("Fast-path Yahoo quote fallback failed for %s: %s", symbol, exc)
+
     return None
 
 
@@ -260,4 +304,17 @@ def _handle_goldbees_lookup() -> str | None:
     except Exception as exc:
         logger.debug("Fast-path GOLDBEES lookup failed: %s", exc)
     return None
+
+
+def _handle_macd_lookup(symbol: str) -> str | None:
+    """Render MACD chart directly via plot_macd_chart tool."""
+    try:
+        from src.tools.chart_tools import plot_macd_chart, inject_chart_placeholders
+        raw_res = plot_macd_chart.invoke({"symbol": symbol, "days": 180})
+        if raw_res:
+            return inject_chart_placeholders(raw_res)
+    except Exception as exc:
+        logger.debug("Fast-path MACD lookup failed for %s: %s", symbol, exc)
+    return None
+
 

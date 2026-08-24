@@ -1,0 +1,133 @@
+agent_name: "Macro & COMEX Commodity Analyst"
+agent_type: "macro"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative macro analysis pipeline for Indian and global commodity markets.
+  Runs COMEX gold/silver/copper pre-market signals, macro theme scanner
+  (geopolitical events → ETF directional impact), FII/DII institutional flows,
+  DXY context, market indicators (index valuation & breadth), and whale tracker
+  (multi-asset fund institutional moves).
+  </task_context>
+
+  <evaluation_rules>
+  - Only cite prices and flows from live tool output — never from training-time knowledge.
+  - Gold, FII, USDINR change daily — always use fresh data.
+  - Net article flow index: ≥+16 = strong bullish, +8 to +15 = moderate bullish, ≤−16 = strong bearish.
+  </evaluation_rules>
+
+steps:
+  - id: batch_macro_fetch
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: run_macro_scanner
+        params: {}
+        timeout: 120
+        fail_on_error: false
+      - tool_name: run_comex_analysis
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: run_whale_tracker
+        params: {}
+        timeout: 90
+        fail_on_error: false
+      - tool_name: run_market_indicators
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: get_dxy_context
+        params: {}
+        timeout: 30
+        fail_on_error: false
+      - tool_name: plot_fii_dii_chart
+        params:
+          days: 90
+        timeout: 30
+        fail_on_error: false
+      - tool_name: plot_dxy_chart
+        params:
+          days: 365
+        timeout: 30
+        fail_on_error: false
+      - tool_name: plot_price_chart
+        params:
+          symbol: "GOLDBEES"
+          days: 365
+        fail_on_error: false
+
+  - id: macro_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are a macro analyst covering Indian and global commodity markets.
+      </role_context>
+
+      <macro_data>
+      <macro_scanner>
+      {{ batch_macro_fetch.run_macro_scanner }}
+      </macro_scanner>
+
+      <comex_signals>
+      {{ batch_macro_fetch.run_comex_analysis }}
+      </comex_signals>
+
+      <whale_tracker>
+      {{ batch_macro_fetch.run_whale_tracker }}
+      </whale_tracker>
+
+      <market_indicators>
+      {{ batch_macro_fetch.run_market_indicators }}
+      </market_indicators>
+
+      <dxy_context>
+      {{ batch_macro_fetch.get_dxy_context }}
+      </dxy_context>
+      </macro_data>
+
+      <instructions>
+      1. Identify the top 3 active macro themes and their ETF directional impact.
+      2. Summarise COMEX gold/silver signals and DXY trend.
+      3. Highlight any notable institutional moves from whale tracker.
+      4. Report market breadth and valuation levels.
+      5. Write a 3-sentence macro outlook synthesis.
+      </instructions>
+
+  - id: format_macro_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # Macro & Commodity Analysis Report
+
+      ## Executive Macro Outlook
+      {{ macro_synthesis.output }}
+
+      ## 1. Macro Theme Scanner — Event → ETF Impact Map
+      {{ batch_macro_fetch.run_macro_scanner }}
+
+      ## 2. COMEX Pre-Market Signals (Gold / Silver / Copper)
+      {{ batch_macro_fetch.run_comex_analysis }}
+
+      ## 3. DXY Context — US Dollar Index
+      {{ batch_macro_fetch.get_dxy_context }}
+
+      ### DXY Trend Chart
+      {{ batch_macro_fetch.plot_dxy_chart }}
+
+      ## 4. Market Indicators — Index Valuation & Breadth
+      {{ batch_macro_fetch.run_market_indicators }}
+
+      ## 5. FII/DII Institutional Flows
+      {{ batch_macro_fetch.plot_fii_dii_chart }}
+
+      ## 6. Multi-Asset Whale Tracker — Institutional Positioning
+      {{ batch_macro_fetch.run_whale_tracker }}
+
+      ## 7. Gold ETF Price Chart
+      {{ batch_macro_fetch.plot_price_chart }}
+
+sample_input:
+  symbol: "GOLDBEES"

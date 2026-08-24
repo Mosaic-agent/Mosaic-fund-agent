@@ -1,0 +1,75 @@
+agent_name: "ClickHouse Database Analyst"
+agent_type: "database"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative database analysis pipeline for the market_data ClickHouse database.
+  Runs schema discovery, data freshness checks, and common analytical queries
+  across core tables: daily_prices, mf_holdings, mf_nav, fii_dii_flows,
+  signal_composite, ml_predictions, inav_snapshots, fx_rates, and more.
+  </task_context>
+
+  <evaluation_rules>
+  - Always add FINAL to every ReplacingMergeTree table query.
+  - Table aliases MUST be declared BEFORE the FINAL modifier.
+  - Never perform any arithmetic in your reasoning — let ClickHouse compute via SQL.
+  - Only SELECT/SHOW/DESCRIBE/EXPLAIN/WITH — no INSERT/UPDATE/DELETE.
+  </evaluation_rules>
+
+steps:
+  - id: batch_db_discovery
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: list_db_tables
+        params: {}
+        timeout: 10
+        fail_on_error: false
+      - tool_name: get_db_watermarks
+        params: {}
+        timeout: 15
+        fail_on_error: false
+
+  - id: db_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are the Mosaic Database Analyst. Summarise the database state.
+      </role_context>
+
+      <db_data>
+      <tables>
+      {{ batch_db_discovery.list_db_tables }}
+      </tables>
+
+      <watermarks>
+      {{ batch_db_discovery.get_db_watermarks }}
+      </watermarks>
+      </db_data>
+
+      <instructions>
+      1. List total table count and categorise tables by domain (prices, MF, macro, signals, etc.).
+      2. Identify any stale tables (watermark > 3 days old).
+      3. Highlight the freshest and oldest data points.
+      4. Write a 2-sentence database health summary.
+      </instructions>
+
+  - id: format_db_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # ClickHouse Database Health Report
+
+      ## Summary
+      {{ db_synthesis.output }}
+
+      ## 1. Available Tables
+      {{ batch_db_discovery.list_db_tables }}
+
+      ## 2. Data Freshness — Import Watermarks
+      {{ batch_db_discovery.get_db_watermarks }}
+
+sample_input:
+  symbol: ""

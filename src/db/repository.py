@@ -615,3 +615,42 @@ class MarketDataRepository:
             "sigma":          float(r[8]),
             "half_life_days": float(r[9]),
         }
+
+    # ── AMFI Market Capitalization ──────────────────────────────────────────
+
+    def amfi_market_cap_lookup(self, symbol: str) -> dict | None:
+        """
+        Lookup official statutory AMFI ranking and SEBI cap classification
+        for a stock by NSE/BSE symbol or ISIN.
+        """
+        sym_clean = symbol.upper().replace(".NS", "").replace(".BO", "").split(":")[0].strip()
+        rows = self._q(
+            "SELECT rank, company_name, isin, nse_symbol, bse_symbol, "
+            "       avg_mcap_cr, cap_category, period_end_date "
+            "FROM market_data.amfi_market_cap FINAL "
+            "WHERE nse_symbol = %(sym)s OR bse_symbol = %(sym)s OR isin = %(sym)s "
+            "ORDER BY period_end_date DESC LIMIT 1",
+            parameters={"sym": sym_clean}
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return {
+            "rank":            int(r[0]),
+            "company_name":    str(r[1]),
+            "isin":            str(r[2]),
+            "nse_symbol":      str(r[3]),
+            "bse_symbol":      str(r[4]),
+            "avg_mcap_cr":     float(r[5]),
+            "cap_category":    str(r[6]),
+            "period_end_date": str(r[7]),
+        }
+
+    def amfi_stocks_by_category(self, category: str = "Large Cap", limit: int = 100) -> pd.DataFrame:
+        """Retrieve stocks belonging to a specific AMFI/SEBI category."""
+        return self._qdf(
+            f"SELECT rank, company_name, isin, nse_symbol, bse_symbol, avg_mcap_cr, cap_category, period_end_date "
+            f"FROM market_data.amfi_market_cap FINAL "
+            f"WHERE cap_category = '{category}' "
+            f"ORDER BY rank ASC LIMIT {limit}"
+        )

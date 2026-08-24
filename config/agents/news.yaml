@@ -1,0 +1,113 @@
+agent_name: "Financial News Aggregator"
+agent_type: "news"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative news aggregation pipeline for Indian financial markets.
+  Fetches news from Google News RSS, NewsAPI, and ClickHouse cached articles.
+  Runs ETF category-level news sentiment scan (10 categories: Gold, Nifty, Bank,
+  IT, PSU, Mid/Small, Pharma, International, Debt, Auto).
+  Correlates price anomalies with breaking news using Qdrant RAG.
+  </task_context>
+
+  <evaluation_rules>
+  - Never invent headlines — only report what the tools return.
+  - Merge and deduplicate results from multiple sources by title similarity.
+  - Present all results as Markdown tables with sentiment scores.
+  </evaluation_rules>
+
+steps:
+  - id: batch_news_fetch
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: get_stock_news
+        params:
+          input_str: "{{ symbol | default('') }}"
+        fail_on_error: false
+      - tool_name: get_newsapi_stock_news
+        params:
+          input_str: "{{ symbol | default('') }}"
+        fail_on_error: false
+      - tool_name: run_etf_news_sentiment
+        params: {}
+        timeout: 90
+        fail_on_error: false
+      - tool_name: search_anomaly_events
+        params:
+          symbol: "{{ symbol | default('NIFTY50') }}"
+          days: 30
+        timeout: 90
+        fail_on_error: false
+      - tool_name: find_anomaly_correlations
+        params:
+          symbol: "{{ symbol | default('NIFTY50') }}"
+          lookback_days: 30
+        timeout: 90
+        fail_on_error: false
+
+  - id: news_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are a financial news analyst covering Indian equity and ETF markets.
+      </role_context>
+
+      <news_data>
+      <stock_news_gnews>
+      {{ batch_news_fetch.get_stock_news }}
+      </stock_news_gnews>
+
+      <stock_news_newsapi>
+      {{ batch_news_fetch.get_newsapi_stock_news }}
+      </stock_news_newsapi>
+
+      <etf_sentiment>
+      {{ batch_news_fetch.run_etf_news_sentiment }}
+      </etf_sentiment>
+
+      <anomalies>
+      {{ batch_news_fetch.search_anomaly_events }}
+      </anomalies>
+
+      <correlations>
+      {{ batch_news_fetch.find_anomaly_correlations }}
+      </correlations>
+      </news_data>
+
+      <instructions>
+      1. Merge and deduplicate news from GNews and NewsAPI sources.
+      2. Identify dominant sentiment (bullish / bearish / mixed).
+      3. Highlight key themes or events driving the news flow.
+      4. Correlate any price anomalies with contemporaneous news.
+      5. Write a 3-sentence actionable news summary.
+      </instructions>
+
+  - id: format_news_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # Financial News & Sentiment Report
+
+      ## News Summary
+      {{ news_synthesis.output }}
+
+      ## 1. Stock / Symbol News (GNews)
+      {{ batch_news_fetch.get_stock_news }}
+
+      ## 2. Stock / Symbol News (NewsAPI)
+      {{ batch_news_fetch.get_newsapi_stock_news }}
+
+      ## 3. ETF Category Sentiment Scan
+      {{ batch_news_fetch.run_etf_news_sentiment }}
+
+      ## 4. Price Anomaly Events (30d)
+      {{ batch_news_fetch.search_anomaly_events }}
+
+      ## 5. Event Correlation Analysis
+      {{ batch_news_fetch.find_anomaly_correlations }}
+
+sample_input:
+  symbol: "GOLDBEES"

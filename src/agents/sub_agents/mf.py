@@ -58,6 +58,7 @@ class MFSubAgent(_SubAgent):
         "| Theme tracking (gold/silver/nuclear/infra) & AMC archetypes| `run_whale_tracker`                         |\n"
         "| Cross-AMC consensus buys (+technical confirmation)| `scan_whale_accumulation`                   |\n"
         "| Single-stock institutional consensus lookup| `get_whale_consensus`                       |\n"
+        "| Small/Mid/Large cap holdings in MFs / multi-asset | `get_mf_holdings_by_cap_category`           |\n"
         "| NAV MoM returns for any MF                | `run_fund_mom_returns`                      |\n"
         "| DSP cross-fund weighted comparison        | `run_dsp_multi_asset_comparison`            |\n"
         "| Top holdings bar chart for a fund         | `plot_fund_holdings_chart`                  |\n"
@@ -76,6 +77,8 @@ class MFSubAgent(_SubAgent):
         "| Retrieve breaking news for symbol/theme   | `get_stock_news`                            |\n"
         "| Search ClickHouse database schemas/SQL    | `search_db_metadata`                        |\n\n"
         "## Routing rules\n"
+        "- 'small cap stocks owned by multi asset funds', 'which small caps do funds hold',\n"
+        "  'mid cap holdings in multi asset' → `get_mf_holdings_by_cap_category(cap_category='Small Cap', fund_filter='multi_asset')`\n"
         "- 'pattern across multi-asset funds', 'what are funds collectively buying', "
         "'smart money consensus' → `run_multi_asset_consensus`\n"
         "- 'AMC multi asset archetypes', 'compare AMC styles', 'what pattern across AMCs', "
@@ -125,12 +128,22 @@ class MFSubAgent(_SubAgent):
         "  scheme_code     String     -- AMFI scheme code\n"
         "  fund_name       String     -- e.g. DSP_MULTI_ASSET, BAJAJ_MULTI_ASSET\n"
         "  as_of_month     Date       -- portfolio disclosure month (use for date filters)\n"
-        "  isin            String     -- security ISIN\n"
+        "  isin            String     -- security ISIN (join key to amfi_market_cap)\n"
         "  security_name   String     -- holding name  ← NOT 'holding_name' or 'name'\n"
         "  asset_type      String     -- equity/gold/bond/cash  ← NOT 'asset_class'\n"
         "  market_value_cr Float64    -- market value in ₹ crores\n"
         "  pct_of_nav      Float64    -- weight as % of NAV  ← NOT 'weight_pct'\n"
         "  imported_at     DateTime\n"
+        "\n"
+        "market_data.amfi_market_cap FINAL\n"
+        "  period_end_date Date       -- 2026-06-30\n"
+        "  rank            UInt32     -- statutory rank (1 to 5427)\n"
+        "  company_name    String\n"
+        "  isin            String     -- join on h.isin = c.isin\n"
+        "  nse_symbol      String\n"
+        "  bse_symbol      String\n"
+        "  avg_mcap_cr     Float64    -- 6M average market cap in ₹ Cr\n"
+        "  cap_category    String     -- 'Large Cap' (1-100) | 'Mid Cap' (101-250) | 'Small Cap' (251+)\n"
         "\n"
         "market_data.mf_nav FINAL\n"
         "  symbol          String\n"
@@ -193,7 +206,7 @@ class MFSubAgent(_SubAgent):
         from src.tools.db_tools import describe_db_table, list_db_tables, sample_db_table, search_db_metadata
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock
         from src.tools.chart_tools import plot_fund_holdings_chart, plot_price_chart
-        from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure
+        from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure, get_mf_holdings_by_cap_category
         from src.tools.report_publisher import publish_consolidated_pdf
         from src.tools.news_search import get_stock_news
         return [
@@ -210,6 +223,7 @@ class MFSubAgent(_SubAgent):
             scan_whale_accumulation,
             get_whale_consensus,
             get_mf_holdings_for_stock,
+            get_mf_holdings_by_cap_category,
             find_funds_holding,
             find_similar_funds,
             search_mf_exposure,
