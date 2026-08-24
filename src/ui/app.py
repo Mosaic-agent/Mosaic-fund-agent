@@ -177,9 +177,24 @@ with st.sidebar:
         st.code("docker compose up clickhouse -d", language="bash")
 
     st.divider()
-    if st.button("🔄 Refresh stats"):
-        st.cache_data.clear()
-        st.rerun()
+    col_btn1, col_btn2 = st.columns([1, 1])
+    with col_btn1:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    with col_btn2:
+        if st.button("🗑️ Clear Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.rerun()
+
+    st.divider()
+    st.subheader("⚡ Live Streaming Mode")
+    live_async = st.toggle("Enable Async Live Stream", value=False, help="Automatically polls and refreshes live watchlist prices, setups, signals, and anomaly alerts asynchronously in the background.")
+    refresh_sec = 10
+    if live_async:
+        refresh_sec = st.select_slider("Stream Cadence", options=[5, 10, 15, 30, 60], value=10, format_func=lambda x: f"{x}s")
+        st.caption(f"⚡ Streaming live every {refresh_sec}s")
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -7138,3 +7153,10 @@ with tab_reports:
                 if fpath.suffix == ".png":
                     st.image(str(fpath), use_container_width=True)
                 st.divider()
+
+
+# ── Asynchronous Live Streaming Loop ──────────────────────────────────────────
+if live_async:
+    import time
+    time.sleep(refresh_sec)
+    st.rerun()

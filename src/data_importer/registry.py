@@ -81,6 +81,7 @@ STOCKS: list[tuple[str, str]] = [
     ("BECTORFOOD",  "BECTORFOOD.NS"),    # Mrs. Bectors Food Specialities Limited
     ("INDIGRID",    "INDIGRID.NS"),      # IndiGrid Infrastructure Trust — InvIT, power transmission assets
     ("LEAPIND",     "LEAPIND.NS"),       # LEAP India Limited — supply chain pooling & pallet logistics
+    ("SOLARA",      "SOLARA.NS"),        # Solara Active Pharma Sciences — active pharmaceutical ingredients & CDMO
 ]
 
 ETFS: list[tuple[str, str]] = [

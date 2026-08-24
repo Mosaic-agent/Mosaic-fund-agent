@@ -79,6 +79,12 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ### 7. No Web Search Mandate
 - **NEVER use web search (`search_web` or web search tools)**. Rely strictly on local codebase, ClickHouse database, Python/SQL tools, and direct tool outputs.
 
+### 8. Always Use Color in Console
+- ALWAYS use rich colors, ANSI escape sequences, or Rich library console styling in terminal outputs and scripts (e.g., green for gains/freshness, red for losses/anomalies, cyan/bold for headers, yellow for warnings). Ensure console reports are visually distinct and easy to read.
+
+### 9. Always Use Charts Where Possible
+- Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich) and Mermaid diagrams alongside data tables for maximum visual clarity.
+
 ---
 
 ## ClickHouse Schema & Documentation References
