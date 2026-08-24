@@ -343,6 +343,7 @@ AGENT_SYSTEM_PROMPT = (
     "  • Single-stock price anomalies, spikes, red dots, or shocks: call `run_india_equity_research_workflow`.\n"
     "  • Autonomous multi-domain research on a broad topic: call `run_autonomous_research`.\n"
     "  • Visualisation / Charts: `plot_price_chart` and `plot_multi_price_chart` are available directly for portfolio-level price charts. Specialised charts (signal breakdown, FII/DII, NAV, intl ETF premium, etc.) come back as part of the relevant `delegate_to_*_agent` response — don't try to call those plot tools yourself.\n"
+    "Batching delegations: when a question spans more than one independent domain (e.g. news + MF holdings, or macro + signal), issue ALL the applicable `delegate_to_*_agent` calls together in the SAME response turn instead of one at a time — tool calls emitted in a single turn run concurrently, so batching them cuts wall-clock latency roughly in half. Example: \"What's the latest news on GOLDBEES and is DSP Multi Asset adding to gold this month?\" → call `delegate_to_news_agent` and `delegate_to_mf_agent` together in the same turn, then synthesise both results into one answer. Only sequence calls when one genuinely depends on another's output (e.g. resolving a company/symbol before a delegate call that needs it) — don't force parallelism where there's a real data dependency.\n"
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "
     "Always reason step by step and use the available tools to gather data before answering. "
     "CRITICAL RULES:\n"
@@ -976,12 +977,14 @@ class MosaicFundAgent:
                     logger.error("Heuristic deep-dive failed: %s", exc)
 
         # Broad intent routing — catches "find info about X", "research X", etc.
-        from src.agents.intent_router import route_intent_llm
+        from src.agents.intent_router import route_intents_llm
         from src.agents.sub_agents import run_subagent_for
-        _intent = route_intent_llm(question)
-        if _intent != "main":
-            logger.info("ask: routing to %s sub-agent via LLM router", _intent)
-            return run_subagent_for(_intent, question)
+        _intents = route_intents_llm(question)
+        if len(_intents) == 1 and _intents[0] != "main":
+            logger.info("ask: routing to %s sub-agent via LLM router", _intents[0])
+            return run_subagent_for(_intents[0], question)
+        if len(_intents) > 1:
+            logger.info("ask: multi-domain question (%s) — routing through main agent for concurrent delegation", ", ".join(_intents))
 
         # Low-context model (e.g. gemma4 at 3k): agent was not built, go direct to LLM.
         if self._agent is None:
@@ -1140,7 +1143,7 @@ class MosaicFundAgent:
             self._agent = self._build_agent()
             self._built_caveman_level = current_caveman
         from langchain_core.messages import HumanMessage
-        from src.agents.intent_router import route_intent_llm
+        from src.agents.intent_router import route_intents_llm
         from src.agents.sub_agents import get_subagent
 
         # Deep-dive heuristic: resolve company then route India vs US
@@ -1225,11 +1228,13 @@ class MosaicFundAgent:
                     logger.error("Deep-dive heuristic failed: %s", exc)
 
         # Intent-based routing — use AI-planner override when provided
-        intent = forced_intent if forced_intent else route_intent_llm(question)
-        if intent != "main":
-            logger.info("chat: routing to %s sub-agent", intent)
+        _intents = [forced_intent] if forced_intent else route_intents_llm(question)
+        if len(_intents) == 1 and _intents[0] != "main":
+            logger.info("chat: routing to %s sub-agent", _intents[0])
             from src.agents.sub_agents import run_subagent_for
-            return run_subagent_for(intent, question)
+            return run_subagent_for(_intents[0], question)
+        if len(_intents) > 1:
+            logger.info("chat: multi-domain question (%s) — routing through main agent for concurrent delegation", ", ".join(_intents))
 
         # Main agent with (optional) memory thread
         if self._agent is None:
