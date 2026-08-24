@@ -1738,6 +1738,175 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         return f"Error plotting MACD for {symbol}: {exc}"
 
 
+@tool
+@clean_chart_tool_output
+def plot_rsi_chart(symbol: str, days: int = 180, category: str = "") -> str:
+    """
+    Plot a Relative Strength Index (RSI-14) indicator chart for an NSE symbol from ClickHouse.
+
+    Renders a stacked ASCII chart:
+      • Top:    Close price
+      • Bottom: RSI(14) oscillator with 30 (oversold) / 70 (overbought) reference lines
+
+    Args:
+        symbol:   NSE ticker — e.g. ADVENZYMES, RELIANCE, GOLDBEES
+        days:     Trading-day lookback window (default 180; min 60)
+        category: 'stocks' or 'etfs' — leave blank to auto-detect
+
+    RSI math (Wilder's smoothing) is computed in pandas, never in the LLM.
+    """
+    try:
+        import pandas as pd
+        from src.db.pool import query_df
+
+        sym = symbol.upper().strip()
+        if sym.endswith(".NS") or sym.endswith(".BO"):
+            sym = sym[:-3]
+        if ":" in sym:
+            parts = sym.split(":")
+            if parts[0] in ("NSE", "BSE"):
+                sym = parts[1]
+            else:
+                sym = parts[0]
+        sym = sym.strip()
+
+        lookback = max(60, days)
+        cat_filter = f"AND category = '{category}'" if category else ""
+        df = query_df(f"""
+            SELECT trade_date,
+                   toFloat64(argMax(close, imported_at)) AS close
+            FROM market_data.daily_prices FINAL
+            WHERE symbol = '{sym}' {cat_filter}
+              AND trade_date >= today() - {lookback + 30}
+            GROUP BY trade_date
+            ORDER BY trade_date ASC
+        """)
+
+        if df.empty:
+            try:
+                from src.tools.agent_tools import check_and_refresh_symbol_data
+                status = check_and_refresh_symbol_data.invoke({"symbol": sym})
+                logger.info("plot_rsi_chart auto-import for %s: %s", sym, status)
+                df = query_df(f"""
+                    SELECT trade_date,
+                           toFloat64(argMax(close, imported_at)) AS close
+                    FROM market_data.daily_prices FINAL
+                    WHERE symbol = '{sym}' {cat_filter}
+                      AND trade_date >= today() - {lookback + 30}
+                    GROUP BY trade_date
+                    ORDER BY trade_date ASC
+                """)
+            except Exception as imp_exc:
+                logger.debug("plot_rsi_chart auto-import attempt failed for %s: %s", sym, imp_exc)
+
+        if df.empty or len(df) < 20:
+            try:
+                from src.tools.yahoo_finance import fetch_price_history
+                exchange = "BSE" if symbol.upper().endswith(".BO") or ":BSE" in symbol.upper() else "NSE"
+                if lookback <= 90:
+                    yf_period = "6mo"
+                elif lookback <= 180:
+                    yf_period = "1y"
+                elif lookback <= 365:
+                    yf_period = "2y"
+                else:
+                    yf_period = "5y"
+                hist = fetch_price_history(sym, exchange, period=yf_period)
+                if hist:
+                    yf_df = pd.DataFrame(hist)
+                    if "close" in yf_df.columns and "date" in yf_df.columns:
+                        yf_df = yf_df.rename(columns={"date": "trade_date"})
+                        yf_df["trade_date"] = pd.to_datetime(yf_df["trade_date"])
+                        yf_df["close"] = yf_df["close"].astype(float)
+                        df = yf_df.sort_values("trade_date").reset_index(drop=True)
+            except Exception as yf_exc:
+                logger.debug("plot_rsi_chart yfinance fallback failed for %s: %s", sym, yf_exc)
+
+        if df.empty or len(df) < 20:
+            return f"Insufficient price history for {sym} (need ≥ 20 bars for RSI, got {len(df)})."
+
+        # Wilder's RSI(14)
+        delta = df["close"].diff()
+        gain = delta.clip(lower=0.0)
+        loss = -delta.clip(upper=0.0)
+        avg_gain = gain.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0.0, 1e-9)
+        df["rsi"] = (100 - (100 / (1 + rs))).fillna(50.0)
+
+        view = df.tail(days).reset_index(drop=True)
+        dates = view["trade_date"].astype(str).tolist()
+        xs = list(range(len(view)))
+
+        n = len(dates)
+        step = max(1, n // 5)
+        tick_idx = list(range(0, n, step))
+        if tick_idx and tick_idx[-1] != n - 1:
+            tick_idx.append(n - 1)
+        tick_lbl = [str(dates[i])[:10] for i in tick_idx]
+
+        last_close = float(view["close"].iloc[-1])
+        last_rsi = float(view["rsi"].iloc[-1])
+        if last_rsi >= 70:
+            regime = "OVERBOUGHT"
+        elif last_rsi <= 30:
+            regime = "OVERSOLD"
+        else:
+            regime = "NEUTRAL"
+
+        plt = _plt()
+        plt.clear_figure()
+
+        plt.plot_size(_chart_width(), 13)
+        plt.plot(xs, view["close"].tolist(), label="Close", color="white")
+        plt.title(f"{sym} — RSI(14) | Close ₹{last_close:.2f} | RSI {last_rsi:.1f} ({regime})")
+        plt.ylabel("Price ($)" if "=F" in sym else "Price (₹)")
+        plt.xticks(tick_idx, tick_lbl)
+        price_panel = plt.build()
+        plt.clear_figure()
+
+        plt.plot_size(_chart_width(), 10)
+        plt.plot(xs, view["rsi"].tolist(), label="RSI(14)", color="cyan")
+        plt.plot(xs, [70] * n, label="Overbought (70)", color="red")
+        plt.plot(xs, [30] * n, label="Oversold (30)", color="green")
+        plt.ylabel("RSI")
+        plt.xticks(tick_idx, tick_lbl)
+        rsi_panel = plt.build()
+        plt.clear_figure()
+
+        chart_str = price_panel + "\n" + rsi_panel
+        save_active_chart("rsi", chart_str)
+        save_active_chart("plot_rsi_chart", chart_str)
+
+        cross_days_ago = None
+        for i in range(len(view) - 2, -1, -1):
+            prev = float(view["rsi"].iloc[i])
+            was_overbought, was_oversold = prev >= 70, prev <= 30
+            is_overbought, is_oversold = last_rsi >= 70, last_rsi <= 30
+            if (was_overbought != is_overbought) or (was_oversold != is_oversold):
+                cross_days_ago = len(view) - 1 - i
+                break
+
+        analysis_lines = [
+            "",
+            "═" * 84,
+            f"📊 RSI Technical Analysis: {sym}",
+            "═" * 84,
+            f"• Close Price:   ₹{last_close:.2f}",
+            f"• RSI(14):       {last_rsi:.1f}  ({regime})",
+        ]
+        if cross_days_ago is not None:
+            analysis_lines.append(f"• Regime Change: entered {regime} {cross_days_ago} trading days ago")
+        analysis_lines.append("═" * 84)
+
+        return chart_str + "\n" + "\n".join(analysis_lines)
+    except ImportError as exc:
+        return str(exc)
+    except Exception as exc:
+        logger.error("plot_rsi_chart failed for %s: %s", symbol, exc)
+        return f"Error plotting RSI for {symbol}: {exc}"
+
+
 CHART_TOOLS = [
     plot_price_chart,
     plot_fii_dii_chart,
@@ -1754,4 +1923,5 @@ CHART_TOOLS = [
     plot_ou_premium_chart,
     plot_shareholding_bar,
     plot_macd_chart,
+    plot_rsi_chart,
 ]

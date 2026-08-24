@@ -113,6 +113,113 @@ def try_quick_stat_answer(question: str) -> str | None:
     return "\n".join(lines)
 
 
+# ── Chart-only fast path ─────────────────────────────────────────────────────
+# A bare "NUVOCO price chart 2 month" doesn't need the 14-tool research
+# playbook (batch_enrichment fan-out in config/agents/india_equity.yaml) —
+# it just needs one plot_price_chart call. Fire only when the question is
+# a pure chart/plot request with no other analysis keyword — those need
+# the real data the full playbook gathers (financials, anomalies, news).
+
+_CHART_ONLY_RE = re.compile(r"\b(?:chart|plot|graph)\b", re.I)
+
+# anomaly/anomalies and volume are NOT excluded — plot_price_chart already
+# overlays anomaly red-dots and a volume panel in its single ASCII output,
+# so "volume chart" / "anomaly chart" route to the same fast tool call as a
+# plain price chart. macd/rsi get their own dedicated ASCII tool below.
+_CHART_EXCLUDE_RE = re.compile(
+    r"\b(?:report|research|analysis|analyse|compare|comparison"
+    r"|quarterly|earnings|cash\s*flow|shareholding|news"
+    r"|correlation|correlate|financials?|risks?|thesis|recommend|recommendation"
+    r"|deep\s*dive|summary|summarize|summarise|momentum"
+    r"|bollinger|\bema\b|\bsma\b)\b",
+    re.I,
+)
+
+_CHART_KIND_PATTERNS: list[tuple] = [
+    (re.compile(r"\bmacd\b", re.I), "macd"),
+    (re.compile(r"\brsi\b", re.I), "rsi"),
+]
+
+
+def _resolve_chart_kinds(question: str) -> list[str]:
+    """
+    Return every chart kind mentioned in *question*, in price/macd/rsi order.
+
+    Plain "chart"/"volume chart"/"anomaly chart" (no macd/rsi keyword) still
+    default to just ["price"] — volume/anomaly are panels already bundled
+    inside plot_price_chart. "price" is only added alongside macd/rsi when
+    the word "price" is explicitly present (e.g. "price and RSI chart").
+    """
+    has_macd = any(pat.search(question) for pat, kind in _CHART_KIND_PATTERNS if kind == "macd")
+    has_rsi = any(pat.search(question) for pat, kind in _CHART_KIND_PATTERNS if kind == "rsi")
+    has_price = bool(re.search(r"\bprice\b", question, re.I)) or not (has_macd or has_rsi)
+    return [k for k, present in (("price", has_price), ("macd", has_macd), ("rsi", has_rsi)) if present]
+
+_CHART_DAYS_PATTERNS: list[tuple] = [
+    (re.compile(r"\b(\d+)\s*year\w*\b", re.I), 365),
+    (re.compile(r"\b(\d+)\s*month\w*\b", re.I), 30),
+    (re.compile(r"\b(\d+)\s*week\w*\b", re.I), 7),
+    (re.compile(r"\b(\d+)\s*day\w*\b", re.I), 1),
+]
+
+
+def _parse_chart_days(question: str) -> int:
+    for pat, mult in _CHART_DAYS_PATTERNS:
+        m = pat.search(question)
+        if m:
+            return int(m.group(1)) * mult
+    if re.search(r"\b1\s*yr\b|\byearly\b", question, re.I):
+        return 365
+    return 60  # plot_price_chart's own default
+
+
+_CHART_KIND_LABELS = {"price": "Price", "macd": "MACD", "rsi": "RSI"}
+
+
+def try_chart_only_fast_path(question: str) -> str | None:
+    """
+    Answer a bare "<symbol> <price|MACD|RSI>[, <kind>...] chart <lookback>"
+    question directly with one plot_*_chart call per requested kind,
+    bypassing the full research playbook. Volume and anomaly markers ride
+    along for free — they're already panels/overlays inside plot_price_chart's
+    single ASCII output.
+
+    Returns None when the question isn't a pure chart request, or every
+    requested kind failed to resolve/fetch — the caller should fall back to
+    the full agent.
+    """
+    if not _CHART_ONLY_RE.search(question) or _CHART_EXCLUDE_RE.search(question):
+        return None
+
+    from src.tools.company_resolver import resolve_company_info
+    info = resolve_company_info(question)
+    symbol = info.get("symbol")
+    if not symbol or info.get("error"):
+        return None
+
+    days = _parse_chart_days(question)
+    kinds = _resolve_chart_kinds(question)
+    from src.tools.chart_tools import plot_price_chart, plot_macd_chart, plot_rsi_chart
+    tool_fns = {"price": plot_price_chart, "macd": plot_macd_chart, "rsi": plot_rsi_chart}
+
+    sections: list[str] = []
+    for kind in kinds:
+        chart = tool_fns[kind].invoke({"symbol": symbol, "days": days})
+        lowered = (chart or "").strip().lower()
+        if not chart or "no price data found" in lowered or lowered.startswith(("error", "insufficient")):
+            logger.debug("try_chart_only_fast_path: %s chart failed for %s, skipping", kind, symbol)
+            continue
+        sections.append(f"### {_CHART_KIND_LABELS[kind]} Chart\n{chart}")
+
+    if not sections:
+        return None  # let the full agent retry (e.g. auto-import missing data)
+
+    company_name = info.get("company_name", symbol)
+    logger.info("try_chart_only_fast_path: answered %r (%s) without invoking full agent", question[:60], "+".join(kinds))
+    header = f"**{company_name} ({symbol}) — {days}d Chart{'s' if len(sections) > 1 else ''}**"
+    return header + "\n\n" + "\n\n".join(sections)
+
+
 class IndianEquityResearchSubAgent(_SubAgent):
     """
     Comprehensive research for any Indian stock (NSE/BSE).

@@ -143,16 +143,20 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     from src.agents.budget import BudgetCallbackHandler
     import time
 
-    # india_equity: narrow single-metric asks ("ITC dividend yield") don't need
-    # the full 8-section research note — answer from one Yahoo Finance call.
+    # india_equity: narrow single-metric asks ("ITC dividend yield") or bare
+    # chart requests ("NUVOCO price chart 2 month") don't need the full
+    # 14-tool research playbook - answer them directly from one tool call.
     if intent == "india_equity":
         try:
-            from .india_equity import try_quick_stat_answer
+            from .india_equity import try_quick_stat_answer, try_chart_only_fast_path
             quick = try_quick_stat_answer(question)
             if quick is not None:
                 return quick
+            chart = try_chart_only_fast_path(question)
+            if chart is not None:
+                return chart
         except Exception as exc:
-            logger.debug("run_subagent_for: quick-stat fast path failed (%s) — using full agent", exc)
+            logger.debug("run_subagent_for: india_equity fast path failed (%s) - using full agent", exc)
 
     cloud_llm = None
     if _needs_cloud(question) or intent in ("deepdive", "research"):

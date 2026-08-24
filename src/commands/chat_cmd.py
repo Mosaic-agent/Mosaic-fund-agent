@@ -957,6 +957,76 @@ def _render_plan_steps(steps: list, subject: str) -> str:
     return "\n".join(lines)
 
 
+def _india_equity_subject(question: str) -> str:
+    """Cheap, network-free symbol guess for the plan preview (not authoritative)."""
+    try:
+        from src.tools.company_resolver import _local_indian_lookup
+        for w in [w.strip("?,.!\"'") for w in question.split()]:
+            sym = _local_indian_lookup(w)
+            if sym:
+                return sym
+    except Exception:
+        pass
+    return " ".join(question.split()[:4]) + ("…" if len(question.split()) > 4 else "")
+
+
+def _build_india_equity_plan(question: str) -> str:
+    """
+    Deterministic, ground-truth plan for the india_equity intent.
+
+    Mirrors exactly what run_subagent_for() will do: the two cheap fast
+    paths in src.agents.sub_agents.india_equity (quick-stat / chart-only),
+    or — if neither fires — the actual declarative YAML playbook read
+    straight from config/agents/india_equity.yaml. Replaces the old
+    LLM-generated plan, which routinely hallucinated steps (e.g. a 2-step
+    chart-only plan) that didn't match what actually ran underneath (the
+    full 14-tool batch_enrichment fan-out).
+    """
+    subject = _india_equity_subject(question)
+
+    try:
+        from src.agents.sub_agents.india_equity import (
+            _HEAVY_KEYWORDS_RE, _QUICK_STAT_FIELDS,
+            _CHART_ONLY_RE, _CHART_EXCLUDE_RE, _resolve_chart_kinds, _parse_chart_days,
+        )
+
+        if not _HEAVY_KEYWORDS_RE.search(question):
+            matched = [label for pat, _field, label in _QUICK_STAT_FIELDS if pat.search(question)]
+            if matched:
+                steps = [
+                    f"resolve_company_info('{subject}')",
+                    f"get_yahoo_finance_data(SYMBOL:EXCHANGE) — {', '.join(matched)}",
+                ]
+                return _render_plan_steps(steps, subject)
+
+        if _CHART_ONLY_RE.search(question) and not _CHART_EXCLUDE_RE.search(question):
+            kinds = _resolve_chart_kinds(question)
+            days = _parse_chart_days(question)
+            tool_names = {"price": "plot_price_chart", "macd": "plot_macd_chart", "rsi": "plot_rsi_chart"}
+            steps = [f"resolve_company_info('{subject}')"] + [
+                f"{tool_names[k]}(SYMBOL, days={days})" for k in kinds
+            ]
+            return _render_plan_steps(steps, subject)
+    except Exception as exc:
+        logger.debug("_build_india_equity_plan: fast-path detection failed (%s)", exc)
+
+    try:
+        from src.agents.declarative.declarative_spec import load_agent_spec_from_yaml
+        spec = load_agent_spec_from_yaml("config/agents/india_equity.yaml")
+        batch_step = next(s for s in spec.steps if s.id == "batch_enrichment")
+        tool_names = [tc.tool_name for tc in batch_step.tool_calls]
+        steps = [
+            f"Resolve symbol for '{subject}'",
+            ("∥", tool_names, "batch_enrichment — all fire in parallel"),
+            "qualitative_synthesis — LLM reasoning over financials/anomalies/correlations",
+            "format_equity_note — 8-section Markdown research note",
+        ]
+        return _render_plan_steps(steps, subject)
+    except Exception as exc:
+        logger.debug("_build_india_equity_plan: YAML read failed (%s) — using static fallback", exc)
+        return _render_plan_steps(_INTENT_STEPS["india_equity"], subject)
+
+
 def _build_fallback_plan(question: str, intent: str) -> str:
     """Static template plan — used when the LLM planner is unavailable."""
     subject = question.strip()
@@ -1597,6 +1667,11 @@ _HELP_MD = """
 | `/deepdive TICKER` | US stock SEC 10-K deep-dive (e.g. `/deepdive ADSK`) |
 | `/intraday SYMBOL` | Real-time tick-by-tick signal monitor |
 | `/macro` | Live macro events + COMEX + FII/DII institutional flows |
+| `/chart SYMBOL [days]` | ASCII price/volume/anomaly chart — direct, no LLM (e.g. `/chart NUVOCO 60`) |
+| `/rsi SYMBOL [days]` | ASCII RSI(14) chart — direct, no LLM |
+| `/macd SYMBOL [days]` | ASCII MACD(12,26,9) chart — direct, no LLM |
+| `/equity SYMBOL` | Full 14-tool equity research note — direct, no LLM routing |
+| `/restart` | Restart the session process to pick up code changes (no Docker rebuild needed) |
 | `/caveman [level]` | Toggle Caveman mode (`lite`/`full`/`ultra`/`wenyan`/`off`) |
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
 | `/telemetry` | View telemetry; `/telemetry on` or `off` toggles turn overlay |
@@ -1863,6 +1938,43 @@ def _dispatch_slash(
                 return f"Invalid caveman level. Valid levels: {', '.join(valid_levels)} or 'off'.", thread_id
             os.environ["CAVEMAN_LEVEL"] = level
             return f"Caveman mode **enabled** (level: `{level}`). Less waffle, more speed.", thread_id
+
+    # ── /chart, /rsi, /macd SYMBOL [days] ─────────────────────────────────
+    # Deterministic — calls the ASCII chart tool directly, bypassing
+    # intent routing, the AI planner, and the declarative playbook entirely.
+    if name in ("chart", "rsi", "macd"):
+        if len(parts) < 2:
+            return f"Usage: `/{name} SYMBOL [days]`  — e.g. `/{name} NUVOCO 60`", thread_id
+        symbol = parts[1].upper()
+        days = None
+        if len(parts) > 2:
+            try:
+                days = int(parts[2])
+            except ValueError:
+                return f"Usage: `/{name} SYMBOL [days]` — days must be an integer, got {parts[2]!r}", thread_id
+        from src.tools.chart_tools import plot_price_chart, plot_macd_chart, plot_rsi_chart
+        tool_fn, default_days = {
+            "chart": (plot_price_chart, 60),
+            "macd":  (plot_macd_chart, 180),
+            "rsi":   (plot_rsi_chart, 180),
+        }[name]
+        result = tool_fn.invoke({"symbol": symbol, "days": days if days is not None else default_days})
+        return result, thread_id
+
+    # ── /equity SYMBOL — force the full research playbook ────────────────
+    if name == "equity":
+        if len(parts) < 2:
+            return "Usage: `/equity SYMBOL`  — always runs the full research playbook (e.g. `/equity NUVOCO`)", thread_id
+        symbol = parts[1].upper()
+        from src.agents.sub_agents.registry import get_subagent
+        prompt = f"Research {symbol}. Provide a comprehensive research note."
+        return get_subagent("india_equity").run(prompt), thread_id
+
+    # ── /restart, /reload — clean process restart to pick up code changes ─
+    if name in ("restart", "reload"):
+        console.print("[yellow]Restarting session to pick up the latest code changes…[/yellow]")
+        import sys
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
     # ── /intraday SYMBOL ───────────────────────────────────────────────────
     if name == "intraday":
@@ -2284,7 +2396,10 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
             _locked = bool(_at_intent) or _intent in ("india_equity", "macro", "deepdive", "intl_etf", "research", "mf") or (
                 _intent == "main" and bool(_IMPORT_RE.search(raw))
             )
-            _ai_intent, _plan_text, _sql_hint = _build_ai_plan(raw, _intent, locked=_locked)
+            if _intent == "india_equity" and _locked:
+                _ai_intent, _plan_text, _sql_hint = _intent, _build_india_equity_plan(raw), None
+            else:
+                _ai_intent, _plan_text, _sql_hint = _build_ai_plan(raw, _intent, locked=_locked)
             if _ai_intent != _intent:
                 logger.info(
                     "AI planner overrode routing: %s → %s", _intent, _ai_intent
