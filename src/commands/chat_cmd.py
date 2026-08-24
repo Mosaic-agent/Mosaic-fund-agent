@@ -2272,9 +2272,9 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                 _model_back = _backend
 
             # @agent override is always locked — planner generates a plan but cannot change the agent.
-            # Regex routing for macro/deepdive/intl_etf/research/mf is also locked.
+            # Explicit routing for india_equity/macro/deepdive/intl_etf/research/mf is also locked.
             from src.agents.sub_agents import _IMPORT_RE
-            _locked = bool(_at_intent) or _intent in ("macro", "deepdive", "intl_etf", "research", "mf") or (
+            _locked = bool(_at_intent) or _intent in ("india_equity", "macro", "deepdive", "intl_etf", "research", "mf") or (
                 _intent == "main" and bool(_IMPORT_RE.search(raw))
             )
             _ai_intent, _plan_text, _sql_hint = _build_ai_plan(raw, _intent, locked=_locked)

@@ -67,6 +67,8 @@ class DatabaseSubAgent(_SubAgent):
         "| indian_macro_indicators | as_of_date, indicator_code, indicator_name, parent_code, value, unit |\n"
         "| news_articles | fetched_at, category, sentiment, impact_tier, title |\n"
         "| import_watermarks | source, symbol, last_date |\n"
+        "| amfi_market_cap | period_end_date, rank, company_name, isin, bse_symbol, bse_avg_mcap_cr, nse_symbol, nse_avg_mcap_cr, avg_mcap_cr, cap_category('Large Cap'/'Mid Cap'/'Small Cap') |\n"
+        "| amfi_category_flows | report_month, category_name, subcategory_group('Equity'/'Debt'/'Hybrid'/'Passive'), gross_purchase_cr, gross_redemption_cr, net_flow_cr, closing_aum_cr, flow_pct_of_aum |\n"
         "| corporate_actions | symbol, ex_date, action_type('split'/'bonus'/'dividend'/'demerger'/'rights'), ratio, purpose |\n"
         "| stock_earnings | symbol, earnings_date, eps_estimate, eps_actual, surprise_pct |\n"
         "| stock_insider_trades | symbol, transaction_date, insider_name, relation, transaction_type, shares, value |\n"

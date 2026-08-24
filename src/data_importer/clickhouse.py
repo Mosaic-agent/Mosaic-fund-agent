@@ -349,6 +349,26 @@ ENGINE = ReplacingMergeTree(imported_at)
 ORDER BY (report_month, category_name)
 """
 
+_DDL_AMFI_MARKET_CAP = """
+CREATE TABLE IF NOT EXISTS market_data.amfi_market_cap (
+    period_end_date     Date,                        -- End of 6-month period (e.g. 2026-06-30)
+    rank                UInt32,                      -- AMFI rank (1 to 5427+)
+    company_name        String,                      -- Company Name
+    isin                String,                      -- ISIN code
+    bse_symbol          String,                      -- BSE Scrip / Symbol
+    bse_avg_mcap_cr     Float64,                     -- BSE 6-month Avg Market Cap (₹ Cr)
+    nse_symbol          String,                      -- NSE Symbol
+    nse_avg_mcap_cr     Float64,                     -- NSE 6-month Avg Market Cap (₹ Cr)
+    msei_symbol         String,                      -- MSEI Symbol
+    msei_avg_mcap_cr    Float64,                     -- MSEI 6-month Avg Market Cap (₹ Cr)
+    avg_mcap_cr         Float64,                     -- Average of All Exchanges (₹ Cr)
+    cap_category        LowCardinality(String),      -- Large Cap | Mid Cap | Small Cap
+    imported_at         DateTime DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(imported_at)
+ORDER BY (period_end_date, rank, isin)
+"""
+
 _DDL_FII_DII_MONTHLY = """
 CREATE TABLE IF NOT EXISTS market_data.fii_dii_monthly (
     month_date         Date,        -- First day of month (YYYY-MM-01)
@@ -797,6 +817,7 @@ class ClickHouseImporter:
             _DDL_MACRO_INDICATORS, _DDL_INDIAN_MACRO_INDICATORS, _DDL_IMPORT_FAILURES,
             _DDL_AGENT_TRACES, _DDL_AGENT_PREFERENCES, _DDL_CORPORATE_ACTIONS,
             _DDL_LIVE_QUOTES, _DDL_LIVE_ALERTS, _DDL_AMFI_CATEGORY_FLOWS,
+            _DDL_AMFI_MARKET_CAP,
             _DDL_MF_HOLDING_SUMMARIES, _DDL_MV_MF_HOLDING_SUMMARIES,
         ):
             self._client.command(ddl)
@@ -1630,6 +1651,55 @@ class ClickHouseImporter:
                 "closing_aum_cr", "flow_pct_of_aum",
             ],
         )
+        return len(rows)
+
+    def insert_amfi_market_cap(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        dry_run: bool = False,
+    ) -> int:
+        """
+        Bulk-insert AMFI semi-annual average market cap rankings into amfi_market_cap.
+
+        Each row dict must have keys:
+            period_end_date (date), rank (int), company_name, isin,
+            bse_symbol, bse_avg_mcap_cr, nse_symbol, nse_avg_mcap_cr,
+            msei_symbol, msei_avg_mcap_cr, avg_mcap_cr, cap_category
+
+        Returns the number of rows inserted.
+        """
+        if not rows:
+            return 0
+        if dry_run:
+            logger.info("[dry-run] Would insert %d AMFI market cap ranking rows.", len(rows))
+            return len(rows)
+        self._client.insert(
+            "market_data.amfi_market_cap",
+            [
+                [
+                    r["period_end_date"],
+                    int(r.get("rank", 0)),
+                    str(r.get("company_name", "")),
+                    str(r.get("isin", "")),
+                    str(r.get("bse_symbol", "")),
+                    float(r.get("bse_avg_mcap_cr", 0.0) or 0.0),
+                    str(r.get("nse_symbol", "")),
+                    float(r.get("nse_avg_mcap_cr", 0.0) or 0.0),
+                    str(r.get("msei_symbol", "")),
+                    float(r.get("msei_avg_mcap_cr", 0.0) or 0.0),
+                    float(r.get("avg_mcap_cr", 0.0) or 0.0),
+                    str(r.get("cap_category", "Small Cap")),
+                ]
+                for r in rows
+            ],
+            column_names=[
+                "period_end_date", "rank", "company_name", "isin",
+                "bse_symbol", "bse_avg_mcap_cr", "nse_symbol", "nse_avg_mcap_cr",
+                "msei_symbol", "msei_avg_mcap_cr", "avg_mcap_cr", "cap_category",
+            ],
+        )
+        logger.info("Inserted %d AMFI market cap ranking rows", len(rows))
         return len(rows)
 
     def insert_fii_dii_fno_daily(

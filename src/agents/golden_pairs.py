@@ -72,6 +72,31 @@ GOLDEN_PAIRS: list[tuple[str, str]] = [
     ("Hang Seng ETF regime", "intl_etf"),
     ("HNGSNGBEES premium", "intl_etf"),
 
+    # ── india_equity ──────────────────────────────────────────────────────────
+    ("research Nuvoco Vistas Corporation", "india_equity"),
+    ("anomaly in Nuvoco Vistas Corporation", "india_equity"),
+    ("price anomalies in RELIANCE", "india_equity"),
+    ("what caused the drop in BAJFINANCE?", "india_equity"),
+    ("TCS quarterly results and financials", "india_equity"),
+    ("HDFC Bank fundamentals and PE ratio", "india_equity"),
+    ("promoter shareholding pattern for ITC", "india_equity"),
+    ("cash flow of Infosys", "india_equity"),
+    ("research ADVENZYMES", "india_equity"),
+    ("valuation and target for CIPLA", "india_equity"),
+    ("price shock on Tata Motors", "india_equity"),
+    ("explain the red dots on MSUMI chart", "india_equity"),
+
+    # ── mf ────────────────────────────────────────────────────────────────────
+    ("which funds hold Reliance?", "mf"),
+    ("DSP Multi Asset Fund holdings", "mf"),
+    ("what are multi-asset funds buying?", "mf"),
+    ("cross-fund consensus for multi-asset", "mf"),
+    ("which small-cap stocks are owned by multi-asset funds?", "mf"),
+    ("Nippon Multi Asset Fund MoM changes", "mf"),
+    ("DSP active funds cross-ownership", "mf"),
+    ("NAV return of Quant Multi Asset Fund", "mf"),
+    ("find funds similar to ICICI Multi Asset", "mf"),
+
     # ── research ──────────────────────────────────────────────────────────────
     ("autonomous research on gold ETFs", "research"),
     ("comprehensive analysis of HDFC Bank", "research"),

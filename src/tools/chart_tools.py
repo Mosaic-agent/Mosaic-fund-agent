@@ -77,6 +77,8 @@ def inject_chart_placeholders(text: str) -> str:
             placeholders = [f"[CHART:{tname}]"]
             if tname.startswith("plot_") and tname.endswith("_chart"):
                 placeholders.append(f"[CHART:{tname[5:-6]}]")
+            if "macd" in tname.lower() or "mcad" in tname.lower():
+                placeholders.extend(["[CHART:macd]", "[CHART:mcad]", "[CHART:plot_macd_chart]"])
             for ph in placeholders:
                 if ph in text:
                     text = text.replace(ph, chart_str)
@@ -228,6 +230,10 @@ def _plt():
     """Lazy import of plotext — raises ImportError with a helpful message if missing."""
     try:
         import plotext as _p
+        if not hasattr(_p, "clear_figure"):
+            _p.clear_figure = getattr(_p, "clf", getattr(_p, "clc", lambda: None))
+        if not hasattr(_p, "clf"):
+            _p.clf = getattr(_p, "clear_figure", lambda: None)
         return _p
     except ImportError:
         raise ImportError(
@@ -254,6 +260,8 @@ def _build(plt: Any) -> str:
                     key = "price"
                 elif "shareholding" in func_name.lower():
                     key = "shareholding"
+                elif "macd" in func_name.lower() or "mcad" in func_name.lower():
+                    key = "macd"
                 else:
                     key = func_name
                 break
@@ -1477,6 +1485,16 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         from src.db.pool import query_df
 
         sym = symbol.upper().strip()
+        if sym.endswith(".NS") or sym.endswith(".BO"):
+            sym = sym[:-3]
+        if ":" in sym:
+            parts = sym.split(":")
+            if parts[0] in ("NSE", "BSE"):
+                sym = parts[1]
+            else:
+                sym = parts[0]
+        sym = sym.strip()
+
         lookback = max(60, days)
         cat_filter = f"AND category = '{category}'" if category else ""
         df = query_df(f"""
@@ -1505,7 +1523,31 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
                     ORDER BY trade_date ASC
                 """)
             except Exception as imp_exc:
-                return f"No price data for {sym} and auto-import failed: {imp_exc}"
+                logger.debug("plot_macd_chart auto-import attempt failed for %s: %s", sym, imp_exc)
+
+        # Fallback to Yahoo Finance price history if ClickHouse has insufficient data
+        if df.empty or len(df) < 35:
+            try:
+                from src.tools.yahoo_finance import fetch_price_history
+                exchange = "BSE" if symbol.upper().endswith(".BO") or ":BSE" in symbol.upper() else "NSE"
+                if lookback <= 90:
+                    yf_period = "6mo"
+                elif lookback <= 180:
+                    yf_period = "1y"
+                elif lookback <= 365:
+                    yf_period = "2y"
+                else:
+                    yf_period = "5y"
+                hist = fetch_price_history(sym, exchange, period=yf_period)
+                if hist:
+                    yf_df = pd.DataFrame(hist)
+                    if "close" in yf_df.columns and "date" in yf_df.columns:
+                        yf_df = yf_df.rename(columns={"date": "trade_date"})
+                        yf_df["trade_date"] = pd.to_datetime(yf_df["trade_date"])
+                        yf_df["close"] = yf_df["close"].astype(float)
+                        df = yf_df.sort_values("trade_date").reset_index(drop=True)
+            except Exception as yf_exc:
+                logger.debug("plot_macd_chart yfinance fallback failed for %s: %s", sym, yf_exc)
 
         if df.empty or len(df) < 35:
             return f"Insufficient price history for {sym} (need ≥35 bars for MACD, got {len(df)})."
@@ -1522,65 +1564,73 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         dates  = view["trade_date"].astype(str).tolist()
         xs     = list(range(len(view)))
 
-        plt = _plt()
-        plt.clear_figure()
-        # Stacked layout: top = price/EMAs, bottom = MACD/Signal + histogram
-        plt.subplots(2, 1)
-
-        plt.subplot(1, 1)
-        plt.plot(xs, view["close"].tolist(),  label="Close",  color="white")
-        plt.plot(xs, view["ema12"].tolist(),  label="EMA-12", color="cyan")
-        plt.plot(xs, view["ema26"].tolist(),  label="EMA-26", color="magenta")
-        last_close = view["close"].iloc[-1]
-        last_macd  = view["macd"].iloc[-1]
-        last_sig   = view["signal"].iloc[-1]
-        last_hist  = view["hist"].iloc[-1]
-        cross = "BULL" if last_macd > last_sig else "BEAR"
-        plt.title(f"{sym} — MACD(12,26,9) | Close ₹{last_close:.2f} | MACD {last_macd:+.2f} | Signal {last_sig:+.2f} | Hist {last_hist:+.2f} ({cross})")
-        plt.ylabel("Price (₹)")
-
-        plt.subplot(2, 1)
-        plt.plot(xs, view["macd"].tolist(),   label="MACD",   color="cyan")
-        plt.plot(xs, view["signal"].tolist(), label="Signal", color="orange")
-        # Histogram as bars; plotext supports plot bar
-        plt.bar(xs, view["hist"].tolist(),    label="Hist",   color="green")
-        plt.ylabel("MACD")
-
-        plt.plot_size(_chart_width(), _CHART_HEIGHT * 2)
-
-        # Shared date ticks on the bottom subplot
+        # Shared date ticks on both subplots
         n = len(dates)
         step = max(1, n // 5)
         tick_idx = list(range(0, n, step))
         if tick_idx and tick_idx[-1] != n - 1:
             tick_idx.append(n - 1)
         tick_lbl = [str(dates[i])[:10] for i in tick_idx]
-        plt.xticks(tick_idx, tick_lbl)
 
-        chart_str = _build(plt)
+        last_close = float(view["close"].iloc[-1])
+        last_macd  = float(view["macd"].iloc[-1])
+        last_sig   = float(view["signal"].iloc[-1])
+        last_hist  = float(view["hist"].iloc[-1])
+        cross = "BULL" if last_macd > last_sig else "BEAR"
+
+        plt = _plt()
+        plt.clear_figure()
+
+        # Panel 1: Price + EMA12 + EMA26 (rendered independently)
+        plt.plot_size(_chart_width(), 13)
+        plt.plot(xs, view["close"].tolist(),  label="Close",  color="white")
+        plt.plot(xs, view["ema12"].tolist(),  label="EMA-12", color="cyan")
+        plt.plot(xs, view["ema26"].tolist(),  label="EMA-26", color="magenta")
+        plt.title(f"{sym} — MACD(12,26,9) | Close ₹{last_close:.2f} | MACD {last_macd:+.2f} | Signal {last_sig:+.2f} | Hist {last_hist:+.2f} ({cross})")
+        if sym.endswith("=F") or "=F" in sym:
+            plt.ylabel("Price ($)")
+        else:
+            plt.ylabel("Price (₹)")
+        plt.xticks(tick_idx, tick_lbl)
+        price_panel = plt.build()
+        plt.clear_figure()
+
+        # Panel 2: MACD + Signal + Histogram (rendered independently)
+        plt.plot_size(_chart_width(), 10)
+        plt.plot(xs, view["macd"].tolist(),   label="MACD",   color="cyan")
+        plt.plot(xs, view["signal"].tolist(), label="Signal", color="orange")
+        plt.bar(xs, view["hist"].tolist(),    label="Hist",   color="green")
+        plt.ylabel("MACD")
+        plt.xticks(tick_idx, tick_lbl)
+        macd_panel = plt.build()
+        plt.clear_figure()
+
+        chart_str = price_panel + "\n" + macd_panel
+        save_active_chart("macd", chart_str)
+        save_active_chart("plot_macd_chart", chart_str)
 
         # Compute technical analysis metrics
-        ema12_val = view["ema12"].iloc[-1]
-        ema26_val = view["ema26"].iloc[-1]
+        ema12_val = float(view["ema12"].iloc[-1])
+        ema26_val = float(view["ema26"].iloc[-1])
 
         # 1. Crossover state & history
-        is_bullish = last_macd > last_sig
+        is_bullish = bool(last_macd > last_sig)
         crossover_label = "BULLISH (MACD Line > Signal Line)" if is_bullish else "BEARISH (MACD Line < Signal Line)"
 
         crossover_days_ago = None
         crossover_date = None
         for i in range(len(view) - 2, -1, -1):
-            prev_bullish = view["macd"].iloc[i] > view["signal"].iloc[i]
+            prev_bullish = bool(view["macd"].iloc[i] > view["signal"].iloc[i])
             if prev_bullish != is_bullish:
                 crossover_days_ago = len(view) - 1 - i
-                crossover_date = view["trade_date"].iloc[i+1]
+                crossover_date = str(view["trade_date"].iloc[i+1])[:10]
                 break
 
         # 2. Histogram Momentum Trend
         hist_trend = "strengthening"
         if len(view) >= 3:
-            h1 = view["hist"].iloc[-2]
-            h2 = view["hist"].iloc[-1]
+            h1 = float(view["hist"].iloc[-2])
+            h2 = float(view["hist"].iloc[-1])
             if abs(h2) > abs(h1):
                 hist_trend = "strengthening / expanding"
             else:
@@ -1594,7 +1644,6 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         else:
             ema_alignment = "Mixed (Price between EMA-12 and EMA-26)"
 
-        import re
         analysis_lines = [
             "",
             "════════════════════════════════════════════════════════════════════════════════",
@@ -1608,18 +1657,25 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
         ]
 
         if crossover_days_ago is not None:
-            price_at_crossover = view["close"].iloc[-crossover_days_ago]
-            pct_chg = ((last_close - price_at_crossover) / price_at_crossover) * 100
-            analysis_lines.append(
-                f"• Crossover State:  {crossover_label} since {crossover_date} "
-                f"({crossover_days_ago} trading days ago; price change: {pct_chg:+.2f}%)"
-            )
+            crossover_idx = len(view) - crossover_days_ago
+            price_at_crossover = float(view["close"].iloc[crossover_idx])
+            if price_at_crossover > 0:
+                pct_chg = ((last_close - price_at_crossover) / price_at_crossover) * 100
+                analysis_lines.append(
+                    f"• Crossover State:  {crossover_label} since {crossover_date} "
+                    f"({crossover_days_ago} trading days ago; price change: {pct_chg:+.2f}%)"
+                )
+            else:
+                analysis_lines.append(
+                    f"• Crossover State:  {crossover_label} since {crossover_date} "
+                    f"({crossover_days_ago} trading days ago)"
+                )
         else:
-            analysis_lines.append(f"• Crossover State:  {crossover_label} (No crossover in the last {days} trading days)")
+            analysis_lines.append(f"• Crossover State:  {crossover_label} (No crossover in the last {len(view)} trading days)")
 
         analysis_lines.append("════════════════════════════════════════════════════════════════════════════════")
 
-        return chart_str + "\n" + "\n".join(analysis_lines)
+        return "[CHART:macd]\n" + "\n".join(analysis_lines)
     except ImportError as exc:
         return str(exc)
     except Exception as exc:

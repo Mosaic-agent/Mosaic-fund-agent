@@ -66,14 +66,22 @@ class BudgetCallbackHandler(BaseCallbackHandler):
 
     def __init__(
         self,
-        max_tool_calls: int = 20,
-        max_tokens: int = 100_000,
+        max_tool_calls: int = 50,
+        max_tokens: int | None = None,
         max_wall_clock_s: float | None = None,
         tool_caps: dict[str, int] | None = None,
     ) -> None:
         import os
         self.max_tool_calls = max_tool_calls
-        self.max_tokens = max_tokens
+        # Context limit removed — default is 0 (unlimited) unless explicitly specified
+        token_env = os.getenv("MAX_TOKEN_BUDGET")
+        if max_tokens is not None:
+            self.max_tokens = max_tokens
+        elif token_env is not None:
+            self.max_tokens = int(token_env)
+        else:
+            self.max_tokens = 0  # 0 or None = unlimited tokens
+
         self.max_wall_clock_s = (
             max_wall_clock_s if max_wall_clock_s is not None
             else float(os.getenv("AGENT_TIMEOUT", "600.0"))
@@ -120,7 +128,7 @@ class BudgetCallbackHandler(BaseCallbackHandler):
                 )
 
     def _check_tokens(self) -> None:
-        if self.total_tokens >= self.max_tokens:
+        if self.max_tokens and self.max_tokens > 0 and self.total_tokens >= self.max_tokens:
             raise BudgetExceededError(
                 f"Token budget exceeded: {self.total_tokens} >= {self.max_tokens}"
             )

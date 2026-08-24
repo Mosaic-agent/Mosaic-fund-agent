@@ -94,6 +94,11 @@ get_mf_holdings_for_stock(company_name_or_symbol=NAME)
     Reverse lookup: which funds hold a specific stock.
     Use for: "which funds hold <stock>", "cross-ownership of <stock>".
 
+get_mf_holdings_by_cap_category(cap_category='Small Cap', fund_filter='multi_asset')
+    Query fund equity holdings filtered by statutory SEBI/AMFI market-cap tier.
+    Joins mf_holdings with amfi_market_cap on isin.
+    Use for: "which small-cap stocks are owned by multi-asset funds", "mid-cap holdings in DSP".
+
 find_funds_holding(query=TEXT)
     Qdrant semantic search: find funds holding a security or ISIN.
 
@@ -105,7 +110,7 @@ run_dsp_multi_asset_comparison()
     DSP cross-fund weighted comparison across all DSP active equity funds.
 
 query_clickhouse_db(sql=QUERY)
-    Ad-hoc SQL against market_data.mf_holdings FINAL or mf_nav FINAL.
+    Ad-hoc SQL against market_data.mf_holdings FINAL, amfi_market_cap FINAL, or mf_nav FINAL.
 
 Rules
 ─────
@@ -128,7 +133,7 @@ Past results are provided for context. Do not repeat a tool already called.
 """
 
 _REPLANNER_PROMPT_TEMPLATE = """\
-You are a mutual fund research replanner.
+You are a senior institutional mutual fund research replanner.
 
 Original question: {input}
 Completed steps and results:
@@ -147,11 +152,17 @@ Based on what you have learned so far, decide:
 Rules:
 - If step_count >= {max_steps}, ALWAYS choose "done".
 - If plan is empty, choose "done".
-- When "done", write a complete Markdown response in the `response` field.
+- When "done", produce an institutional, comprehensive Markdown report in the `response` field.
 - When "revise", provide the revised remaining steps in `revised_plan`.
-- When synthesising, present all structured data in standard Markdown tables (using pipes `|` and hyphens `-`). Never use any Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.) to draw tables or borders. Every table must begin and end with standard pipes (e.g. | Col 1 | Col 2 |).
-- End with a "What this signals" paragraph connecting position deltas to a directional view.
-- NEVER compute numbers yourself — narrate only from the tool results above.
+- TABLE FORMATTING MANDATE: Present ALL structured data (consensus overlap, adds/trims, whale themes, fund profiles) in clean, standard Markdown tables with pipes `|` and hyphens `-`.
+- Never use ASCII/Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.).
+- Structure the report cleanly with:
+  1. Executive Summary & Macro Context
+  2. Core Holdings Overlap Table (Security | Asset | # Funds | Avg Weight | Total Value | Key AMCs)
+  3. Active Shifts & Consensus Moves (Consensus Adds & Trims Tables)
+  4. Whale Tracker Thematic Allocations (Gold/Silver, Nuclear/Grid, Energy, Infra/REITs)
+  5. Directional Summary ("What this signals")
+- NEVER compute numbers yourself — narrate only verbatim from the tool results above.
 """
 
 
@@ -167,7 +178,7 @@ def _get_mf_tools() -> list:
         query_clickhouse_db,
     )
     from src.tools.indian_equity_tools import get_mf_holdings_for_stock
-    from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure
+    from src.tools.market.mf_tools import find_funds_holding, find_similar_funds, search_mf_exposure, get_mf_holdings_by_cap_category
     from src.tools.chart_tools import plot_fund_holdings_chart
     from src.tools.db_tools import describe_db_table
     from src.tools.news_search import get_stock_news
@@ -178,6 +189,7 @@ def _get_mf_tools() -> list:
         run_dsp_multi_asset_comparison,
         run_fund_mom_returns,
         get_mf_holdings_for_stock,
+        get_mf_holdings_by_cap_category,
         find_funds_holding,
         find_similar_funds,
         search_mf_exposure,
@@ -186,6 +198,35 @@ def _get_mf_tools() -> list:
         describe_db_table,
         get_stock_news,
     ]
+
+
+def _compact_step_output(step_desc: str, result_str: str, max_chars: int = 50_000) -> str:
+    """Clean step output while preserving full structured tables and metrics."""
+    if not result_str:
+        return "*Empty result*"
+    if len(result_str) <= max_chars:
+        return result_str.strip()
+
+    from src.workflows.context_manager import dedup_rows, truncate_text
+    cleaned = dedup_rows(result_str.strip())
+    if len(cleaned) <= max_chars:
+        return cleaned
+
+    return truncate_text(cleaned, max_chars)
+
+
+def _build_compact_past_context(past_steps: list, max_total_chars: int = 250_000) -> str:
+    """Assemble past steps context with full capacity for 1M-token context windows."""
+    if not past_steps:
+        return "*No steps completed yet*"
+
+    n = len(past_steps)
+    per_step = max(5000, max_total_chars // max(1, n))
+    parts = []
+    for i, (s, r) in enumerate(past_steps):
+        compact_r = _compact_step_output(s, str(r), max_chars=per_step)
+        parts.append(f"[{i+1}] {s}:\n{compact_r}")
+    return "\n\n".join(parts)
 
 
 # ── Node: executor ────────────────────────────────────────────────────────────
@@ -199,10 +240,10 @@ def _executor_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     next_step = state["plan"][0]
     logger.info("mf_planner: executor step %d/%d: %s", state["step_count"] + 1, state["max_steps"], next_step[:80])
 
-    # Format past results for context (truncated to avoid token bloat)
+    # Format past results for context (compacted to avoid token bloat)
     past_context = ""
     for step_desc, step_result in state["past_steps"][-3:]:   # last 3 steps only
-        past_context += f"\nStep: {step_desc}\nResult: {str(step_result)[:500]}\n"
+        past_context += f"\nStep: {step_desc}\nResult: {_compact_step_output(step_desc, str(step_result), max_chars=400)}\n"
 
     llm = _get_llm()
     if llm is None:
@@ -242,13 +283,13 @@ def _extract_tool_result(agent_result: dict) -> str:
     msgs = agent_result.get("messages", [])
     for m in reversed(msgs):
         if isinstance(m, ToolMessage):
-            return str(m.content)[:3000]
+            return str(m.content)
     for m in reversed(msgs):
         if isinstance(m, AIMessage) and m.content:
             content = m.content
             if isinstance(content, list):
-                return " ".join(str(c.get("text", c)) for c in content if isinstance(c, dict))[:3000]
-            return str(content)[:3000]
+                return " ".join(str(c.get("text", c)) for c in content if isinstance(c, dict))
+            return str(content)
     return "*Step produced no output*"
 
 
@@ -288,11 +329,9 @@ def _replanner_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     llm = _get_llm()
     if llm is None:
         # No LLM → synthesise from past steps directly
-        return {"response": _synthesise_past_steps(state)}
+        return {"response": _synthesise_past_steps(state, config=config)}
 
-    past_fmt = "\n".join(
-        f"[{i+1}] {s}: {r}" for i, (s, r) in enumerate(state["past_steps"])
-    )
+    past_fmt = _build_compact_past_context(state["past_steps"], max_total_chars=6000)
     prompt = _REPLANNER_PROMPT_TEMPLATE.format(
         input=state["input"],
         past_steps=past_fmt,
@@ -304,20 +343,23 @@ def _replanner_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     try:
         structured_llm = llm.with_structured_output(ReplanDecision)
         decision: ReplanDecision = structured_llm.invoke([
-            SystemMessage(content="You are a mutual fund research replanner."),
+            SystemMessage(content="You are a senior institutional mutual fund research replanner."),
             HumanMessage(content=prompt + SYNTH_SUFFIX),
         ], config=config)
     except Exception as exc:
         logger.warning("mf_planner: replanner structured output failed (%s) — synthesising", exc)
-        return {"response": _synthesise_past_steps(state)}
+        return {"response": _synthesise_past_steps(state, config=config)}
 
     if decision is None:
         logger.warning("mf_planner: replanner structured output returned None — synthesising")
-        return {"response": _synthesise_past_steps(state)}
+        return {"response": _synthesise_past_steps(state, config=config)}
 
     if decision.action == "done":
         logger.info("mf_planner: replanner done after %d steps", state["step_count"])
-        return {"response": decision.response or _synthesise_past_steps(state)}
+        resp = decision.response.strip() if decision.response else ""
+        if resp and len(resp) > 80 and "|" in resp:
+            return {"response": resp}
+        return {"response": _synthesise_past_steps(state, config=config)}
 
     if decision.action == "revise" and decision.revised_plan:
         logger.info(
@@ -340,11 +382,45 @@ def _replanner_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     return {}
 
 
-def _synthesise_past_steps(state: MFPlanExecute) -> str:
-    """Fallback synthesiser: concatenate all past step results."""
-    parts = [f"## MF Research: {state['input']}\n"]
-    for i, (step, result) in enumerate(state["past_steps"]):
-        parts.append(f"### Step {i+1}: {step}\n{result}")
+def _synthesise_past_steps(state: MFPlanExecute, config: RunnableConfig | None = None) -> str:
+    """Synthesise all past step results into a polished, institutional-grade Markdown research report."""
+    llm = _get_llm()
+
+    past_fmt = _build_compact_past_context(state.get("past_steps", []), max_total_chars=250_000)
+
+    if llm is None:
+        parts = [f"## MF Research: {state['input']}\n", past_fmt]
+        return "\n\n".join(parts)
+
+    try:
+        synth_prompt = (
+            "You are a senior institutional mutual fund quantitative research analyst for the Mosaic platform.\n"
+            "Synthesise all gathered data and past steps into a structured, executive-grade research report formatted with:\n"
+            "1. Executive Summary & Macro/Theme Overview\n"
+            "2. Core Holdings Overlap Table (Standard Markdown table with pipes `|` and hyphens `-`)\n"
+            "3. Active Shifts & Smart Money Rotation (Consensus Adds & Trims in clean Markdown tables)\n"
+            "4. Whale Tracker Thematic Allocations (Precious Metals, Power/Nuclear Grid, Energy, Infra/REITs)\n"
+            "5. AMC Execution Profiles & Strategic Takeaways ('What this signals')\n\n"
+            "Formatting & Quality Rules:\n"
+            "- Always format structured data into clean, standard Markdown tables (pipes `|` and hyphens `-`).\n"
+            "- Never use ASCII/Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.).\n"
+            "- Group themes logically with clear headings and bullet points.\n"
+            "- NEVER compute or derive numbers — cite only numbers present in the data verbatim.\n"
+        )
+
+        result = llm.invoke([
+            SystemMessage(content=synth_prompt + SYNTH_SUFFIX),
+            HumanMessage(content=f"Original Question: {state['input']}\n\nGathered Steps and Tool Data:\n{past_fmt}"),
+        ], config=config)
+
+        from .base import _render_report
+        rendered = _render_report(result).strip()
+        if rendered and len(rendered) > 50:
+            return rendered
+    except Exception as exc:
+        logger.warning("mf_planner: LLM synthesis failed (%s) — using raw fallback", exc)
+
+    parts = [f"## MF Research: {state['input']}\n", past_fmt]
     return "\n\n".join(parts)
 
 

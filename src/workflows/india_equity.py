@@ -173,7 +173,7 @@ _SYNTHESIS_PROMPT = (
     "You are a senior Indian equity analyst. All 12 data sources have been pre-fetched "
     "for you — you do NOT need to call any tools. Synthesise the data below into a "
     "structured Markdown research note with these 8 sections:\n\n"
-    "(1) Company Snapshot — key metrics table; write `[CHART:price]` where price chart should appear\n"
+    "(1) Company Snapshot — key metrics table (Current Price, Market Cap, SEBI Cap Category, AMFI Statutory Rank & 6M Avg Mcap, 52W High/Low, Sector/Industry); write `[CHART:price]` where price chart should appear\n"
     "(2) Financials — quarterly revenue, net profit, EPS, YoY growth table\n"
     "(3) Valuation — P/E, P/B vs sector; qualitative PEG\n"
     "(4) Cash Flow Quality — FCF, operating CF, capex trend\n"

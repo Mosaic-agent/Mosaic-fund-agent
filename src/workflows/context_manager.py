@@ -15,7 +15,7 @@ from threading import RLock
 from typing import Any, Callable, Iterator
 
 
-DEFAULT_MAX_CHARS = 12_000
+DEFAULT_MAX_CHARS = 250_000
 
 
 @dataclass(frozen=True)

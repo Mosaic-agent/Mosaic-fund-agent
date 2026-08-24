@@ -182,10 +182,18 @@ _VIZ_ROUTE_TABLE: list[tuple] = [
     (_MF_RE,       "mf"),
 ]
 
+_INDIA_EQUITY_RE = re.compile(
+    r"\b(?:fundamentals?|quarterly\s+results?|shareholding\s+pattern|promoter\s+holding|cash\s*flow|pe\s+ratio|market\s+cap|valuation)\b"
+    r"|\b(?:price\s+anomaly|price\s+anomalies|anomal(?:y|ies)|annamoly|price\s+shock|shock\s+dates?|spike\s+dates?|red\s+dots?)\b"
+    r"|\b(?:why\s+is\s+\w+\s+(?:falling|rising|crashing|rallying|dropping|moving|volatile))\b"
+    r"|\b(?:stock\s+quant|deepdive|stock\s+report)\b",
+    re.I,
+)
+
 _POST_PLOT_TABLE: list[tuple] = [
-    (_SIGNAL_RE,   "signal"),
     (_INTL_ETF_RE, "intl_etf"),
     (_MF_RE,       "mf"),
+    (_SIGNAL_RE,   "signal"),
     (_RESEARCH_RE, "research"),
     (_MACRO_RE,    "macro"),
     (_NEWS_RE,     "news"),
@@ -272,6 +280,25 @@ def _regex_route_intent(question: str) -> str:
         except Exception:
             pass
         return "signal"
+
+    # Indian equity check (anomalies, fundamentals, corporate actions, why is X falling)
+    if _INDIA_EQUITY_RE.search(question):
+        _stripped = re.sub(
+            r"\b(?:anomaly|anomalies|annamoly|price\s+anomaly|price\s+anomalies|price|prices|shock|shocks|spike|spikes|drop|drops|crash|crashes|rally|rallying|red\s+dots?|fundamentals?|quarterly\s+results?|shareholding|promoter|cash\s*flow|pe\s+ratio|market\s+cap|valuation|research|analyse|analyze|investigate|why\s+is|what\s+caused|in|of|for|on|about|the|a|an)\b",
+            "", question, flags=re.I,
+        ).strip()
+        if _stripped:
+            try:
+                from src.tools.company_resolver import _local_indian_lookup, resolve_company_info
+                from src.agents.signal_sources import SIGNAL_ETFS
+                sym = _local_indian_lookup(_stripped)
+                if sym and sym not in SIGNAL_ETFS:
+                    return "india_equity"
+                info = resolve_company_info(_stripped)
+                if info.get("market") == "India":
+                    return "india_equity"
+            except Exception:
+                pass
 
     # Post-plot checks
     for pattern, intent in _POST_PLOT_TABLE:

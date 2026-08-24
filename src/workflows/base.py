@@ -78,7 +78,14 @@ def generate_plan_llm(
         )
 
         resp = llm.invoke(prompt)
-        text = resp.content if hasattr(resp, "content") else str(resp)
+        raw_content = resp.content if hasattr(resp, "content") else str(resp)
+        if isinstance(raw_content, list):
+            text = "\n".join(
+                item.get("text", "") if isinstance(item, dict) else getattr(item, "text", str(item))
+                for item in raw_content
+            )
+        else:
+            text = str(raw_content)
 
         lines = []
         for line in text.strip().splitlines():

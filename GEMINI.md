@@ -90,7 +90,7 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ## ClickHouse Schema & Documentation References
 
 - **Database:** `market_data` (ReplacingMergeTree tables; always query with `FINAL`).
-- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`.
+- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `amfi_market_cap`.
 - **Full Architecture & Details:**
   - System & Data Pipelines: [docs/architecture.md](docs/architecture.md)
   - Agent Orchestration & Playbooks: [docs/agent-architecture.md](docs/agent-architecture.md)

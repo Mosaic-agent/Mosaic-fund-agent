@@ -138,32 +138,62 @@ def _search_one_date(
             f"rather than a market-driven move. Verify via NSE corporate actions page."
         )
 
+    # ── 0. Local ClickHouse news check (< 3ms) ───────────────────────────────
+    try:
+        from src.db.pool import query_df as _qdf
+        news_df = _qdf(
+            f"""
+            SELECT title, sentiment, impact_tier, url
+            FROM market_data.news_articles FINAL
+            WHERE (symbols LIKE '%{symbol}%' OR title ILIKE '%{symbol}%' OR title ILIKE '%{company_name}%')
+              AND toDate(fetched_at) BETWEEN toDate('{target_dt}') - 1 AND toDate('{target_dt}') + 1
+            ORDER BY impact_tier ASC, fetched_at DESC LIMIT {max_results}
+            """
+        )
+        if not news_df.empty:
+            rows = []
+            for _, nr in news_df.iterrows():
+                rows.append(f"- **{nr['title']}** (Sentiment: `{nr['sentiment']}` | Tier: `{nr['impact_tier']}`)")
+            return _store_and_return("\n".join(rows))
+    except Exception:
+        pass
+
     primary = _build_query(symbol, company_name, date_str, regime, daily_ret)
 
     # ── 1. GNews exact date, primary query ────────────────────────────────────
-    result = search_financial_news.invoke(
-        {"query": primary, "max_results": max_results, "target_date": date_str}
-    )
-    if "No news found" not in result:
-        return _store_and_return(result)
+    try:
+        result = search_financial_news.invoke(
+            {"query": primary, "max_results": max_results, "target_date": date_str}
+        )
+        if "No news found" not in result:
+            return _store_and_return(result)
+    except Exception:
+        result = "No news found"
 
     # ── 2. GNews exact date, broadened query ─────────────────────────────────
-    fallback = _fallback_query(symbol, company_name)
-    result = search_financial_news.invoke(
-        {"query": fallback, "max_results": max_results, "target_date": date_str}
-    )
-    if "No news found" not in result:
-        return _store_and_return(result)
-
-    # ── 3. GNews ±1 day window (publication lag) ──────────────────────────────
-    from datetime import timedelta
-    for delta in (-1, 1):
-        adj_date = (target_dt + timedelta(days=delta)).strftime("%Y-%m-%d")
-        adj_result = search_financial_news.invoke(
-            {"query": primary, "max_results": max_results, "target_date": adj_date}
+    try:
+        fallback = _fallback_query(symbol, company_name)
+        result = search_financial_news.invoke(
+            {"query": fallback, "max_results": max_results, "target_date": date_str}
         )
-        if "No news found" not in adj_result:
-            return _store_and_return(f"*(news from {adj_date})*\n{adj_result}")
+        if "No news found" not in result:
+            return _store_and_return(result)
+    except Exception:
+        pass
+
+    # ── 3. GNews ±1 day window (publication lag) — only if recent ─────────────
+    if days_ago <= 60:
+        from datetime import timedelta
+        for delta in (-1, 1):
+            try:
+                adj_date = (target_dt + timedelta(days=delta)).strftime("%Y-%m-%d")
+                adj_result = search_financial_news.invoke(
+                    {"query": primary, "max_results": max_results, "target_date": adj_date}
+                )
+                if "No news found" not in adj_result:
+                    return _store_and_return(f"*(news from {adj_date})*\n{adj_result}")
+            except Exception:
+                pass
 
     # ── 4. NewsAPI — only viable within last 30 days ──────────────────────────
     if days_ago <= 30:
@@ -370,30 +400,36 @@ def search_anomaly_events(
     lines.append("---\n")
     lines.append("### 📰 Google News Search — Per Anomaly Date\n")
 
-    # ── 5. Parallel Google News searches ─────────────────────────────────────
-    # Each date gets an independent search; results joined back in date order.
-    search_results: dict[str, str] = {}
+    # ── 5. Parallel Google News searches (top 4 dates by magnitude) ──────────
+    # Pick top 4 dates with highest absolute Z-scores to prevent search throttling & timeouts
+    search_candidates = sorted(
+        anomaly_rows,
+        key=lambda x: abs(float(x["fz_str"])) if x["fz_str"] != "N/A" else 0.0,
+        reverse=True,
+    )[:4]
 
-    with ThreadPoolExecutor(max_workers=min(len(anomaly_rows), 5)) as pool:
-        futures = {
-            pool.submit(
-                _search_one_date,
-                symbol_upper,
-                company_name,
-                r["date_str"],
-                r["regime"],
-                float(r["ret"]) if not pd.isna(r["ret"]) else 0.0,
-                max_news_per_date,
-            ): r["date_str"]
-            for r in anomaly_rows
-        }
-        for fut in as_completed(futures):
-            try:
-                date_str, md_block = fut.result(timeout=30)
-                search_results[date_str] = md_block
-            except Exception as exc:
-                date_str = futures[fut]
-                search_results[date_str] = f"Search failed: {exc}"
+    search_results: dict[str, str] = {}
+    if search_candidates:
+        with ThreadPoolExecutor(max_workers=min(len(search_candidates), 4)) as pool:
+            futures = {
+                pool.submit(
+                    _search_one_date,
+                    symbol_upper,
+                    company_name,
+                    r["date_str"],
+                    r["regime"],
+                    float(r["ret"]) if not pd.isna(r["ret"]) else 0.0,
+                    max_news_per_date,
+                ): r["date_str"]
+                for r in search_candidates
+            }
+            for fut in as_completed(futures):
+                try:
+                    date_str, md_block = fut.result(timeout=15)
+                    search_results[date_str] = md_block
+                except Exception as exc:
+                    date_str = futures[fut]
+                    search_results[date_str] = f"Search timed out/failed: {exc}"
 
     # ── 6. Render per-date sections in chronological order (newest first) ─────
     for r in anomaly_rows:
@@ -402,14 +438,17 @@ def search_anomaly_events(
         lines.append(
             f"#### 📅 {date_str} | ₹{r['close']:.2f} | {ret_str} | {r['regime']} | Z={r['fz_str']}"
         )
-        news_block = search_results.get(date_str, "No results.")
-        if "No news found" in news_block:
-            lines.append(
-                "> ⚠️ No news found on this exact date — event may be pre-positioned "
-                "(institutional block trade, policy leak, or off-market deal)."
-            )
+        if date_str in search_results:
+            news_block = search_results[date_str]
+            if "No news found" in news_block:
+                lines.append(
+                    "> ⚠️ No news found on this exact date — event may be pre-positioned "
+                    "(institutional block trade, policy leak, or off-market deal)."
+                )
+            else:
+                lines.append(news_block)
         else:
-            lines.append(news_block)
+            lines.append("> ℹ️ *Price shock recorded in summary table above.*")
         lines.append("")
 
     # ── 7. Historical precedents from Qdrant ─────────────────────────────────

@@ -821,6 +821,30 @@ class AmfiCategoryFlowsFetcher(Fetcher):
         return max(r["report_month"] for r in rows)
 
 
+# ── AMFI Semi-Annual Average Market Capitalization Rankings ──────────────────
+
+class AmfiMarketCapFetcher(Fetcher):
+    """
+    AMFI official Semi-Annual Average Market Capitalization rankings
+    and SEBI Large/Mid/Small Cap categorisation.
+    """
+    source_name  = "amfi_market_cap"
+    symbol_key   = "ALL"
+    dataset      = "rankings"
+    description  = "AMFI Semi-Annual Average Market Cap & SEBI Categorization"
+    overlap_days = 0
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        from src.data_importer.fetchers.amfi_market_cap_fetcher import fetch_amfi_market_cap
+        return fetch_amfi_market_cap(period_end=to_date)
+
+    def insert(self, rows: list[dict], ch) -> int:
+        return ch.insert_amfi_market_cap(rows)
+
+    def max_date(self, rows: list[dict]) -> date:
+        return max(r["period_end_date"] for r in rows)
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 # Maps CLI category name → Fetcher instance.
 # The orchestrator loops over this — adding a new source = one line here.
@@ -846,19 +870,20 @@ def _build_registry() -> dict[str, Fetcher]:
         else:
             registry[cat] = YFinanceFetcher(cat, sym_list) # global symbols
 
-    registry["nse_indices"] = NseIndexFetcher(NSE_ONLY_INDICES)
-    registry["nse_eod"]      = NseEodFetcher(ETFS, STOCKS)
-    registry["indian_macro"] = IndianMacroFetcher()
-    registry["amfi_flows"]   = AmfiCategoryFlowsFetcher()
-    registry["mf"]      = MFNavFetcher(MF_SCHEME_CODES)
-    registry["fii_dii"] = FIIDIIFetcher()
-    registry["fx_rates"] = FXRatesFetcher()
-    registry["nse_delivery"] = NseDeliveryFetcher()
-    registry["cot"]     = COTGoldFetcher()
-    registry["cb_reserves"] = CbReservesFetcher()
-    registry["etf_aum"]     = EtfAumFetcher()
-    registry["world_bank"] = WorldBankMacroFetcher()
-    registry["imf_weo"]    = IMFWEOFetcher()
+    registry["nse_indices"]   = NseIndexFetcher(NSE_ONLY_INDICES)
+    registry["nse_eod"]       = NseEodFetcher(ETFS, STOCKS)
+    registry["indian_macro"]  = IndianMacroFetcher()
+    registry["amfi_flows"]    = AmfiCategoryFlowsFetcher()
+    registry["amfi_market_cap"] = AmfiMarketCapFetcher()
+    registry["mf"]            = MFNavFetcher(MF_SCHEME_CODES)
+    registry["fii_dii"]       = FIIDIIFetcher()
+    registry["fx_rates"]      = FXRatesFetcher()
+    registry["nse_delivery"]  = NseDeliveryFetcher()
+    registry["cot"]           = COTGoldFetcher()
+    registry["cb_reserves"]   = CbReservesFetcher()
+    registry["etf_aum"]       = EtfAumFetcher()
+    registry["world_bank"]    = WorldBankMacroFetcher()
+    registry["imf_weo"]       = IMFWEOFetcher()
     return registry
 
 

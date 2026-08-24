@@ -6,8 +6,8 @@ one of the following intents:
 |---------------|-------------------------------------------------------------------|
 | deepdive      | US stock SEC filings, 10-K/10-Q, XBRL, annual reports, EDGAR     |
 | research      | Autonomous/deep/comprehensive multi-domain research on a topic    |
-| india_equity  | Indian stock fundamentals, earnings, price, financials, MF hold.  |
-| signal        | ETF signals, GOLDBEES ML pipeline, Kelly weight, GARCH, iNAV     |
+| india_equity  | Indian stock fundamentals, earnings, price, anomalies/shocks, news correlation, financials, MF holdings, shareholding (e.g. Nuvoco, RELIANCE, TCS) |
+| signal        | ETF signals, GOLDBEES ML pipeline, Kelly weight, GARCH, iNAV, ETF composite scores |
 | macro         | COMEX, FII/DII flows, macro themes, geopolitics, crude, gold/USD, gold/silver/commodity tickers (XAU, XAUUSD, XAG, XAGUSD, XPT, XPD, GC=F, SI=F, HG=F)  |
 | mf            | Mutual-fund holdings, NAV returns, fund consensus, fund managers, which funds hold a stock/asset, find similar funds, fund category exposure (gold/commodity/equity)  |
 | intl_etf      | International ETFs (MAFANG, HNGSNGBEES, Hang Seng, Nasdaq ETF)   |
@@ -18,10 +18,10 @@ one of the following intents:
 
 Special routing rules:
 - "import", "refresh", "sync", "backfill" data → always "main" (import runs there)
+- Questions about a SPECIFIC Indian company or stock (e.g. Nuvoco Vistas, RELIANCE, TCS, HDFC, BAJFINANCE, ADVENZYMES, etc.), including stock price anomalies, shocks, red dots on stock chart, why a stock dropped/spiked, fundamentals, earnings, valuation, or shareholding → always "india_equity"
 - Questions about a SPECIFIC mutual fund (DSP / Nippon / Bajaj / Quant / ICICI Multi Asset, scheme codes, fund managers, MF holdings, fund cross-ownership, NAV returns, "which funds hold X", "find funds similar to X", "funds with gold/commodity/equity exposure", "smart-money consensus across funds") → "mf"
-- Questions mentioning specific Indian companies (RELIANCE, TCS, HDFC) → "india_equity"
-- "find similar anomaly", "historical anomaly precedents", "what past crashes looked like this", "similar regime history" → "signal"
-- "plot" or "chart" requests → "main" (main agent has plot_price_chart, plot_multi_price_chart, plot_macd_chart tools)
+- ETF-specific anomaly/signals or general market regime (GOLDBEES, NIFTYBEES, ETF ML predictions, Risk Governor) → "signal"
+- "plot" or "chart" + Indian stock name → "india_equity"; "plot" + ETF/general → "main"
 - When uncertain, prefer "main" over guessing
 
 Respond with ONLY a JSON object (no markdown, no explanation):
