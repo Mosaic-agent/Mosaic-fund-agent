@@ -62,6 +62,15 @@ class Settings(BaseSettings):
     # Useful when you want to route all traffic through the cloud model (e.g. Claude Sonnet).
     llm_local_disabled: bool = Field(default=False, description="Disable local LLM; use cloud LLM for all requests")
 
+    # [NON-SENSITIVE] Route MF (mutual fund) tool calls through the artifact+condense
+    # wrapper (src/tools/mf_artifact.py) and the declarative fund-holdings/whale-consensus
+    # playbooks instead of raw subprocess stdout + the full MFSubAgent ReAct loop.
+    # Set to False to fall back to the legacy raw-output path for debugging/comparison.
+    mf_optimize_mode: bool = Field(
+        default=True,
+        description="Route MF tool calls through artifact+condense wrapper and declarative playbooks",
+    )
+
     # [NON-SENSITIVE] Enable native thinking/reasoning tokens for supported Ollama models
     # (qwen3, deepseek-r1). Passes think=true in the request body. Has no effect on cloud models.
     llm_think: bool = Field(default=False, description="Enable Ollama native thinking mode (qwen3, deepseek-r1)")

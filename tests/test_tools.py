@@ -904,42 +904,55 @@ def test_multi_price_chart_fallback():
     print("="*60)
 
     from src.tools.chart_tools import plot_multi_price_chart
-    from unittest.mock import patch
+    from unittest.mock import patch, MagicMock
     import pandas as pd
 
-    # Mock query_df to return empty df (simulating missing in ClickHouse)
-    # Mock fetch_price_history to return dummy history for both symbols
+    # DB-first policy: the first ClickHouse query per symbol comes back empty
+    # (simulating missing data), which must trigger check_and_refresh_symbol_data
+    # (the "data engineer" backfill gate) and then a SECOND ClickHouse query that
+    # returns the freshly-imported rows. No live yfinance fallback is used.
     mock_history_1 = [
-        {"date": f"2026-05-{i:02d}", "open": 100.0, "high": 105.0, "low": 95.0, "close": 100.0 + i, "volume": 1000}
+        {"date": f"2026-05-{i:02d}", "close": 100.0 + i}
         for i in range(1, 10)
     ]
     mock_history_2 = [
-        {"date": f"2026-05-{i:02d}", "open": 200.0, "high": 205.0, "low": 195.0, "close": 200.0 - i, "volume": 1000}
+        {"date": f"2026-05-{i:02d}", "close": 200.0 - i}
         for i in range(1, 10)
     ]
+    call_count = {"TATAPOWER": 0, "^CNXENERGY": 0}
 
-    def mock_fetch(symbol, exchange, period):
-        if symbol == "TATAPOWER":
-            return mock_history_1
-        elif symbol == "^CNXENERGY":
-            return mock_history_2
-        return []
+    def mock_query_df(sql, *args, **kwargs):
+        for sym, hist in (("TATAPOWER", mock_history_1), ("^CNXENERGY", mock_history_2)):
+            if f"symbol = '{sym}'" in sql:
+                call_count[sym] += 1
+                if call_count[sym] == 1:
+                    return pd.DataFrame()  # first read: empty — must trigger backfill
+                return pd.DataFrame({
+                    "trade_date": [h["date"] for h in hist],
+                    "close":      [h["close"] for h in hist],
+                })
+        return pd.DataFrame()
+
+    mock_refresh = MagicMock()
+    mock_refresh.invoke.return_value = "REFRESHED: mocked import"
 
     from src.tools.chart_tools import get_active_charts
-    with patch("src.db.pool.query_df", return_value=pd.DataFrame()), \
-         patch("src.tools.yahoo_finance.fetch_price_history", side_effect=mock_fetch):
+    with patch("src.db.pool.query_df", side_effect=mock_query_df), \
+         patch("src.tools.agent_tools.check_and_refresh_symbol_data", mock_refresh):
         output = plot_multi_price_chart.invoke({"symbols": "TATAPOWER,^CNXENERGY", "days": 30})
-        
-        # Verify the ASCII chart is directly returned and saved to active charts store
+
+        # Verify the ASCII chart is built from re-queried ClickHouse data, not a
+        # live API fallback — and that the backfill gate was actually invoked.
         assert "Normalised price comparison" in output
+        assert mock_refresh.invoke.call_count == 2  # once per symbol
         charts = get_active_charts()
         assert "price" in charts
         chart_output = charts["price"]
         assert "Normalised price comparison" in chart_output
         assert "TATAPOWER" in chart_output
         assert "^CNXENERGY" in chart_output
-        
-    print("  ✓ Multi price chart fallback and index caret symbols handling passed")
+
+    print("  ✓ Multi price chart DB-first backfill and index caret symbols handling passed")
 
 
 def test_explain_price_anomalies():
@@ -1203,6 +1216,69 @@ def test_rag_planner_templates():
     print("  ✓ RAG Planner template matching checks passed")
 
 
+def test_delegate_tools_run_concurrently():
+    print("\n" + "="*60)
+    print("TEST 25: Delegate Tools Run Concurrently (LangGraph ToolNode)")
+    print("="*60)
+    import time
+    from typing import TypedDict, Annotated
+    from unittest.mock import patch
+    from langchain_core.messages import AIMessage
+    from langgraph.graph import StateGraph, END
+    from langgraph.graph.message import add_messages
+    from langgraph.prebuilt import ToolNode
+    from src.tools.agent_tools import delegate_to_news_agent, delegate_to_mf_agent
+
+    def _slow_run_subagent_for(intent, question, callbacks=None):
+        time.sleep(0.4)
+        return f"{intent}: ok"
+
+    class _State(TypedDict):
+        messages: Annotated[list, add_messages]
+
+    with patch("src.agents.sub_agents.run_subagent_for", side_effect=_slow_run_subagent_for):
+        graph = StateGraph(_State)
+        graph.add_node("tools", ToolNode([delegate_to_news_agent, delegate_to_mf_agent]))
+        graph.set_entry_point("tools")
+        graph.add_edge("tools", END)
+        compiled = graph.compile()
+
+        msg = AIMessage(content="", tool_calls=[
+            {"name": "delegate_to_news_agent", "args": {"question": "q"}, "id": "1"},
+            {"name": "delegate_to_mf_agent", "args": {"question": "q"}, "id": "2"},
+        ])
+        start = time.monotonic()
+        compiled.invoke({"messages": [msg]})
+        elapsed = time.monotonic() - start
+
+    assert elapsed < 0.7, f"tool calls ran sequentially: {elapsed:.2f}s"
+    print(f"  ✓ Two delegate tools ran concurrently in {elapsed:.2f}s (sequential would be ~0.8s)")
+
+
+def test_mf_artifact():
+    print("\n" + "="*60)
+    print("TEST 25: MF Artifact Store (write/read/condense)")
+    print("="*60)
+    from src.tools.mf_artifact import write_mf_artifact, read_mf_artifact, condense_text
+
+    key = write_mf_artifact("test_tool", {"a": 1, "b": "x"}, "full raw output")
+    assert key.startswith("mf_artifact_test_tool_")
+    assert read_mf_artifact(key) == "full raw output"
+    print(f"  ✓ write/read round-trip via artifact key {key!r}")
+
+    small = "short output"
+    assert condense_text("test_tool", {}, small) == small
+    print("  ✓ condense_text leaves small output unchanged")
+
+    big_lines = [f"line {i} " + "x" * 30 for i in range(200)]
+    big = "\n".join(big_lines)
+    condensed = condense_text("test_tool", {"big": True}, big)
+    assert len(condensed) < len(big)
+    assert "line 0 " in condensed and "line 199 " in condensed
+    assert "full output saved as artifact" in condensed
+    print(f"  ✓ condense_text trims {len(big)} chars -> {len(condensed)} chars, keeps head/tail + artifact note")
+
+
 def test_category_normalization():
     print("\n" + "="*60)
     print("TEST 24: Importer Category Normalization")
@@ -1240,6 +1316,8 @@ if __name__ == "__main__":
         test_report_publisher,
         test_rag_planner_templates,
         test_category_normalization,
+        test_delegate_tools_run_concurrently,
+        test_mf_artifact,
     ]
     passed = 0
     failed = 0

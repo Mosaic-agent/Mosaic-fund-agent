@@ -196,7 +196,13 @@ def run_multi_asset_holdings_mom_yoy(
         args.extend(["--top", str(top)])
         if no_yoy:
             args.append("--no-yoy")
-    return _run_cmd(args)
+    result = _run_cmd(args)
+    from config.settings import settings
+    if settings.mf_optimize_mode:
+        from src.tools.mf_artifact import condense_text
+        params = {"fund": fund, "scheme_code": scheme_code, "search": search, "top": top, "no_yoy": no_yoy}
+        result = condense_text("run_multi_asset_holdings_mom_yoy", params, result)
+    return result
 
 
 @tool
@@ -295,7 +301,17 @@ def run_multi_asset_consensus(
         args.append("--no-rotation")
     if no_sectors:
         args.append("--no-sectors")
-    return _run_cmd(args)
+    result = _run_cmd(args)
+    from config.settings import settings
+    if settings.mf_optimize_mode:
+        from src.tools.mf_artifact import condense_text
+        params = {
+            "period": period, "min_funds": min_funds, "min_delta": min_delta, "asset": asset,
+            "top": top, "no_rotation": no_rotation, "lookback_months": lookback_months,
+            "min_streak_months": min_streak_months, "no_sectors": no_sectors,
+        }
+        result = condense_text("run_multi_asset_consensus", params, result)
+    return result
 
 
 @tool
@@ -376,7 +392,14 @@ def run_whale_tracker(amc: str | None = None, archetypes_only: bool = False) -> 
         cmd.extend(["--amc", amc])
     if archetypes_only:
         cmd.append("--archetypes")
-    return _run_cmd(cmd)
+    raw = _run_cmd(cmd)
+    from config.settings import settings
+    if not settings.mf_optimize_mode:
+        return raw
+    from src.tools.mf_artifact import write_mf_artifact
+    key = write_mf_artifact("run_whale_tracker", {"amc": amc, "archetypes_only": archetypes_only}, raw)
+    condensed = _summarize_whale_tracker_output(raw)
+    return condensed + f"\n\n_Full detail saved as artifact `{key}`._"
 
 
 
