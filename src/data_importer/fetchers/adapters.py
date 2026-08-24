@@ -19,7 +19,7 @@ Add a new source by appending here — the CLI loop picks it up automatically.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from src.data_importer.base_fetcher import Fetcher
@@ -845,6 +845,90 @@ class AmfiMarketCapFetcher(Fetcher):
         return max(r["period_end_date"] for r in rows)
 
 
+# ── NSE Corporate Announcements & Regulatory Disclosures ─────────────────────
+
+class NseAnnouncementsFetcher(Fetcher):
+    """
+    Official NSE Corporate Announcements/Disclosures for Indian equities.
+    Embeds disclosures to Qdrant RAG and stores records in ClickHouse market_data.news_articles.
+    """
+    source_name              = "nse_announcements"
+    symbol_key               = "ALL"
+    dataset                  = "news"
+    description              = "NSE Corporate Announcements & Regulatory Disclosures"
+    overlap_days             = 3
+    supports_parallel        = True
+    per_symbol_watermark     = True
+
+    def __init__(self, symbols: list[tuple[str, str]] | list[str] | None = None) -> None:
+        if symbols:
+            self.symbols = [s[0] if isinstance(s, tuple) else s for s in symbols]
+        else:
+            self.symbols = []
+
+    def for_symbol(self, sym: str, ticker: str) -> "Fetcher":
+        return NseAnnouncementsFetcher([sym])
+
+    def fetch(self, from_date: date, to_date: date, *, source: str | None = None) -> list[dict[str, Any]]:
+        from src.data_importer.tool_fetchers.nse_announcements import (
+            fetch_corporate_announcements,
+            _cache_announcements_to_qdrant,
+        )
+        all_rows = []
+        for sym in self.symbols:
+            clean_sym = sym.upper().replace(".NS", "").replace(".BO", "").split(":")[0].strip()
+            rows = fetch_corporate_announcements(clean_sym, from_date, to_date, include_routine=False)
+            if rows:
+                _cache_announcements_to_qdrant(clean_sym, rows)
+                for r in rows:
+                    pub_at = r.get("published_at", "")
+                    try:
+                        fetched_dt = datetime.fromisoformat(pub_at) if pub_at else datetime.now()
+                    except Exception:
+                        fetched_dt = datetime.now()
+
+                    all_rows.append({
+                        "symbol": clean_sym,
+                        "fetched_at": fetched_dt,
+                        "published_at": pub_at,
+                        "source_type": "REGULATORY",
+                        "fetch_source": "NSE",
+                        "category": "nse_announcements",
+                        "etfs_impacted": clean_sym,
+                        "sentiment": "NEUTRAL",
+                        "impact_tier": "1",
+                        "title": r.get("title", ""),
+                        "source": "NSE Corporate Announcements",
+                        "url": r.get("url", ""),
+                        "summary": r.get("description", "")[:500],
+                        "trade_date": pub_at[:10] if pub_at else date.today().isoformat(),
+                    })
+        return all_rows
+
+    def insert(self, rows: list[dict], ch) -> int:
+        if not rows:
+            return 0
+        if hasattr(ch, "insert_news_articles"):
+            return ch.insert_news_articles(rows)
+        # fallback for raw client or pool
+        client = ch.get_client() if hasattr(ch, "get_client") else ch
+        from src.data_importer.clickhouse import ClickHouseImporter
+        importer = ClickHouseImporter(client=client)
+        return importer.insert_news_articles(rows)
+
+    def max_date(self, rows: list[dict]) -> date:
+        from dateutil import parser as dt_parser
+        dates = []
+        for r in rows:
+            p = r.get("published_at") or r.get("trade_date")
+            if p:
+                try:
+                    dates.append(dt_parser.parse(str(p)).date())
+                except Exception:
+                    pass
+        return max(dates) if dates else date.today()
+
+
 # ── Registry ──────────────────────────────────────────────────────────────────
 # Maps CLI category name → Fetcher instance.
 # The orchestrator loops over this — adding a new source = one line here.
@@ -872,6 +956,8 @@ def _build_registry() -> dict[str, Fetcher]:
 
     registry["nse_indices"]   = NseIndexFetcher(NSE_ONLY_INDICES)
     registry["nse_eod"]       = NseEodFetcher(ETFS, STOCKS)
+    registry["nse_announcements"] = NseAnnouncementsFetcher(STOCKS)
+    registry["announcements"] = NseAnnouncementsFetcher(STOCKS)
     registry["indian_macro"]  = IndianMacroFetcher()
     registry["amfi_flows"]    = AmfiCategoryFlowsFetcher()
     registry["amfi_market_cap"] = AmfiMarketCapFetcher()

@@ -240,21 +240,23 @@ def get_newsapi_stock_news(input_str: str, target_date: str = "") -> dict[str, A
 
     items = fetch_newsapi_articles(symbol, company_name, target_date)
 
+    from src.data_importer.tool_fetchers.news_search import FormattedNewsResult
+
     if not items:
-        return {
+        return FormattedNewsResult({
             "symbol": symbol,
             "source": "NewsAPI",
             "articles": [],
             "overall_sentiment": "NEUTRAL",
             "note": "No articles found or NEWSAPI_KEY not set.",
-        }
+        })
 
     sentiments = [i.sentiment for i in items]
     pos = sentiments.count(Sentiment.POSITIVE)
     neg = sentiments.count(Sentiment.NEGATIVE)
     overall = "POSITIVE" if pos > neg else "NEGATIVE" if neg > pos else "NEUTRAL"
 
-    return {
+    return FormattedNewsResult({
         "symbol": symbol,
         "source": "NewsAPI",
         "articles": [
@@ -272,7 +274,7 @@ def get_newsapi_stock_news(input_str: str, target_date: str = "") -> dict[str, A
         "positive_count": pos,
         "negative_count": neg,
         "neutral_count": sentiments.count(Sentiment.NEUTRAL),
-    }
+    })
 
 
 # Convenience list for registration in agent tool sets

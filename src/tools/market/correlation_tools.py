@@ -432,8 +432,21 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
             )
         regime_section_lines.append("")
 
+    # Generate inline ASCII Price & Anomaly Chart
+    chart_ascii = ""
+    try:
+        from src.tools.chart_tools import plot_price_chart
+        chart_ascii = plot_price_chart.invoke({"symbol": sym, "days": lookback_days})
+    except Exception as e:
+        log.debug("Could not generate inline ASCII price chart: %s", e)
+
     lines = [
         f"📊 **Event Correlation Report: {sym}** (Lookback: {lookback_days} days)",
+    ]
+    if chart_ascii and "No price data found" not in chart_ascii and "Error" not in chart_ascii:
+        lines.append(f"\n```text\n{chart_ascii}\n```\n")
+
+    lines.extend([
         f"Found **{len(findings)}** anomaly-event correlation(s) — HIGH: {h_count} | MODERATE: {m_count} | LOW: {l_count}.",
         "",
         "### 🎯 Root Cause Attribution & Strength",
@@ -446,7 +459,7 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         "### 📅 Mapped Anomalies Timeline",
         "| Anomaly Date | Observed Return | Abnormal Return | Percentile | Offset | Event Trigger | Strategy | Score | Confidence |",
         "|---|---|---|---|---|---|---|---|---|",
-    ]
+    ])
 
     for f in findings:
         ret_val, pct_val = date_to_stats.get(f.anomaly_date, (0.0, 0.0))

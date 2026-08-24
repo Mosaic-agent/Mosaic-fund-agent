@@ -1,0 +1,150 @@
+agent_name: "International ETF Analyst"
+agent_type: "intl_etf"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative international ETF analysis pipeline for NSE-listed overseas ETFs.
+  Universe: MAFANG (US FANG+), HNGSNGBEES (Hang Seng), MON100 (Nasdaq 100),
+  MASPTOP50 (S&P 500 Top 50), MAHKTECH (HK Tech), MONQ50 (Nasdaq 50).
+  Covers 7 analytical lenses: performance, scarcity premium, OU mean-reversion,
+  regimes (Bull/Sideways/Bear), USDINR correlation, seasonality, drawdowns.
+  </task_context>
+
+  <evaluation_rules>
+  - SEBI/RBI cap overseas fund exposure at USD 7B — unit creation freeze drives scarcity premium.
+  - Premium > +5% = expensive (avoid fresh entry), 0-5% = normal friction, < 0% = rare buying window.
+  - These ETFs are INR-denominated — weakening INR inflates NAV even with flat underlying index.
+  - Never invent numbers — use only tool output.
+  </evaluation_rules>
+
+steps:
+  - id: batch_intl_fetch
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: get_intl_etf_performance
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: get_intl_etf_premium
+        params:
+          symbol: "{{ symbol | default('MAFANG') }}"
+        timeout: 30
+        fail_on_error: false
+      - tool_name: get_intl_etf_regimes
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: get_intl_etf_correlation
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: get_intl_etf_seasonality
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: get_intl_etf_drawdowns
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: plot_intl_etf_performance
+        params: {}
+        timeout: 30
+        fail_on_error: false
+      - tool_name: plot_intl_etf_premium
+        params:
+          symbol: "{{ symbol | default('MAFANG') }}"
+        timeout: 30
+        fail_on_error: false
+      - tool_name: plot_ou_premium_chart
+        params:
+          symbol: "{{ symbol | default('MAFANG') }}"
+        timeout: 60
+        fail_on_error: false
+
+  - id: intl_etf_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are the Mosaic International ETF Analyst covering NSE-listed overseas ETFs.
+      </role_context>
+
+      <intl_data>
+      <performance>
+      {{ batch_intl_fetch.get_intl_etf_performance }}
+      </performance>
+
+      <premium>
+      {{ batch_intl_fetch.get_intl_etf_premium }}
+      </premium>
+
+      <regimes>
+      {{ batch_intl_fetch.get_intl_etf_regimes }}
+      </regimes>
+
+      <correlation>
+      {{ batch_intl_fetch.get_intl_etf_correlation }}
+      </correlation>
+
+      <seasonality>
+      {{ batch_intl_fetch.get_intl_etf_seasonality }}
+      </seasonality>
+
+      <drawdowns>
+      {{ batch_intl_fetch.get_intl_etf_drawdowns }}
+      </drawdowns>
+
+      <ou_signal>
+      {{ batch_intl_fetch.plot_ou_premium_chart }}
+      </ou_signal>
+      </intl_data>
+
+      <instructions>
+      1. Rank the 6 ETFs by 3-year Sharpe ratio.
+      2. Highlight scarcity premium status for each — flag any > +5% as expensive.
+      3. Report current OU mean-reversion signal (BUY / HOLD / SELL) and half-life.
+      4. Note current regime (Bull / Sideways / Bear) per ETF.
+      5. Flag USDINR sensitivity — how much of return is FX-driven vs index-driven.
+      6. Write a 3-sentence actionable positioning summary.
+      </instructions>
+
+  - id: format_intl_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # International ETF Analysis Report
+
+      ## Executive Summary
+      {{ intl_etf_synthesis.output }}
+
+      ## 1. Performance — 3-Year Returns, Volatility & Sharpe
+      {{ batch_intl_fetch.get_intl_etf_performance }}
+
+      ### Performance Chart
+      {{ batch_intl_fetch.plot_intl_etf_performance }}
+
+      ## 2. Scarcity Premium / Discount
+      {{ batch_intl_fetch.get_intl_etf_premium }}
+
+      ### Premium Chart
+      {{ batch_intl_fetch.plot_intl_etf_premium }}
+
+      ## 3. OU Mean-Reversion Signal
+      {{ batch_intl_fetch.plot_ou_premium_chart }}
+
+      ## 4. Regime Detection (Bull / Sideways / Bear)
+      {{ batch_intl_fetch.get_intl_etf_regimes }}
+
+      ## 5. Return Correlations & USDINR Sensitivity
+      {{ batch_intl_fetch.get_intl_etf_correlation }}
+
+      ## 6. Seasonality — Best & Worst Months
+      {{ batch_intl_fetch.get_intl_etf_seasonality }}
+
+      ## 7. Major Drawdown Episodes (> 10%)
+      {{ batch_intl_fetch.get_intl_etf_drawdowns }}
+
+sample_input:
+  symbol: "MAFANG"

@@ -110,16 +110,54 @@ class DeclarativeAgentRunner:
             ("src.tools.earnings_scraper",    ["get_quarterly_results", "get_shareholding_pattern"]),
             ("src.tools.indian_equity_tools", ["get_stock_cashflow", "get_mf_holdings_for_stock",
                                                "get_db_price_summary", "get_fii_dii_summary"]),
-            ("src.tools.news_search",         ["get_stock_news", "search_financial_news"]),
+            ("src.tools.news_search",         ["get_stock_news", "search_financial_news", "get_db_news"]),
             ("src.tools.newsapi_search",      ["get_newsapi_stock_news"]),
-            ("src.tools.market.equity",       ["search_anomaly_events"]),
+            ("src.tools.market.equity",       ["search_anomaly_events", "find_similar_anomaly_events"]),
+            ("src.tools.market.correlation_tools", ["find_anomaly_correlations"]),
             ("src.tools.market.market_context_tools", ["search_historical_market_context"]),
             ("src.tools.chart_tools",         ["plot_price_chart", "plot_shareholding_bar",
-                                               "plot_macd_chart", "plot_signal_scores"]),
+                                               "plot_macd_chart", "plot_signal_scores",
+                                               "plot_signal_breakdown", "plot_weight_recommendations",
+                                               "plot_garch_volatility_chart", "plot_multi_price_chart",
+                                               "plot_fii_dii_chart", "plot_dxy_chart",
+                                               "plot_fund_holdings_chart",
+                                               "plot_intl_etf_performance", "plot_intl_etf_premium",
+                                               "plot_ou_premium_chart"]),
             ("src.tools.agent_tools",         ["check_and_refresh_symbol_data"]),
             ("src.tools.market.fused_search", ["fused_multi_signal_search"]),
         ]
-        for module_path, names in _equity_modules:
+
+        # ── signal / macro / mf pipeline tools ────────────────────────────
+        _pipeline_modules = [
+            ("src.tools.skills_tools",        ["run_daily_signal_composite", "run_goldbees_pipeline",
+                                               "run_etf_news_sentiment", "run_risk_governor_analysis",
+                                               "run_premium_alerts", "get_live_inav",
+                                               "explain_price_anomalies", "query_clickhouse_db",
+                                               "run_macro_scanner", "run_comex_analysis",
+                                               "run_whale_tracker", "run_market_indicators",
+                                               "run_multi_asset_holdings_mom_yoy",
+                                               "run_multi_asset_consensus",
+                                               "run_dsp_multi_asset_comparison",
+                                               "run_fund_mom_returns",
+                                               "run_dsp_multi_asset_importer",
+                                               "run_nippon_importer", "run_icici_importer",
+                                               "run_all_multi_asset_importers",
+                                               "run_mf_concentration_risk"]),
+            ("src.tools.market_context",      ["get_dxy_context"]),
+            ("src.tools.whale_tools",         ["scan_whale_accumulation", "get_whale_consensus"]),
+            ("src.tools.market.mf_tools",     ["find_funds_holding", "find_similar_funds",
+                                               "search_mf_exposure", "get_mf_holdings_by_cap_category"]),
+            ("src.tools.intl_etf_tools",      ["get_intl_etf_performance", "get_intl_etf_premium",
+                                               "get_intl_etf_regimes", "get_intl_etf_correlation",
+                                               "get_intl_etf_seasonality", "get_intl_etf_drawdowns",
+                                               "get_intl_etf_lgbm", "run_ou_regime_backtest"]),
+            ("src.tools.db_tools",            ["list_db_tables", "describe_db_table",
+                                               "sample_db_table", "search_db_metadata",
+                                               "execute_db_query", "get_db_watermarks"]),
+            ("src.tools.report_publisher",    ["publish_research_pdf", "publish_consolidated_pdf"]),
+        ]
+
+        for module_path, names in (_equity_modules + _pipeline_modules):
             try:
                 import importlib
                 mod = importlib.import_module(module_path)
@@ -133,6 +171,7 @@ class DeclarativeAgentRunner:
         # ── broker tools (optional — absent when Shoonya/NSE not configured) ─
         for tool_mod, tool_name in [
             ("src.tools.shoonya_tools",     "get_shoonya_quotes"),
+            ("src.tools.shoonya_tools",     "get_shoonya_live_tick"),
             ("src.tools.nse_announcements", "get_nse_announcements"),
         ]:
             try:

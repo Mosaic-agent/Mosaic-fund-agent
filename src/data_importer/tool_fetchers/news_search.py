@@ -142,62 +142,85 @@ def _infer_sentiment(text: str) -> Sentiment:
     return Sentiment.NEUTRAL
 
 
-def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str = "") -> list[NewsItem]:
-    """
-    Fetch news articles for a given NSE/BSE stock symbol via Google News, filtered by target date.
+def _load_cached_news(symbol: str, target_dt: date | None = None) -> list[NewsItem]:
+    """Check ClickHouse market_data.news_articles for cached news before hitting external search."""
+    try:
+        from src.db.pool import query_df
+        from datetime import datetime
+        import pandas as pd
 
-    Args:
-        symbol:       Zerodha trading symbol e.g. 'RELIANCE', 'TCS'
-        company_name: Optional full company name for better query results.
-        target_date:  Optional target date in YYYY-MM-DD format. 
-                      If omitted, returns the most recent articles over the lookback window.
-                      If provided, only articles published on this date are returned.
+        if target_dt:
+            date_clause = "AND toDate(published_at) = {t_dt:Date}"
+            params = {"sym": symbol.upper(), "t_dt": target_dt}
+        else:
+            date_clause = ""
+            params = {"sym": symbol.upper()}
 
-    Returns:
-        List of NewsItem models.
+        df = query_df(
+            f"""
+            SELECT title, source, published_at, url, sentiment, max(fetched_at) as last_fetched
+            FROM market_data.news_articles FINAL
+            WHERE etfs_impacted = {{sym:String}}
+              AND category != 'nse_announcements'
+              {date_clause}
+            GROUP BY title, source, published_at, url, sentiment
+            ORDER BY published_at DESC
+            LIMIT 15
+            """,
+            parameters=params,
+        )
+        if not df.empty and len(df) >= 3:
+            last_fetched = df["last_fetched"].max()
+            if last_fetched:
+                now_dt = datetime.now()
+                last_dt = pd.to_datetime(last_fetched).to_pydatetime()
+                # If fetched within last 12 hours, return cache
+                if (now_dt - last_dt).total_seconds() < 43200:
+                    logger.info(
+                        "News cache hit for %s (%d articles) — skipping live Google News fetch",
+                        symbol.upper(), len(df),
+                    )
+                    return [
+                        NewsItem(
+                            title=str(r["title"]),
+                            source=str(r["source"]),
+                            published_at=str(r["published_at"]),
+                            url=str(r["url"]),
+                            description="",
+                            sentiment=Sentiment(str(r["sentiment"]).upper() if str(r["sentiment"]).upper() in {"BULLISH", "BEARISH", "NEUTRAL"} else "NEUTRAL"),
+                        )
+                        for _, r in df.iterrows()
+                    ]
+    except Exception as exc:
+        logger.debug("ClickHouse news cache check skipped for %s: %s", symbol, exc)
+    return []
+
+
+def fetch_stock_news(
+    symbol: str,
+    company_name: str = "",
+    target_date: str = "",
+) -> list[NewsItem]:
     """
-    import math
+    Fetch news articles for an Indian stock symbol using Google News RSS.
+    Checks local ClickHouse/Qdrant cache first.
+    """
     import pytz
     from datetime import datetime, timedelta
     from dateutil import parser as date_parser
 
     # Resolve target_dt
-    if not target_date or target_date.lower() == "today" or target_date.lower() == "recent":
-        target_dt = None
-    else:
+    target_dt = None
+    if target_date and target_date.lower() not in ("today", "recent"):
         try:
             target_dt = date_parser.parse(target_date).date()
-        except Exception as exc:
-            logger.warning("Failed to parse target_date '%s': %s. Defaulting to recent.", target_date, exc)
+        except Exception:
             target_dt = None
 
-    # RAG-first: check the Qdrant cache before touching the network. A prior
-    # call (this run, an earlier run, or a different sub-agent) may have
-    # already fetched and embedded this symbol/date.
-    try:
-        from src.ml.correlation.news_rag import retrieve_cached_news_for_symbol
-        
-        # Only use exact-match cache if a specific date was requested
-        cached = []
-        if target_dt:
-            cached = retrieve_cached_news_for_symbol(symbol, target_dt.isoformat())
-    except Exception as exc:
-        logger.debug("News cache lookup skipped for %s: %s", symbol, exc)
-        cached = []
-
-    if cached:
-        logger.info("News cache hit for %s/%s: %d article(s) — skipping live fetch", symbol, target_dt, len(cached))
-        return [
-            NewsItem(
-                title=c.get("title", ""),
-                source=c.get("source", ""),
-                published_at=c.get("published_at", ""),
-                url=c.get("url", ""),
-                description="",
-                sentiment=Sentiment(c.get("sentiment", "NEUTRAL")),
-            )
-            for c in cached[: settings.news_articles_per_stock]
-        ]
+    # Local-first: check ClickHouse / Qdrant cache before touching the network
+    cached_items = _load_cached_news(symbol, target_dt)
+    if cached_items:
+        return cached_items[: settings.news_articles_per_stock]
 
     tz = pytz.timezone(settings.market_timezone or "Asia/Kolkata")
     today_dt = datetime.now(tz).date()
@@ -297,6 +320,10 @@ def fetch_news_for_symbol(symbol: str, company_name: str = "", target_date: str 
     return items
 
 
+# Alias for backward compatibility
+fetch_news_for_symbol = fetch_stock_news
+
+
 def _cache_articles_to_qdrant(symbol: str, items: list[NewsItem]) -> None:
     """Best-effort write-through: embed and upsert fetched articles (each under
     its own actual published date) so future RAG / correlation queries for
@@ -304,34 +331,126 @@ def _cache_articles_to_qdrant(symbol: str, items: list[NewsItem]) -> None:
     if not items:
         return
     try:
+        from datetime import datetime
         from dateutil import parser as date_parser
-
         from src.ml.correlation.news_rag import embed_batch, upsert_to_qdrant
+        from src.data_importer.clickhouse import ClickHouseImporter
+        from src.db.pool import get_pool, query_df
 
-        texts = [f"{item.title}. {item.description}" for item in items]
+        # Check existing articles in ClickHouse to avoid duplicate re-embedding
+        existing_urls: set[str] = set()
+        existing_titles: set[str] = set()
+        try:
+            df_existing = query_df(
+                "SELECT url, title FROM market_data.news_articles FINAL WHERE etfs_impacted = {sym:String}",
+                parameters={"sym": symbol.upper()},
+            )
+            if not df_existing.empty:
+                existing_urls = set(df_existing["url"].dropna())
+                existing_titles = set(df_existing["title"].dropna())
+        except Exception:
+            pass
+
+        new_items = [i for i in items if i.url not in existing_urls and i.title not in existing_titles]
+        if not new_items:
+            logger.info("All %d news articles for %s already exist in RAG — skipping re-embedding", len(items), symbol.upper())
+            return
+
+        # 1. ClickHouse write-through
+        try:
+            pool = get_pool()
+            importer = ClickHouseImporter(client=pool.get_client())
+            records = []
+            for item in new_items:
+                try:
+                    pub_dt = date_parser.parse(item.published_at) if item.published_at else datetime.now()
+                except Exception:
+                    pub_dt = datetime.now()
+                records.append({
+                    "symbol": symbol.upper(),
+                    "fetched_at": datetime.now(),
+                    "published_at": str(item.published_at),
+                    "source_type": "NEWS",
+                    "fetch_source": "GNews",
+                    "category": "stock_news",
+                    "etfs_impacted": symbol.upper(),
+                    "sentiment": item.sentiment.value.upper(),
+                    "impact_tier": "2",
+                    "title": item.title,
+                    "source": item.source,
+                    "url": item.url,
+                    "summary": item.description[:500],
+                    "trade_date": pub_dt.date().isoformat() if hasattr(pub_dt, "date") else date.today().isoformat(),
+                })
+            if records:
+                importer.insert_news_articles(records)
+        except Exception as exc:
+            logger.debug("News ClickHouse write skipped for %s: %s", symbol, exc)
+
+        # 2. Qdrant RAG embedding & upsert
+        texts = [f"{item.title}. {item.description}" for item in new_items]
         vectors = embed_batch(texts)
-        if not vectors or all(v == 0.0 for v in vectors[0]):
-            return  # embeddings unavailable (e.g. Ollama down) — skip caching silently
-
-        articles = []
-        for item, vector in zip(items, vectors):
-            try:
-                published_date = date_parser.parse(item.published_at).date().isoformat()
-            except Exception:
-                published_date = ""
-            articles.append({
-                "title": item.title,
-                "source": item.source,
-                "url": item.url,
-                "published_at": item.published_at,
-                "published_date": published_date,
-                "category": "stock_news",
-                "sentiment": item.sentiment.value,
-                "symbol": symbol,
-            })
-        upsert_to_qdrant(articles, vectors)
+        if vectors and not all(v == 0.0 for v in vectors[0]):
+            articles = []
+            for item, vector in zip(new_items, vectors):
+                try:
+                    published_date = date_parser.parse(item.published_at).date().isoformat()
+                except Exception:
+                    published_date = ""
+                articles.append({
+                    "title": item.title,
+                    "source": item.source,
+                    "url": item.url,
+                    "published_at": item.published_at,
+                    "published_date": published_date,
+                    "category": "stock_news",
+                    "sentiment": item.sentiment.value,
+                    "symbol": symbol,
+                })
+            upsert_to_qdrant(articles, vectors)
+            logger.info("Indexed %d NEW news articles for %s to Qdrant RAG", len(new_items), symbol.upper())
     except Exception as exc:
         logger.debug("News cache write skipped for %s: %s", symbol, exc)
+
+
+class FormattedNewsResult(dict):
+    """Dict subclass that renders as a clean Markdown table with short dates and links when stringified."""
+
+    def __str__(self) -> str:
+        articles = self.get("articles") or []
+        if not articles:
+            return "No recent news articles found."
+
+        overall = self.get("overall_sentiment", "NEUTRAL")
+        pos = self.get("positive_count", 0)
+        neg = self.get("negative_count", 0)
+        neu = self.get("neutral_count", 0)
+
+        lines = [
+            f"**Overall Sentiment:** `{overall}` (🟢 Positive: {pos} | 🔴 Negative: {neg} | ⚪ Neutral: {neu})\n",
+            "| Date | Headline | Source | Sentiment | Link |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        from dateutil import parser as _dp
+        for a in articles[:10]:
+            title = str(a.get("title") or "").replace("|", "-").strip()
+            src = str(a.get("source") or "—").strip()
+            raw_dt = str(a.get("published_at") or "")
+            dt_str = raw_dt
+            try:
+                if raw_dt:
+                    dt_str = _dp.parse(raw_dt).strftime("%Y-%m-%d")
+            except Exception:
+                dt_str = raw_dt[:10]
+
+            sent = str(a.get("sentiment") or "NEUTRAL").upper()
+            sent_badge = f"🟢 {sent}" if "POS" in sent else f"🔴 {sent}" if "NEG" in sent else f"⚪ {sent}"
+            url = str(a.get("url") or "")
+            link_str = f"[Read]({url})" if url and url.startswith("http") else "—"
+
+            lines.append(f"| {dt_str} | {title} | {src} | {sent_badge} | {link_str} |")
+
+        return "\n".join(lines)
 
 
 # ── LangChain Tool ────────────────────────────────────────────────────────────
@@ -364,12 +483,12 @@ def get_stock_news(input_str: str, target_date: str = "") -> dict[str, Any]:
     news_items = fetch_news_for_symbol(symbol, company_name, target_date)
 
     if not news_items:
-        return {
+        return FormattedNewsResult({
             "symbol": symbol,
             "articles": [],
             "overall_sentiment": "NEUTRAL",
             "note": "No articles found.",
-        }
+        })
 
     # Aggregate sentiment
     sentiments = [item.sentiment for item in news_items]
@@ -383,7 +502,7 @@ def get_stock_news(input_str: str, target_date: str = "") -> dict[str, Any]:
     else:
         overall = "NEUTRAL"
 
-    return {
+    return FormattedNewsResult({
         "symbol": symbol,
         "articles": [
             {
@@ -399,7 +518,7 @@ def get_stock_news(input_str: str, target_date: str = "") -> dict[str, Any]:
         "positive_count": pos_count,
         "negative_count": neg_count,
         "neutral_count": sentiments.count(Sentiment.NEUTRAL),
-    }
+    })
 
 
 @tool

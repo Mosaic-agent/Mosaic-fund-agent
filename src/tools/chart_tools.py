@@ -65,12 +65,30 @@ def clear_active_charts() -> None:
     get_active_charts().clear()
 
 
+def _extract_symbol_for_chart(text: str) -> str | None:
+    """Extract stock or ETF symbol from markdown headings/context."""
+    import re
+    # Match "# SYMBOL —", "# SYMBOL (NSE)", "**SYMBOL (EXCHANGE)**"
+    m = re.search(r"^[#\s]*([A-Z0-9_\-\.]{2,15})\s+[—–\-\(]", text, re.MULTILINE)
+    if m:
+        return m.group(1).strip().upper()
+    m = re.search(r"\b([A-Z0-9_\-\.]{2,15})\s+—\s+Equity Research", text)
+    if m:
+        return m.group(1).strip().upper()
+    m = re.search(r"\b([A-Z0-9_\-\.]{2,15})\s+VISTAS", text, re.IGNORECASE)
+    if m:
+        return m.group(1).strip().upper()
+    m = re.search(r"\b(NUVOCO|RELIANCE|TCS|INFY|HDFCBANK|TATAMOTORS|ITC|SBIN|BAJFINANCE|GOLDBEES|NIFTYBEES|SILVERBEES)\b", text)
+    if m:
+        return m.group(1).strip().upper()
+    return None
+
+
 def inject_chart_placeholders(text: str) -> str:
     """Replace [CHART:xxx] tokens in text with the real chart strings a plot_*
-    tool call saved this run (via save_active_chart). Shared by every agent path
-    that lets an LLM/template write [CHART:xxx] placeholders instead of
-    reproducing chart glyphs itself — declarative playbooks (declarative_runner.py)
-    and the main tool-calling agent (mosaic_fund_agent.py) both call this."""
+    tool call saved this run (via save_active_chart). If a placeholder remains
+    and wasn't rendered yet, automatically extracts the symbol from text and
+    generates the chart on demand."""
     try:
         chart_by_type = get_active_charts().copy()
         for tname, chart_str in chart_by_type.items():
@@ -83,6 +101,44 @@ def inject_chart_placeholders(text: str) -> str:
                 if ph in text:
                     text = text.replace(ph, chart_str)
                     break
+
+        # Fallback on-demand generation if placeholders are still present in text
+        if "[CHART:price]" in text or "[CHART:plot_price_chart]" in text:
+            sym = _extract_symbol_for_chart(text)
+            if sym:
+                try:
+                    plot_price_chart.invoke({"symbol": sym, "days": 365})
+                    latest_charts = get_active_charts()
+                    if "price" in latest_charts:
+                        text = text.replace("[CHART:price]", latest_charts["price"])
+                        text = text.replace("[CHART:plot_price_chart]", latest_charts["price"])
+                except Exception as exc:
+                    logger.debug("On-demand plot_price_chart failed for %s: %s", sym, exc)
+
+        if "[CHART:shareholding]" in text or "[CHART:plot_shareholding_bar]" in text:
+            sym = _extract_symbol_for_chart(text)
+            if sym:
+                try:
+                    plot_shareholding_bar.invoke({"symbol": sym})
+                    latest_charts = get_active_charts()
+                    if "shareholding" in latest_charts:
+                        text = text.replace("[CHART:shareholding]", latest_charts["shareholding"])
+                        text = text.replace("[CHART:plot_shareholding_bar]", latest_charts["shareholding"])
+                except Exception as exc:
+                    logger.debug("On-demand plot_shareholding_bar failed for %s: %s", sym, exc)
+
+        if "[CHART:macd]" in text or "[CHART:plot_macd_chart]" in text or "[CHART:mcad]" in text:
+            sym = _extract_symbol_for_chart(text)
+            if sym:
+                try:
+                    plot_macd_chart.invoke({"symbol": sym})
+                    latest_charts = get_active_charts()
+                    if "macd" in latest_charts:
+                        for ph in ["[CHART:macd]", "[CHART:mcad]", "[CHART:plot_macd_chart]"]:
+                            text = text.replace(ph, latest_charts["macd"])
+                except Exception as exc:
+                    logger.debug("On-demand plot_macd_chart failed for %s: %s", sym, exc)
+
     except Exception:
         logger.warning("Chart placeholder substitution failed", exc_info=True)
     return text
@@ -270,7 +326,7 @@ def _build(plt: Any) -> str:
         del frame
         
     save_active_chart(key, out)
-    return f"[CHART:{key}]"
+    return out
 
 
 def _build_raw(plt: Any) -> str:
@@ -484,7 +540,6 @@ def plot_price_chart(
 
         chart_text = price_panel + "\n" + vol_panel + "\n" + volume_panel
         save_active_chart("price", chart_text)
-        chart = "[CHART:price]"
         table = _data_table(
             ["Date", "Open", "High", "Low", "Close", "Volume"],
             [
@@ -496,7 +551,7 @@ def plot_price_chart(
             ],
             title=f"{symbol} — Price Data",
         )
-        return chart + table
+        return chart_text + "\n" + table
     except ImportError as exc:
         return str(exc)
     except Exception as exc:
@@ -1458,7 +1513,7 @@ def plot_shareholding_bar(symbol: str) -> str:
 
         res = "\n".join(lines)
         save_active_chart("shareholding", res)
-        return "[CHART:shareholding]"
+        return res
     except Exception as exc:
         return f"Error plotting shareholding for {symbol}: {exc}"
 
@@ -1675,7 +1730,7 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
 
         analysis_lines.append("════════════════════════════════════════════════════════════════════════════════")
 
-        return "[CHART:macd]\n" + "\n".join(analysis_lines)
+        return chart_str + "\n" + "\n".join(analysis_lines)
     except ImportError as exc:
         return str(exc)
     except Exception as exc:

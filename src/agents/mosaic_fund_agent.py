@@ -39,6 +39,7 @@ from src.tools.skills_tools import (
     query_clickhouse_db,
     get_live_inav,
     import_symbol_data,
+    import_symbol_announcements,
     run_data_engineering_importer,
     run_autonomous_research,
     run_india_equity_research_workflow,
@@ -95,7 +96,7 @@ ALL_TOOLS = ZERODHA_TOOLS + SUMMARIZATION_TOOLS + [resolve_company] + YAHOO_TOOL
     run_mf_concentration_risk,
     query_clickhouse_db, get_live_inav, analyze_mf_sectors, detect_amc_sector_rotation, explain_rotation_thesis, audit_exhaustive_stock_shifts, display_master_amc_dashboard, analyze_smallcap_patterns, analyze_midcap_patterns, analyze_largecap_patterns,
     get_mf_holdings_by_cap_category,
-    import_symbol_data, run_data_engineering_importer,
+    import_symbol_data, import_symbol_announcements, run_data_engineering_importer,
     plot_price_chart, plot_multi_price_chart, plot_macd_chart, plot_fii_dii_chart,
     publish_consolidated_pdf,
     check_and_refresh_symbol_data,
@@ -337,9 +338,9 @@ AGENT_SYSTEM_PROMPT = (
     "  • Importing Stocks/ETFs: The import tools reuse the user's saved data source for 24 hours. If a tool returns `DATA_SOURCE_REQUIRED`, ask the user which source to use: 1. Shoonya, 2. NSE, or 3. yfinance, then retry with `data_source`. Never choose a source on the user's behalf. If the user names a SPECIFIC symbol (e.g. 'import ADVENZYMES', 'refresh GOLDBEES'), call `import_symbol_data(symbol, data_source=...)` — never `run_data_engineering_importer` for a single symbol. Only use `run_data_engineering_importer(category='stocks', data_source=...)` when the user asks to import ALL stocks generically without naming one. When the user specifies a particular year (e.g. '2019'), date, or month range, parse the dates and pass them as `start_date` (format YYYY-MM-DD) and `end_date` (format YYYY-MM-DD) parameters to `import_symbol_data` and `plot_price_chart` (e.g. for year 2019, `start_date='2019-01-01'` and `end_date='2019-12-31'`).\n"
     "  • Charts & Visualizations: Use `plot_price_chart`, `plot_candlestick_chart`, `plot_multi_price_chart`, `plot_fii_dii_chart`, or `plot_macd_chart` whenever asked for price trends, technical charts, or visual analysis. These tools return a `[CHART:xxx]` placeholder token (e.g. `[CHART:price]`) plus a data table — write that exact token verbatim on its own line in your final answer where the chart should appear; it gets replaced with the real high-density ASCII chart. Never invent, retype, or paraphrase chart content yourself.\n"
     "  • News sweeps / sentiment: call `delegate_to_news_agent`.\n"
-    "  • Macro / COMEX / FII-DII flows: call `delegate_to_macro_agent`.\n"
     "  • International ETFs (MAFANG, HNGSNGBEES, MON100, etc.): call `delegate_to_intl_etf_agent`.\n"
-    "  • ETF signals, GOLDBEES ML pipeline, GARCH/Kelly sizing, price-anomaly explanations: call `delegate_to_signal_agent`.\n"
+    "  • ETF signals, GOLDBEES ML pipeline, GARCH/Kelly sizing, and ETF-level price anomalies: call `delegate_to_signal_agent`.\n"
+    "  • Single-stock price anomalies, spikes, red dots, or shocks: call `run_india_equity_research_workflow`.\n"
     "  • Autonomous multi-domain research on a broad topic: call `run_autonomous_research`.\n"
     "  • Visualisation / Charts: `plot_price_chart` and `plot_multi_price_chart` are available directly for portfolio-level price charts. Specialised charts (signal breakdown, FII/DII, NAV, intl ETF premium, etc.) come back as part of the relevant `delegate_to_*_agent` response — don't try to call those plot tools yourself.\n"
     "Your goal is to provide comprehensive, accurate investment insights on the user's Zerodha portfolio. "

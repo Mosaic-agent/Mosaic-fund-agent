@@ -1452,6 +1452,13 @@ def _print_answer(console: "Console", answer: Any) -> None:
     elif not isinstance(answer, str):
         answer = str(answer) if answer is not None else ""
 
+    # Ensure any residual [CHART:xxx] placeholder tokens are rendered into ASCII charts
+    try:
+        from src.tools.chart_tools import inject_chart_placeholders
+        answer = inject_chart_placeholders(answer)
+    except Exception:
+        pass
+
     # Convert LaTeX math notation the LLM sometimes emits into Unicode equivalents
     # so they render correctly in the terminal instead of showing raw LaTeX.
     _LATEX_MAP = [

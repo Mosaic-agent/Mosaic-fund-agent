@@ -1,0 +1,127 @@
+agent_name: "ETF Signal & Quantitative Pipeline"
+agent_type: "signal"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative signal pipeline for Indian ETF markets.
+  Runs composite signal aggregation (macro/news/NAV/FII-DII/ML pillars),
+  GOLDBEES ML prediction (LightGBM prob_up + Kelly + Risk Governor),
+  GARCH volatility-targeted position sizing, anomaly detection, and
+  inline ASCII chart generation.
+  </task_context>
+
+  <evaluation_rules>
+  - The recommended GOLDBEES position weight is ALWAYS weights.blended_50.
+  - Never invent composite scores or labels (ACCUMULATE / STRONG BUY).
+  - Use regime_signal as-is from pipeline output.
+  </evaluation_rules>
+
+steps:
+  - id: batch_signal_fetch
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: run_daily_signal_composite
+        params:
+          save: false
+        timeout: 120
+        fail_on_error: false
+      - tool_name: run_goldbees_pipeline
+        params: {}
+        timeout: 90
+        fail_on_error: false
+      - tool_name: run_risk_governor_analysis
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: run_etf_news_sentiment
+        params: {}
+        timeout: 60
+        fail_on_error: false
+      - tool_name: plot_signal_scores
+        params: {}
+        timeout: 30
+        fail_on_error: false
+      - tool_name: search_anomaly_events
+        params:
+          symbol: "{{ symbol | default('GOLDBEES') }}"
+          days: 120
+        timeout: 90
+        fail_on_error: false
+      - tool_name: plot_price_chart
+        params:
+          symbol: "{{ symbol | default('GOLDBEES') }}"
+          days: 365
+        fail_on_error: false
+
+  - id: signal_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are a quantitative signal analyst for Indian ETF markets. Synthesise the signal outputs.
+      </role_context>
+
+      <signal_data>
+      <composite_scores>
+      {{ batch_signal_fetch.run_daily_signal_composite }}
+      </composite_scores>
+
+      <goldbees_pipeline>
+      {{ batch_signal_fetch.run_goldbees_pipeline }}
+      </goldbees_pipeline>
+
+      <risk_governor>
+      {{ batch_signal_fetch.run_risk_governor_analysis }}
+      </risk_governor>
+
+      <etf_news_sentiment>
+      {{ batch_signal_fetch.run_etf_news_sentiment }}
+      </etf_news_sentiment>
+
+      <anomaly_events>
+      {{ batch_signal_fetch.search_anomaly_events }}
+      </anomaly_events>
+      </signal_data>
+
+      <instructions>
+      1. Report the top 5 ETFs by composite score with their action labels.
+      2. State GOLDBEES prob_up, expected_return_pct, regime_signal, and weights.blended_50 verbatim.
+      3. Summarise risk governor position sizing output.
+      4. Highlight any anomaly events detected.
+      5. Write a 2-sentence actionable summary.
+      </instructions>
+
+  - id: format_signal_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # ETF Signal Dashboard — Quantitative Report
+
+      ## Executive Summary
+      {{ signal_synthesis.output }}
+
+      ## 1. Composite Signal Scores (All ETFs)
+      {{ batch_signal_fetch.run_daily_signal_composite }}
+
+      ### Signal Score Chart
+      {{ batch_signal_fetch.plot_signal_scores }}
+
+      ## 2. GOLDBEES ML Pipeline
+      {{ batch_signal_fetch.run_goldbees_pipeline }}
+
+      ### Price Chart
+      {{ batch_signal_fetch.plot_price_chart }}
+
+      ## 3. Risk Governor — GARCH Position Sizing
+      {{ batch_signal_fetch.run_risk_governor_analysis }}
+
+      ## 4. ETF News Sentiment
+      {{ batch_signal_fetch.run_etf_news_sentiment }}
+
+      ## 5. Anomaly Detection
+      {{ batch_signal_fetch.search_anomaly_events }}
+
+sample_input:
+  symbol: "GOLDBEES"

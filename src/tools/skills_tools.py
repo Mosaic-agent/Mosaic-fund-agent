@@ -270,6 +270,42 @@ def import_symbol_data(
     return import_symbol_data_impl(symbol, days, start_date, end_date, data_source)
 
 
+@tool
+def import_symbol_announcements(
+    symbol: str,
+    days: int = 365,
+) -> str:
+    """
+    Import official NSE corporate announcements and regulatory disclosures for a SPECIFIC
+    Indian stock (e.g. "NUVOCO", "ITC", "ADANIENT").
+    Fetches announcements from NSE, writes them to ClickHouse (market_data.news_articles),
+    and embeds them into Qdrant RAG.
+
+    Args:
+        symbol: NSE stock symbol (e.g. "NUVOCO", "RELIANCE")
+        days: Lookback window in calendar days (default 365)
+    """
+    from src.data_importer.fetchers.adapters import NseAnnouncementsFetcher
+    from datetime import date, timedelta
+    from src.db.pool import get_pool
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "").split(":")[0].strip()
+    to_dt = date.today()
+    from_dt = to_dt - timedelta(days=days)
+
+    fetcher = NseAnnouncementsFetcher([clean_sym])
+    rows = fetcher.fetch(from_dt, to_dt)
+    if not rows:
+        return f"No material announcements found for {clean_sym} in the last {days} days."
+
+    pool = get_pool()
+    n_inserted = fetcher.insert(rows, pool)
+    return (
+        f"Successfully fetched and indexed {len(rows)} official NSE corporate announcements "
+        f"for {clean_sym} into ClickHouse and Qdrant RAG ({n_inserted} rows written)."
+    )
+
+
 # ── Gold/GARCH domain tools — defined in market/gold.py ──────────────────────
 from src.tools.market.gold import (  # noqa: E402
     run_risk_governor_analysis,
@@ -823,6 +859,7 @@ SKILLS_TOOLS = [
     get_dxy_context,
     # General-purpose tools defined in this file
     import_symbol_data,
+    import_symbol_announcements,
     get_live_inav,
     query_clickhouse_db,
     run_premium_alerts,

@@ -28,10 +28,14 @@ _registry: dict[str, _SubAgent] = {}
 def get_subagent(name: str) -> _SubAgent:
     """Return (lazily creating) a sub-agent by name."""
     if name not in _registry:
-        # Check if a declarative YAML playbook exists for this intent
+        # Only auto-discover YAML playbooks for purely declarative agents.
+        # Reactive agents (signal, news, macro, mf, database, intl_etf) have
+        # StateGraph workflows and keyword-based fallbacks that handle open-ended
+        # questions — their YAML playbooks exist for explicit invocation only.
+        _YAML_FIRST_AGENTS = {"india_equity", "goldbees_pipeline"}
         from pathlib import Path
         yaml_path = Path(f"config/agents/{name}.yaml")
-        if yaml_path.is_file():
+        if name in _YAML_FIRST_AGENTS and yaml_path.is_file():
             try:
                 from src.agents.declarative.declarative_runner import DeclarativeAgentRunner
 

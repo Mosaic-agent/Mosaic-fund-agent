@@ -1,0 +1,114 @@
+agent_name: "Mutual Fund Institutional Analyst"
+agent_type: "mf"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative mutual fund analysis pipeline for Indian fund markets.
+  Runs multi-asset cross-fund consensus, whale accumulation scanning,
+  MoM/YoY position changes, concentration risk, DSP active-fund cross-ownership
+  conviction analysis, and MF holdings by market cap category.
+  </task_context>
+
+  <evaluation_rules>
+  - Cross-fund overlap (same security held by 2+ active funds for 24+ months) is the strongest conviction marker.
+  - DSP active funds carry meaningful manager-discretion signal. Passive funds are index-trackers.
+  - Never compute returns or weighted averages — all numeric work must come from tool output.
+  - Before declaring 'promoter sell-down', verify absolute share count didn't expand from QIP/allotment.
+  </evaluation_rules>
+
+steps:
+  - id: batch_mf_fetch
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: run_multi_asset_consensus
+        params: {}
+        timeout: 120
+        fail_on_error: false
+      - tool_name: run_whale_tracker
+        params: {}
+        timeout: 90
+        fail_on_error: false
+      - tool_name: scan_whale_accumulation
+        params:
+          with_technicals: false
+        timeout: 120
+        fail_on_error: false
+      - tool_name: run_mf_concentration_risk
+        params:
+          all_funds: true
+        timeout: 60
+        fail_on_error: false
+      - tool_name: get_mf_holdings_by_cap_category
+        params:
+          cap_category: "Small Cap"
+          fund_filter: "multi_asset"
+        timeout: 60
+        fail_on_error: false
+
+  - id: mf_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are an Indian mutual-fund analyst covering active equity, multi-asset,
+      and hybrid schemes. Synthesise the institutional positioning signals.
+      </role_context>
+
+      <mf_data>
+      <consensus>
+      {{ batch_mf_fetch.run_multi_asset_consensus }}
+      </consensus>
+
+      <whale_tracker>
+      {{ batch_mf_fetch.run_whale_tracker }}
+      </whale_tracker>
+
+      <accumulation_scan>
+      {{ batch_mf_fetch.scan_whale_accumulation }}
+      </accumulation_scan>
+
+      <concentration_risk>
+      {{ batch_mf_fetch.run_mf_concentration_risk }}
+      </concentration_risk>
+
+      <small_cap_holdings>
+      {{ batch_mf_fetch.get_mf_holdings_by_cap_category }}
+      </small_cap_holdings>
+      </mf_data>
+
+      <instructions>
+      1. Identify the cross-fund consensus theme (risk-on/off, gold rotation, equity accumulation).
+      2. Highlight top 5 cross-AMC consensus buys from whale accumulation scan.
+      3. Flag any concentration risk outliers (HHI > 800).
+      4. Report notable small-cap holdings across multi-asset funds.
+      5. Write a 3-sentence 'What This Signals' paragraph connecting position deltas to a directional view.
+      </instructions>
+
+  - id: format_mf_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # Mutual Fund Institutional Analysis Report
+
+      ## What This Signals
+      {{ mf_synthesis.output }}
+
+      ## 1. Multi-Asset Cross-Fund Consensus (Smart Money Overlap)
+      {{ batch_mf_fetch.run_multi_asset_consensus }}
+
+      ## 2. Multi-Asset Whale Tracker — Theme Tracking
+      {{ batch_mf_fetch.run_whale_tracker }}
+
+      ## 3. Cross-AMC Whale Accumulation Scan
+      {{ batch_mf_fetch.scan_whale_accumulation }}
+
+      ## 4. Concentration Risk — All Multi-Asset Funds
+      {{ batch_mf_fetch.run_mf_concentration_risk }}
+
+      ## 5. Small Cap Holdings in Multi-Asset Funds
+      {{ batch_mf_fetch.get_mf_holdings_by_cap_category }}
+
+sample_input:
+  symbol: "DSP_MULTI_ASSET"

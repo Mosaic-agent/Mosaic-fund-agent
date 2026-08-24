@@ -145,7 +145,15 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
     for ann in nse_announcements:
         pub_date = ann.get("published_at", "")[:10]
         if pub_date not in ann_map:
-            ann_map[pub_date] = f"{ann.get('category')}: {ann.get('title')}"
+            cat = str(ann.get("category") or "").strip()
+            title = str(ann.get("title") or "").strip()
+            if ":" in title:
+                specific = title.split(":", 1)[1].strip()
+            else:
+                specific = title or cat
+            if not specific or specific.lower() in ("nse_announcements", "general updates", "updates"):
+                specific = cat if cat.lower() not in ("nse_announcements", "general updates", "updates") else "Official NSE Disclosure"
+            ann_map[pub_date] = specific
 
     # 5. Institutional Mutual Fund Cross-Ownership Query
     mf_df = pool.query_df(f"""
@@ -172,13 +180,13 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
     # 6. Anomaly & Bulk/Block Deal Classification Table
     anom_df = reg_df[reg_df["is_anomaly"]].copy()
     anom_lines = []
-    anom_lines.append(f"{'Date':<12} | {'Close (₹)':<10} | {'Daily Ret':<10} | {'Volume (M)':<10} | {'Vol Z':<7} | {'Regime Classification':<36} | {'NSE Regulatory Trigger':<40}")
+    anom_lines.append(f"{'Date':<12} | {'Close (₹)':<10} | {'Daily Ret':<10} | {'Volume (M)':<10} | {'Vol Z':<7} | {'Regime Classification':<36} | {'NSE Regulatory Trigger'}")
     anom_lines.append("-" * 140)
     for _, r in anom_df.iterrows():
         d_str = r["trade_date"].strftime("%Y-%m-%d")
         reg_label = str(r["regime"])
         trigger_str = ann_map.get(d_str, "Market Volume / Liquidity Movement")
-        anom_lines.append(f"{d_str:<12} | ₹{r['close']:<9.2f} | {r['ret']:<+9.2f}% | {r['volume']/1e6:<9.2f}M | {r['z_volume']:<+6.2f} | {reg_label:<36} | {trigger_str[:40]}")
+        anom_lines.append(f"{d_str:<12} | ₹{r['close']:<9.2f} | {r['ret']:<+9.2f}% | {r['volume']/1e6:<9.2f}M | {r['z_volume']:<+6.2f} | {reg_label:<36} | {trigger_str}")
 
     anom_table_str = "\n".join(anom_lines)
     print("\n=== 🚨 DETECTED ANOMALIES & BULK/BLOCK DEAL CLASSIFICATION ===")

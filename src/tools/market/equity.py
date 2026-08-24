@@ -138,22 +138,31 @@ def _search_one_date(
             f"rather than a market-driven move. Verify via NSE corporate actions page."
         )
 
-    # ── 0. Local ClickHouse news check (< 3ms) ───────────────────────────────
+    # ── 0. Local ClickHouse announcements & news check (< 3ms) ────────────────
     try:
         from src.db.pool import query_df as _qdf
         news_df = _qdf(
             f"""
-            SELECT title, sentiment, impact_tier, url
+            SELECT title, category, sentiment, impact_tier, url, source, published_at
             FROM market_data.news_articles FINAL
-            WHERE (symbols LIKE '%{symbol}%' OR title ILIKE '%{symbol}%' OR title ILIKE '%{company_name}%')
-              AND toDate(fetched_at) BETWEEN toDate('{target_dt}') - 1 AND toDate('{target_dt}') + 1
-            ORDER BY impact_tier ASC, fetched_at DESC LIMIT {max_results}
+            WHERE (etfs_impacted = '{symbol}' OR title ILIKE '%{symbol}%' OR title ILIKE '%{company_name}%')
+              AND (
+                (published_at != '' AND substring(published_at, 1, 10) BETWEEN toString(toDate('{target_dt}') - 2) AND toString(toDate('{target_dt}') + 2))
+                OR toDate(fetched_at) BETWEEN toDate('{target_dt}') - 2 AND toDate('{target_dt}') + 2
+              )
+            ORDER BY published_at DESC, fetched_at DESC LIMIT {max_results}
             """
         )
         if not news_df.empty:
             rows = []
             for _, nr in news_df.iterrows():
-                rows.append(f"- **{nr['title']}** (Sentiment: `{nr['sentiment']}` | Tier: `{nr['impact_tier']}`)")
+                t = str(nr["title"])
+                cat = str(nr.get("category", ""))
+                if cat == "nse_announcements" or "NSE" in str(nr.get("source", "")):
+                    clean_t = t.split(":", 1)[1].strip() if ":" in t else t
+                    rows.append(f"- 📢 **Official NSE Disclosure:** {clean_t}")
+                else:
+                    rows.append(f"- 📰 **{t}** (Sentiment: `{nr['sentiment']}` | Tier: `{nr['impact_tier']}`)")
             return _store_and_return("\n".join(rows))
     except Exception:
         pass
@@ -364,13 +373,23 @@ def search_anomaly_events(
     except Exception:
         pass
 
-    # ── 4. Build report header ────────────────────────────────────────────────
+    # ── 4. Build report header & inline ASCII chart ───────────────────────────
+    chart_ascii = ""
+    try:
+        from src.tools.chart_tools import plot_price_chart
+        chart_ascii = plot_price_chart.invoke({"symbol": symbol_upper, "days": days})
+    except Exception as exc:
+        log.debug("Could not generate inline ASCII price chart for %s: %s", symbol_upper, exc)
+
     lines: list[str] = []
     lines.append(f"## 🔍 Anomaly News Correlation: {symbol_upper}")
     if company_name:
         lines.append(f"**{company_name}** | last {days} days | {len(recent)} anomaly date(s) detected\n")
     else:
         lines.append(f"last {days} days | {len(recent)} anomaly date(s) detected\n")
+
+    if chart_ascii and "No price data found" not in chart_ascii and "Error" not in chart_ascii:
+        lines.append(f"```text\n{chart_ascii}\n```\n")
 
     lines.append(
         "| Date | Close (₹) | Return | Regime | Final Z |"

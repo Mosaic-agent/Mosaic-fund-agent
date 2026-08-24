@@ -227,7 +227,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
         from src.tools.news_search import get_stock_news
         from src.tools.newsapi_search import get_newsapi_stock_news
         from src.tools.nse_announcements import get_nse_announcements
-        from src.tools.skills_tools import query_clickhouse_db, import_symbol_data
+        from src.tools.skills_tools import query_clickhouse_db, import_symbol_data, import_symbol_announcements
         from src.tools.indian_equity_tools import get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary
         from src.tools.chart_tools import plot_price_chart, plot_shareholding_bar, plot_macd_chart
         from src.tools.market.equity import search_anomaly_events
@@ -240,7 +240,7 @@ class IndianEquityResearchSubAgent(_SubAgent):
             + YAHOO_NEWS_TOOLS
             + [get_quarterly_results]
             + [get_stock_news, get_newsapi_stock_news, get_nse_announcements, query_clickhouse_db,
-               import_symbol_data, check_and_refresh_symbol_data,
+               import_symbol_data, import_symbol_announcements, check_and_refresh_symbol_data,
                plot_price_chart, plot_shareholding_bar, plot_macd_chart,
                get_mf_holdings_for_stock, get_stock_cashflow, get_db_price_summary,
                search_anomaly_events, find_anomaly_correlations,
