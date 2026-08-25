@@ -1291,6 +1291,13 @@ def test_category_normalization():
 
 
 if __name__ == "__main__":
+    # Watchdog: if any single test blocks on an external call for >60s with no
+    # explicit timeout (the exact CI failure mode this guards), dump every
+    # thread's stack to stderr every 60s so the hang location is visible in
+    # CI logs instead of a silent timeout-and-cancel with zero diagnostics.
+    import faulthandler
+    faulthandler.dump_traceback_later(60, repeat=True, exit=False)
+
     tests = [
         test_symbol_mapper,
         test_portfolio_models,
