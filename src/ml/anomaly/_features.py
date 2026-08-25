@@ -8,6 +8,20 @@ import pandas as pd
 
 log = logging.getLogger(__name__)
 
+# fit_volume_regime() below is invoked concurrently from multiple worker
+# threads (report_publisher.py renders several charts in parallel, each
+# potentially running composite anomaly detection). scikit-learn's first-ever
+# GaussianMixture/KMeans .fit() call triggers threadpoolctl's native-library
+# scan (dl_iterate_phdr), which is not safe to run concurrently for its very
+# first invocation and can hang indefinitely in some CI/container
+# environments. Warm it up once here, serially, at module-import time (import
+# is globally lock-serialized) instead of lazily on first real call.
+try:
+    from sklearn.mixture import GaussianMixture as _GMM_Warmup
+    _GMM_Warmup(n_components=1, n_init=1).fit([[0.0], [1.0]])
+except Exception:
+    pass  # sklearn unavailable — fit_volume_regime already handles this gracefully
+
 
 def robust_zscore(s: pd.Series, window: int = 30) -> pd.Series:
     """
