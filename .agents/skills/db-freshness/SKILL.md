@@ -47,13 +47,19 @@ Import daily cash market flows, daily derivatives (F&O) OI participant flows, an
 PYTHONPATH=. python src/main.py import --category fii_dii
 ```
 
-### 5. Run General / Full Delta Sync (All Categories)
-Delta-sync all registered categories (stocks, ETFs, mutual funds, FII/DII, COT, FX rates, etc.) to today:
+### 5. Import NSE Bulk & Block Deal Events
+Import recent large institutional transactions (bulk/block deals):
+```bash
+PYTHONPATH=. python src/main.py import --category bulk_deals
+```
+
+### 6. Run General / Full Delta Sync (All Categories)
+Delta-sync all registered categories (stocks, ETFs, mutual funds, FII/DII, COT, bulk deals, FX rates, etc.) to today:
 ```bash
 PYTHONPATH=. python src/main.py import
 ```
 
-### 6. Run Data Sanity Check
+### 7. Run Data Sanity Check
 Run the data sanity check suite to validate imported data for price anomalies or daily outliers:
 ```bash
 PYTHONPATH=. python src/scripts/db/run_data_sanity_check.py

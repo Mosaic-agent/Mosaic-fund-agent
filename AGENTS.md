@@ -87,11 +87,17 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 - NAV is fetched **live** from mfapi.in every run — no ClickHouse import exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist is imported into `market_data.mf_nav`).
 - **Expense ratio is not available anywhere** — mfapi.in's scheme metadata has no such field, and nothing in this codebase tracks TER. Do not substitute a number from training knowledge (see Rule 1) — state it's unavailable.
 
-### 9. Always Use Color in Console
-- ALWAYS use rich colors, ANSI escape sequences, or Rich library console styling in terminal outputs and scripts (e.g., green for gains/freshness, red for losses/anomalies, cyan/bold for headers, yellow for warnings). Ensure console reports are visually distinct and easy to read.
+### 9. Always Use Color in Console & Reports
+- ALWAYS use rich colors, ANSI escape sequences, or Rich library console styling in terminal outputs, scripts, and reports (e.g., green for gains/freshness, red for losses/anomalies, cyan/bold for headers, yellow for warnings, diff code blocks for heatmaps). Ensure console reports and markdown heatmaps are visually distinct and easy to read.
 
-### 10. Always Use Charts Where Possible
-- Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich) and Mermaid diagrams alongside data tables for maximum visual clarity.
+### 10. Always Render Graphs & Charts
+- Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, macro transmissions, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich), box-and-arrow transmission grids, and Mermaid diagrams alongside data tables for maximum visual clarity. Never omit the graph.
+
+### 11. Mandatory Data Provenance & Source Grounding
+- To guarantee data authenticity and ensure numbers are never made up or estimated, ALWAYS explicitly cite the exact data source, database table (e.g., `market_data.daily_prices FINAL`, `market_data.fii_dii_flows FINAL`, `market_data.mf_holdings FINAL`), filing/API origin, and watermark timestamp for all presented figures and tables. Include a dedicated Data Provenance Audit block where appropriate.
+
+### 12. Always Render Institutional Strategy Fitment Guide
+- Whenever comparing schemes, mutual funds, asset allocation strategies, AIF/SIFs, or portfolio approaches, ALWAYS include a dedicated "## 🗺️ 4. Institutional Strategy Fitment Guide" section with a visual Mermaid decision flowchart mapping investor objectives, risk appetite, time horizon, and market regime to the recommended fund/strategy.
 
 ---
 
