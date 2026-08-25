@@ -71,20 +71,26 @@ Add to `requirements.txt` when submitting a PR that introduces graph nodes.
 
 ```
 src/
-  agents/         Standalone agent scripts (portfolio, comex, news, signals)
+  agents/         LangChain/LangGraph orchestrators, sub-agents, intent router
   analyzers/      Asset and portfolio analyzers
   clients/        Zerodha Kite MCP client
-  importer/       ClickHouse ETL pipeline
-  ml/             LightGBM forecaster, GARCH anomaly detection
+  data_importer/  ClickHouse ETL pipeline (git submodule; canonical path)
+  importer/       Compat shim — re-exports src.data_importer, do not add new code here
+  db/             MarketDataRepository, connection pool, Qdrant vector writers
+  events/         EventBus, DataImportedEvent, post-import observers
+  ml/             LightGBM forecaster (trend_predictor), composite anomaly pipeline (anomaly/), OU estimator
+  models/         Pydantic domain models (Holding, Portfolio, Sentiment)
   tools/          Standalone tool functions (iNAV, COMEX, risk governor, etc.)
+  workflows/      LangGraph StateGraph pipelines (fixed-structure, low-LLM-call alternative to sub-agents)
+  scripts/        Domain-organised analysis/backfill scripts (market/, portfolio/, dsp/, fund_imports/, etf/, db/)
   ui/             Streamlit data hub
-scripts/          One-off analysis, backfill, and Zerodha account backup scripts
+scripts/          Top-level cron/shell wrappers only — the Python scripts themselves live under src/scripts/
 tests/            Unit and integration tests
 docs/             Architecture, schema, and configuration docs
 config/           Pydantic settings
 ```
 
-When adding a LangGraph graph, place it in `src/agents/` alongside the script it replaces or augments.
+When adding a LangGraph ReAct sub-agent, place it in `src/agents/sub_agents/`; for a fixed-structure pipeline that doesn't need the ReAct tool-call loop, prefer a `StateGraph` workflow in `src/workflows/` instead (see [docs/agent-architecture.md](docs/agent-architecture.md#workflows-srcworkflows)) — it's cheaper and every node is guaranteed to run.
 
 ---
 

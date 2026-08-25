@@ -1,6 +1,6 @@
 # ClickHouse DB Management
 
-> Database: `market_data` · Engine: ClickHouse 24 (Docker) · Tables: 15 × ReplacingMergeTree
+> Database: `market_data` · Engine: ClickHouse 24 (Docker) · Tables: 37 × ReplacingMergeTree — full list in [import-schema.md](import-schema.md#clickhouse-schema)
 
 ---
 
@@ -10,8 +10,8 @@ Three tiers — run manually or via your preferred scheduler.
 
 | Tier | Command | Where stored | When to use |
 |---|---|---|---|
-| **1 — Native** | `python scripts/db_backup.py --mode native` | `clickhouse-backups` Docker volume | Regular snapshots; full restore from single file |
-| **2 — Parquet** | `python scripts/db_backup.py --mode parquet` | `output/db-backups/parquet/YYYYMMDD/` | Insurance for irreplaceable tables; portable |
+| **1 — Native** | `python src/scripts/db/db_backup.py --mode native` | `clickhouse-backups` Docker volume | Regular snapshots; full restore from single file |
+| **2 — Parquet** | `python src/scripts/db/db_backup.py --mode parquet` | `output/db-backups/parquet/YYYYMMDD/` | Insurance for irreplaceable tables; portable |
 | **3 — Volume tar** | See below | Any path on host | Before `docker volume rm`, OS reinstalls, migrations |
 
 **Recommended cadence:**
@@ -44,6 +44,15 @@ Three tiers — run manually or via your preferred scheduler.
 | `etf_aum` | `import --category etf_aum --full` |
 | `fii_dii_flows` / `fii_dii_monthly` / `fii_dii_fno_daily` | `import --category fii_dii --full` |
 | `ml_predictions` | Re-run ML forecast script |
+| `bulk_block_deals` | `import --category bulk_deals --full` |
+| `nse_delivery` | `import --category nse_delivery --full` |
+| `amfi_category_flows` | `import --category amfi_flows --full` |
+| `macro_indicators` | `import --category world_bank,imf_weo --full` |
+| `indian_macro_indicators` | `import --category indian_macro --full` |
+| `stock_earnings` / `stock_insider_trades` / `stock_valuation` | `import --category earnings,insider,valuation --full` |
+| `corporate_actions` | NSE only serves recent history — not guaranteed to fully reconstruct; back up like an irreplaceable table if long history matters |
+| `signal_composite` | Recomputed by `python src/main.py signals --save` (lossy — only reflects current inputs, not the historical composite log) |
+| `mf_holding_summaries` | Auto-rebuilt from `mf_holdings` on next import |
 
 ---
 
@@ -51,22 +60,22 @@ Three tiers — run manually or via your preferred scheduler.
 
 ```bash
 # Full backup (native snapshot + parquet export of irreplaceable tables)
-python scripts/db_backup.py
+python src/scripts/db/db_backup.py
 
 # Native only
-python scripts/db_backup.py --mode native
+python src/scripts/db/db_backup.py --mode native
 
 # Parquet export only
-python scripts/db_backup.py --mode parquet
+python src/scripts/db/db_backup.py --mode parquet
 
 # List all backups
-python scripts/db_backup.py --list
+python src/scripts/db/db_backup.py --list
 
 # Keep only last 14 days of backups
-python scripts/db_backup.py --keep-days 14
+python src/scripts/db/db_backup.py --keep-days 14
 
 # Preview without writing
-python scripts/db_backup.py --dry-run
+python src/scripts/db/db_backup.py --dry-run
 ```
 
 ### Tier 3 — Cold Docker volume snapshot
@@ -102,19 +111,19 @@ docker compose start clickhouse
 
 ```bash
 # List available backups
-python scripts/db_restore.py --list
+python src/scripts/db/db_restore.py --list
 
 # Restore full DB from native backup
-python scripts/db_restore.py --from-native backup_20260412_220000
+python src/scripts/db/db_restore.py --from-native backup_20260412_220000
 
 # Restore from native backup (dry-run — shows SQL only)
-python scripts/db_restore.py --from-native backup_20260412_220000 --dry-run
+python src/scripts/db/db_restore.py --from-native backup_20260412_220000 --dry-run
 
 # Restore all precious tables from parquet export
-python scripts/db_restore.py --from-parquet 20260412
+python src/scripts/db/db_restore.py --from-parquet 20260412
 
 # Restore only mf_holdings from parquet export
-python scripts/db_restore.py --from-parquet 20260412 --table mf_holdings
+python src/scripts/db/db_restore.py --from-parquet 20260412 --table mf_holdings
 ```
 
 ### Restore Runbook

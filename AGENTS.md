@@ -2,6 +2,8 @@
 
 This file is read automatically by Codex when working in this project.
 
+> Kept content-identical to [GEMINI.md](GEMINI.md) (read by Gemini CLI) except for this header — if you edit one, mirror the change in the other.
+
 ## Project Overview
 
 Mosaic is an agentic quantitative research, asset-allocation, and risk-management platform for Indian and global ETF/equity markets. It integrates walk-forward machine learning predictions (LightGBM), dynamic volatility scaling (GARCH), multi-pillar signal aggregation, and institutional flow (whale) tracking.
@@ -96,7 +98,7 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ## ClickHouse Schema & Documentation References
 
 - **Database:** `market_data` (ReplacingMergeTree tables; always query with `FINAL`).
-- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `amfi_market_cap`.
+- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `bulk_block_deals` (37 tables total — full list in [docs/import-schema.md](docs/import-schema.md#clickhouse-schema)).
 - **Full Architecture & Details:**
   - System & Data Pipelines: [docs/architecture.md](docs/architecture.md)
   - Agent Orchestration & Playbooks: [docs/agent-architecture.md](docs/agent-architecture.md)

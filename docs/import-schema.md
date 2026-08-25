@@ -2,23 +2,62 @@
 
 ## Import Categories
 
-Run imports via CLI: `python src/main.py import --category <name>`
+Run imports via CLI: `python src/main.py import --category <name>` (comma-separated; omit `--category` or use `all` to run every registered category).
+
+```mermaid
+flowchart LR
+    CLI["import --category X"] --> Router{"How is X handled?"}
+    Router -->|"in FETCHER_REGISTRY\n(19 categories)"| Reg["MarketDataRepository.run_fetcher()\nwatermark → fetch → validate → insert → event"]
+    Router -->|"special-cased in cli.py\n(inav, mf_holdings, earnings,\ninsider, valuation)"| Special["Direct fetch + insert,\nbypasses the registry loop"]
+    Router -->|"AMC name\n(icici, dsp, nippon, … 14 total)"| AMC["fetch_amc_holdings()\nFactory pattern → mf_holdings"]
+    Reg --> DB[(ClickHouse)]
+    Special --> DB
+    AMC --> DB
+```
+
+### Registry-driven categories (`FETCHER_REGISTRY`, 19)
 
 | Category | Source | Symbols | ClickHouse Table |
 |---|---|---|---|
-| `stocks` | Yahoo Finance (`.NS`) | 50 NSE large/mid-caps | `daily_prices` |
-| `etfs` | Yahoo Finance (`.NS`) | 15 NSE ETFs | `daily_prices` |
+| `stocks` | Yahoo Finance (`.NS`) | 50 NSE large/mid-caps | `daily_prices`, `stock_earnings`, `stock_insider_trades`, `stock_valuation` |
+| `us_stocks` | Yahoo Finance | US-listed stocks | `daily_prices`, `stock_earnings`, `stock_insider_trades`, `stock_valuation` |
+| `etfs` | Shoonya → nselib → Yahoo Finance fallback chain | 30+ NSE ETFs | `daily_prices` |
 | `commodities` | Yahoo Finance (futures) | Gold, Silver, Copper, Crude Oil, etc. | `daily_prices` |
 | `indices` | Yahoo Finance | Nifty50, Sensex, S&P500, Nasdaq, etc. | `daily_prices` |
+| `nse_indices` | nselib (direct NSE) | Sectoral/factor indices not on Yahoo | `daily_prices` |
+| `nse_eod` | NSE official EOD bulk archive | ETFs + stocks | `daily_prices` |
+| `nse_delivery` | NSE official delivery archive | ETFs + stocks | `nse_delivery` |
+| `fx_rates` | Yahoo Finance (free) | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD | `fx_rates` |
 | `mf` | MFAPI.in (AMFI official) | NAV history for 13 ETF schemes | `mf_nav` |
-| `inav` | NSE API (live) | 15 ETFs — iNAV + market price + premium/discount | `inav_snapshots` |
+| `fii_dii` | Sensibull oxide API | Daily + monthly FII/DII institutional cash flows + F&O OI | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily` |
 | `cot` | CFTC Socrata API (free) | Weekly Gold COT — Managed Money + Commercials | `cot_gold` |
 | `cb_reserves` | IMF IFS REST API (free) | Monthly gold reserves for 9 central banks | `cb_gold_reserves` |
 | `etf_aum` | Yahoo Finance (free) | Daily AUM snapshot for GLD, IAU, SGOL, PHYS | `etf_aum` |
-| `fx_rates` | Yahoo Finance (free) | Daily OHLC for USDINR, USDCNY, USDAED, USDSAR, USDKWD | `fx_rates` |
+| `world_bank` | World Bank WDI API (free) | Annual macro indicators (GDP, CPI, etc.) | `macro_indicators` |
+| `imf_weo` | IMF WEO API (free) | Annual macro projections/forecasts | `macro_indicators` |
+| `indian_macro` | RBI / MOSPI public series | Indian macro indicators | `indian_macro_indicators` |
+| `amfi_flows` | AMFI portal | Category-wise monthly MF flows + AUM | `amfi_category_flows` |
+| `bulk_deals` / `events` | NSE bulk & block deals API (aliases — same fetcher) | Large institutional/promoter transactions | `bulk_block_deals` |
+
+### Special-cased categories (handled directly in `cli.py`, not via the registry)
+
+| Category | Source | Symbols | ClickHouse Table |
+|---|---|---|---|
+| `inav` | NSE API (live) | 15 ETFs — iNAV + market price + premium/discount | `inav_snapshots` |
 | `mf_holdings` | Morningstar via mstarpy | Current portfolio snapshot for DSP, Quant, ICICI multi-asset funds. Auto-vectorizes into Qdrant `mf_holdings` + `mf_fund_profiles` on each insert. | `mf_holdings` |
-| `fii_dii` | Sensibull oxide API | Daily + monthly FII/DII institutional cash flows + F&O OI | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily` |
-| `user_data` | Zerodha Kite MCP | Personal portfolio, margins, profile, positions, and orders | `user_*` tables |
+| `earnings` | Yahoo Finance | US_STOCKS watchlist quarterly earnings | `stock_earnings` |
+| `insider` | Yahoo Finance | US_STOCKS watchlist insider transactions | `stock_insider_trades` |
+| `valuation` | Yahoo Finance | US_STOCKS watchlist valuation snapshot | `stock_valuation` |
+
+### AMC fund-holdings importers (factory pattern, 14 AMCs)
+
+`icici`, `nippon`, `icici-index`, `dsp`, `bajaj`, `quant`, `hdfc`, `kotak`, `abakkus`, `abacus`, `helios`, `invesco`, `canara`, `mirae` — each dispatches through `fetch_amc_holdings()` (`src/data_importer/fetchers/amc_holdings_fetcher.py`) into `mf_holdings`.
+
+### Personal data
+
+| Category | Source | Symbols | ClickHouse Table |
+|---|---|---|---|
+| `user_data` | Zerodha Kite MCP | Personal portfolio, margins, profile, positions, and orders | `user_holdings`, `user_profile`, `user_margins`, `user_positions`, `user_orders` |
 
 ### Delta-sync
 
@@ -66,6 +105,9 @@ All general data categories have typed **Fetcher adapters** (`src/data_importer/
 | `WorldBankMacroFetcher` | world_bank | 365 days | World Bank WDI annual macro indicators |
 | `IMFWEOFetcher` | imf_weo | 180 days | IMF WEO projections & forecasts |
 | `AmfiCategoryFlowsFetcher` | amfi_flows | 0 days | AMFI category-wise monthly flows + AUM |
+| `NseDeliveryFetcher` | nse_delivery | 3 days | NSE daily delivery %/volume (bhavcopy, whole-market) |
+| `BulkBlockDealsFetcher` | bulk_deals, events | 3 days | NSE Bulk & Block Deals (large institutional/promoter transactions) |
+| `MfHoldingsFetcher` | mf_holdings | — (month-presence check, not watermark) | Monthly MF portfolio holdings (constructed per-call in `cli.py`, not registry-cached) |
 
 Use `MarketDataRepository.run_fetcher(fetcher)` to execute the full watermark → fetch → validate → insert → event cycle programmatically:
 
@@ -139,29 +181,89 @@ Once registered:
 
 ## ClickHouse Schema
 
-Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-imports.
+Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent re-imports. This is the single source of truth for the full schema — [architecture.md](architecture.md#clickhouse-tables) links back here rather than duplicating it.
 
-| Table | Engine | Partition | Order Key | Purpose |
-|---|---|---|---|---|
-| `daily_prices` | ReplacingMergeTree(imported_at) | toYYYYMM(trade_date) | (symbol, trade_date) | OHLCV for stocks, ETFs, commodities, indices |
-| `mf_nav` | ReplacingMergeTree(imported_at) | toYYYYMM(nav_date) | (symbol, nav_date) | Daily MF/ETF NAV from AMFI via MFAPI.in |
-| `inav_snapshots` | ReplacingMergeTree(snapshot_at) | toYYYYMM(snapshot_at) | (symbol, snapshot_at) | Live iNAV + premium/discount snapshots |
-| `import_watermarks` | ReplacingMergeTree(updated_at) | — | (source, symbol) | Delta-sync watermarks |
-| `cot_gold` | ReplacingMergeTree | — | (report_date) | Weekly CFTC COT — mm_net, comm_net, open_interest |
-| `cb_gold_reserves` | ReplacingMergeTree | toYYYYMM(ref_period) | (ref_period, country_code) | Monthly central bank gold reserves (metric tonnes) |
-| `etf_aum` | ReplacingMergeTree | toYYYYMM(trade_date) | (trade_date, symbol) | Daily ETF AUM (USD) + implied gold tonnes |
-| `fx_rates` | ReplacingMergeTree(imported_at) | toYYYYMM(trade_date) | (symbol, trade_date) | Daily OHLC for 5 USD pairs |
-| `ml_predictions` | ReplacingMergeTree(created_at) | — | (as_of, horizon_days) | LightGBM forecast log |
-| `mf_holdings` | ReplacingMergeTree(imported_at) | toYYYYMM(as_of_month) | (scheme_code, as_of_month, isin) | Monthly MF portfolio holdings snapshot |
-| `fii_dii_flows` | ReplacingMergeTree(imported_at) | — | (trade_date) | Daily FII/DII cash-market net flows (₹ Crore) |
-| `fii_dii_monthly` | ReplacingMergeTree(imported_at) | — | (month_date) | Monthly FII/DII aggregate + Nifty (Sep 2018→present) |
-| `fii_dii_fno_daily` | ReplacingMergeTree(imported_at) | — | (trade_date) | Daily F&O participant OI (futures + options, 4 categories) |
-| `news_articles` | ReplacingMergeTree(imported_at) | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events (gnews + yfinance, no key) |
-| `user_holdings` | ReplacingMergeTree(imported_at) | — | (tradingsymbol, imported_at) | Personal CNC holdings snapshot |
-| `user_profile` | ReplacingMergeTree(imported_at) | — | (user_id, imported_at) | Kite account profile details |
-| `user_margins` | ReplacingMergeTree(imported_at) | — | (segment, imported_at) | Available cash & utilised margins |
-| `user_positions` | ReplacingMergeTree(imported_at) | — | (tradingsymbol, imported_at) | Intraday (MIS/NRML) open positions |
-| `user_orders` | ReplacingMergeTree(imported_at) | — | (order_id, imported_at) | Historical order book log |
+#### Prices & Live Market Data
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `daily_prices` | toYYYYMM(trade_date) | (symbol, trade_date) | OHLCV for stocks, ETFs, commodities, indices |
+| `nse_delivery` | toYYYYMM(trade_date) | (symbol, trade_date, series) | NSE daily delivery %/volume stats (bhavcopy) |
+| `inav_snapshots` | toYYYYMM(snapshot_at) | (symbol, snapshot_at) | Live ETF iNAV vs market price (intraday) |
+| `live_quotes` | toYYYYMM(last_trade_time) | (symbol, last_trade_time) | Real-time quote snapshots |
+| `live_alerts` | toYYYYMM(alert_timestamp) | (symbol, alert_timestamp) | Real-time z-score/volume anomaly alert log |
+
+#### Mutual Funds
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `mf_nav` | toYYYYMM(nav_date) | (symbol, nav_date) | Daily MF/ETF NAV from AMFI via MFAPI.in |
+| `mf_holdings` | toYYYYMM(as_of_month) | (scheme_code, as_of_month, isin) | Monthly MF portfolio holdings snapshot |
+| `mf_holding_summaries` | — | (isin, as_of_month) | Cross-fund security ownership rollup (active_funds_count, total value) |
+| `amfi_category_flows` | — | (report_month, category_name) | AMFI category-wise monthly flows + AUM |
+
+#### Institutional Flows & Corporate Actions
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `fii_dii_flows` | — | (trade_date) | Daily FII/DII cash-market net flows (₹ Crore) |
+| `fii_dii_monthly` | — | (month_date) | Monthly FII/DII aggregate + Nifty (Sep 2018→present) |
+| `fii_dii_fno_daily` | — | (trade_date) | Daily F&O participant OI (futures + options, 4 categories) |
+| `bulk_block_deals` | — | (deal_date, deal_type, symbol, client_name, buy_sell, quantity, trade_price) | NSE bulk & block deal transactions |
+| `corporate_actions` | — | (symbol, ex_date, action_type) | NSE split/bonus/demerger/rights/dividend history |
+
+#### Macro & Commodities
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `cot_gold` | — | (report_date) | Weekly CFTC COT — mm_net, comm_net, open_interest |
+| `cb_gold_reserves` | — | (ref_period, country_code) | Monthly central bank gold reserves (metric tonnes) |
+| `etf_aum` | toYYYYMM(trade_date) | (trade_date, symbol) | Daily ETF AUM (USD) + implied gold tonnes |
+| `fx_rates` | toYYYYMM(trade_date) | (symbol, trade_date) | Daily OHLC for 5 USD pairs |
+| `macro_indicators` | — | (ref_year, country_code, indicator_code, source) | World Bank / IMF WEO annual macro indicators |
+| `indian_macro_indicators` | — | (as_of_date, indicator_code) | RBI/MOSPI Indian macro series |
+
+#### ML, Signals & Risk
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `ml_predictions` | — | (as_of, horizon_days) | LightGBM 5-day forecast log |
+| `signal_composite` | — | (as_of, etf_symbol) | Multi-pillar ETF composite scores + BUY/HOLD/SELL |
+| `weight_checkpoints` | — | (as_of, symbol, method) | Kelly / Risk Governor position-sizing decisions |
+
+#### US Stock Fundamentals
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `stock_earnings` | — | (symbol, earnings_date) | US quarterly earnings + surprise % |
+| `stock_insider_trades` | — | (symbol, transaction_date, insider_name) | US insider buy/sell transactions |
+| `stock_valuation` | — | (symbol, snapshot_date) | US valuation/fundamentals snapshot |
+
+#### News
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `news_articles` | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events (gnews + yfinance, no key) |
+
+#### User (Zerodha Kite backups)
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `user_holdings` | — | (tradingsymbol, imported_at) | Personal CNC holdings snapshot |
+| `user_profile` | — | (user_id, imported_at) | Kite account profile details |
+| `user_margins` | — | (segment, imported_at) | Available cash & utilised margins |
+| `user_positions` | — | (tradingsymbol, imported_at) | Intraday (MIS/NRML) open positions |
+| `user_orders` | — | (order_id, imported_at) | Historical order book log |
+
+#### System / Ops
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `import_watermarks` | — | (source, symbol, dataset) | Delta-sync watermarks |
+| `import_failures` | — | (source, dataset, symbol, failed_at) | Failed fetch/insert attempts log |
+| `agent_traces` | toYYYYMM(created_at) | (agent, run_id, step_idx) | LLM agent tool-call execution traces (latency, tokens, errors) |
+| `agent_preferences` | — | (preference_key) | Key-value store for agent-learned preferences |
+| `pipeline_manifest` | — | (stage, symbol) | Per-stage pipeline run manifest (fingerprint/idempotency tracking) |
 
 ### Querying tips
 

@@ -31,6 +31,205 @@ See [§ Design Patterns](#design-patterns) at the end for the full reference (co
 
 ---
 
+## System at a Glance
+
+One diagram covering the whole system — CLI entry points, the multi-agent orchestrator, the import pipeline, and the ClickHouse/Qdrant/SQLite storage layer — color-coded by the design pattern each box implements (Repository, Adapter, Observer, Strategy, external source, memory hierarchy). Kept in sync with [architecture.mmd](architecture.mmd).
+
+```mermaid
+flowchart TD
+    User(["👤 User"])
+
+    %% ── CLI ────────────────────────────────────────────────────────────
+    subgraph CLI ["CLI — src/main.py (Typer — 30 commands)"]
+        CLIImport["import --category …"]
+        CLISignals["signals [--save]"]
+        CLIAnalyze["analyze / ask"]
+        CLIMacro["macro / comex / etf-news"]
+        CLIResearch["research / portfolio-wf"]
+        CLIUI["ui  →  localhost:8501"]
+    end
+
+    %% ── Routing & Multi-Agent Orchestrator ────────────────────────
+    subgraph Orchestrator ["Multi-Agent Orchestrator & Workflows"]
+        Router["Intent Router\nsrc/agents/intent_router.py\nLLM classifier + regex fallback"]
+
+        subgraph SubAgents ["LangGraph ReAct Sub-Agents\nsrc/agents/sub_agents/"]
+            SA1["DeepDive · IndianEquity · Signal"]
+            SA2["Macro · MF · News · Code · Database"]
+            SA3["IntlETF · AutonomousResearch"]
+        end
+
+        subgraph Workflows ["StateGraph Workflows (8)\nsrc/workflows/ — 55–81% token savings"]
+            WF1["Signal · Macro · News\nparallel fetch + approval"]
+            WF2["MF Planner\nPlan-Execute-Replan"]
+            WF3["Research · Equity · Consensus · Portfolio\nfixed-structure graphs"]
+        end
+
+        subgraph WorkflowInfra ["Workflow Infrastructure"]
+            CM["ContextManager\ncontext_manager.py — DatasetRef & truncation"]
+            PS["PlanStore\nplan_store.py — SQLite + Jaccard search"]
+            MS["MosaicState\nstate.py — shared TypedDict"]
+        end
+    end
+
+    %% ── Agentic Memory System ────────────────────────────────────────────
+    subgraph Memory ["Agentic Memory & Harness System"]
+        L1["Level 1: Global User Mandate\nNo LLM math · Zero-Trust · QIP check · DSP signal"]
+        L2["Level 2: Context Files\nAGENTS.md · GEMINI.md · docs/CLAUDE.md"]
+        L3["Level 3: Subagent Defs\n.agents/agents/ (21 defs)"]
+        L4["Level 4: Skills & Commands\n.agents/skills/ (21) · .claude/commands/ (5)"]
+        L5["Level 5: Caveman Compression\n.claude/skills/caveman* (60–70% token cut)"]
+        L1 --> L2 --> L3 --> L4 --> L5
+    end
+
+    %% ── Import pipeline (Adapter + Repository + Observer) ──────────────────────
+    subgraph ImportPipeline ["Import Pipeline — Adapter + Repository + Observer"]
+        subgraph Adapters ["Fetcher Adapters  src/data_importer/fetchers/"]
+            FA1["YFinanceFetcher\nstocks · etfs · commodities · indices"]
+            FA2["MFNavFetcher\nMFAPI.in NAV"]
+            FA3["FIIDIIFetcher\nSensibull cash + F&O + monthly"]
+            FA4["FXRatesFetcher\nUSDINR · USDCNY · USDAED …"]
+            FA5["COTGoldFetcher & AMC Importers\nCFTC COT · DSP · Nippon · ICICI"]
+        end
+
+        Repo["MarketDataRepository\nsrc/db/repository.py\nrun_fetcher() — watermark → fetch → insert → event"]
+
+        subgraph EventBus ["EventBus  src/events/bus.py"]
+            EV["DataImportedEvent\nsource · category · n_rows · to_date"]
+        end
+
+        subgraph Observers ["Post-Import Observers  src/events/observers.py"]
+            OBS1["ModelCacheInvalidator\n🔴 sync — deletes stale .joblib"]
+            OBS2["MLPredictionObserver\n🟡 async — re-runs LightGBM"]
+            OBS3["SignalAggregatorObserver\n🟡 async — refreshes composite scores"]
+            OBS4["SanityCheckObserver\n🟡 async — anomaly validation"]
+        end
+    end
+
+    %% ── ClickHouse & Qdrant Data Layer ────────────────────────────────────
+    subgraph DataLayer ["Storage Layer — ClickHouse + Qdrant + SQLite"]
+        subgraph CH ["ClickHouse — market_data (37 tables)"]
+            T1[("daily_prices · mf_nav\nfx_rates · etf_aum")]
+            T2[("fii_dii_flows · cot_gold\ncb_gold_reserves · amfi_category_flows")]
+            T3[("ml_predictions\nsignal_composite")]
+            T4[("inav_snapshots · news_articles\ncorporate_actions")]
+            T5[("import_watermarks · agent_traces")]
+        end
+
+        subgraph Qdrant ["Qdrant Vector DB (6 collections — 768d COSINE)"]
+            Q1[("news_articles\n(tenant: symbol[])")]
+            Q2[("market_anomalies\n(tenant: symbol)")]
+            Q3[("mf_holdings · mf_fund_profiles\n(tenant: isin / fund_name)")]
+            Q4[("clickhouse_metadata · market_data")]
+        end
+
+        subgraph SQLiteDB ["SQLite Stores"]
+            SQ1[("LLM Cache\nllm_cache.db — 24h TTL")]
+            SQ2[("Plan Store & Checkpoints\nplans/index.db · checkpoints.db")]
+        end
+    end
+
+    %% ── Signal pipeline (Repository + Strategy) ────────────────────────
+    subgraph SignalPipeline ["Signal Pipeline — Repository + Strategy"]
+        RepoRead["MarketDataRepository\ntyped reads: fii_dii_5d() · ohlcv()\nml_prediction_asof() · signal_composite_asof()"]
+
+        subgraph Sources ["SignalSource strategies  src/agents/signal_sources.py"]
+            direction LR
+            SS1["MacroSignalSource\n25% — GNews themes"]
+            SS2["SentimentSignalSource\n15% — news_articles"]
+            SS3["ValuationSignalSource\n15% — iNAV Z-score"]
+            SS4["FlowSignalSource\n25% — FII/DII 5D net"]
+            SS5["MLSignalSource\n15% — ml_predictions"]
+            SS6["GARCHAnomalySource\n5% — GARCH + IF"]
+        end
+
+        Aggregator["SignalAggregator\nsrc/agents/signal_aggregator.py\n6 sources × ThreadPoolExecutor\n→ composite 0–100 + BUY/HOLD/SELL\n79 s → 9 s after parallelisation"]
+    end
+
+    %% ── ML pipeline ──────────────────────────────────────────────────
+    subgraph MLPipeline ["ML Pipeline  src/ml/"]
+        TP["TrendPredictor\ntrend_predictor.py\nLightGBM walk-forward CV\nDXY + US10Y fetched in parallel"]
+        ModelCache[("Model cache\noutput/.cache/ml_models/\n*.joblib — auto-invalidated")]
+        AD["AnomalyDetector\nanomaly.py\n6-step: MAD-Z + GARCH(1,1) + IF\n+ PELT + CorpActions + Volume HMM"]
+    end
+
+    %% ── Streamlit UI ───────────────────────────────────────────────
+    UI["Streamlit UI\nsrc/ui/app.py\nExplorer · Anomaly · Signals\nHoldings · Kite · Deep Dive"]
+
+    %% ── External sources ───────────────────────────────────────────────
+    subgraph Ext ["External Data Sources"]
+        E1[("Yahoo Finance\n.NS / futures / DXY / ^TNX")]
+        E2[("NSE API + MFAPI.in\niNAV · NAV")]
+        E3[("Sensibull oxide API\nFII/DII cash + F&O")]
+        E4[("CFTC Socrata + ZIP\nCOT gold weekly")]
+        E5[("GNews RSS & NewsAPI\nmacro themes · news")]
+        E6[("Zerodha Kite MCP\nportfolio + orders")]
+        E7[("OpenAI / Anthropic / Local Ollama\nLLM scoring")]
+    end
+
+    %% ── Flows ──────────────────────────────────────────────────────
+    User --> CLI
+    CLIAnalyze & CLIResearch --> Router
+    Router --> SubAgents & Workflows
+    Workflows --> CM & PS & MS
+    SubAgents & Workflows --> RepoRead
+
+    CLIImport --> Adapters
+    FA1 & FA2 & FA3 & FA4 & FA5 --> Repo
+    Repo --> T5
+    Repo --> T1 & T2
+    Repo --> EV
+    EV -->|sync| OBS1
+    EV -->|async| OBS2 & OBS3 & OBS4
+
+    CLISignals --> RepoRead
+    RepoRead --> SS1 & SS2 & SS3 & SS4 & SS5 & SS6
+    SS1 & SS2 & SS3 & SS4 & SS5 & SS6 --> Aggregator
+    Aggregator --> T3
+
+    OBS2 --> TP
+    OBS3 --> Aggregator
+    TP <--> ModelCache
+    TP --> T3
+    AD --> T3 & Q2
+
+    CLIUI --> UI
+    UI --> T1 & T2 & T3 & T4 & Q1 & Q3
+
+    CLIMacro --> E5
+
+    FA1 -.-> E1
+    FA2 -.-> E2
+    FA3 -.-> E3
+    FA4 -.-> E1
+    FA5 -.-> E4
+    SubAgents -.-> E7
+    Workflows -.-> E7
+    SS1 -.-> E5
+    TP -.-> E1
+    PS --> SQ2
+    CM -.-> SQ1
+
+    %% ── Styles ───────────────────────────────────────────────────
+    classDef repo fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef adapter fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef observer fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef storage fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    classDef strategy fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+    classDef ext fill:#f1f5f9,stroke:#94a3b8,color:#334155
+    classDef memory fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+
+    class Repo,RepoRead repo
+    class FA1,FA2,FA3,FA4,FA5 adapter
+    class OBS1,OBS2,OBS3,OBS4 observer
+    class T1,T2,T3,T4,T5,ModelCache,Q1,Q2,Q3,Q4,SQ1,SQ2 storage
+    class SS1,SS2,SS3,SS4,SS5,SS6 strategy
+    class E1,E2,E3,E4,E5,E6,E7 ext
+    class L1,L2,L3,L4,L5 memory
+```
+
+---
+
 ## High-Level Data Flow
 
 ```
@@ -51,7 +250,7 @@ External Data Sources
         └──▶  SanityCheckObserver     (async) → anomaly validation
         │
         ▼
-  ClickHouse  (market_data database — 27 tables)
+  ClickHouse  (market_data database — 37 tables)
         │
         ├──▶  MarketDataRepository reads  ← typed queries, consistent FINAL
         ├──▶  Signal Sources  (src/agents/signal_sources.py)  ← Strategy pattern
@@ -213,47 +412,63 @@ For `stocks` and `us_stocks` categories, the import manager redirects standard s
 
 ## ClickHouse Tables
 
-Database: `market_data`. All tables use `ReplacingMergeTree` for idempotent re-imports.
+Database: `market_data`, 37 tables, all `ReplacingMergeTree` for idempotent re-imports. Grouped by domain:
 
-| Table | Key Columns | Purpose |
+```mermaid
+flowchart TB
+    Prices["📈 Prices & Live Data (5)\ndaily_prices · nse_delivery · inav_snapshots\nlive_quotes · live_alerts"]
+    MF["🏦 Mutual Funds (4)\nmf_nav · mf_holdings\nmf_holding_summaries · amfi_category_flows"]
+    Flows["💰 Institutional Flows & Corp Actions (5)\nfii_dii_flows · fii_dii_monthly · fii_dii_fno_daily\nbulk_block_deals · corporate_actions"]
+    Macro["🌍 Macro & Commodities (6)\ncot_gold · cb_gold_reserves · etf_aum · fx_rates\nmacro_indicators · indian_macro_indicators"]
+    MLRisk["🤖 ML, Signals & Risk (3)\nml_predictions · signal_composite · weight_checkpoints"]
+    USStocks["🇺🇸 US Stock Fundamentals (3)\nstock_earnings · stock_insider_trades · stock_valuation"]
+    News["📰 News (1)\nnews_articles"]
+    UserData["👤 User — Zerodha Kite backups (5)\nuser_holdings · user_profile · user_margins\nuser_positions · user_orders"]
+    Ops["⚙️ System / Ops (5)\nimport_watermarks · import_failures · agent_traces\nagent_preferences · pipeline_manifest"]
+
+    DB[("market_data\n37 tables")]
+    Prices --> DB
+    MF --> DB
+    Flows --> DB
+    Macro --> DB
+    MLRisk --> DB
+    USStocks --> DB
+    News --> DB
+    UserData --> DB
+    Ops --> DB
+
+    classDef domain fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    classDef db fill:#f3e8ff,stroke:#9333ea,color:#3b0764
+    class Prices,MF,Flows,Macro,MLRisk,USStocks,News,UserData,Ops domain
+    class DB db
+```
+
+Full reference (all 37, with `ORDER BY` key) lives in [import-schema.md](import-schema.md#clickhouse-schema) — kept there as the single source of truth so it doesn't drift out of sync in two places. Quick-reference by domain:
+
+| Domain | Tables | Purpose |
 |---|---|---|
-| `daily_prices` | symbol, category, trade_date, OHLCV, imported_at | OHLCV time series — stocks, ETFs, commodities, indices, FX |
-| `mf_nav` | symbol, scheme_code, nav_date, nav | MF / ETF daily NAV (AMFI via MFAPI.in) |
-| `inav_snapshots` | symbol, snapshot_at, inav, market_price, premium_discount_pct | ETF iNAV vs market price (intraday) |
-| `cot_gold` | report_date, mm_long, mm_short, mm_net, open_interest | CFTC COT Gold positioning (weekly) |
-| `cb_gold_reserves` | ref_period, country_code, reserves_tonnes | Central bank gold holdings (quarterly) |
-| `etf_aum` | trade_date, symbol, aum_usd, implied_tonnes | ETF assets under management (daily) |
-| `fx_rates` | symbol, trade_date, OHLC | Currency pair daily OHLC |
-| `ml_predictions` | as_of, horizon_days, expected_return_pct, confidence_low/high, regime_signal, cv_r2_mean | LightGBM 5-day return forecasts for GOLDBEES |
-| `mf_holdings` | scheme_code, as_of_month, isin, security_name, market_value_cr, pct_of_nav | Mutual fund portfolio compositions (monthly) |
-| `fii_dii_flows` | trade_date, fii_net_cr, dii_net_cr | Daily FII/DII cash-market net flows (₹ Crore) |
-| `fii_dii_monthly` | month_date, fii_net_cr, dii_net_cr, nifty_close | Monthly FII/DII aggregate + Nifty context |
-| `fii_dii_fno_daily` | trade_date, fii_fut_net_oi, fii_opt_overall_net_oi | Daily F&O participant OI (futures + options) |
-| `signal_composite` | as_of, etf_symbol, macro_score, sentiment_score, valuation_score, flow_score, ml_score, composite_score, action | Multi-pillar ETF scores 0–100 with BUY/HOLD/SELL action |
-| `news_articles` | fetched_at, title, source, sentiment, etfs_impacted, category, impact_tier | ETF-tagged news + macro events |
-| `import_watermarks` | source, symbol, last_date | Delta-sync state tracking |
+| Prices & Live Data | `daily_prices`, `nse_delivery`, `inav_snapshots`, `live_quotes`, `live_alerts` | OHLCV, NSE delivery stats, live iNAV, real-time quotes/alerts |
+| Mutual Funds | `mf_nav`, `mf_holdings`, `mf_holding_summaries`, `amfi_category_flows` | NAV history, monthly portfolio holdings, cross-fund ownership rollups, AMFI category flows |
+| Institutional Flows & Corp Actions | `fii_dii_flows`, `fii_dii_monthly`, `fii_dii_fno_daily`, `bulk_block_deals`, `corporate_actions` | FII/DII cash + F&O flows, NSE bulk/block deals, split/bonus/dividend history |
+| Macro & Commodities | `cot_gold`, `cb_gold_reserves`, `etf_aum`, `fx_rates`, `macro_indicators`, `indian_macro_indicators` | COT positioning, central bank reserves, ETF AUM, FX, World Bank/IMF + RBI/MOSPI macro series |
+| ML, Signals & Risk | `ml_predictions`, `signal_composite`, `weight_checkpoints` | LightGBM forecasts, composite ETF scores, Kelly/Risk-Governor sizing decisions |
+| US Stock Fundamentals | `stock_earnings`, `stock_insider_trades`, `stock_valuation` | Quarterly earnings, insider transactions, valuation snapshots |
+| News | `news_articles` | ETF-tagged news + sentiment |
+| User (Zerodha Kite) | `user_holdings`, `user_profile`, `user_margins`, `user_positions`, `user_orders` | Personal portfolio backup tables |
+| System / Ops | `import_watermarks`, `import_failures`, `agent_traces`, `agent_preferences`, `pipeline_manifest` | Delta-sync state, failure log, LLM agent traces, preferences, pipeline run manifest |
 
 ## Qdrant Collections
 
-Five vector collections (all 768-dim, nomic-embed-text, COSINE, hosted at `localhost:6333`). All use `is_tenant=True` on the primary filter field per the Qdrant tenant-scaling skill.
+Six vector collections (all 768-dim, nomic-embed-text, COSINE, hosted at `localhost:6333`). Tenant-indexed collections use `is_tenant=True` on the primary filter field per the Qdrant tenant-scaling skill.
 
 | Collection | Dim | Tenant index | Points | Populated by | Queried by |
 |---|---|---|---|---|---|
-| `news_articles` | 768 | — | ~10k+ | `news_rag_backfill.py`, news importers | `retrieve_articles()`, Correlation Engine |
-| `clickhouse_metadata` | 768 | — | ~50 | `db_metadata_init.py` | `db_metadata_rag.py` (schema RAG) |
+| `news_articles` | 768 | — (list field) | ~10k+ | `news_rag_backfill.py`, news importers | `retrieve_articles()`, Correlation Engine |
+| `clickhouse_metadata` | 768 | — | ~50 | `db_metadata_init.py` | `search_db_metadata` (schema RAG) |
 | `market_anomalies` | 768 | `symbol` | grows with use | `run_composite_anomaly(symbol=...)` auto-stores flagged dates | `find_similar_anomaly_events` |
 | `mf_holdings` | 768 | `isin` | 22k+ (809 funds) | `insert_mf_holdings()` + `BaseFundImporter.run()` hooks + `backfill_mf_qdrant.py` | `find_funds_holding` |
 | `mf_fund_profiles` | 768 | `fund_name` | 809+ | same as above | `find_similar_funds`, `search_mf_exposure` |
-| `weight_checkpoints` | as_of, symbol, method, recommended_weight, regime | Position-sizing decisions (Kelly / Risk Governor) |
-| `stock_earnings` | symbol, earnings_date, eps_actual, surprise_pct | US stock quarterly earnings |
-| `stock_insider_trades` | symbol, insider_name, transaction_date, shares | US stock insider buying/selling |
-| `stock_valuation` | symbol, snapshot_date, trailing_pe, forward_pe, roe | US stock valuation & fundamentals snapshot |
-| `user_holdings` | tradingsymbol, isin, quantity, average_price, pnl | Zerodha Kite CNC holdings backup |
-| `user_profile` | user_id, user_name, broker | Zerodha Kite user profile backup |
-| `user_margins` | segment, cash, available_balance | Zerodha Kite account margins backup |
-| `user_positions` | tradingsymbol, product, quantity, average_price | Zerodha Kite live positions backup |
-| `user_orders` | order_id, status, tradingsymbol, quantity | Zerodha Kite order history backup |
-| `macro_indicators` | ref_year, country_code, indicator_code, value, source | World Bank/IMF macro indicators (GDP, CPI, etc.) |
+| `market_data` | 768 | `symbol` | grows with each import | `market_vector.py` (fire-and-forget on import) | **Write-only — no read path wired yet** |
 
 ---
 
@@ -456,21 +671,67 @@ Standalone scripts that run analyses against the live database and print Rich co
 
 ## CLI Commands (`src/main.py`)
 
+`src/main.py` defines **30** Typer commands (not the 13 previously listed here — `who-is-selling` in particular no longer exists in the code). Grouped by category:
+
+**Portfolio & Research**
+
 | Command | Purpose | Writes To |
 |---|---|---|
 | `analyze` | Full portfolio analysis (Zerodha → enrich → score → report) | JSON |
-| `import` | Sync market data to ClickHouse (delta or full) | ClickHouse |
-| `signals` | Run SignalAggregator for 18 ETFs | Console (+ DB with `--save`) |
-| `macro` | Run macro event scanner (8 themes) | Console (+ DB with `--save`) |
-| `etf-news` | ETF-specific news scanner | Console (+ DB with `--save`) |
-| `comex` | Pre-market commodity signals | Console |
-| `who-is-selling` | FII/DII/Retail flow analysis | Console |
-| `premium-alerts` | iNAV premium/discount threshold alerts | Console |
-| `news SYMBOL` | Multi-source sentiment for a symbol | Console |
 | `ask "question"` | Free-form ReAct agent with tool access | Console |
-| `config` | Show current settings (API keys masked) | Console |
-| `research "question"` | Deep equity research via StateGraph workflow (80% fewer tokens than agent) | Console |
+| `chat` | Interactive multi-turn chat session | Console |
+| `mf "question"` | Ask the Mutual Fund sub-agent directly (holdings, NAV, consensus) | Console |
+| `report` | Consolidated Multi-Asset allocation report with Qdrant RAG news context | JSON/PDF |
+| `research "question"` | Deep equity research via StateGraph workflow (80% fewer tokens than the agent loop) | Console |
 | `portfolio-wf` | Portfolio analysis with adversarial verification from ClickHouse holdings | Console |
+| `deepdive SYMBOL` | Company deep-dive for a US-listed stock | Console |
+| `discover` | Live market-hour institutional discovery & breakout pipeline | Console |
+
+**Data Import**
+
+| Command | Purpose | Writes To |
+|---|---|---|
+| `import` | Sync market data to ClickHouse (delta or full, `--category`) | ClickHouse |
+
+**Signals, Macro & News**
+
+| Command | Purpose | Writes To |
+|---|---|---|
+| `signals` | Run SignalAggregator for 18 ETFs | Console (+ DB with `--save`) |
+| `macro` | Macro & geopolitical event scanner mapped to ETF impact (8 themes) | Console (+ DB with `--save`) |
+| `macro-themes` | Long/short macro theme agent (news + quant overlay) | Console |
+| `etf-news` | ETF-specific news sentiment scanner | Console (+ DB with `--save`) |
+| `news SYMBOL` | Multi-source sentiment analysis for a symbol | Console |
+| `comex` | COMEX commodity pre-market signal analysis | Console |
+| `correlate` | Map stock anomalies to company filings & global macro trigger events | Console |
+
+**ML & Risk**
+
+| Command | Purpose | Writes To |
+|---|---|---|
+| `risk` | GARCH-based position sizing / Risk Governor (GOLDBEES) | Console |
+| `drift-monitor` | Monitor GOLDBEES ML prediction model drift | Console |
+| `premium-alerts` | iNAV premium/discount threshold alerts | Console |
+| `crossover` | Moving Average Crossover backtest for a stock/ETF | Console |
+
+**Scanners (18-ETF / cross-AMC)**
+
+| Command | Purpose | Writes To |
+|---|---|---|
+| `scan-setups` | Volume-volatility setup scanner across 18 ETFs | Console |
+| `scan-trends` | Short/medium/long-term trend scanner across 18 ETFs | Console |
+| `scan-whales` | Cross-AMC whale accumulation scanner | Console |
+| `smallcap` | Multi-AMC Small Cap pattern analyzer | Console |
+
+**Interfaces & Ops**
+
+| Command | Purpose | Writes To |
+|---|---|---|
+| `ui` | Launch the Streamlit Data Hub (`localhost:8501`) | — |
+| `studio` | Launch the Mosaic Studio Agent Workspace UI | — |
+| `config` | Show current settings (API keys masked) | Console |
+| `pipeline-status` | Freshness status of all pipeline stages | Console |
+| `telemetry` | Live system telemetry dashboard | Console |
 
 ---
 

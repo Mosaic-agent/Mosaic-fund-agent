@@ -2,7 +2,7 @@ flowchart TD
     User(["👤 User"])
 
     %% ── CLI ────────────────────────────────────────────────────────────────
-    subgraph CLI ["CLI — src/main.py (Typer — 13 commands)"]
+    subgraph CLI ["CLI — src/main.py (Typer — 30 commands)"]
         CLIImport["import --category …"]
         CLISignals["signals [--save]"]
         CLIAnalyze["analyze / ask"]
@@ -70,7 +70,7 @@ flowchart TD
 
     %% ── ClickHouse & Qdrant Data Layer ─────────────────────────────────────
     subgraph DataLayer ["Storage Layer — ClickHouse + Qdrant + SQLite"]
-        subgraph CH ["ClickHouse — market_data (27 tables)"]
+        subgraph CH ["ClickHouse — market_data (37 tables)"]
             T1[("daily_prices · mf_nav\nfx_rates · etf_aum")]
             T2[("fii_dii_flows · cot_gold\ncb_gold_reserves · amfi_category_flows")]
             T3[("ml_predictions\nsignal_composite")]

@@ -1,12 +1,12 @@
 # Anomaly Detection — How It Works
 
-The **🔬 Anomaly Detection** tab runs a five-step composite pipeline on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Company Event classification.
+The **🔬 Anomaly Detection** tab runs a six-strategy composite pipeline (`src/ml/anomaly/` — a package, not a single file) on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Volume GMM (institutional-block detection) → Company Event classification. Cross-asset features (COT gold positioning, USDINR) are injected before the strategies run when available.
 
 Detected anomalies are automatically written to **Qdrant** (`market_anomalies` collection) for semantic memory and historical precedent retrieval. A separate **Correlation Engine** attributes each flagged date to external causal events (macro shocks, FX moves, insider activity) using three pluggable strategies.
 
 ## Architectural Pipeline & Data Flow
 
-The following data flow diagram illustrates how raw market inputs flow through the 5-step anomaly detection pipeline, map to a volatility/trend regime, feed the Correlation Engine and Qdrant memory layer, integrate into the multi-pillar Signal Composite, and finally determine position sizing in the Risk Governor:
+The following data flow diagram illustrates how raw market inputs flow through the anomaly detection pipeline, map to a volatility/trend regime, feed the Correlation Engine and Qdrant memory layer, integrate into the multi-pillar Signal Composite, and finally determine position sizing in the Risk Governor:
 
 ```mermaid
 graph TD
@@ -191,13 +191,20 @@ $$Z_{final} \leftarrow Z_{final} \times \text{cp\_boost} \quad (\text{default } 
 
 and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z threshold still gates which dates are flagged; CPD only sharpens confidence and labelling.
 
-## Step 5 — Company Event Classification (mechanical shock identification)
+## Step 5 — Volume GMM (institutional block detection)
+
+A 2-component Gaussian Mixture Model is fit on `log(volume)` over the symbol's full history (no rolling window) to separate two latent trading regimes: normal retail/market-maker flow vs. institutional block-deal activity (crossed bulk/block deals, large MF portfolio additions, FII rebalancing). Despite the class name `VolumeHMMStrategy` (`src/ml/anomaly/_pipeline.py`), this is a GMM, not a true HMM — there is no temporal state-transition matrix, only a per-day posterior probability.
+
+- Output column: `p_institutional` (0–1). Values > 0.70 indicate volume more consistent with the institutional cluster than normal trading.
+- A day is flagged **📊 Volume Anomaly (Institutional Block)** when `p_institutional > 0.70` AND `|z_volume| > 5.0` AND the price move is *not* already flagged by the Final-Z gate — i.e. it catches silent block deals that move volume but not price, which the other five strategies (all price-based) cannot see.
+
+## Step 6 — Company Event Classification (mechanical shock identification)
 
 Price jumps on the ex-dates of stock splits, bonus issues, demergers, and rights issues are mechanical adjustments rather than informational market shocks. The suppression logic is **category-aware** — ETF corporate actions are admin events with no signal, while stock corporate actions are real analysable price events.
 
 1. The fetcher [nse_corporate_actions_fetcher.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/data_importer/fetchers/nse_corporate_actions_fetcher.py) scrapes corporate events from the NSE website.
 2. The ex-dates are matched against the price history.
-3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [anomaly.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py).
+3. Ex-dates matching price-impacting types (`split`, `bonus`, `demerger`, `rights`, `face_value_split`) are labelled `is_corporate_action=True` and `suppress_corp_action=True` in [`_pipeline.py`](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly/_pipeline.py) (`src/ml/anomaly/` is a package — not the single `anomaly.py` file this used to be).
 4. **ETFs only** (`category="etfs"`): suppressed rows are excluded from `df_flagged` — their regime is `🏢 Price Driven by Company Event` but they do not trigger anomaly alerts or Qdrant storage. ETF corporate actions (NAV resets, bonus units) carry no market-signal content.
 5. **Stocks, commodities, indices**: suppressed rows ARE included in `df_flagged` and stored in Qdrant — the corporate action is a real price event (merger, demerger, split) worth analysis. The regime label `🏢 Price Driven by Company Event` is still applied so callers can filter if needed.
 6. On the price chart, ex-dates are overlayed as gold `🏢` markers regardless of category.
@@ -489,7 +496,7 @@ _, df_flagged, _ = run_composite_anomaly(df, z_threshold=2.0,
 
 ## Anomaly Explanation Tool (`explain_price_anomalies`)
 
-The agent's anomaly explanation capability (implemented in [gold.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/market/gold.py) and re-exported via [skills_tools.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/skills_tools.py)) is built on top of [run_composite_anomaly](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly.py#L464). It bridges the ML detection layer with news/event correlation and forward model context.
+The agent's anomaly explanation capability (implemented in [gold.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/market/gold.py) and re-exported via [skills_tools.py](file:///Users/dhiraj.thakur/project/ofin-agent/src/tools/skills_tools.py)) is built on top of [run_composite_anomaly](file:///Users/dhiraj.thakur/project/ofin-agent/src/ml/anomaly/_pipeline.py) (re-exported from the `src.ml.anomaly` package `__init__.py` for backward compatibility — `from src.ml.anomaly import run_composite_anomaly` still works unchanged). It bridges the ML detection layer with news/event correlation and forward model context.
 
 ### Additional Anomaly & Corporate Action Tools
 
