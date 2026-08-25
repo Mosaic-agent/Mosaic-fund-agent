@@ -2,6 +2,8 @@
 
 This file is read automatically by Gemini CLI when working in this project.
 
+> Kept content-identical to [AGENTS.md](AGENTS.md) (read by Codex) except for this header — if you edit one, mirror the change in the other.
+
 ## Project Overview
 
 Mosaic is an agentic quantitative research, asset-allocation, and risk-management platform for Indian and global ETF/equity markets. It integrates walk-forward machine learning predictions (LightGBM), dynamic volatility scaling (GARCH), multi-pillar signal aggregation, and institutional flow (whale) tracking.
@@ -24,6 +26,7 @@ python src/scripts/goldbees_report.py                              # Pre-baked G
 python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc all  # Multi-AMC Small Cap accumulation & conviction analyzer
 python src/scripts/portfolio/run_stock_quant_workflow.py BAJFINANCE  # Stock ASCII chart, anomalies & MF holdings
 python src/scripts/portfolio/fund_mom_returns.py --scheme 152056   # MoM NAV returns
+python src/scripts/portfolio/fund_mom_returns.py --search "<name>"  # resolve scheme code by fund name (any AMC)
 
 python src/scripts/market/whale_tracker.py                         # All 7 multi-asset funds
 python src/scripts/dsp/import_all_dsp_equity.py                    # DSP holdings import
@@ -38,7 +41,7 @@ python src/scripts/db/fix_bad_data.py                              # Deduplicati
 | Declarative | `src/agents/declarative/` | Configuration-driven YAML playbooks (`config/agents/*.yaml`) & runner |
 | Analyzers | `src/analyzers/` | `asset_analyzer` (per-holding), `portfolio_analyzer` (aggregate) |
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame |
-| Importer | `src/importer/` | Delta-sync pipeline: fetchers → ClickHouse |
+| Importer | `src/data_importer/` | Delta-sync pipeline: fetchers → ClickHouse |
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`) |
 | ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly.py`) |
 | Repository | `src/db/repository.py` | `MarketDataRepository`: typed reads, watermarks |
@@ -79,10 +82,15 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ### 7. No Web Search Mandate
 - **NEVER use web search (`search_web` or web search tools)**. Rely strictly on local codebase, ClickHouse database, Python/SQL tools, and direct tool outputs.
 
-### 8. Always Use Color in Console
+### 8. Fund NAV Lookup & Expense Ratio
+- For "what's fund X's scheme code / NAV returns" questions, use `src/scripts/portfolio/fund_mom_returns.py` directly: `--search "<name>"` resolves the AMFI scheme code (any AMC, not just DSP), `--scheme <CODE> --months N` computes MoM returns.
+- NAV is fetched **live** from mfapi.in every run — no ClickHouse import exists or is needed for actively-managed AMC schemes (only a fixed ETF/index watchlist is imported into `market_data.mf_nav`).
+- **Expense ratio is not available anywhere** — mfapi.in's scheme metadata has no such field, and nothing in this codebase tracks TER. Do not substitute a number from training knowledge (see Rule 1) — state it's unavailable.
+
+### 9. Always Use Color in Console
 - ALWAYS use rich colors, ANSI escape sequences, or Rich library console styling in terminal outputs and scripts (e.g., green for gains/freshness, red for losses/anomalies, cyan/bold for headers, yellow for warnings). Ensure console reports are visually distinct and easy to read.
 
-### 9. Always Use Charts Where Possible
+### 10. Always Use Charts Where Possible
 - Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich) and Mermaid diagrams alongside data tables for maximum visual clarity.
 
 ---
@@ -90,7 +98,7 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ## ClickHouse Schema & Documentation References
 
 - **Database:** `market_data` (ReplacingMergeTree tables; always query with `FINAL`).
-- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `amfi_market_cap`.
+- **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `bulk_block_deals` (37 tables total — full list in [docs/import-schema.md](docs/import-schema.md#clickhouse-schema)).
 - **Full Architecture & Details:**
   - System & Data Pipelines: [docs/architecture.md](docs/architecture.md)
   - Agent Orchestration & Playbooks: [docs/agent-architecture.md](docs/agent-architecture.md)

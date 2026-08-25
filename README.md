@@ -64,6 +64,8 @@ Price: 56,595   Volume: 45,231 (baseline ~1,050)
 📰 Trump says US-Iran ceasefire is "over" after fresh strikes — Reuters
 ```
 
+> Every `mosaic ...` command shown in this README is shorthand for the real invocation — see **[Quick Start](#quick-start)** below. There's no globally-installed `mosaic` binary; run `python src/main.py <command>` (native) or `./mosaic.sh <command>` / `mosaic.bat <command>` (Docker) instead.
+
 ---
 
 ## Who is this for?
@@ -87,6 +89,8 @@ Price: 56,595   Volume: 45,231 (baseline ~1,050)
 ---
 
 ## Ask it anything
+
+> Substitute `python src/main.py` (native) or `./mosaic.sh` (Docker) for `mosaic` below.
 
 ```bash
 mosaic ask "Is this a good time to add to SILVERBEES?"
@@ -148,6 +152,8 @@ Use the zero-dependency Docker CLI wrapper:
 ./mosaic.sh signals --save                           # calculate today's ETF signals
 ./mosaic.sh ask "What is the macro picture for gold today?"
 ```
+
+> **Just want the UI + Data Hub running?** Run `./mosaic.sh` with **no arguments** — it builds/starts ClickHouse, Qdrant, the UI (Data Hub, `:8501`), and the Reports file server (`:8502`) in one shot, then drops you into an interactive chat REPL. This is equivalent to `./run.sh` / `run.bat` but also opens chat immediately.
 
 ---
 
@@ -227,6 +233,8 @@ All market data ingestion, ClickHouse storage, GARCH volatility scaling, LightGB
 ---
 
 ## Daily workflow
+
+> Commands below are the bare `python src/main.py` sub-command name (e.g. `signals` = `python src/main.py signals`, or `./mosaic.sh signals` in Docker).
 
 | What you want | Command |
 |---|---|

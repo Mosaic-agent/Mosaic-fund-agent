@@ -117,6 +117,15 @@ The router classifies free-form user questions into one of 10 intents, which map
 - LRU cache: 256 entries keyed by question hash — repeat questions are free
 - `clear_intent_cache()` provided for testing
 
+### RAG Router (semantic fallback, before regex)
+
+- **File:** `src/agents/intent_router.py` → `route_intent_rag()`, called from `_regex_fallback()` before it drops to legacy regex
+- Two-stage semantic match over `GOLDEN_PAIRS` (`src/agents/golden_pairs.py`, ~75 curated `(question, intent)` examples):
+  1. **Embedding similarity** — local Ollama embeddings; returns the matched intent if cosine score ≥ 0.82
+  2. **TF-IDF fallback** (`SimpleTFIDF`, pure Python, no Ollama dependency) — returns the matched intent if similarity ≥ 0.50
+  3. Returns `None` if neither threshold is met → falls through to the regex router
+- Purpose: catches phrasing the LLM router's cache missed and the regex router's fixed patterns don't cover, without spending an extra LLM call
+
 ### Regex Router (fallback)
 
 - **File:** `src/agents/sub_agents/routing.py` → `_regex_route_intent()` / `route_intent()`
@@ -238,7 +247,7 @@ class _SubAgent:
 ### AutonomousResearchAgent (`research`)
 
 - **Purpose:** Multi-domain, self-directed 10-layer research framework: entity resolution → price/momentum → fundamentals → institutional footprint → macro → news intelligence → volatility/signals → correlation/ML → visualisation → synthesis
-- **Tools (~30):** Union of Yahoo Finance, Indian equity, skills, macro, news, intl ETF, code execution, chart, and `AGENT_TOOLS` (delegation tools: `delegate_to_signal_agent`, `delegate_to_macro_agent`, `delegate_to_intl_etf_agent`, `delegate_to_news_agent`, `delegate_to_india_equity_agent`, `check_and_refresh_symbol_data`)
+- **Tools (~30):** Union of Yahoo Finance, Indian equity, skills, macro, news, intl ETF, code execution, chart, and `AGENT_TOOLS` (delegation tools: `delegate_to_signal_agent`, `delegate_to_macro_agent`, `delegate_to_intl_etf_agent`, `delegate_to_news_agent`, `delegate_to_india_equity_agent`, `delegate_to_mf_agent`, `check_and_refresh_symbol_data`)
 - **Recursion limit:** 50
 - **Delegation:** Can hand off to specialised sub-agents for GOLDBEES ML, COMEX commodities, intl ETF deep dives, multi-source news sweeps, or full equity research notes
 
@@ -273,6 +282,8 @@ only for synthesis and adversarial verification.
 | `run_macro(question)` | `macro.py` | build_plan → **[approval]** → fetch (all sources parallel) → synthesise | 1 | ~3,500 |
 | `run_news(question)` | `news.py` | resolve → build_plan → **[approval]** → fetch (3 parallel) → aggregate (+ optional synth) | 0–1 | ~1,500 |
 | `run_mf_planner(question)` | `mf_planner.py` | **plan** (LLM) → **[approval]** → executor ↺ replanner loop | 2–4 | ~6,000–12,000 |
+
+Also in `src/workflows/`: `consolidated_mf_report.py` (`build_consolidated_report()`) — a plain function-based PDF report builder (allocation matrix + shift charts + Qdrant news context for the DSP/Quant/ICICI/Bajaj multi-asset watchlist). It isn't a StateGraph pipeline, so it doesn't fit the node/LLM-call columns above — invoked directly by the `report` CLI command.
 
 ### Shared infrastructure (`base.py`)
 

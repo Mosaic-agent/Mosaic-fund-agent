@@ -2,6 +2,17 @@
 
 This guide walks you through setting up and running the Mosaic Fund Agent platform on **Windows**, **macOS**, and **Ubuntu (Linux)** using Docker. This method packages all python libraries and database dependencies automatically, so you do not need to install Python, compilers, or local packages.
 
+> **Project root** below always means the top-level folder you cloned/downloaded — the one that directly contains `run.sh` / `run.bat`, `stop.sh` / `stop.bat`, `mosaic.sh` / `mosaic.bat`, and `docker-compose.yml`. It is **not** `data_importer` — that's a git submodule nested a few levels inside the project, used only for the data-import pipeline's own source code.
+
+```mermaid
+flowchart LR
+    A["Which OS?"] -->|Windows| B["Install Docker Desktop (WSL2)\n→ double-click run.bat"]
+    A -->|macOS| C["Install Docker Desktop\n→ cd project root → ./run.sh"]
+    A -->|Ubuntu/Linux| D["Install Docker Engine + Compose\n→ cd project root → ./run.sh"]
+    B & C & D --> E[".env created on first run —\nfill in API keys, run again"]
+    E --> F["Dashboard live at\nlocalhost:8501"]
+```
+
 ---
 
 ## 🪟 Windows Setup
@@ -13,7 +24,7 @@ This guide walks you through setting up and running the Mosaic Fund Agent platfo
 4. Launch **Docker Desktop** from your Start menu and accept the agreement. Keep the application open.
 
 ### 2. Configure & Run
-1. Open the project folder (`data_importer`) in Windows Explorer.
+1. Open the project root folder (see note above — **not** `data_importer`) in Windows Explorer.
 2. Double-click the file **`run.bat`**.
    - *First-run only:* The script will create a file named `.env` in the root folder and then exit.
 3. Open the new **`.env`** file using Notepad, fill in your API keys (e.g. `OPENAI_API_KEY`, Zerodha keys, etc.), and save it.
@@ -35,9 +46,9 @@ When you are done, double-click **`stop.bat`** to shut down the background conta
 3. Accept the license agreement and wait for the status indicator in the bottom-left corner to turn green.
 
 ### 2. Configure & Run
-1. Open terminal and navigate to the project directory:
+1. Open terminal and navigate to the project root (see note above — **not** `data_importer`):
    ```bash
-   cd /path/to/data_importer
+   cd /path/to/mosaic-fund-agent
    ```
 2. Run the startup script:
    ```bash
@@ -89,9 +100,9 @@ sudo usermod -aG docker $USER
 *Note: After adding your user to the group, close your terminal window and open a new one (or run `newgrp docker`) for the changes to apply.*
 
 ### 2. Configure & Run
-1. Navigate to the project directory:
+1. Navigate to the project root (see note above — **not** `data_importer`):
    ```bash
-   cd /path/to/data_importer
+   cd /path/to/mosaic-fund-agent
    ```
 2. Run the startup script:
    ```bash
