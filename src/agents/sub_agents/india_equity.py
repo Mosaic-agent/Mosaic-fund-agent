@@ -143,16 +143,20 @@ _CHART_KIND_PATTERNS: list[tuple] = [
 
 def _resolve_chart_kinds(question: str) -> list[str]:
     """
-    Return every chart kind mentioned in *question*, in price/macd/rsi order.
+    Return every chart kind to render for *question*, in price/macd/rsi order.
 
-    Plain "chart"/"volume chart"/"anomaly chart" (no macd/rsi keyword) still
-    default to just ["price"] — volume/anomaly are panels already bundled
-    inside plot_price_chart. "price" is only added alongside macd/rsi when
-    the word "price" is explicitly present (e.g. "price and RSI chart").
+    A bare "chart"/"volume chart"/"anomaly chart" request (no macd/rsi
+    keyword) renders all three — price, MACD, and RSI — by default. Once the
+    user names a specific indicator (e.g. "RSI chart", "MACD chart", "RSI
+    and MACD chart"), only the named indicator(s) render; "price" is added
+    alongside them only when the word "price" is explicitly present too
+    (e.g. "price and RSI chart").
     """
     has_macd = any(pat.search(question) for pat, kind in _CHART_KIND_PATTERNS if kind == "macd")
     has_rsi = any(pat.search(question) for pat, kind in _CHART_KIND_PATTERNS if kind == "rsi")
-    has_price = bool(re.search(r"\bprice\b", question, re.I)) or not (has_macd or has_rsi)
+    if not (has_macd or has_rsi):
+        return ["price", "macd", "rsi"]
+    has_price = bool(re.search(r"\bprice\b", question, re.I))
     return [k for k, present in (("price", has_price), ("macd", has_macd), ("rsi", has_rsi)) if present]
 
 _CHART_DAYS_PATTERNS: list[tuple] = [

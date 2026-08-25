@@ -348,6 +348,69 @@ def route_intent_llm(question: str) -> str:
         return _regex_fallback(question)
 
 
+# Intents that represent a genuinely narrow domain — a question classified into
+# one of these might ALSO need a second, independent domain (e.g. "news on X and
+# is fund Y buying it"). "main"/"fast_path" are already broad/deterministic and
+# never need a second-domain check.
+_DOMAIN_INTENTS = ("india_equity", "signal", "macro", "mf", "intl_etf", "news")
+
+_SECONDARY_INTENT_PROMPT_TMPL = (
+    'The question below was already classified with primary intent "{primary}". '
+    'Does the SAME question ALSO explicitly ask for something in a second, DIFFERENT '
+    'domain from this list: {others}? Only answer yes if the question clearly asks for '
+    'both (e.g. "...and also...", "...as well as...", "...separately check...") — a '
+    'single-domain question phrased with extra detail is still just one domain.\n'
+    'Respond with ONLY a JSON object (no markdown, no explanation): '
+    '{{"secondary_intent": "<intent_or_none>"}}'
+)
+
+
+def route_intents_llm(question: str) -> list[str]:
+    """
+    Classify a question into one or more sub-agent intents.
+
+    Reuses route_intent_llm() for the primary classification untouched — same
+    cache, fast-path, and RAG/regex fallbacks. This function only adds a cheap
+    second LLM pass (same cheap router model) to detect whether the SAME
+    question also needs a second, independent domain. Callers should fall
+    through to the main ReAct agent (which delegates to multiple sub-agents
+    concurrently) whenever this returns more than one intent, instead of
+    short-circuiting to a single sub-agent and silently dropping the rest of
+    the question.
+    """
+    primary = route_intent_llm(question)
+    if primary not in _DOMAIN_INTENTS:
+        return [primary]
+
+    llm = _get_router_llm()
+    if llm is None:
+        return [primary]
+
+    others = [i for i in _DOMAIN_INTENTS if i != primary]
+    try:
+        from langchain_core.messages import SystemMessage, HumanMessage
+        prompt = _SECONDARY_INTENT_PROMPT_TMPL.format(primary=primary, others=", ".join(others))
+        response = llm.invoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content=question),
+        ])
+        text = str(response.content).strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        parsed = json.loads(text)
+        secondary = str(parsed.get("secondary_intent", "none")).lower().strip()
+        if secondary in others:
+            logger.info("LLM router: secondary intent detected for %r -> %s + %s", question[:60], primary, secondary)
+            return [primary, secondary]
+    except Exception as exc:
+        logger.debug("route_intents_llm: secondary-intent check failed (%s) - using primary only", exc)
+
+    return [primary]
+
+
 _golden_vectors = None
 _tfidf_matcher = None
 _STOPWORDS = frozenset({

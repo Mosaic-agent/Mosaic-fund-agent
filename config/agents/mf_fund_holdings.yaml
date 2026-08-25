@@ -1,0 +1,72 @@
+agent_name: "MF Fund Holdings Lookup"
+agent_type: "mf_fund_holdings"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative playbook for "which funds hold X" / "fund exposure to X" questions.
+  Fetches Qdrant-backed fund-holding matches and DSP cross-fund ownership in
+  parallel, then a single LLM call summarizes the pre-filtered (top_k-limited)
+  results — no raw holdings dump ever reaches the LLM.
+  </task_context>
+
+  <evaluation_rules>
+  Use only the % NAV, market value, and fund names returned by the tools verbatim.
+  Do not invent fund names, holding percentages, or trends not present in the data.
+  </evaluation_rules>
+
+steps:
+  - id: batch_holdings_lookup
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: find_funds_holding
+        params:
+          query: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: get_mf_holdings_for_stock
+        params:
+          company_name_or_symbol: "{{ symbol }}"
+        fail_on_error: false
+
+  - id: holdings_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are a mutual-fund research analyst summarizing fund ownership for {{ symbol }}.
+      </role_context>
+
+      <source_data>
+      <qdrant_fund_matches>
+      {{ batch_holdings_lookup.find_funds_holding }}
+      </qdrant_fund_matches>
+
+      <dsp_cross_fund_holdings>
+      {{ batch_holdings_lookup.get_mf_holdings_for_stock }}
+      </dsp_cross_fund_holdings>
+      </source_data>
+
+      <instructions>
+      1. List which funds hold {{ symbol }} and their approximate % NAV weight, using only the numbers shown above.
+      2. Note if multiple funds hold it (cross-fund conviction signal) versus a single fund.
+      3. Write a concise 2-3 sentence summary — no numbers beyond what's in the source data.
+      </instructions>
+
+  - id: format_holdings_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # Fund Holdings — {{ symbol }}
+
+      ## Summary
+      {{ holdings_synthesis.output }}
+
+      ## Qdrant Fund Matches
+      {{ batch_holdings_lookup.find_funds_holding }}
+
+      ## DSP Cross-Fund Holdings
+      {{ batch_holdings_lookup.get_mf_holdings_for_stock }}
+
+sample_input:
+  symbol: "RELIANCE"

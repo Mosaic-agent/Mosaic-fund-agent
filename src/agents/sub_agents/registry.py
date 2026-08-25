@@ -32,7 +32,7 @@ def get_subagent(name: str) -> _SubAgent:
         # Reactive agents (signal, news, macro, mf, database, intl_etf) have
         # StateGraph workflows and keyword-based fallbacks that handle open-ended
         # questions — their YAML playbooks exist for explicit invocation only.
-        _YAML_FIRST_AGENTS = {"india_equity", "goldbees_pipeline"}
+        _YAML_FIRST_AGENTS = {"india_equity", "goldbees_pipeline", "mf_fund_holdings", "mf_whale_consensus"}
         from pathlib import Path
         yaml_path = Path(f"config/agents/{name}.yaml")
         if name in _YAML_FIRST_AGENTS and yaml_path.is_file():
@@ -78,6 +78,10 @@ def get_subagent(name: str) -> _SubAgent:
                         subject = _re.sub(
                             r"^(?:research|analyze|analyse|look\s+up|tell\s+me\s+about"
                             r"|find\s+(?:info|data)\s+(?:about|on|for)"
+                            r"|which\s+(?:[\w-]+\s+){0,2}(?:fund|amc)s?\s+(?:hold|holds|own|owns)"
+                            r"|who\s+(?:holds|owns)"
+                            r"|is\s+(?:the\s+)?(?:institutional\s+)?consensus\s+on"
+                            r"|whale\s+(?:accumulation|consensus)\s*(?:in|on|for)?"
                             r"|run|using\s+declarative\s+runner)\s+",
                             "", question, flags=_re.I,
                         ).strip().rstrip("?.")
@@ -148,6 +152,16 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
     # 14-tool research playbook - answer them directly from one tool call.
     if intent == "india_equity":
         try:
+            from src.tools.company_resolver import resolve_company_info
+            info = resolve_company_info(question, auto_import=False)
+            sym = info.get("symbol") if info else None
+            if sym and info.get("market") == "India" and not info.get("error"):
+                from src.tools.agent_tools import check_and_refresh_symbol_data
+                status = check_and_refresh_symbol_data.invoke({"symbol": sym})
+                logger.debug("run_subagent_for: india_equity freshness pre-check for %s -> %s", sym, status.split(":")[0])
+        except Exception as exc:
+            logger.debug("run_subagent_for: freshness pre-check failed for %r (%s)", question[:60], exc)
+        try:
             from .india_equity import try_quick_stat_answer, try_chart_only_fast_path
             quick = try_quick_stat_answer(question)
             if quick is not None:
@@ -190,9 +204,24 @@ def run_subagent_for(intent: str, question: str, callbacks: list | None = None) 
         status="ok",
     )
 
+    # mf: fast-path narrow, high-frequency questions to declarative playbooks
+    # (artifact+condense wrapper is already applied at the tool layer per
+    # settings.mf_optimize_mode; this additionally skips MFSubAgent's up-to-30
+    # round-trip ReAct loop for the two most common intents).
+    effective_intent = intent
+    if intent == "mf":
+        from config.settings import settings
+        if settings.mf_optimize_mode:
+            import re as _re
+            q_lower = question.lower()
+            if _re.search(r"which\s+(?:[\w-]+\s+){0,2}(?:fund|amc)s?\s+(?:hold|holds|own|owns)|fund\s+exposure\s+to|who\s+(?:holds|owns)", q_lower):
+                effective_intent = "mf_fund_holdings"
+            elif _re.search(r"\bwhale\b|\bconsensus\b|\baccumulat", q_lower):
+                effective_intent = "mf_whale_consensus"
+
     start = time.monotonic()
     try:
-        result = get_subagent(intent).run(question, llm_override=cloud_llm, callbacks=callbacks)
+        result = get_subagent(effective_intent).run(question, llm_override=cloud_llm, callbacks=callbacks)
     except BudgetExceededError as exc:
         logger.warning("run_subagent_for: budget exceeded for %r: %s", intent, exc)
         result = (

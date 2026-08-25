@@ -401,50 +401,36 @@ def plot_price_chart(
             ORDER BY trade_date ASC
         """)
         if df.empty:
-            # Fallback to yfinance price history
-            from src.tools.yahoo_finance import fetch_price_history
-            clean_symbol = symbol.upper()
-            exchange = "NSE"
-            if clean_symbol.endswith(".NS"):
-                clean_symbol = clean_symbol[:-3]
-                exchange = "NSE"
-            elif clean_symbol.endswith(".BO"):
-                clean_symbol = clean_symbol[:-3]
-                exchange = "BSE"
+            try:
+                from src.tools.agent_tools import check_and_refresh_symbol_data
+                status = check_and_refresh_symbol_data.invoke({"symbol": symbol.upper()})
+                logger.info("plot_price_chart: check_and_refresh_symbol_data for %s: %s", symbol, status)
+                df = query_df(f"""
+                    SELECT trade_date,
+                           toFloat64(argMax(open,   imported_at)) AS open,
+                           toFloat64(argMax(high,   imported_at)) AS high,
+                           toFloat64(argMax(low,    imported_at)) AS low,
+                           toFloat64(argMax(close,  imported_at)) AS close,
+                           toFloat64(argMax(volume, imported_at)) AS volume
+                    FROM market_data.daily_prices FINAL
+                    WHERE symbol = '{symbol.upper()}' {cat_filter}
+                      {date_filter}
+                    GROUP BY trade_date
+                    ORDER BY trade_date ASC
+                """)
+            except Exception as imp_exc:
+                logger.debug("plot_price_chart: auto-import attempt failed for %s: %s", symbol, imp_exc)
 
-            if start_date:
-                hist = fetch_price_history(
-                    clean_symbol,
-                    exchange,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-            else:
-                if days <= 30:
-                    yf_period = "1mo"
-                elif days <= 90:
-                    yf_period = "3mo"
-                elif days <= 180:
-                    yf_period = "6mo"
-                elif days <= 365:
-                    yf_period = "1y"
-                else:
-                    yf_period = "2y"
-                hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
+        if df.empty:
+            return f"No price data found for {symbol} in ClickHouse (auto-import attempted, no rows available)."
 
-            if not hist:
-                return f"No price data found for {symbol} (tried ClickHouse and Yahoo Finance fallback)."
-
-            dates  = [r["date"] for r in hist]
-            prices = [r["close"] for r in hist]
-        else:
-            dates  = df["trade_date"].astype(str).tolist()
-            prices = df["close"].tolist()
+        dates  = df["trade_date"].astype(str).tolist()
+        prices = df["close"].tolist()
 
         import pandas as pd
         ret_s = pd.Series(prices).pct_change()
         vol_s = (ret_s.rolling(20).std() * np.sqrt(252) * 100.0).fillna(ret_s.std() * np.sqrt(252) * 100.0 if not pd.isna(ret_s.std()) else 0.0).tolist()
-        volumes = df["volume"].tolist() if not df.empty and "volume" in df.columns else ([r.get("volume", 0) for r in hist] if hist else [0] * len(prices))
+        volumes = df["volume"].tolist()
 
         spark  = sparkline(prices)
         chg    = ((prices[-1] - prices[0]) / prices[0] * 100) if len(prices) >= 2 else 0
@@ -875,39 +861,30 @@ def plot_multi_price_chart(symbols: str, days: int = 60, category: str = "") -> 
                 for _, row in df_sym.iterrows():
                     dates_prices[str(row["trade_date"])] = float(row["close"])
             else:
-                # 2. Try Yahoo Finance fallback
-                from src.tools.yahoo_finance import fetch_price_history
-                clean_symbol = s
-                exchange = "NSE"
-                if clean_symbol.endswith(".NS"):
-                    clean_symbol = clean_symbol[:-3]
-                    exchange = "NSE"
-                elif clean_symbol.endswith(".BO"):
-                    clean_symbol = clean_symbol[:-3]
-                    exchange = "BSE"
-
-                if days <= 30:
-                    yf_period = "1mo"
-                elif days <= 90:
-                    yf_period = "3mo"
-                elif days <= 180:
-                    yf_period = "6mo"
-                elif days <= 365:
-                    yf_period = "1y"
-                else:
-                    yf_period = "2y"
-
-                hist = fetch_price_history(clean_symbol, exchange, period=yf_period)
-                if hist:
-                    for r in hist:
-                        dates_prices[r["date"]] = r["close"]
+                try:
+                    from src.tools.agent_tools import check_and_refresh_symbol_data
+                    status = check_and_refresh_symbol_data.invoke({"symbol": s})
+                    logger.info("plot_multi_price_chart: check_and_refresh_symbol_data for %s: %s", s, status)
+                    df_sym = query_df(f"""
+                        SELECT trade_date, toFloat64(argMax(close, imported_at)) AS close
+                        FROM market_data.daily_prices FINAL
+                        WHERE symbol = '{s}'
+                          AND trade_date >= today() - {days}
+                        GROUP BY trade_date
+                        ORDER BY trade_date ASC
+                    """)
+                    if not df_sym.empty:
+                        for _, row in df_sym.iterrows():
+                            dates_prices[str(row["trade_date"])] = float(row["close"])
+                except Exception as imp_exc:
+                    logger.debug("plot_multi_price_chart: auto-import attempt failed for %s: %s", s, imp_exc)
 
             if dates_prices:
                 series_data[s] = dates_prices
                 symbol_data_counts[s] = len(dates_prices)
 
         if not series_data:
-            return f"No price data found for symbols: {symbols} (tried ClickHouse and Yahoo Finance fallback)."
+            return f"No price data found in ClickHouse for symbols: {symbols} (auto-import attempted)."
 
         # Build common date axis from the symbol with most data points
         ref_sym = max(symbol_data_counts, key=symbol_data_counts.get)
@@ -1562,12 +1539,11 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
             ORDER BY trade_date ASC
         """)
 
-        if df.empty:
-            # Auto-import then retry
+        if df.empty or len(df) < 35:
             try:
                 from src.tools.agent_tools import check_and_refresh_symbol_data
                 status = check_and_refresh_symbol_data.invoke({"symbol": sym})
-                logger.info("plot_macd_chart auto-import for %s: %s", sym, status)
+                logger.info("plot_macd_chart: check_and_refresh_symbol_data for %s: %s", sym, status)
                 df = query_df(f"""
                     SELECT trade_date,
                            toFloat64(argMax(close, imported_at)) AS close
@@ -1578,34 +1554,10 @@ def plot_macd_chart(symbol: str, days: int = 180, category: str = "") -> str:
                     ORDER BY trade_date ASC
                 """)
             except Exception as imp_exc:
-                logger.debug("plot_macd_chart auto-import attempt failed for %s: %s", sym, imp_exc)
-
-        # Fallback to Yahoo Finance price history if ClickHouse has insufficient data
-        if df.empty or len(df) < 35:
-            try:
-                from src.tools.yahoo_finance import fetch_price_history
-                exchange = "BSE" if symbol.upper().endswith(".BO") or ":BSE" in symbol.upper() else "NSE"
-                if lookback <= 90:
-                    yf_period = "6mo"
-                elif lookback <= 180:
-                    yf_period = "1y"
-                elif lookback <= 365:
-                    yf_period = "2y"
-                else:
-                    yf_period = "5y"
-                hist = fetch_price_history(sym, exchange, period=yf_period)
-                if hist:
-                    yf_df = pd.DataFrame(hist)
-                    if "close" in yf_df.columns and "date" in yf_df.columns:
-                        yf_df = yf_df.rename(columns={"date": "trade_date"})
-                        yf_df["trade_date"] = pd.to_datetime(yf_df["trade_date"])
-                        yf_df["close"] = yf_df["close"].astype(float)
-                        df = yf_df.sort_values("trade_date").reset_index(drop=True)
-            except Exception as yf_exc:
-                logger.debug("plot_macd_chart yfinance fallback failed for %s: %s", sym, yf_exc)
+                logger.debug("plot_macd_chart: auto-import attempt failed for %s: %s", sym, imp_exc)
 
         if df.empty or len(df) < 35:
-            return f"Insufficient price history for {sym} (need ≥35 bars for MACD, got {len(df)})."
+            return f"Insufficient price history for {sym} (need ≥35 bars for MACD, got {len(df)}) after ClickHouse auto-import attempt."
 
         # Compute EMA-12, EMA-26, MACD, Signal, Histogram in pandas
         df["ema12"]  = df["close"].ewm(span=12, adjust=False).mean()
@@ -1782,11 +1734,11 @@ def plot_rsi_chart(symbol: str, days: int = 180, category: str = "") -> str:
             ORDER BY trade_date ASC
         """)
 
-        if df.empty:
+        if df.empty or len(df) < 20:
             try:
                 from src.tools.agent_tools import check_and_refresh_symbol_data
                 status = check_and_refresh_symbol_data.invoke({"symbol": sym})
-                logger.info("plot_rsi_chart auto-import for %s: %s", sym, status)
+                logger.info("plot_rsi_chart: check_and_refresh_symbol_data for %s: %s", sym, status)
                 df = query_df(f"""
                     SELECT trade_date,
                            toFloat64(argMax(close, imported_at)) AS close
@@ -1797,33 +1749,10 @@ def plot_rsi_chart(symbol: str, days: int = 180, category: str = "") -> str:
                     ORDER BY trade_date ASC
                 """)
             except Exception as imp_exc:
-                logger.debug("plot_rsi_chart auto-import attempt failed for %s: %s", sym, imp_exc)
+                logger.debug("plot_rsi_chart: auto-import attempt failed for %s: %s", sym, imp_exc)
 
         if df.empty or len(df) < 20:
-            try:
-                from src.tools.yahoo_finance import fetch_price_history
-                exchange = "BSE" if symbol.upper().endswith(".BO") or ":BSE" in symbol.upper() else "NSE"
-                if lookback <= 90:
-                    yf_period = "6mo"
-                elif lookback <= 180:
-                    yf_period = "1y"
-                elif lookback <= 365:
-                    yf_period = "2y"
-                else:
-                    yf_period = "5y"
-                hist = fetch_price_history(sym, exchange, period=yf_period)
-                if hist:
-                    yf_df = pd.DataFrame(hist)
-                    if "close" in yf_df.columns and "date" in yf_df.columns:
-                        yf_df = yf_df.rename(columns={"date": "trade_date"})
-                        yf_df["trade_date"] = pd.to_datetime(yf_df["trade_date"])
-                        yf_df["close"] = yf_df["close"].astype(float)
-                        df = yf_df.sort_values("trade_date").reset_index(drop=True)
-            except Exception as yf_exc:
-                logger.debug("plot_rsi_chart yfinance fallback failed for %s: %s", sym, yf_exc)
-
-        if df.empty or len(df) < 20:
-            return f"Insufficient price history for {sym} (need ≥ 20 bars for RSI, got {len(df)})."
+            return f"Insufficient price history for {sym} (need ≥ 20 bars for RSI, got {len(df)}) after ClickHouse auto-import attempt."
 
         # Wilder's RSI(14)
         delta = df["close"].diff()

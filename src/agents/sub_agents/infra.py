@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextvars
 import json as _json
 import logging
+import re
 from typing import Any
 
 from src.workflows.context_manager import truncate_text
@@ -40,6 +41,62 @@ logger = logging.getLogger(__name__)
 _dedup_cache: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "_subagent_tool_dedup_cache", default=None
 )
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI color/cursor escape sequences. Terminal styling (used by the
+    ASCII chart tools for background/foreground color per glyph) has zero
+    value to an LLM and costs real tokens — every colored character carries
+    several extra escape-code tokens with nothing for the model to read.
+    """
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def _wrap_tool_strip_ansi(tool: Any) -> Any:
+    """Wrap a tool's underlying function so ANSI escape codes are stripped
+    from its string output before it becomes ToolMessage content sent to
+    the LLM. Direct (non-agent) callers of the underlying chart_tools
+    functions — the india_equity chart-only fast path, /chart /rsi /macd
+    slash commands — are untouched, since they call the plain functions
+    directly rather than going through this ReAct tool-node wrapping.
+
+    Idempotent — re-wrapping the same tool instance is a no-op.
+
+    Unlike _wrap_tool_for_dedup (which mutates the tool in place — harmless
+    for caching, since it's a no-op outside an active dedup-cache scope),
+    this wraps a SHALLOW COPY of the tool. Chart tool objects are shared,
+    module-level singletons (e.g. src.tools.chart_tools.plot_price_chart) —
+    mutating .func in place would permanently strip ANSI colour from every
+    future direct caller too (the chart-only fast path, /chart /rsi /macd
+    slash commands), the moment any ReAct sub-agent that includes chart
+    tools gets built once in the process.
+    """
+    if getattr(tool, "__ansi_stripped__", False):
+        return tool
+
+    import copy
+    wrapped = copy.copy(tool)
+
+    original_func = getattr(wrapped, "func", None)
+    original_coro = getattr(wrapped, "coroutine", None)
+
+    if original_func is not None:
+        def stripped_func(*args: Any, **kwargs: Any) -> Any:
+            result = original_func(*args, **kwargs)
+            return _strip_ansi(result) if isinstance(result, str) else result
+        object.__setattr__(wrapped, "func", stripped_func)
+
+    if original_coro is not None:
+        async def stripped_coro(*args: Any, **kwargs: Any) -> Any:
+            result = await original_coro(*args, **kwargs)
+            return _strip_ansi(result) if isinstance(result, str) else result
+        object.__setattr__(wrapped, "coroutine", stripped_coro)
+
+    object.__setattr__(wrapped, "__ansi_stripped__", True)
+    return wrapped
 
 
 def _wrap_tool_for_dedup(tool: Any) -> Any:

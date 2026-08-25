@@ -1,0 +1,82 @@
+agent_name: "MF Whale Accumulation & Consensus"
+agent_type: "mf_whale_consensus"
+default_model: "google/gemini-2.5-flash"
+seed: 42
+
+task_brief: |
+  <task_context>
+  Declarative playbook for cross-AMC whale accumulation / institutional consensus
+  questions. Fetches the whale scanner, single-stock consensus lookup, and
+  theme-level whale tracker in parallel — all three are already artifact-backed
+  and condensed at the tool layer (src/tools/mf_artifact.py) — then a single LLM
+  call synthesizes the pre-filtered results.
+  </task_context>
+
+  <evaluation_rules>
+  Use only consensus_score, % NAV weights, and AMC names returned by the tools verbatim.
+  Do not invent accumulation patterns or AMC names not present in the data.
+  </evaluation_rules>
+
+steps:
+  - id: batch_whale_lookup
+    step_type: auto_tools
+    parallel: true
+    tool_calls:
+      - tool_name: scan_whale_accumulation
+        params: {}
+        fail_on_error: false
+      - tool_name: get_whale_consensus
+        params:
+          symbol: "{{ symbol }}"
+        fail_on_error: false
+      - tool_name: run_whale_tracker
+        params: {}
+        fail_on_error: false
+
+  - id: whale_synthesis
+    step_type: reason
+    prompt: |
+      <role_context>
+      You are an institutional flow analyst summarizing cross-AMC accumulation signals.
+      </role_context>
+
+      <source_data>
+      <cross_amc_scan>
+      {{ batch_whale_lookup.scan_whale_accumulation }}
+      </cross_amc_scan>
+
+      <single_stock_consensus>
+      {{ batch_whale_lookup.get_whale_consensus }}
+      </single_stock_consensus>
+
+      <theme_level_whale_tracker>
+      {{ batch_whale_lookup.run_whale_tracker }}
+      </theme_level_whale_tracker>
+      </source_data>
+
+      <instructions>
+      1. Identify the top consensus accumulators (multiple AMCs adding) using only the data above.
+      2. If a specific stock was asked about, report its per-fund holding/trend from single_stock_consensus.
+      3. Write a concise 2-3 sentence summary of institutional conviction — no numbers beyond the source data.
+      </instructions>
+
+  - id: format_whale_report
+    step_type: template_output
+    format: markdown
+    template: |
+      # Institutional Whale Consensus{% if symbol and symbol != "UNKNOWN" %} — {{ symbol }}{% endif %}
+
+      ## Summary
+      {{ whale_synthesis.output }}
+
+      ## Cross-AMC Consensus Scan
+      {{ batch_whale_lookup.scan_whale_accumulation }}
+
+      ## Single-Stock Consensus
+      {{ batch_whale_lookup.get_whale_consensus }}
+
+      ## Theme-Level Whale Tracker
+      {{ batch_whale_lookup.run_whale_tracker }}
+
+sample_input:
+  symbol: "RELIANCE"
