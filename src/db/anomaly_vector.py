@@ -83,6 +83,11 @@ def _get_client() -> Any:
             host = os.environ.get("QDRANT_HOST") or getattr(settings, "qdrant_host", "localhost")
             port = int(os.environ.get("QDRANT_PORT") or getattr(settings, "qdrant_port", 6333))
             grpc_port = int(os.environ.get("QDRANT_GRPC_PORT") or getattr(settings, "qdrant_grpc_port", 6334))
+            from src.utils.net_check import is_port_open
+            if not is_port_open(host, port):
+                log.debug("AnomalyVector: Qdrant unreachable at %s:%s — skipping client init", host, port)
+                _client = None
+                return None
             _client = QdrantClient(host=host, port=port, grpc_port=grpc_port, prefer_grpc=True, timeout=15.0)
             log.debug("AnomalyVector: Qdrant client at %s:%s", host, port)
         except Exception as e:

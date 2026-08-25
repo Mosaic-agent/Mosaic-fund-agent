@@ -37,6 +37,10 @@ def get_qdrant_client() -> Optional[QdrantClient]:
             host = os.environ.get("QDRANT_HOST") or getattr(settings, "qdrant_host", "localhost")
             port = int(os.environ.get("QDRANT_PORT") or getattr(settings, "qdrant_port", 6333))
             grpc_port = int(os.environ.get("QDRANT_GRPC_PORT") or getattr(settings, "qdrant_grpc_port", 6334))
+            from src.utils.net_check import is_port_open
+            if not is_port_open(host, port):
+                log.debug("Qdrant unreachable at %s:%s — skipping metadata client init", host, port)
+                return None
             _qdrant_client = QdrantClient(host=host, port=port, grpc_port=grpc_port, prefer_grpc=True, timeout=10.0)
         except Exception as e:
             log.debug("Failed to initialize QdrantClient for metadata: %s", e)
