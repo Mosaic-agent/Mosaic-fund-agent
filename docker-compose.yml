@@ -200,6 +200,35 @@ services:
       qdrant:
         condition: service_started
 
+  # ── Real-Time ETF Opportunity & iNAV Arbitrage Scanner ────────────────────
+  # Continuous market-hour scanner: watches all 39 ETFs via Shoonya WebSocket,
+  # joins with direct AMC iNAVs in memory, evaluates Order Flow delta, and
+  # fires instant Slack alerts on accumulation discounts.
+  # Start detached:
+  #   docker compose up -d etf-scanner
+  # Run interactively:
+  #   docker compose run --rm etf-scanner
+  etf-scanner:
+    build: .
+    image: mosaic-fund-agent
+    profiles: ["etf-scanner"]
+    entrypoint: ["python", "src/agents/etf_opportunity_scanner.py"]
+    command: ["--interval", "1.0", "--refresh-nav", "60"]
+    env_file: .env
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      QDRANT_HOST: qdrant
+    volumes:
+      - ./output:/app/output
+      - ./src:/app/src
+      - ./config:/app/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
   # ── Report file server ───────────────────────────────────────────────────────
   # Serves /app/output/reports/ at http://localhost:8502 with directory listing.
   # Open in any browser to browse and download PDFs, HTML, and Markdown reports.

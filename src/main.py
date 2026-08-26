@@ -1823,8 +1823,48 @@ def discover(
                 interval_sec=interval,
                 market_hours_only=not all_hours,
             )
-        else:
-            run_live_discovery_cycle(min_turnover_cr=min_turnover, min_rvol=min_rvol, top_n=top)
+@app.command(name="etf-scanner")
+def etf_scanner(
+    interval: float = typer.Option(1.0, "--interval", "-i", help="TUI refresh interval in seconds (default: 1.0)"),
+    refresh_nav: int = typer.Option(60, "--refresh-nav", "-r", help="AMC iNAV background poll interval in seconds (default: 60)"),
+    slack: bool = typer.Option(True, "--slack/--no-slack", help="Enable Slack webhook notifications on accumulation signals"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run without live Shoonya WebSocket connection"),
+) -> None:
+    """
+    Real-time ETF Opportunity & iNAV Arbitrage Scanner.
+
+    Connects to Shoonya WebSocket, computes live spreads vs direct AMC iNAVs
+    (Nippon, Zerodha, Mirae, Motilal), evaluates order flow Cumulative Delta,
+    and displays a real-time color-coded terminal heatmap with Slack alert triggers.
+    """
+    from src.agents.etf_opportunity_scanner import ETFOpportunityScanner
+    scanner = ETFOpportunityScanner(
+        refresh_nav_secs=refresh_nav,
+        enable_slack=slack,
+        dry_run=dry_run,
+    )
+    scanner.start_and_render(interval_seconds=interval)
+
+
+@app.command(name="dossier")
+def dossier(
+    html: bool = typer.Option(True, "--html/--no-html", help="Save styled HTML view"),
+) -> None:
+    """
+    Generate and publish the Daily Market Intelligence & Pattern Emergence Dossier.
+
+    Synthesizes technical volume breakouts, international ETF spreads,
+    commodity arbitrage, and institutional FII/DII flows into a structured
+    institutional report with Mermaid transmission grids and fitment guide.
+    """
+    from src.scripts.market.daily_dossier import generate_daily_dossier
+    from pathlib import Path
+    from rich.console import Console
+    console = Console()
+    md_file, html_file = generate_daily_dossier(save_html=html)
+    console.print(f"\n[bold green]✓ Daily Dossier published successfully![/bold green]")
+    console.print(f"[cyan]Markdown:[/cyan] {md_file}")
+    console.print(f"[cyan]HTML view:[/cyan] http://localhost:8502/{Path(html_file).name}\n")
 
 
 if __name__ == "__main__":

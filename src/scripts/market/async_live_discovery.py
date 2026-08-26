@@ -71,14 +71,32 @@ class AsyncLiveDiscoveryEngine:
         except Exception:
             pass
 
-        # 2. Mutual fund cross-ownership
+        # 2. Mutual fund cross-ownership (resolved to NSE symbol via ISIN)
         try:
-            mf_rows = client.query("""
-                SELECT upper(security_name), count(DISTINCT fund_name), round(sum(market_value_cr), 1)
-                FROM market_data.mf_holdings FINAL
-                WHERE lower(asset_type) = 'equity'
-                GROUP BY upper(security_name)
-            """).result_rows
+            mf_sql = """
+                SELECT 
+                    if(m.nse_symbol != '', m.nse_symbol, if(s.symbol IS NOT NULL AND s.symbol != '', s.symbol, upper(h.security_name))) AS sym,
+                    count(DISTINCT h.fund_name) AS fund_count,
+                    round(sum(h.market_value_cr), 1) AS total_val_cr
+                FROM (
+                    SELECT isin, security_name, fund_name, market_value_cr
+                    FROM market_data.mf_holdings FINAL
+                    WHERE lower(asset_type) = 'equity' AND isin != ''
+                ) AS h
+                LEFT JOIN (
+                    SELECT isin, nse_symbol
+                    FROM market_data.amfi_market_cap FINAL
+                    WHERE nse_symbol != ''
+                ) AS m ON h.isin = m.isin
+                LEFT JOIN (
+                    SELECT isin, symbol
+                    FROM market_data.security_symbol_map FINAL
+                    WHERE symbol IS NOT NULL AND symbol != ''
+                ) AS s ON h.isin = s.isin
+                WHERE sym != ''
+                GROUP BY sym
+            """
+            mf_rows = client.query(mf_sql).result_rows
             self.mf_holdings_cache = {r[0]: (int(r[1]), float(r[2])) for r in mf_rows}
         except Exception:
             pass
@@ -278,30 +296,143 @@ class AsyncLiveDiscoveryEngine:
         print("└" + "─" * 125 + "┘\n")
         return df_res
 
-    async def run_async_loop(self, interval_sec: int = 60, all_hours: bool = False) -> None:
-        """Continuous non-blocking asynchronous event loop."""
+    async def run_async_loop(self, interval_sec: int = 5, all_hours: bool = False) -> None:
+        """Continuous non-blocking asynchronous event loop with Rich Live TUI support."""
         self.prewarm_memory_caches()
 
-        print("\n" + "═" * 90)
-        print(" ⚡ STARTING ASYNC LOW-LATENCY DISCOVERY DAEMON")
-        print(f" Polling Interval: {interval_sec}s | Sub-Second Latency Target (<300ms)")
-        print(" Press Ctrl+C at any time to exit.")
-        print("═" * 90 + "\n")
+        from rich.console import Console, Group
+        from rich.live import Live
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.text import Text
+
+        console = Console()
+        is_tty = sys.stdout.isatty()
 
         async with httpx.AsyncClient(headers=self._headers, timeout=5.0) as http_client:
             cycle = 1
-            while True:
-                now = datetime.now()
-                is_mkt = (now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30))
+            if is_tty:
+                with Live(console=console, refresh_per_second=2, screen=True) as live:
+                    try:
+                        while True:
+                            now = datetime.now()
+                            is_mkt = (now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30))
 
-                if not is_mkt and not all_hours:
-                    print(f"[{now.strftime('%H:%M:%S')}] ⏸️ Outside NSE market hours (09:15 - 15:30 IST). Next check in {interval_sec}s...")
-                else:
-                    print(f"--- [Cycle #{cycle} @ {now.strftime('%H:%M:%S IST')}] ---")
+                            t0 = time.perf_counter()
+                            records = await self.fetch_live_equities_async(http_client)
+                            t_fetch = (time.perf_counter() - t0) * 1000
+
+                            results = []
+                            for r in (records or []):
+                                to_cr = r["turnover_cr"]
+                                if to_cr < self.min_turnover_cr:
+                                    continue
+                                sym = r["symbol"]
+                                vol = r["volume"]
+                                ltp = r["ltp"]
+                                pct = r["p_change"]
+                                d_high = r["day_high"]
+                                d_low = r["day_low"]
+
+                                avg_v = self.v_baseline_cache.get(sym, vol / 2.0)
+                                rvol = (vol / avg_v) if avg_v > 0 else 1.0
+                                if rvol < self.min_rvol:
+                                    continue
+
+                                span = d_high - d_low
+                                range_pos = ((ltp - d_low) / span * 100) if span > 0 else 50.0
+                                mf_count, mf_val = self.mf_holdings_cache.get(sym, (0, 0.0))
+                                block_trigger = self.block_deals_cache.get(sym, "-")
+
+                                if rvol >= 3.0 and range_pos >= 80 and pct >= 3.0:
+                                    setup = "🚀 Institutional Breakout"
+                                    action = "🟢 ACCUMULATE"
+                                elif block_trigger != "-":
+                                    setup = "🐳 Block Deal Crossing"
+                                    action = "🟢 ACCUMULATE"
+                                elif rvol >= 2.0 and pct > 0:
+                                    setup = "⚡ Volume Expansion"
+                                    action = "👀 WATCHLIST"
+                                else:
+                                    setup = "⚖️ Normal Liquidity"
+                                    action = "⏸️ NEUTRAL"
+
+                                results.append({
+                                    "Symbol": sym,
+                                    "Price (₹)": ltp,
+                                    "Change (%)": pct,
+                                    "Turnover (₹ Cr)": to_cr,
+                                    "RVOL": rvol,
+                                    "Range Pos (%)": range_pos,
+                                    "MF Funds": mf_count,
+                                    "Setup": setup,
+                                    "Action": action,
+                                    "Target 1": round(ltp * 1.08, 2),
+                                })
+
+                            t_total = (time.perf_counter() - t0) * 1000
+                            df_res = pd.DataFrame(results).sort_values(["RVOL", "Turnover (₹ Cr)"], ascending=[False, False]).head(self.top_n) if results else pd.DataFrame()
+
+                            # Build Rich TUI Panel
+                            hdr = Text()
+                            hdr.append("⚡ MOSAIC REAL-TIME STOCK & SMALL/MIDCAP DISCOVERY ", style="bold cyan")
+                            hdr.append("│ ", style="dim")
+                            status_text = "MARKET ACTIVE" if is_mkt else "SIMULATION / OFF-HOURS"
+                            hdr.append(f"● {status_text} ", style="bold green" if is_mkt else "bold yellow")
+                            hdr.append("│ ", style="dim")
+                            hdr.append(f"Cycle #{cycle} ({t_total:.1f}ms) ", style="bold white")
+                            hdr.append("│ ", style="dim")
+                            hdr.append(f"Min Turnover: ₹{self.min_turnover_cr:.0f}Cr | Min RVOL: {self.min_rvol:.1f}x", style="dim")
+
+                            table = Table(show_header=True, header_style="bold magenta", expand=True, box=None, padding=(0, 1))
+                            table.add_column("Symbol", style="bold white", width=12)
+                            table.add_column("CMP (₹)", justify="right", style="bold", width=10)
+                            table.add_column("Chg %", justify="right", width=9)
+                            table.add_column("Turnover", justify="right", style="cyan", width=11)
+                            table.add_column("RVOL", justify="right", style="bold yellow", width=8)
+                            table.add_column("Range %", justify="right", width=9)
+                            table.add_column("MF Funds", justify="center", style="dim", width=9)
+                            table.add_column("Technical Setup", width=24)
+                            table.add_column("Action", justify="center", width=15)
+                            table.add_column("Target 1", justify="right", style="green", width=10)
+
+                            if not df_res.empty:
+                                for _, r in df_res.iterrows():
+                                    pct = r["Change (%)"]
+                                    pct_str = f"[bold green]+{pct:.2f}%[/bold green]" if pct > 0 else f"[red]{pct:.2f}%[/red]"
+                                    rvol_val = r["RVOL"]
+                                    rvol_str = f"[bold yellow]{rvol_val:.2f}x[/bold yellow]" if rvol_val >= 2.0 else f"{rvol_val:.2f}x"
+                                    rng = r["Range Pos (%)"]
+                                    rng_str = f"[bold green]{rng:.1f}% ▲[/bold green]" if rng >= 80 else f"{rng:.1f}%"
+                                    act = r["Action"]
+                                    act_str = f"[bold white on dark_green] {act} [/bold white on dark_green]" if "ACCUMULATE" in act else f"[yellow]{act}[/yellow]"
+
+                                    table.add_row(
+                                        r["Symbol"],
+                                        f"₹{r['Price (₹)']:.2f}",
+                                        pct_str,
+                                        f"₹{r['Turnover (₹ Cr)']:.0f} Cr",
+                                        rvol_str,
+                                        rng_str,
+                                        str(r["MF Funds"]),
+                                        r["Setup"],
+                                        act_str,
+                                        f"₹{r['Target 1']:.1f}",
+                                    )
+
+                            footer = Text(f"🕒 Live IST: {now.strftime('%H:%M:%S')} │ Found {len(df_res)} candidates meeting volume breakout criteria │ Ctrl+C to exit", style="dim cyan")
+                            panel = Panel(Group(hdr, Text(""), table, Text(""), footer), title="[bold cyan]Mosaic Real-Time Technical Screener[/bold cyan]", border_style="cyan")
+                            live.update(panel)
+                            cycle += 1
+                            await asyncio.sleep(interval_sec)
+                    except KeyboardInterrupt:
+                        pass
+            else:
+                # Headless mode
+                while True:
                     await self.run_discovery_cycle_async(http_client)
                     cycle += 1
-
-                await asyncio.sleep(interval_sec)
+                    await asyncio.sleep(interval_sec)
 
 
 def main():
@@ -309,7 +440,7 @@ def main():
     parser.add_argument("--min-turnover", type=float, default=20.0, help="Min turnover in ₹ Cr (default: 20)")
     parser.add_argument("--min-rvol", type=float, default=1.5, help="Min RVOL multiple (default: 1.5)")
     parser.add_argument("--top", type=int, default=10, help="Top opportunities (default: 10)")
-    parser.add_argument("--interval", type=int, default=60, help="Polling interval in seconds (default: 60s)")
+    parser.add_argument("--interval", type=int, default=5, help="Polling interval in seconds (default: 5s)")
     parser.add_argument("--all-hours", action="store_true", help="Run even outside market hours")
     args = parser.parse_args()
 
