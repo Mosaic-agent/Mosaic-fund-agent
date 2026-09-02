@@ -37,6 +37,7 @@ scratch/
 scratch_*
 src/scratch_*
 src/host_telemetry.json
+.scratch/declarative-agent-orchestration/issues
 
 # Generated report artifacts (PDF, HTML, MD, PNG outputs)
 *.pdf
