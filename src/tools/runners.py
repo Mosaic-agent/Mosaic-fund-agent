@@ -233,6 +233,41 @@ def run_mf_concentration_risk(
 
 
 @tool
+def run_multi_asset_mom_rotation(
+    since_month: str = "2026-06-01",
+    top: int = 10,
+    funds: str = "",
+) -> str:
+    """
+    Compare Month-over-Month (MoM) Multi-Asset fund holdings, asset-class weight shifts,
+    equity sector rotation, and single-asset conviction anchors across all Indian multi-asset funds
+    (DSP, Nippon India, Quant, Bajaj Finserv, ICICI Prudential, Axis, Mirae Asset, Invesco, SBI, etc.).
+
+    Use this when the user asks:
+      • "Compare MOM multi asset holding since June"
+      • "Show multi-asset rotation and conviction"
+      • "Compare multi-asset asset class allocations MoM"
+      • "What sectors are multi-asset funds rotating into/out of"
+      • "Where do multi-asset funds have highest conviction"
+
+    Args:
+        since_month: Start month filter (e.g. '2026-06-01' or '2026-05-01'). Defaults to '2026-06-01'.
+        top: Number of top movers/holdings to display (default 10).
+        funds: Optional comma-separated fund names filter (e.g. 'dsp,nippon,quant,bajaj').
+    """
+    args = ["src/scripts/portfolio/multi_asset_mom_rotation.py", "--since", since_month, "--top", str(top), "--markdown"]
+    if funds:
+        args.extend(["--funds", funds])
+    result = _run_cmd(args)
+    from config.settings import settings
+    if settings.mf_optimize_mode:
+        from src.tools.mf_artifact import condense_text
+        params = {"since_month": since_month, "top": top, "funds": funds}
+        result = condense_text("run_multi_asset_mom_rotation", params, result)
+    return result
+
+
+@tool
 def run_multi_asset_consensus(
     period: str = "mom",
     min_funds: int = 2,
@@ -513,6 +548,7 @@ RUNNER_TOOLS = [
     run_icici_importer,
     run_all_multi_asset_importers,
     run_multi_asset_holdings_mom_yoy,
+    run_multi_asset_mom_rotation,
     run_mf_concentration_risk,
     run_multi_asset_consensus,
     run_data_engineering_importer,

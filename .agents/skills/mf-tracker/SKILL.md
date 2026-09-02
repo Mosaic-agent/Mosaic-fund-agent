@@ -13,6 +13,7 @@ This skill is the single unified reference and execution guide for **ALL Mutual 
 
 | Tool Name | Module | What it Does |
 | :--- | :--- | :--- |
+| `run_multi_asset_mom_rotation` | `src/scripts/portfolio/multi_asset_mom_rotation.py` (`src/tools/runners.py`) | Compare MoM multi-asset holdings, asset-class weight shifts, equity sleeve sector rotation, and single-asset high-conviction anchors across all multi-asset funds |
 | `smallcap` | `src/scripts/portfolio/smallcap_pattern_analyzer.py` | Multi-AMC Small Cap pattern & accumulation analyzer (CLI: `python src/main.py smallcap --amc <all\|dsp\|nippon\|hdfc\|quant>`) |
 | `run_mf_concentration_risk` | `src/scripts/portfolio/concentration_risk.py` | Latest equity-sleeve HHI, effective stock count, named top-three holdings, concentration alerts, and sector weights for any fund or all multi-asset funds |
 | `analyze_mf_sectors` | `src/tools/mf_sector_analyzer.py` | Single AMC sector breakdown (% AUM, ₹ Cr value, active stock count) & multi-AMC comparative matrix |
@@ -222,6 +223,15 @@ python src/scripts/portfolio/multi_asset_ascii_viz.py
 python src/scripts/portfolio/multi_asset_ascii_viz.py --min-delta 0.25 --top 10
 ```
 Renders (1) a Fund x Asset-Class MoM weight-shift matrix with an in-cell text bar per fund/asset-class pair, and (2) a diverging ASCII bar chart of consensus movers (securities ≥2 funds moved, joined on **ISIN** — not `security_name` text, since AMCs spell the same company inconsistently, e.g. "HDFC Bank Ltd" vs "HDFC Bank Limited", which fragments one company into false duplicates if joined on the raw name). Same data-lag caveat as §4b applies — each fund's row compares its own two most-recent snapshots, which are not all the same calendar month.
+
+### 4b.2 Multi-Asset MoM Holdings, Rotation & Conviction Comparator
+Compare cross-fund asset class shifts (% NAV), equity sleeve sector rotations, and top single-asset conviction anchors across all Multi-Asset Allocation funds since a specific month:
+```bash
+python src/scripts/portfolio/multi_asset_mom_rotation.py
+python src/scripts/portfolio/multi_asset_mom_rotation.py --since 2026-06-01
+python src/scripts/portfolio/multi_asset_mom_rotation.py --funds dsp,nippon,quant,bajaj,icici
+```
+Agent tool wrapper: `run_multi_asset_mom_rotation` (`src/tools/runners.py`, registered on the MF sub-agent `src/agents/sub_agents/mf.py` and StateGraph planner `src/workflows/mf_planner.py`).
 
 ---
 

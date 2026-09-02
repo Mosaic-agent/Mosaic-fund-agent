@@ -90,14 +90,22 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ### 9. Always Use Color in Console & Reports
 - ALWAYS use rich colors, ANSI escape sequences, or Rich library console styling in terminal outputs, scripts, and reports (e.g., green for gains/freshness, red for losses/anomalies, cyan/bold for headers, yellow for warnings, diff code blocks for heatmaps). Ensure console reports and markdown heatmaps are visually distinct and easy to read.
 
-### 10. Always Render Graphs & Charts
-- Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, macro transmissions, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich), box-and-arrow transmission grids, and Mermaid diagrams alongside data tables for maximum visual clarity. Never omit the graph.
+### 10. Always Render Built-in Terminal Graphs & Charts
+- Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, macro transmissions, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich) and top-down box-and-arrow transmission grids alongside data tables for maximum visual clarity. Never omit the graph.
 
 ### 11. Mandatory Data Provenance & Source Grounding
 - To guarantee data authenticity and ensure numbers are never made up or estimated, ALWAYS explicitly cite the exact data source, database table (e.g., `market_data.daily_prices FINAL`, `market_data.fii_dii_flows FINAL`, `market_data.mf_holdings FINAL`), filing/API origin, and watermark timestamp for all presented figures and tables. Include a dedicated Data Provenance Audit block where appropriate.
 
 ### 12. Always Render Institutional Strategy Fitment Guide
-- Whenever comparing schemes, mutual funds, asset allocation strategies, AIF/SIFs, or portfolio approaches, ALWAYS include a dedicated "## 🗺️ 4. Institutional Strategy Fitment Guide" section with a visual Mermaid decision flowchart mapping investor objectives, risk appetite, time horizon, and market regime to the recommended fund/strategy.
+- Whenever comparing schemes, mutual funds, asset allocation strategies, AIF/SIFs, or portfolio approaches, ALWAYS include a dedicated "## 🗺️ Institutional Strategy Fitment Guide" section with a top-down Unicode box-drawing decision flowchart or Rich tree mapping investor objectives, risk appetite, time horizon, and market regime to the recommended fund/strategy.
+
+### 13. Drop Mermaid — Strictly Use Built-in Console Visualizations
+- DO NOT use raw Mermaid code blocks (```mermaid / graph TD```) in console responses as terminal shells cannot render JavaScript SVGs.
+- ALWAYS use the project's native built-in terminal visual tools:
+  1. **Top-Down Box-and-Arrow Grids** (`┌──┐`, `│`, `└──┘`, `▲`, `▼`, `──►`) for transmission workflows and decision flowcharts.
+  2. **Rich Colored Trees & Panels** for hierarchical structures, breakdowns, and portfolio trees.
+  3. **Plotext 2D Terminal Charts** for price trends, volume spikes, and coordinate graphs.
+  4. **Diff Code Blocks** (`diff` syntax with `+` in green, `-` in red) for Month-over-Month (MoM) shifts, additions, and trims.
 
 ---
 

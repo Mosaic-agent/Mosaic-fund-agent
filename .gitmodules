@@ -1,3 +1,4 @@
 [submodule "src/data_importer"]
 	path = src/data_importer
-	url = https://github.com/Mosaic-agent/data_importer
+	url = ../data_importer
+

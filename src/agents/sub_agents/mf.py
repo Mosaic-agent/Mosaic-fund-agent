@@ -52,6 +52,7 @@ class MFSubAgent(_SubAgent):
         "Match the user's intent to the right tool:\n\n"
         "| Intent                                    | Tool                                        |\n"
         "|-------------------------------------------|---------------------------------------------|\n"
+        "| Compare MoM multi-asset holdings, rotation & conviction | `run_multi_asset_mom_rotation`       |\n"
         "| MoM/YoY position changes in ONE fund      | `run_multi_asset_holdings_mom_yoy`          |\n"
         "| Fund concentration, diversification, top holdings | `run_mf_concentration_risk`          |\n"
         "| Cross-fund consensus / smart-money overlap| `run_multi_asset_consensus`                 |\n"
@@ -77,6 +78,8 @@ class MFSubAgent(_SubAgent):
         "| Retrieve breaking news for symbol/theme   | `get_stock_news`                            |\n"
         "| Search ClickHouse database schemas/SQL    | `search_db_metadata`                        |\n\n"
         "## Routing rules\n"
+        "- 'compare multi asset holdings', 'compare mom multi asset', 'multi asset rotation',\n"
+        "  'where fund has conviction', 'multi asset holdings since june' → `run_multi_asset_mom_rotation`\n"
         "- 'small cap stocks owned by multi asset funds', 'which small caps do funds hold',\n"
         "  'mid cap holdings in multi asset' → `get_mf_holdings_by_cap_category(cap_category='Small Cap', fund_filter='multi_asset')`\n"
         "- 'pattern across multi-asset funds', 'what are funds collectively buying', "
@@ -191,6 +194,7 @@ class MFSubAgent(_SubAgent):
     def _get_tools(self) -> list:
         from src.tools.skills_tools import (
             run_multi_asset_holdings_mom_yoy,
+            run_multi_asset_mom_rotation,
             run_multi_asset_consensus,
             run_whale_tracker,
             run_dsp_multi_asset_comparison,
@@ -211,6 +215,7 @@ class MFSubAgent(_SubAgent):
         from src.tools.news_search import get_stock_news
         return [
             run_multi_asset_holdings_mom_yoy,
+            run_multi_asset_mom_rotation,
             run_multi_asset_consensus,
             run_whale_tracker,
             run_dsp_multi_asset_comparison,
@@ -355,6 +360,16 @@ class MFSubAgent(_SubAgent):
                 r"^(show|get|what|how)\s+", "", question, flags=_re.I
             ).strip().rstrip("?.")
             return run_fund_mom_returns.invoke({"search": sub})
+
+        # ── Cross-fund Multi-Asset MoM Comparison & Rotation ─────────────────
+        if any(kw in q for kw in (
+            "compare mom", "compare multi asset", "multi asset rotation",
+            "multi asset holding since", "multi asset conviction",
+            "where fund has conviction", "multi asset mom",
+        )):
+            logger.info("MFSubAgent._fallback: multi-asset mom rotation comparator path")
+            from src.tools.skills_tools import run_multi_asset_mom_rotation
+            return run_multi_asset_mom_rotation.invoke({"since_month": "2026-06-01"})
 
         # ── MoM / YoY position changes (default) ──────────────────────────────
         if any(kw in q for kw in (

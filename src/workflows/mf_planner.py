@@ -75,6 +75,11 @@ Each step is one sentence describing WHAT to look up and WHICH tool to use.
 
 Available tools
 ───────────────
+run_multi_asset_mom_rotation(since_month='YYYY-MM-DD', top=N, funds='NAME')
+    Compare MoM multi-asset fund holdings, asset-class weight shifts, equity sector rotation,
+    and single-asset conviction anchors across all multi-asset funds.
+    Use for: "compare MOM multi asset", "multi asset rotation", "where fund has conviction", "multi asset holdings since June".
+
 run_multi_asset_consensus()
     Cross-fund consensus: which securities are all multi-asset funds collectively buying/trimming.
     Use for: "smart money", "pattern across funds", "collectively buying".
@@ -171,6 +176,7 @@ Rules:
 def _get_mf_tools() -> list:
     from src.tools.skills_tools import (
         run_multi_asset_holdings_mom_yoy,
+        run_multi_asset_mom_rotation,
         run_multi_asset_consensus,
         run_whale_tracker,
         run_dsp_multi_asset_comparison,
@@ -184,6 +190,7 @@ def _get_mf_tools() -> list:
     from src.tools.news_search import get_stock_news
     return [
         run_multi_asset_holdings_mom_yoy,
+        run_multi_asset_mom_rotation,
         run_multi_asset_consensus,
         run_whale_tracker,
         run_dsp_multi_asset_comparison,
@@ -297,6 +304,9 @@ def _keyword_execute(step: str, config: RunnableConfig) -> str:
     """Keyword-based fallback executor for local models without tool-calling."""
     s = step.lower()
     try:
+        if "rotation" in s or "compare mom" in s or "mom_rotation" in s or "conviction" in s:
+            from src.tools.skills_tools import run_multi_asset_mom_rotation
+            return str(run_multi_asset_mom_rotation.invoke({"since_month": "2026-06-01"}, config=config))
         if "consensus" in s:
             from src.tools.skills_tools import run_multi_asset_consensus
             period = "yoy" if "yoy" in s else "mom"
@@ -482,6 +492,10 @@ def _generate_plan(question: str, callbacks: list | None = None) -> list[str]:
 def _keyword_plan(question: str) -> list[str]:
     """Fast keyword-based plan for local models without structured output."""
     q = question.lower()
+    if any(k in q for k in ("compare mom", "compare multi asset", "multi asset rotation", "multi asset holding since", "where fund has conviction", "conviction")):
+        return [
+            "Call run_multi_asset_mom_rotation(since_month='2026-06-01') to compare multi-asset holdings, rotation & conviction",
+        ]
     if any(k in q for k in ("consensus", "collectively", "smart money", "all fund", "pattern")):
         return [
             "Call run_multi_asset_consensus() to see cross-fund holdings regime",

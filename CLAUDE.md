@@ -47,6 +47,7 @@ python tests/test_news_sentiment.py
 python tests/test_cache.py
 python tests/test_inav_cli.py
 python tests/test_macro_theme_agent.py
+python -m pytest tests/test_vlrt.py       # VLRT v3 (synthetic data, no services)
 
 # Integration tests (require live ClickHouse)
 python tests/_test_importer.py
@@ -100,6 +101,7 @@ CLI (src/main.py)
 | DB Pool | `src/db/pool.py` | Thread-safe `CHPool` singleton (`get_pool()`); all service modules share pooled connections |
 | Events | `src/events/` | `EventBus` singleton, `DataImportedEvent`, `Observer` ABC, 4 post-import hooks |
 | ML | `src/ml/` | LightGBM 5-day forecast (`trend_predictor`), composite anomaly (`anomaly`), OU mean-reversion premium fit (`ou_estimator`). `run_composite_anomaly(df, df_cot, df_fx, df_corp_actions, symbol, category)` → 5-step pipeline: MAD-Z → GARCH(1,1) → Isolation Forest → PELT change-point → Company Event classification. Suppresses corporate actions from `is_anomaly` for ETFs only; requires ≥60 rows. **ETF premium strategy (intl ETFs) full reference: [etf-premium-strategy.md](etf-premium-strategy.md).** |
+| VLRT | `src/vlrt/` | Tactical asset allocator (equity/pm/cash). `data.py` (point-in-time load + integrity gates), `pillars.py` (V/L/R/T via causal expanding percentile rank), `allocate.py` (continuous tilt + inverse-vol + box-simplex projection), `backtest.py` (walk-forward, block bootstrap, shuffled-signal null), `replicate.py` (panel across both multi-asset funds), `strategic.py` (annual-rebalance variant, terminal wealth / rolling CAGR), `report.py`. Run: `python src/scripts/portfolio/vlrt_v3.py` or `vlrt_v3_strategic.py`. **Measured: full-sample composite beats a shuffled-signal null (p=0.002) but this does not survive to the hold-out window, to concrete benchmark comparisons, to an annual-tilt reframe, or to fund replication — three distinct gaps (statistical power / signal-horizon mismatch / fund-replication), each tested and mostly ruled out — see [vlrt-v3.md](docs/vlrt-v3.md).** |
 | Models | `src/models/portfolio.py` | Pydantic: `Holding`, `Portfolio`, `InstrumentType`, `Sentiment` |
 | Config | `config/settings.py` | Pydantic `BaseSettings`; all settings loaded from `.env` |
 | UI | `src/ui/app.py` | Streamlit data hub (5 tabs over ClickHouse data) |
@@ -305,6 +307,6 @@ conclusion lands back in the main session — not the raw exploration output.
   - `fund_imports/` — Factory-pattern AMC importers; run via `python src/scripts/fund_imports/run.py <icici|nippon|icici-index|all> [--dry-run] [--test]`. `base.py` has the `BaseFundImporter` ABC; `importers/` has one class per AMC; `factory.py` has `create_importer(name)`.
   - `etf/` — ETF comparison, CAGR validation, risk analysis
   - `ml/` — ML prediction backfill and evaluation
-  - `portfolio/` — portfolio tracking, health checks, opportunity scan, parallel stock import (`import_stocks_parallel.py`); cross-AMC whale accumulation scanner (`whale_accumulation_scanner.py` — consensus_score + optional RSI/drawdown/volume-surge technical confirmation); concentration risk/HHI, crowding & contrarian signal, fund overlap matrix, portfolio X-ray, rolling returns, SIP backtester
+  - `portfolio/` — portfolio tracking, health checks, opportunity scan, parallel stock import (`import_stocks_parallel.py`); cross-AMC whale accumulation scanner (`whale_accumulation_scanner.py` — consensus_score + optional RSI/drawdown/volume-surge technical confirmation); concentration risk/HHI, crowding & contrarian signal, fund overlap matrix, portfolio X-ray, rolling returns, SIP backtester; `vlrt_v3.py` (VLRT v3 allocator CLI — see `src/vlrt/`), `quant_vlrt_simulator.py` (VLRT v2, retained for A/B; **known to have no skill**)
   - `market/` — macro themes, FII/DII, metals, sentiment, per-fund whale/theme tracker (`whale_tracker.py`)
   - `db/` — ClickHouse backup, restore, sanity checks, and data quality repairs (`fix_bad_data.py`)
