@@ -118,3 +118,4 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
   - Agent Orchestration & Playbooks: [docs/agent-architecture.md](docs/agent-architecture.md)
   - Anomaly Detection Pipeline: [docs/anomaly-detection.md](docs/anomaly-detection.md)
   - Vector RAG & Qdrant Collections: [docs/rag-architecture.md](docs/rag-architecture.md)
+  - Dynamic Asset Allocation (VLRT v3): [docs/vlrt-v3.md](docs/vlrt-v3.md)

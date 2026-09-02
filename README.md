@@ -285,6 +285,7 @@ Both stay in sync automatically — `python scripts/sync_agy_agents.py` regenera
 | [Agent Architecture](docs/agent-architecture.md) | AI routing and workflow design |
 | [Anomaly Detection](docs/anomaly-detection.md) | 5-step pipeline, Correlation Engine, Qdrant integration |
 | [ETF Premium Strategy](docs/etf-premium-strategy.md) | Ornstein-Uhlenbeck premium strategy for international ETFs — buy/sell zones, forward path |
+| [VLRT v3 Allocation Framework](docs/vlrt-v3.md) | 4-pillar dynamic asset allocation, backtests & replication simulator |
 
 ---
 
