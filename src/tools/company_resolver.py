@@ -1308,3 +1308,110 @@ def resolve_company(query: str) -> dict:
       symbol, nse_symbol, yf_symbol, exchange, market, company_name, currency, source
     """
     return resolve_company_info(query)
+
+
+@tool
+def resolve_isin(isin: str, company_name: str = "") -> dict:
+    """Resolve an Indian security ISIN (e.g. INE084101034) to its trading ticker and exchange.
+
+    Checks:
+      1. Local data/isin_ticker_cache.json
+      2. Yahoo Finance ISIN search (query2.finance.yahoo.com/v1/finance/search?q={isin})
+      3. Fallback search by company_name if ISIN query yields no quotes.
+
+    Returns dict with {isin, symbol, yf_symbol, exchange, resolved}.
+    """
+    import json
+    from pathlib import Path
+
+    clean_isin = isin.strip().upper()
+    cache_path = Path("data/isin_ticker_cache.json")
+    cache: dict[str, str] = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r") as f:
+                cache = json.load(f)
+        except Exception as e:
+            log.warning("Could not read ISIN cache: %s", e)
+
+    # 1. Cache hit
+    if clean_isin in cache:
+        yf_sym = cache[clean_isin]
+        base_sym = re.sub(r"\.(NS|BO|BSE)$", "", yf_sym, flags=re.I)
+        exc = "BSE" if yf_sym.endswith(".BO") or yf_sym.endswith(".BSE") else "NSE"
+        return {
+            "isin": clean_isin,
+            "symbol": base_sym,
+            "yf_symbol": yf_sym,
+            "exchange": exc,
+            "resolved": True,
+            "source": "cache",
+        }
+
+    # 2. Yahoo Finance ISIN query
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={clean_isin}"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code == 200:
+            quotes = r.json().get("quotes", [])
+            for q in quotes:
+                sym = q.get("symbol", "")
+                if sym and (sym.endswith(".NS") or sym.endswith(".BO")):
+                    cache[clean_isin] = sym
+                    try:
+                        with open(cache_path, "w") as f:
+                            json.dump(cache, f, indent=2)
+                    except Exception:
+                        pass
+                    base_sym = re.sub(r"\.(NS|BO|BSE)$", "", sym, flags=re.I)
+                    exc = "BSE" if sym.endswith(".BO") else "NSE"
+                    return {
+                        "isin": clean_isin,
+                        "symbol": base_sym,
+                        "yf_symbol": sym,
+                        "exchange": exc,
+                        "resolved": True,
+                        "source": "yahoo_isin_search",
+                    }
+    except Exception as exc:
+        log.warning("Yahoo ISIN search failed for %s: %s", clean_isin, exc)
+
+    # 3. Fallback to company_name search
+    if company_name:
+        clean_name = re.sub(r"\b(Ltd|Limited|Corp|India)\b", "", company_name, flags=re.I).strip()
+        url2 = f"https://query2.finance.yahoo.com/v1/finance/search?q={clean_name}"
+        try:
+            r2 = requests.get(url2, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            if r2.status_code == 200:
+                quotes2 = r2.json().get("quotes", [])
+                for q in quotes2:
+                    sym = q.get("symbol", "")
+                    if sym and (sym.endswith(".NS") or sym.endswith(".BO")):
+                        cache[clean_isin] = sym
+                        try:
+                            with open(cache_path, "w") as f:
+                                json.dump(cache, f, indent=2)
+                        except Exception:
+                            pass
+                        base_sym = re.sub(r"\.(NS|BO|BSE)$", "", sym, flags=re.I)
+                        exc = "BSE" if sym.endswith(".BO") else "NSE"
+                        return {
+                            "isin": clean_isin,
+                            "symbol": base_sym,
+                            "yf_symbol": sym,
+                            "exchange": exc,
+                            "resolved": True,
+                            "source": "yahoo_name_search",
+                        }
+        except Exception as exc:
+            log.warning("Yahoo name search failed for %s: %s", clean_name, exc)
+
+    return {
+        "isin": clean_isin,
+        "symbol": "",
+        "yf_symbol": "",
+        "exchange": "",
+        "resolved": False,
+        "source": "unresolved",
+    }
+

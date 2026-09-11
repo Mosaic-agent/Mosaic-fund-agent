@@ -66,7 +66,7 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
     if df.empty:
         import yfinance as yf
         t = yf.Ticker(f"{clean_sym}.NS")
-        df = t.history(period="6m").reset_index()
+        df = t.history(period="6mo").reset_index()
         df = df.rename(columns={"Date": "trade_date", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
 
     if df.empty:
