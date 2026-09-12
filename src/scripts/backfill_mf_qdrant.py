@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 _BATCH = 200   # holdings rows per embed call
 
 
-def run(limit: int = 0, dry_run: bool = False) -> None:
+def run(limit: int = 0, dry_run: bool = False, fund_filter: str = "") -> None:
     from src.db.pool import query_df
     from src.db.mf_vector import (
         _do_vectorize_holdings,
@@ -72,6 +72,9 @@ def run(limit: int = 0, dry_run: bool = False) -> None:
         return
 
     funds = df["fund_name"].unique().tolist()
+    if fund_filter:
+        funds = [f for f in funds if fund_filter.lower() in f.lower()]
+        df = df[df["fund_name"].isin(funds)]
     if limit:
         funds = funds[:limit]
         df = df[df["fund_name"].isin(funds)]
@@ -127,7 +130,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill MF holdings into Qdrant")
     parser.add_argument("--limit", type=int, default=0,
                         help="Process only N funds (0 = all). Use 5 for a quick demo.")
+    parser.add_argument("--filter", type=str, default="",
+                        help="Filter funds matching this substring (e.g. 'QSIF' or 'DSP').")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print what would be vectorized without touching Qdrant.")
     args = parser.parse_args()
-    run(limit=args.limit, dry_run=args.dry_run)
+    run(limit=args.limit, dry_run=args.dry_run, fund_filter=args.filter)
