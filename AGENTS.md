@@ -107,6 +107,12 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
   3. **Plotext 2D Terminal Charts** for price trends, volume spikes, and coordinate graphs.
   4. **Diff Code Blocks** (`diff` syntax with `+` in green, `-` in red) for Month-over-Month (MoM) shifts, additions, and trims.
 
+### 14. Zero-Synthetic-Labeling & Attribution Integrity Protocol
+- **Never Synthesize Status Labels for Missing Data**: If a security's price or ISIN cannot be resolved, emit `[UNRESOLVED_SECURITY: isin=...]` and report the unpriced weight percentage. NEVER invent narrative tags ('Unlisted', 'Pre-IPO', 'Delisted', 'Private Placement') to paper over pipeline lookup gaps. Always resolve via `src.tools.company_resolver.resolve_isin()`.
+- **Minimum Coverage Gate**: If unpriced holdings exceed 5% of an asset sleeve's weight, SUPPRESS aggregate portfolio metrics (weighted drawdown, beta, barbell ratios) rather than computing them over partial data and fabricating narrative.
+- **Attribution Conservation Law**: Before attributing returns to an asset sleeve, execute the contribution equation $\sum (w_i \times r_i) \approx \Delta \text{NAV}$. Never credit high fund returns to low-yielding cash or debt ballast.
+- **Drawdown Rigor**: At an All-Time High, acknowledge that 0.00% current drawdown is a definition, not an analysis. Shift focus to full-period Maximum Historical Drawdown and forward drawdown capacity / single-stock concentration stress testing.
+
 ---
 
 ## ClickHouse Schema & Documentation References

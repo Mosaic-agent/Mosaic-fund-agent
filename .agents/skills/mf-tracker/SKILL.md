@@ -385,3 +385,130 @@ LIMIT 12;
 1. **Verify Dilution Before Flagging Promoter Sale:** A drop in promoter % is **not** a sell signal if total shares outstanding expanded (QIP, preferential allotment, bonus, ESOPs). Always verify whether the denominator expanded before drawing a sale conclusion.
 2. **DSP Active Cross-Ownership = Highest Conviction:** 2+ active DSP funds holding a stock for 24+ months is the strongest single-name conviction signal in Mosaic.
 3. **No LLM Math:** Never compute percentages, CAGR, or totals in internal reasoning — always read pre-computed output rows from ClickHouse SQL or script outputs verbatim.
+
+---
+
+## 🏛️ 9. Standard Institutional Single-Fund MoM Reporting Template
+
+Whenever `MosaicFundAgent`, `MFSubAgent`, or `mf_planner` produces a holding disclosure or MoM/YoY portfolio analysis for an individual fund (mutual fund, AIF, or SIF), it MUST format the output using this standard 7-section institutional structure:
+
+```markdown
+### 📊 [Fund Name]: Portfolio Disclosure & MoM Shifts
+- **Fund Identity**: Exact canonical scheme/fund name
+- **SEBI Classification**: (e.g., Multi Asset Allocation, Category III Long-Short AIF/SIF, Large & Mid Cap)
+- **Reporting Horizon**: Prior Month (`YYYY-MM-DD`) ➔ Latest Month (`YYYY-MM-DD`) (Latest Statutory Filing)
+
+---
+
+### 🏛️ Executive Summary & Macro Shift
+- **AUM Expansion/Contraction**: Total market value in ₹ Cr and % AUM delta.
+- **Equity Beta & De-risking**: Net equity exposure shift, cash allocation, and hedge ratio.
+- **Short / Derivative Hedges**: Initiation, scaling, or covering of single-stock short derivatives.
+- **Sector Rotation**: Complete sector exits and new thematic anchors.
+- **Delta-Neutral / Pair Structures**: Any simultaneous cash-long vs futures-short box or hedge spreads.
+
+---
+
+### 🔄 Macro Transmission & Allocation Grid
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                      PORTFOLIO DYNAMICS & CAPITAL TRANSMISSION                         │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+                                            │
+                    ┌───────────────────────┴───────────────────────┐
+                    ▼                                               ▼
+         [CASH & LIQUIDITY PILLAR]                       [EQUITY RISK PILLAR]
+        XX.XX% of NAV (₹XX.XX Cr)                      Gross Exposure: XX.XX%
+     (TREPS: XX.XX% | T-Bills: X.XX%)               (Longs: XX.XX% | Shorts: XX.XX%)
+                    │                                               │
+                    │                               ┌───────────────┴───────────────┐
+                    │                               ▼                               ▼
+                    │                       [LONG POSITIONS]                [SHORT HEDGES]
+                    │                       • Stock A: X.XX%                • Future A: -X.XX%
+                    │                               │                               │
+                    └───────────────────────┬───────┴───────────────────────────────┘
+                                            ▼
+                                  [NET EQUITY POSITION]
+                              XX.XX% Net Long / Exposure
+```
+
+---
+
+### 📦 Asset Allocation Breakdown Comparison
+
+| Component | Prev Month (% NAV) | Curr Month (% NAV) | Net Shift (% NAV) | Curr Value (₹ Cr) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Long Cash Equities** | XX.XX% | XX.XX% | **±X.XX%** | ₹XX.XX Cr |
+| **Short / Derivative Hedges** | -X.XX% | -X.XX% | **±X.XX%** | -₹XX.XX Cr |
+| **Net Equity Exposure** | **XX.XX%** | **XX.XX%** | **±X.XX%** | **₹XX.XX Cr** |
+| **Gross Derivatives & Equities** | XX.XX% | XX.XX% | **±X.XX%** | ₹XX.XX Cr |
+| **TREPS / Overnight Lending** | XX.XX% | XX.XX% | **±X.XX%** | ₹XX.XX Cr |
+| **Treasury Bills / G-Secs** | XX.XX% | XX.XX% | **±X.XX%** | ₹XX.XX Cr |
+| **Net Current Assets (NCA)** | ±X.XX% | ±X.XX% | **±X.XX%** | ₹XX.XX Cr |
+| **Total Fund Net Assets** | **100.00%** | **100.00%** | — | **₹XX.XX Cr** |
+
+---
+
+### 📋 Portfolio Shifts & Rebalancing Heatmap
+
+```diff
+# ─── NEW LONG POSITIONS ENTERED ───────────────────────────────────────────────
++ Company A Ltd                      :  X.XX% of NAV  (₹XX.XX Cr)  [New Core Holding]
+
+# ─── NEW SHORT / HEDGE DERIVATIVES INITIATED ──────────────────────────────────
+- Company B Ltd (Short Future)       : -X.XX% of NAV  (-₹XX.XX Cr) [Pair Hedge]
+
+# ─── COMPLETE LONG EXITS (LIQUIDATED) ────────────────────────────────────────
+- Company C Ltd                      :  0.00% (was X.XX%, ₹XX.XX Cr) [Complete Exit]
+
+# ─── TRIMMED POSITIONS ────────────────────────────────────────────────────────
+- Company D Ltd                      :  X.XX% (was X.XX%, -X.XX% NAV cut to ₹XX.XX Cr)
+
+# ─── INCREASED CONVICTION POSITIONS ───────────────────────────────────────────
++ Company E Ltd                      :  X.XX% (was X.XX%, +X.XX% NAV added to ₹XX.XX Cr)
+```
+*(Note: Distinguish continuous overnight cash/TREPS rollover cycles from actual equity sales/liquidations).*
+
+---
+
+### 🗺️ Institutional Strategy Fitment Guide
+
+```
+                           INSTITUTIONAL ALLOCATION MANDATE
+                                         │
+                 ┌───────────────────────┴───────────────────────┐
+                 ▼                                               ▼
+         [DIRECTIONAL BETA]                             [ABSOLUTE ALPHA / HEDGE]
+     Long-biased Equity / Growth                      Long-Short / Asymmetric Alpha
+                 │                                               │
+                 ▼                                               ▼
+        [STANDARD SCHEME]                               [FOCUSED HEDGE SCHEME]
+    ┌──────────────────────────────┐            ┌──────────────────────────────┐
+    │ Mandate:                     │            │ Mandate:                     │
+    │ • Net Long: 80-100%          │            │ • Net Long: 20-50%           │
+    │ • Low cash drag              │            │ • Active Short Overlay       │
+    │ • Outperforms in bull runs   │            │ • Downside suppression      │
+    └──────────────────────────────┘            └──────────────────────────────┘
+                 │                                               │
+                 └───────────────────────┬───────────────────────┘
+                                         ▼
+                               [RECOMMENDED REGIME]
+                Prescribed market macro condition and investor profile.
+```
+
+---
+
+### 🔍 Data Provenance Audit
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              DATA PROVENANCE & FOOTPRINT                               │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ • ClickHouse Table : market_data.mf_holdings FINAL (localhost:8123)                    │
+│ • Fund Identifier  : [EXACT_CANONICAL_FUND_NAME]                                       │
+│ • Statutory Source : AMC Disclosure Portal / SEBI Regulatory Filing                    │
+│ • Periods Analyzed : [PREV_DATE] (XX rows) vs [CURR_DATE] (XX rows)                   │
+│ • Calculation Mode : Zero-trust verification against ClickHouse SQL aggregates         │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+```

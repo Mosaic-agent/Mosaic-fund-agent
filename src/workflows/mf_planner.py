@@ -84,12 +84,12 @@ run_multi_asset_consensus()
     Cross-fund consensus: which securities are all multi-asset funds collectively buying/trimming.
     Use for: "smart money", "pattern across funds", "collectively buying".
 
-run_multi_asset_holdings_mom_yoy(fund=NAME)
-    MoM/YoY position changes for a single fund. fund= values:
-      DSP_MULTI_ASSET | DSP_MULTI_ASSET_OMNI_FOF
-      NIPPON_INDIA_MULTI_ASSET_ALLOCATION_FUND | NIPPON_INDIA_MULTI_ASSET_OMNI_FOF
-      BAJAJ_FINSERV_MULTI_ASSET_ALLOCATION_FUND | QUANT_MULTI_ASSET
-    Use for: "MoM/YoY changes in <fund>", "top adds/exits in <fund>".
+run_multi_asset_holdings_mom_yoy(fund=NAME or search=TEXT)
+    MoM/YoY position changes for a single fund. Pass exact fund=NAME or fuzzy search=TEXT:
+      Examples: search='QSIF Active', fund='QSIF_ACTIVE_ASSET_ALLOCATOR_LONG_SHORT',
+      fund='DSP_MULTI_ASSET', fund='NIPPON_INDIA_MULTI_ASSET_ALLOCATION_FUND',
+      fund='QUANT_MULTI_ASSET', fund='BAJAJ_FINSERV_MULTI_ASSET_ALLOCATION_FUND', etc.
+    Use for: "MoM/YoY changes in <fund>", "holdings of <fund>", "top adds/exits in <fund>".
 
 run_whale_tracker()
     Theme-level exposure (Gold/Silver/Nuclear/Infra) across all 7 multi-asset funds.
@@ -104,8 +104,9 @@ get_mf_holdings_by_cap_category(cap_category='Small Cap', fund_filter='multi_ass
     Joins mf_holdings with amfi_market_cap on isin.
     Use for: "which small-cap stocks are owned by multi-asset funds", "mid-cap holdings in DSP".
 
-find_funds_holding(query=TEXT)
-    Qdrant semantic search: find funds holding a security or ISIN.
+find_funds_holding(query=STOCK_OR_SECURITY_NAME)
+    Qdrant semantic search: find which funds hold a specific STOCK or SECURITY (e.g. 'Reliance', 'HDFC Bank').
+    Do NOT use for fund name lookups.
 
 run_fund_mom_returns(scheme_code=CODE or search=TEXT)
     NAV MoM return history for any Indian MF.
@@ -168,6 +169,10 @@ Rules:
   4. Whale Tracker Thematic Allocations (Gold/Silver, Nuclear/Grid, Energy, Infra/REITs)
   5. Directional Summary ("What this signals")
 - NEVER compute numbers yourself — narrate only verbatim from the tool results above.
+  This includes attribution splits, weighted drawdowns, and stress-test/scenario payoffs
+  derived by applying a hypothetical weight or beta — if no step result already contains
+  the number, choose "revise" to add a step that computes it via a tool, or state plainly
+  that it is not computable from available tool output.
 """
 
 
@@ -238,6 +243,27 @@ def _build_compact_past_context(past_steps: list, max_total_chars: int = 250_000
 
 # ── Node: executor ────────────────────────────────────────────────────────────
 
+_executor_agent_cache: "Any" = None   # built once per process; tool schemas don't change per-question
+
+
+def _get_executor_agent(llm: "Any") -> "Any":
+    """Build (once) and reuse the executor's mini ReAct agent.
+
+    create_react_agent rebinds all 15 MF tool schemas on every call; since the
+    tool list and prompt are static for the process lifetime, rebuilding it on
+    every single plan step (4-6x per question) is pure wasted latency.
+    """
+    global _executor_agent_cache
+    if _executor_agent_cache is None:
+        from langgraph.prebuilt import create_react_agent
+        _executor_agent_cache = create_react_agent(
+            model=llm,
+            tools=_get_mf_tools(),
+            prompt=_EXECUTOR_PROMPT,
+        )
+    return _executor_agent_cache
+
+
 def _executor_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
     """Execute the next step from the plan using a mini ReAct agent."""
     if not state["plan"]:
@@ -257,13 +283,7 @@ def _executor_node(state: MFPlanExecute, config: RunnableConfig) -> dict:
         # No LLM — keyword-route the step
         result_str = _keyword_execute(next_step, config)
     else:
-        from langgraph.prebuilt import create_react_agent
-        tools = _get_mf_tools()
-        executor_agent = create_react_agent(
-            model=llm,
-            tools=tools,
-            prompt=_EXECUTOR_PROMPT,
-        )
+        executor_agent = _get_executor_agent(llm)
         try:
             exec_result = executor_agent.invoke(
                 {"messages": [HumanMessage(
@@ -405,17 +425,46 @@ def _synthesise_past_steps(state: MFPlanExecute, config: RunnableConfig | None =
     try:
         synth_prompt = (
             "You are a senior institutional mutual fund quantitative research analyst for the Mosaic platform.\n"
-            "Synthesise all gathered data and past steps into a structured, executive-grade research report formatted with:\n"
+            "Synthesise all gathered data and past steps into a structured, executive-grade research report.\n\n"
+            "FOR SINGLE-FUND HOLDINGS / MoM / DISCLOSURE SHIFTS, follow this standard 7-section institutional template:\n"
+            "### 📊 [Fund Name]: Portfolio Disclosure & MoM Shifts\n"
+            "  - Fund Identity, SEBI Category, Reporting Horizon\n"
+            "### 🏛️ Executive Summary & Macro Shift\n"
+            "  - Bullet points covering AUM growth/delta, net equity vs cash shifts, derivative/short overlay changes, sector rotation, and arbitrage/pair trades.\n"
+            "### 🔄 Macro Transmission & Allocation Grid\n"
+            "  - Enclose a top-down box-and-arrow ASCII transmission grid (`┌──┐`, `│`, `└──┘`, `▲`, `▼`, `──►`) inside a fenced code block ``` mapping Cash/Liquidity vs Equity Risk Pillars to Net Equity Position.\n"
+            "### 📦 Asset Allocation Breakdown Comparison\n"
+            "  - Standard Markdown table (pipes `|` and hyphens `-`) with columns: Component | Prev Month (% NAV) | Curr Month (% NAV) | Net Shift (% NAV) | Curr Value (₹ Cr)\n"
+            "  - Break out Long Cash Equities, Short/Derivative Hedges, Net Equity Exposure, Gross Derivatives & Equities, TREPS/Cash, Treasury Bills, and Net Current Assets.\n"
+            "### 📋 Portfolio Shifts & Rebalancing Heatmap\n"
+            "  - Enclose in a ```diff code block categorized into:\n"
+            "    # ─── NEW LONG POSITIONS ENTERED (+)\n"
+            "    # ─── NEW SHORT / HEDGE DERIVATIVES INITIATED (-)\n"
+            "    # ─── COMPLETE LONG EXITS (LIQUIDATED) (-)\n"
+            "    # ─── TRIMMED POSITIONS (-)\n"
+            "    # ─── INCREASED CONVICTION POSITIONS (+)\n"
+            "  - Distinguish ongoing cash/TREPS rollovers from real stock buys/exits.\n"
+            "### 🗺️ Institutional Strategy Fitment Guide\n"
+            "  - Top-down box flowchart inside a fenced code block mapping investor mandate & market regime to strategy deployment.\n"
+            "### 🔍 Data Provenance Audit\n"
+            "  - Fenced block explicitly logging ClickHouse table (e.g. market_data.mf_holdings FINAL), fund name, statutory source, periods analyzed, and row counts.\n\n"
+            "FOR MULTI-FUND / CROSS-FUND CONSENSUS QUERIES:\n"
             "1. Executive Summary & Macro/Theme Overview\n"
             "2. Core Holdings Overlap Table (Standard Markdown table with pipes `|` and hyphens `-`)\n"
             "3. Active Shifts & Smart Money Rotation (Consensus Adds & Trims in clean Markdown tables)\n"
             "4. Whale Tracker Thematic Allocations (Precious Metals, Power/Nuclear Grid, Energy, Infra/REITs)\n"
-            "5. AMC Execution Profiles & Strategic Takeaways ('What this signals')\n\n"
+            "5. AMC Execution Profiles & Strategic Takeaways ('What this signals')\n"
+            "6. 🗺️ Institutional Strategy Fitment Guide (Mandated by Rule 12)\n"
+            "7. 🔍 Data Provenance Audit (Mandated by Rule 11)\n\n"
             "Formatting & Quality Rules:\n"
-            "- Always format structured data into clean, standard Markdown tables (pipes `|` and hyphens `-`).\n"
-            "- Never use ASCII/Unicode box-drawing or frame characters (such as ╭, ─, ┬, ┐, ├, ┼, ┤, ╰, ┴, ╯, ┌, ┐, │, etc.).\n"
+            "- Always format structured data into clean, standard Markdown tables (pipes `|` and hyphens `-`). Do not use box-drawing characters for markdown tables.\n"
+            "- Fenced code blocks (``` or ```diff) MUST be used for ASCII transmission grids, diff heatmaps, and fitment guides.\n"
             "- Group themes logically with clear headings and bullet points.\n"
             "- NEVER compute or derive numbers — cite only numbers present in the data verbatim.\n"
+            "- This also bans attribution splits ('sleeve X drove +Y% of the return'), weighted "
+            "drawdowns across a constituent list, and stress-test/scenario payoffs computed by "
+            "applying a hypothetical beta or shock to a weight. If the tool data does not already "
+            "contain the number, write 'not computable from available tool output' instead of deriving it.\n"
         )
 
         result = llm.invoke([

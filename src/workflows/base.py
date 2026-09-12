@@ -239,14 +239,23 @@ def _render_report(result: Any) -> str:
         return text
 
     # ── 3. Cleanup (on LLM text, BEFORE chart substitution) ──────────────────
-    # Strip box-drawing chars the LLM may have reproduced despite instructions.
+    # Strip box-drawing chars the LLM may have reproduced outside of code blocks.
+    # Fenced code blocks (such as ASCII transmission grids and fitment guides) are preserved.
     _CHART_LINE_RE = _re.compile(
         r"^.*[┤┼┌┐┘└├┬┴─]{3,}.*$|"
         r"^.*[████▓▓▒▒░░]{4,}.*$|"
         r"^.*▞▞.*▗▌.*$",
         _re.MULTILINE,
     )
+    _code_blocks: list[str] = []
+    def _preserve_code_block(m: _re.Match) -> str:
+        _code_blocks.append(m.group(0))
+        return f"__PRESERVED_CODE_BLOCK_{len(_code_blocks) - 1}__"
+
+    text = _re.sub(r"```[\s\S]*?```", _preserve_code_block, text)
     text = _CHART_LINE_RE.sub("", text)
+    for i, block in enumerate(_code_blocks):
+        text = text.replace(f"__PRESERVED_CODE_BLOCK_{i}__", block)
     text = _re.sub(r"```\s*```", "", text)
     text = _re.sub(r"\n{3,}", "\n\n", text)
 
