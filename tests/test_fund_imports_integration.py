@@ -95,7 +95,8 @@ class TestFactory:
             "icici", "nippon", "icici-index", "dsp", "quant", "bajaj", "amfi", "kotak", "hdfc",
             "abakkus", "abacus", "helios", "invesco", "canara", "canara_robeco", "canara-robeco",
             "mirae", "mirae_asset", "mirae-asset", "axis", "axis_mf", "axis-mf",
-            "motilal", "motilal_oswal", "motilal-oswal", "qsif", "edelweiss"
+            "motilal", "motilal_oswal", "motilal-oswal", "qsif", "edelweiss",
+            "altiva", "altiva-sif", "altiva_sif",
         }
         assert set(REGISTRY.keys()) == expected
 
