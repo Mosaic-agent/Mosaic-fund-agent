@@ -268,11 +268,11 @@
                 </div>
                 <div class="ingest-cat-pill">
                   <div class="ingest-cat-title" style="color:#fbbf24">Fund &amp; flows</div>
-                  <div class="ingest-cat-items">AMFI Flows · Morningstar · MFAPI · Sensibull FII/DII</div>
+                  <div class="ingest-cat-items">AMFI Flows · 14+ AMC Disclosures · MFAPI · Sensibull FII/DII</div>
                 </div>
                 <div class="ingest-cat-pill">
                   <div class="ingest-cat-title" style="color:#34d399">Macro &amp; metals</div>
-                  <div class="ingest-cat-items">CFTC COT · WGC Goldhub · World Bank · IMF</div>
+                  <div class="ingest-cat-items">RBI &amp; MOSPI · World Bank · IMF WEO · CFTC COT · COMEX</div>
                 </div>
                 <div class="ingest-cat-pill">
                   <div class="ingest-cat-title" style="color:#f472b6">News &amp; sentiment</div>
@@ -283,8 +283,8 @@
             <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
             <div class="flow-dual-stores">
               <div class="flow-store flow-node" data-inspect="clickhouse">
-                <div class="store-title"><span>ClickHouse lake</span><span style="font-size:11px;background:rgba(245,158,11,.2);padding:2px 6px;border-radius:4px;color:#fbbf24">27 tables</span></div>
-                <div class="store-tables">daily_prices · mf_holdings · amfi_category_flows<br/>corporate_actions · cot_gold · fx_rates · ml_predictions</div>
+                <div class="store-title"><span>ClickHouse lake</span><span style="font-size:11px;background:rgba(245,158,11,.2);padding:2px 6px;border-radius:4px;color:#fbbf24">37 tables</span></div>
+                <div class="store-tables">daily_prices · mf_holdings · amfi_category_flows · indian_macro_indicators<br/>bulk_block_deals · corporate_actions · cot_gold · fx_rates · ml_predictions</div>
                 <div class="store-meta">ReplacingMergeTree · watermark delta-sync</div>
               </div>
               <div class="flow-store qdrant flow-node" data-inspect="qdrant">
@@ -517,7 +517,7 @@
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/user_guide.md" class="doc-link"><span class="doc-icon">📖</span><div><div class="doc-link-title">User Guide</div><div class="doc-link-desc">Tutorials, CLI commands, database explorer, offline setup</div></div></a>
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/configuration.md" class="doc-link"><span class="doc-icon">⚙️</span><div><div class="doc-link-title">Configuration</div><div class="doc-link-desc">All .env settings, LLM providers, local model setup</div></div></a>
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/import-schema.md" class="doc-link"><span class="doc-icon">🗄️</span><div><div class="doc-link-title">Import Schema</div><div class="doc-link-desc">All categories, ClickHouse tables, cron schedules</div></div></a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/data-sources.md" class="doc-link"><span class="doc-icon">🌐</span><div><div class="doc-link-title">Data Sources</div><div class="doc-link-desc">APIs, feeds, and scraping strategy for all 14+ sources</div></div></a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/data-sources.md" class="doc-link"><span class="doc-icon">🌐</span><div><div class="doc-link-title">Data Sources</div><div class="doc-link-desc">APIs, feeds, and scraping strategy for all 19+ categories &amp; 14+ AMCs</div></div></a>
     </div>
   </div>
 </section>
