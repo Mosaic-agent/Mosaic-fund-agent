@@ -113,6 +113,21 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 - **Attribution Conservation Law**: Before attributing returns to an asset sleeve, execute the contribution equation $\sum (w_i \times r_i) \approx \Delta \text{NAV}$. Never credit high fund returns to low-yielding cash or debt ballast.
 - **Drawdown Rigor**: At an All-Time High, acknowledge that 0.00% current drawdown is a definition, not an analysis. Shift focus to full-period Maximum Historical Drawdown and forward drawdown capacity / single-stock concentration stress testing.
 
+### 15. Regulatory-First Triangulation & Cross-Metric Sanity Protocol
+To prevent compounding reporting failures in mutual funds, SIFs, and alternative strategies, strictly enforce the following gates before presenting performance, AUM, or portfolio metrics:
+
+- **Source Hierarchy (Tier 1 vs Tier 2)**: Statutory SEBI monthly portfolio filings (`.xlsx`/`.xml`) and AMFI portal disclosures are Tier-1 Authoritative Ground Truth. Marketing factsheets (PDFs), brochures, and web scrapes are Tier-2 unverified collateral. NEVER cite a Tier-2 figure without cross-validating against Tier-1. If they conflict, report the Tier-1 regulatory figure and explicitly disclose the marketing variance.
+- **Arithmetic Invariant Gate ($\Delta \text{NAV}$ Sanity Check)**: Before publishing any return table, verify:
+  $$\frac{\text{NAV}_{\text{current}} - \text{NAV}_{\text{NFO}}}{\text{NAV}_{\text{NFO}}} \times 100 \approx \text{Reported Since-Inception Return}$$
+  If $|\text{Reported Return} - \text{Implied Return}| > 1.0\%$, SUPPRESS the numbers and emit `[ARITHMETIC_MISMATCH: Reported=X%, Implied by NAV=Y%. Source figures contradictory — suppressed.]`.
+- **Temporal Date-Locking (One-Date Rule)**: Every metric in a single comparison row (NAV, 1M, 3M, Since Inception, AUM, Beta) MUST share the exact same `as_of_date`. NEVER splice an interim live web NAV with a prior month-end factsheet return.
+- **AUM Disambiguation (Regulatory Net AUM vs Gross Strategy Notional)**: Always explicitly qualify whether a fund size is **Audited Net AUM** ($\text{Units} \times \text{NAV}$ filed with AMFI) or **Gross Strategy Notional** (long equity + gross derivative notional cited in marketing brochures). If an AMC brochure cites a figure $>1.2\times$ the AMFI AAUM, append a mandatory disclosure flag.
+- **Metric-Label Locking**: NEVER extract financial ratios (Beta, Sharpe, Alpha) from unstructured narrative paragraphs without verifying the exact label key. Do not conflate net exposure percentages with portfolio beta.
+
+### 16. Stock & ETF Price Authority: Always Use NSE or Shoonya & Run in Container
+- **Price Authority**: For Indian stock and ETF prices, ALWAYS use NSE or Shoonya as the authoritative source of truth. NEVER rely on Yahoo Finance or fall back to AMC declared NAV for secondary market prices (which severely corrupts ETF premium/discount calculations, particularly for international ETFs subject to RBI scarcity caps).
+- **Container Execution Mandate**: NEVER use host-local Python/uv to execute tasks or pipelines (`uv run`). Always run everything inside the Docker container via `docker run --rm --network ofin-agent_default --env-file .env mosaic-fund-agent <cmd>` or `./mosaic.sh`.
+
 ---
 
 ## ClickHouse Schema & Documentation References
