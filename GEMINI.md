@@ -128,6 +128,13 @@ To prevent compounding reporting failures in mutual funds, SIFs, and alternative
 - **Price Authority**: For Indian stock and ETF prices, ALWAYS use NSE or Shoonya as the authoritative source of truth. NEVER rely on Yahoo Finance or fall back to AMC declared NAV for secondary market prices (which severely corrupts ETF premium/discount calculations, particularly for international ETFs subject to RBI scarcity caps).
 - **Container Execution Mandate**: NEVER use host-local Python/uv to execute tasks or pipelines (`uv run`). Always run everything inside the Docker container via `docker run --rm --network ofin-agent_default --env-file .env mosaic-fund-agent <cmd>` or `./mosaic.sh`.
 
+### 17. Holistic End-to-End Refresh Protocol
+Whenever the user asks to "refresh", "make db fresh", "update database", or invokes `/db-freshness`, the system MUST execute a complete, holistic update across ALL data and vector layers without leaving pending or stale components:
+1. **ClickHouse Delta-Sync**: Sync all registered market data categories (`python src/main.py import` covering stocks, etfs, indices, commodities, us_stocks, fx_rates, fii_dii, cot, bulk_deals, indian_macro).
+2. **Qdrant Vector DB Sync**: Re-embed and synchronize updated mutual fund holdings (`python -m src.scripts.backfill_mf_qdrant`) and vector anomaly points so Qdrant collections remain 100% synchronized with ClickHouse.
+3. **Signal & Quant Aggregation**: Run composite signal generator (`python src/main.py signals --save`) to refresh multi-pillar composite scores and regime labels.
+4. **Freshness Audit**: Run `python src/scripts/db/audit_freshness.py` to confirm 100% FRESH and SYNCED status across all ClickHouse tables and Qdrant collections.
+
 ---
 
 ## ClickHouse Schema & Documentation References
