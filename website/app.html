@@ -1475,19 +1475,19 @@ ORDER BY date ASC</div>
             </div>
             <div class="source-card" onclick="toggleSource(this)">
               <div class="source-info">
-                <span class="source-name">NSE India</span>
+                <span class="source-name">Shoonya / NSE</span>
+              </div>
+              <span class="source-indicator"></span>
+            </div>
+            <div class="source-card" onclick="toggleSource(this)">
+              <div class="source-info">
+                <span class="source-name">AMFI &amp; RBI</span>
               </div>
               <span class="source-indicator"></span>
             </div>
             <div class="source-card" onclick="toggleSource(this)">
               <div class="source-info">
                 <span class="source-name">Yahoo Fin</span>
-              </div>
-              <span class="source-indicator"></span>
-            </div>
-            <div class="source-card" onclick="toggleSource(this)">
-              <div class="source-info">
-                <span class="source-name">FRED</span>
               </div>
               <span class="source-indicator"></span>
             </div>
@@ -1504,10 +1504,12 @@ ORDER BY date ASC</div>
         <div class="glass-card desk-card">
           <div class="desk-title">📥 Ingestion Categories</div>
           <div class="check-list">
-            <label class="check-item"><input type="checkbox" id="ingest_etfs" checked> ETFs</label>
-            <label class="check-item"><input type="checkbox" id="ingest_stocks" checked> Stocks</label>
-            <label class="check-item"><input type="checkbox" id="ingest_mf" checked> Mutual Funds</label>
+            <label class="check-item"><input type="checkbox" id="ingest_etfs" checked> ETFs (Shoonya/NSE)</label>
+            <label class="check-item"><input type="checkbox" id="ingest_stocks" checked> Stocks (NSE/US)</label>
+            <label class="check-item"><input type="checkbox" id="ingest_mf" checked> Mutual Funds (14+ AMCs)</label>
             <label class="check-item"><input type="checkbox" id="ingest_fii_dii" checked> FII/DII Flows</label>
+            <label class="check-item"><input type="checkbox" id="ingest_macro" checked> Macro (RBI/World Bank/IMF)</label>
+            <label class="check-item"><input type="checkbox" id="ingest_deals" checked> Bulk &amp; Block Deals</label>
             <label class="check-item"><input type="checkbox" id="ingest_cot" checked> CFTC COT (Gold)</label>
             <label class="check-item"><input type="checkbox" id="ingest_fx" checked> FX Rates</label>
           </div>
@@ -2343,12 +2345,14 @@ ORDER BY date ASC</div>
 
     function triggerIngestPipeline() {
       const categories = [];
-      if (document.getElementById('ingest_etfs').checked) categories.push('etfs');
-      if (document.getElementById('ingest_stocks').checked) categories.push('stocks');
-      if (document.getElementById('ingest_mf').checked) categories.push('mf');
-      if (document.getElementById('ingest_fii_dii').checked) categories.push('fii_dii');
-      if (document.getElementById('ingest_cot').checked) categories.push('cot');
-      if (document.getElementById('ingest_fx').checked) categories.push('fx_rates');
+      if (document.getElementById('ingest_etfs')?.checked) categories.push('etfs');
+      if (document.getElementById('ingest_stocks')?.checked) categories.push('stocks');
+      if (document.getElementById('ingest_mf')?.checked) categories.push('mf');
+      if (document.getElementById('ingest_fii_dii')?.checked) categories.push('fii_dii');
+      if (document.getElementById('ingest_macro')?.checked) categories.push('indian_macro,world_bank,imf_weo');
+      if (document.getElementById('ingest_deals')?.checked) categories.push('bulk_deals');
+      if (document.getElementById('ingest_cot')?.checked) categories.push('cot');
+      if (document.getElementById('ingest_fx')?.checked) categories.push('fx_rates');
 
       const full = document.getElementById('ingest_full').checked;
       const dry = document.getElementById('ingest_dry').checked;
