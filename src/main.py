@@ -937,7 +937,7 @@ def import_data(
             "stocks, etfs, commodities, indices, nse_indices, fx_rates, us_stocks, "
             "mf, inav, nse_eod, "
             "cot, cb_reserves, etf_aum, mf_holdings, fii_dii, amfi_flows, "
-            "earnings, insider, valuation, "
+            "earnings, insider, valuation, events, bulk_deals, nse_delivery, "
             "world_bank, imf_weo, indian_macro, indian_macro_indicators, "
             "icici, nippon, icici-index, dsp, bajaj, quant, qsif, edelweiss, hdfc, kotak, abakkus, helios, invesco, canara, mirae, axis, motilal, all. "
             "Default: all."
