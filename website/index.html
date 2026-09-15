@@ -430,11 +430,11 @@
     .pipe-detail{ font-size: 12px; color: var(--text-2); line-height: 1.5; }
 
     /* ── Features grid ──────────────────────────────────────────── */
-    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-top: 56px; }
+    .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 36px; }
     .feature-card {
       background: #fff; border: 1.5px solid var(--border);
       border-top: 3px solid var(--teal);
-      border-radius: var(--radius-lg); padding: 28px;
+      border-radius: var(--radius-lg); padding: 20px;
       box-shadow: var(--sh-xs);
       transition: box-shadow .2s, transform .2s;
     }
@@ -656,6 +656,9 @@
     .agent-icon { font-size: 26px; flex-shrink: 0; line-height: 1; }
     .agent-card h4 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
     .agent-card p  { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+    .agents-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 32px; }
+    .agent-pill { background: #fff; border: 1.5px solid var(--border); border-radius: 999px; padding: 9px 16px; font-size: 13.5px; font-weight: 600; color: var(--text-2); box-shadow: var(--sh-xs); transition: box-shadow .2s, transform .2s, border-color .2s; }
+    .agent-pill:hover { box-shadow: var(--sh-sm); transform: translateY(-2px); border-color: var(--gold-bd); color: var(--text); }
 
     /* ── Stack pills ────────────────────────────────────────────── */
     .stack-row  { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 40px; }
@@ -800,8 +803,9 @@
       <a href="#anomaly">Why it moved</a>
       <a href="#gallery">Screenshots</a>
       <a href="#how">How it works</a>
+      <a href="architecture.html">Architecture</a>
       <a href="#quickstart">Quick Start</a>
-      <a href="#docs">Docs</a>
+      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/tree/main/docs">Docs</a>
       <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent" class="nav-cta">GitHub →</a>
     </div>
   </div>
@@ -1131,324 +1135,45 @@
 </section>
 
 <!-- ── HOW IT WORKS ──────────────────────────────────────────────── -->
-<section class="section" id="how">
+<!-- ── ARCHITECTURE AT A GLANCE ────────────────────────────────────── -->
+<section class="section arch-bg" id="how">
   <div class="container">
     <div class="section-label">Architecture</div>
-    <h2 class="section-title">How it works</h2>
+    <h2 class="section-title">One local pipeline, five quant engines, ten specialist agents</h2>
     <p class="section-body">
-      Data lands in a dual local lake (ClickHouse + Qdrant), fans out to five quant engines,
-      converges in a multi-agent orchestrator backed by a SQLite LLM cache so repeat questions
-      are free, and surfaces wherever you work.
+      Every question runs through the same path: data lands in ClickHouse &amp; a Qdrant vector store,
+      fans out to five quant engines, converges in a multi-agent orchestrator backed by a local cache,
+      and surfaces wherever you work &mdash; dashboard, CLI, chat, or PDF.
     </p>
 
-    <!-- Architecture Live Feature Badges & Simulator Control Bar -->
-    <div style="display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;margin:20px 0 28px">
-      <button class="btn-primary" id="simFlowBtn" style="padding:9px 22px;font-size:13.5px;background:linear-gradient(135deg,#2563eb,#0d9488);border:none;box-shadow:0 4px 16px rgba(37,99,235,0.4)">▶ Simulate Data Flow</button>
-      <span style="font-size:13px;color:var(--text-3);font-weight:500">💡 Click any component node below to inspect live schema & DDL</span>
-    </div>
-
-    <!-- Dark Glassmorphic Node Swimlane Canvas -->
-    <div class="flow-canvas">
-      <div class="flow">
-
-        <!-- Layer 1 data lake -->
-        <div class="flow-layer" id="flowLayer1">
-          <div class="flow-tag">① Ingest &amp; Store <span style="font-size:11px;color:#94a3b8;font-weight:400;margin-left:8px">💧 Watermark Delta-Sync Engine</span></div>
-          <div class="flow-lake">
-            <div class="flow-sources" style="flex:1.2">
-              <div style="font-size:13px;font-weight:700;color:var(--white);margin-bottom:8px;display:flex;align-items:center;gap:6px">
-                <span>⚡ 15 Fetcher Adapters (14 Live Data Feeds)</span>
-              </div>
-              <div class="ingest-grid">
-                <div class="ingest-cat-pill">
-                  <div class="ingest-cat-title">📈 Equities &amp; ETFs</div>
-                  <div class="ingest-cat-items">NSE Direct · Shoonya WS &amp; REST · Yahoo · Zerodha Kite</div>
-                </div>
-                <div class="ingest-cat-pill">
-                  <div class="ingest-cat-title" style="color:#fbbf24">📦 Fund &amp; Flows</div>
-                  <div class="ingest-cat-items">AMFI Flows · Morningstar · MFAPI · Sensibull FII/DII</div>
-                </div>
-                <div class="ingest-cat-pill">
-                  <div class="ingest-cat-title" style="color:#34d399">🌍 Macro &amp; Metals</div>
-                  <div class="ingest-cat-items">CFTC COT · WGC Goldhub · World Bank · IMF</div>
-                </div>
-                <div class="ingest-cat-pill">
-                  <div class="ingest-cat-title" style="color:#f472b6">📰 News &amp; Sentiment</div>
-                  <div class="ingest-cat-items">Google News RSS · NewsAPI</div>
-                </div>
-              </div>
-            </div>
-            <div class="wire-h"><span class="pulse-h"></span><span class="pulse-h p2"></span></div>
-            <div class="flow-dual-stores" style="display:flex;gap:12px;flex:1.8;flex-wrap:wrap">
-              <div class="flow-store flow-node" data-inspect="clickhouse" style="flex:1;min-width:180px">
-                <div class="store-title" style="display:flex;justify-content:space-between">
-                  <span>🗄️ ClickHouse Lake</span>
-                  <span style="font-size:11px;background:rgba(245,158,11,0.2);padding:2px 6px;border-radius:4px;color:#fbbf24">27 Tables</span>
-                </div>
-                <div class="store-tables">
-                  daily_prices · mf_holdings · amfi_category_flows<br/>
-                  corporate_actions · cot_gold · fx_rates · ml_predictions
-                </div>
-                <div class="store-meta">ReplacingMergeTree · watermark delta-sync</div>
-              </div>
-
-              <div class="flow-store qdrant flow-node" data-inspect="qdrant" style="flex:1;min-width:180px">
-                <div class="store-title" style="display:flex;justify-content:space-between">
-                  <span>🧬 Qdrant Vector DB</span>
-                  <span style="font-size:11px;background:rgba(220,36,76,0.2);padding:2px 6px;border-radius:4px;color:#f43f5e">5 Collections</span>
-                </div>
-                <div class="store-tables">
-                  market_anomalies · mf_holdings<br/>
-                  mf_fund_profiles · news_articles
-                </div>
-                <div class="store-meta" style="color:#6b7888">768-dim nomic-embed-text · COSINE</div>
-              </div>
-
-              <div class="flow-store flow-node" data-inspect="shoonya" style="flex:1;min-width:180px;background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.4)">
-                <div class="store-title" style="display:flex;justify-content:space-between;color:#34d399">
-                  <span>⚡ Shoonya Live Tick</span>
-                  <span style="font-size:11px;background:rgba(16,185,129,0.2);padding:2px 6px;border-radius:4px;color:#34d399">WS + REST 🔍</span>
-                </div>
-                <div class="store-tables" style="color:#a7f3d0">
-                  N2 WebSocket Broadcast · get_quotes<br/>
-                  L2 5-level Depth · VWAP · 52wk H/L
-                </div>
-                <div class="store-meta" style="color:#6ee7b7">Real-time WebSocket tick stream</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flow-conn">
-          <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-          <div class="conn-label">⚡ EventBus: DataImportedEvent → Auto-Invalidate Cache → Re-predict ML → Refresh Signals</div>
-        </div>
-
-        <!-- Layer 2 engine fan-out -->
-        <div class="flow-layer" id="flowLayer2">
-          <div class="flow-tag">② Compute five quant engines</div>
-          <div class="flow-engines">
-            <div class="engine e1 flow-node" data-inspect="signals">
-              <div class="e-ico">🎛️</div>
-              <h4>Signals 🔍</h4>
-              <p>6 pillars → 0–100 composite score</p>
-            </div>
-            <div class="engine e2 flow-node" data-inspect="ml">
-              <div class="e-ico">📈</div>
-              <h4>ML Forecast 🔍</h4>
-              <p>LightGBM 5-day return + quantile bounds</p>
-            </div>
-            <div class="engine e3 flow-node" data-inspect="volatility">
-              <div class="e-ico">⚖️</div>
-              <h4>Volatility 🔍</h4>
-              <p>GARCH(1,1) vol → Kelly sizing</p>
-            </div>
-            <div class="engine e4 flow-node" data-inspect="anomaly">
-              <div class="e-ico">🔬</div>
-              <h4>Anomaly 🔍</h4>
-              <p>MAD-Z → GARCH → Isolation Forest → PELT</p>
-            </div>
-            <div class="engine flow-node" style="border-top-color:#dc244c" data-inspect="rag">
-              <div class="e-ico">🧬</div>
-              <h4>Vector RAG 🔍</h4>
-              <p>768d nomic-embed-text cosine memory</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="flow-conn">
-          <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-          <div class="conn-label">converge</div>
-        </div>
-
-        <!-- Layer 3 orchestrator -->
-        <div class="flow-orch-row" id="flowLayer3">
-          <div class="flow-orch flow-node" data-inspect="agent">
-            <h4>🧠 Multi-Agent Orchestrator &amp; StateGraph Workflows <span style="color:#94a3b8;font-weight:400">(LangGraph ReAct) 🔍</span></h4>
-            <p>LLM intent router → 10 specialist sub-agents + StateGraph parallel pipelines (80-90% token savings)</p>
-          </div>
-          <div class="flow-cache flow-node" data-inspect="cache">
-            <div class="cache-title">⚡ SQLite LLM cache 🔍</div>
-            <div class="cache-meta">output/.cache · 24h TTL<br/>repeat questions return instantly</div>
-          </div>
-        </div>
-
-        <div class="flow-conn">
-          <div class="wire"><span class="pulse"></span><span class="pulse p2"></span></div>
-          <div class="conn-label">surface</div>
-        </div>
-
-        <!-- Layer 4 surfaces -->
-        <div class="flow-surfaces" id="flowLayer4">
-          <div class="surface-pill primary">📊 Streamlit Dashboard</div>
-          <div class="surface-pill">💬 Conversational ask</div>
-          <div class="surface-pill">⚡ ./mosaic.sh CLI</div>
-          <div class="surface-pill">🔌 Claude / Gemini MCP</div>
-          <div class="surface-pill">📄 PDF Report Export</div>
-        </div>
-
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-num">01 · Ingest &amp; store</div>
+        <div class="pipe-title">14+ live feeds</div>
+        <div class="pipe-detail">NSE, Shoonya, AMFI, CFTC COT &amp; news &rarr; ClickHouse (27 tables) + Qdrant (5 collections)</div>
       </div>
-
-      <!-- Node Inspector Output Drawer -->
-      <div class="node-inspector-panel" id="nodeInspector">
-        <div class="nip-head">
-          <span class="nip-title" id="nipTitle">Inspection Drawer</span>
-          <button class="nip-close" id="nipClose">&times;</button>
-        </div>
-        <div class="nip-code" id="nipCode">Select any node above to inspect table DDL, mathematical formulas, or agent configuration.</div>
+      <div class="pipeline-step">
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-num">02 · Compute</div>
+        <div class="pipe-title">5 quant engines</div>
+        <div class="pipe-detail">Composite signals · ML forecast · GARCH volatility · Anomaly detection · Vector RAG</div>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipe-arrow">→</span>
+        <div class="pipe-num">03 · Orchestrate</div>
+        <div class="pipe-title">10 specialist agents</div>
+        <div class="pipe-detail">LangGraph intent router + SQLite cache &mdash; repeat questions are free</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="pipe-num">04 · Surface</div>
+        <div class="pipe-title">Wherever you work</div>
+        <div class="pipe-detail">Streamlit dashboard · CLI · chat · Claude/Gemini MCP · PDF reports</div>
       </div>
     </div>
 
-    <div class="stack-row" style="margin-top:40px">
-      <div class="stack-pill"><span class="dot" style="background:var(--blue)"></span>Python 3.11+</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--gold)"></span>ClickHouse</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>LangGraph ReAct</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--red)"></span>LightGBM</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--green)"></span>GARCH + arch</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>Isolation Forest</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--blue)"></span>Streamlit</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--gold)"></span>Ollama / Gemma 4</div>
-      <div class="stack-pill"><span class="dot" style="background:var(--teal)"></span>OpenAI / Anthropic</div>
-      <div class="stack-pill"><span class="dot" style="background:#dc244c"></span>Qdrant</div>
-      <div class="stack-pill"><span class="dot" style="background:#8b5cf6"></span>nomic-embed-text</div>
-    </div>
-  </div>
-</section>
-
-<!-- ── QDRANT RAG ─────────────────────────────────────────────────── -->
-<section class="rag-section" id="rag">
-  <div class="container">
-    <div class="section-label">Vector Intelligence</div>
-    <h2 class="section-title">Qdrant RAG: semantic memory, not just SQL</h2>
-    <p class="section-body">
-      Five 768-dimensional collections store embedded representations of every anomaly, fund holding,
-      news article, and portfolio fingerprint. Vector similarity finds cross-asset correlations
-      and historical precedents that SQL <em>can't</em> express.
-    </p>
-
-    <div class="rag-grid">
-
-      <!-- Card 1: News → Anomaly Correlation -->
-      <div class="rag-card">
-        <div class="rag-card-head">
-          <div class="rag-card-tag news">News RAG · macro correlation</div>
-          <h3>Macro event → price shock correlation</h3>
-          <p>When an anomaly fires, PostMacroShockStrategy embeds the event text and queries <code style="color:#f59e0b;background:rgba(245,158,11,.1);padding:1px 5px;border-radius:3px">news_articles</code> for semantically related headlines in the ±7-day window, no date exact-match required.</p>
-        </div>
-        <div class="rag-flow">
-          <div class="rag-q">
-            <span class="rq-label">Anomaly detected</span>
-            <span class="rq-text">GOLDBEES −5.7% on 2026-05-19 · ⚡ Flash Crash (Z=−4.2)</span>
-          </div>
-          <div class="rag-arrow">
-            <span></span>
-            <div class="rag-badge">embed → query news_articles</div>
-            <span></span>
-          </div>
-          <div class="rag-r">
-            <span class="rr-label">Correlated news (cosine similarity)</span>
-            <div class="rr-row"><span class="rr-name">RBI surprise rate hold</span><span class="rr-sim">0.91</span></div>
-            <div class="rr-row"><span class="rr-name">India import duty hike gold</span><span class="rr-sim">0.87</span></div>
-            <div class="rr-row"><span class="rr-name">USDINR breaks 84.5 resistance</span><span class="rr-sim">0.82</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 2: MF Fund Similarity -->
-      <div class="rag-card">
-        <div class="rag-card-head">
-          <div class="rag-card-tag mf">Fund RAG · holdings &amp; allocation</div>
-          <h3>Cross-fund holdings &amp; allocation similarity</h3>
-          <p>22k+ fund positions (809 funds) embedded as text. Fund-level profiles capture equity/gold/bond/cash fingerprints. Two query modes: find which funds share a stock, or find funds with similar multi-asset allocation.</p>
-        </div>
-        <div class="rag-flow">
-          <div class="rag-q">
-            <span class="rq-label">Query</span>
-            <span class="rq-text">find_similar_funds("DSP_MULTI_ASSET")</span>
-          </div>
-          <div class="rag-arrow">
-            <span></span>
-            <div class="rag-badge">cosine → mf_fund_profiles</div>
-            <span></span>
-          </div>
-          <div class="rag-r">
-            <span class="rr-label">Similar portfolio composition</span>
-            <div class="rr-row"><span class="rr-name">ICICI_MULTI_ASSET</span><span style="color:#94a3b8;font-size:11px">eq 52% · gold 15% · bond 22%</span><span class="rr-sim">0.94</span></div>
-            <div class="rr-row"><span class="rr-name">QUANT_MULTI_ASSET</span><span style="color:#94a3b8;font-size:11px">eq 61% · gold 20% · bond 14%</span><span class="rr-sim">0.88</span></div>
-            <div class="rr-row"><span class="rr-name">BAJAJ_MULTI_ASSET</span><span style="color:#94a3b8;font-size:11px">eq 67% · gold 16% · bond 4%</span><span class="rr-sim">0.83</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 3: Historical Anomaly Precedents -->
-      <div class="rag-card">
-        <div class="rag-card-head">
-          <div class="rag-card-tag anom">Anomaly RAG · historical precedents</div>
-          <h3>Historical precedent lookup for any regime</h3>
-          <p>Every flagged anomaly date is auto-stored on pipeline run. Ask what past events looked like today's shock, ranked by embedding similarity, excluding a ±30-day self-match window.</p>
-        </div>
-        <div class="rag-flow">
-          <div class="rag-q">
-            <span class="rq-label">Query</span>
-            <span class="rq-text">find_similar_anomaly_events(<br/>&nbsp;&nbsp;"GOLDBEES", "Flash Crash"<br/>)</span>
-          </div>
-          <div class="rag-arrow">
-            <span></span>
-            <div class="rag-badge">cosine → market_anomalies</div>
-            <span></span>
-          </div>
-          <div class="rag-r">
-            <span class="rr-label">Historical precedents</span>
-            <div class="rr-row"><span class="rr-name">2024-01-15</span><span style="color:#94a3b8;font-size:11px">Flash Crash Z=−4.2</span><span class="rr-sim">0.96</span></div>
-            <div class="rr-row"><span class="rr-name">2023-08-03</span><span style="color:#94a3b8;font-size:11px">Flash Crash Z=−3.8</span><span class="rr-sim">0.91</span></div>
-            <div class="rr-row"><span class="rr-name">2022-11-09</span><span style="color:#94a3b8;font-size:11px">Volatile Breakout</span><span class="rr-sim">0.79</span></div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Collections inventory -->
-    <div class="rag-collections">
-      <div class="rag-coll">
-        <div class="rag-coll-dot" style="background:#f59e0b"></div>
-        <div>
-          <div class="rag-coll-name">news_articles</div>
-          <div class="rag-coll-dim">news RAG · tenant: category</div>
-        </div>
-      </div>
-      <div class="rag-coll">
-        <div class="rag-coll-dot" style="background:#2563eb"></div>
-        <div>
-          <div class="rag-coll-name">clickhouse_metadata</div>
-          <div class="rag-coll-dim">schema RAG · prevents hallucination</div>
-        </div>
-      </div>
-      <div class="rag-coll">
-        <div class="rag-coll-dot" style="background:#fb7185"></div>
-        <div>
-          <div class="rag-coll-name">market_anomalies</div>
-          <div class="rag-coll-dim">anomaly history · tenant: symbol</div>
-        </div>
-      </div>
-      <div class="rag-coll">
-        <div class="rag-coll-dot" style="background:#2dd4bf"></div>
-        <div>
-          <div class="rag-coll-name">mf_holdings</div>
-          <div class="rag-coll-dim">22k fund positions · tenant: isin</div>
-        </div>
-      </div>
-      <div class="rag-coll">
-        <div class="rag-coll-dot" style="background:#a78bfa"></div>
-        <div>
-          <div class="rag-coll-name">mf_fund_profiles</div>
-          <div class="rag-coll-dim">portfolio fingerprints · tenant: fund_name</div>
-        </div>
-      </div>
-      <div class="rag-coll-badge">
-        <div class="badge-icon">⚡</div>
-        <div class="badge-text">768-dim · nomic-embed-text · COSINE</div>
-      </div>
+    <div style="text-align:center;margin-top:36px">
+      <a href="architecture.html" class="btn-outline">🏗️ Explore the full architecture, data flow &amp; RAG pipeline →</a>
     </div>
   </div>
 </section>
@@ -1522,6 +1247,10 @@
       </div>
 
     </div>
+
+    <div style="text-align:center;margin-top:32px">
+      <a href="architecture.html#features" style="font-size:14px;font-weight:600">See the full spec for every engine &rarr;</a>
+    </div>
   </div>
 </section>
 
@@ -1535,77 +1264,21 @@
       each with a curated tool set, domain system prompt, and hard limits (20 tool calls / 30k tokens / 180s).
     </p>
 
-    <div class="agents-grid">
-      <div class="agent-card">
-        <div class="agent-icon">📊</div>
-        <div>
-          <h4>SignalSubAgent</h4>
-          <p>GOLDBEES ML pipeline, composite ETF scores, GARCH vol, anomaly explanation.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🇮🇳</div>
-        <div>
-          <h4>IndianEquityResearchSubAgent</h4>
-          <p>NSE/BSE stocks parallel fetch of price, earnings, promoter, MF holdings, news.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🌐</div>
-        <div>
-          <h4>MacroSubAgent</h4>
-          <p>COMEX pre-market, FII/DII flows, macro theme scanner, whale tracker.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🇺🇸</div>
-        <div>
-          <h4>DeepDiveSubAgent</h4>
-          <p>SEC EDGAR 10-K/10-Q, XBRL financials, exec comp, Workday hiring trends.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🌍</div>
-        <div>
-          <h4>IntlETFSubAgent</h4>
-          <p>MAFANG, Hang Seng, Nasdaq ETFs scarcity premium vs NAV analysis.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">📰</div>
-        <div>
-          <h4>NewsSubAgent</h4>
-          <p>Multi-source sentiment aggregation NewsAPI + GNews per symbol.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">💻</div>
-        <div>
-          <h4>CodeSubAgent</h4>
-          <p>Ad-hoc Python execution and raw ClickHouse SQL queries.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🗄️</div>
-        <div>
-          <h4>DatabaseSubAgent</h4>
-          <p>Schema inspection, watermark status, import freshness checks.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🏦</div>
-        <div>
-          <h4>MFSubAgent</h4>
-          <p>DSP, Nippon, Bajaj, Quant, ICICI fund holdings: MoM changes, cross-fund consensus, NAV returns.</p>
-        </div>
-      </div>
-      <div class="agent-card">
-        <div class="agent-icon">🔭</div>
-        <div>
-          <h4>AutonomousResearchAgent</h4>
-          <p>Self-directed 10-layer research: fundamentals + macro + MF holdings + news + anomaly correlation, all in one report.</p>
-        </div>
-      </div>
+    <div class="agents-strip">
+      <span class="agent-pill">📊 Signals &amp; ETF scoring</span>
+      <span class="agent-pill">🇮🇳 Indian equity research</span>
+      <span class="agent-pill">🌐 Macro &amp; whale tracker</span>
+      <span class="agent-pill">🇺🇸 US equity deep-dive</span>
+      <span class="agent-pill">🌍 International ETFs</span>
+      <span class="agent-pill">📰 News sentiment</span>
+      <span class="agent-pill">💻 Code &amp; SQL</span>
+      <span class="agent-pill">🗄️ Database health</span>
+      <span class="agent-pill">🏦 Mutual fund holdings</span>
+      <span class="agent-pill">🔭 Autonomous research</span>
+    </div>
+
+    <div style="text-align:center;margin-top:28px">
+      <a href="architecture.html#agents" style="font-size:14px;font-weight:600">See exactly what each agent does &rarr;</a>
     </div>
   </div>
 </section>
@@ -1702,73 +1375,6 @@ http://localhost:8501
   </div>
 </section>
 
-<!-- ── DOCS ──────────────────────────────────────────────────────── -->
-<section class="section-sm" id="docs">
-  <div class="container">
-    <div class="section-label">Documentation</div>
-    <h2 class="section-title">Learn the system</h2>
-
-    <div class="docs-grid">
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/architecture.md" class="doc-link">
-        <span class="doc-icon">🏗️</span>
-        <div>
-          <div class="doc-link-title">Architecture</div>
-          <div class="doc-link-desc">Data flow, design patterns, ClickHouse schema, ML pipeline</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/agent-architecture.md" class="doc-link">
-        <span class="doc-icon">🤖</span>
-        <div>
-          <div class="doc-link-title">Agent Architecture</div>
-          <div class="doc-link-desc">Intent routing, 10 sub-agents, tracing, budget middleware</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/anomaly-detection.md" class="doc-link">
-        <span class="doc-icon">🔬</span>
-        <div>
-          <div class="doc-link-title">Anomaly Detection</div>
-          <div class="doc-link-desc">5-step pipeline: MAD-Z → GARCH → Isolation Forest → PELT → Company Events · Correlation Engine · Qdrant historical precedents</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md" class="doc-link">
-        <span class="doc-icon">📈</span>
-        <div>
-          <div class="doc-link-title">ML Forecast</div>
-          <div class="doc-link-desc">LightGBM 25-feature set, quantile CI, walk-forward CV</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/user_guide.md" class="doc-link">
-        <span class="doc-icon">📖</span>
-        <div>
-          <div class="doc-link-title">User Guide</div>
-          <div class="doc-link-desc">Tutorials, CLI commands, database explorer, offline setup</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/configuration.md" class="doc-link">
-        <span class="doc-icon">⚙️</span>
-        <div>
-          <div class="doc-link-title">Configuration</div>
-          <div class="doc-link-desc">All .env settings, LLM providers, local model setup</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/import-schema.md" class="doc-link">
-        <span class="doc-icon">🗄️</span>
-        <div>
-          <div class="doc-link-title">Import Schema</div>
-          <div class="doc-link-desc">All categories, ClickHouse tables, cron schedules</div>
-        </div>
-      </a>
-      <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/data-sources.md" class="doc-link">
-        <span class="doc-icon">🌐</span>
-        <div>
-          <div class="doc-link-title">Data Sources</div>
-          <div class="doc-link-desc">APIs, feeds, and scraping strategy for all 14+ sources</div>
-        </div>
-      </a>
-    </div>
-  </div>
-</section>
-
 <!-- ── FOOTER ────────────────────────────────────────────────────── -->
 <footer>
   <div class="footer-inner">
@@ -1788,10 +1394,17 @@ http://localhost:8501
       </div>
       <div class="footer-col">
         <h5>Docs</h5>
-        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/architecture.md">Architecture</a>
+        <a href="https://mosaic-agent.github.io/Mosaic-fund-agent/architecture.html">Architecture (in-depth)</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/agent-architecture.md">Agent Architecture</a>
         <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/anomaly-detection.md">Anomaly Detection</a>
         <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/ml-forecast.md">ML Forecast</a>
         <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/user_guide.md">User Guide</a>
+      </div>
+      <div class="footer-col">
+        <h5>Reference</h5>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/configuration.md">Configuration</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/import-schema.md">Import Schema</a>
+        <a href="https://github.com/Mosaic-agent/Mosaic-fund-agent/blob/main/docs/data-sources.md">Data Sources</a>
       </div>
       <div class="footer-col">
         <h5>Stack</h5>
@@ -2229,186 +1842,6 @@ const galleryObs = new IntersectionObserver((entries) => {
 const gallerySec = document.getElementById('gallery');
 if (gallerySec) galleryObs.observe(gallerySec);
 
-/* ── Node Inspector & Data Flow Simulation JS ──────────────────── */
-const inspectData = {
-  shoonya: {
-    title: '⚡ Finvasia Shoonya WS & REST Live Tick Engine',
-    code: `WebSocket Endpoint: N2 Exchange Broadcast
-REST API: get_quotes (LTP, 5-level L2 market depth, VWAP, 52wk H/L)
-Token Resolution: Symbol -> Token ('GOLDBEES' -> '14428')
-Session Cache: output/.cache/shoonya_session.json`
-  },
-  clickhouse: {
-    title: '🗄️ ClickHouse Lake (ReplacingMergeTree DDL)',
-    code: `CREATE TABLE market_data.amfi_category_flows (
-    report_month Date,
-    category_name String,
-    net_flow_cr Float64,
-    closing_aum_cr Float64,
-    flow_pct_of_aum Float64
-) ENGINE = ReplacingMergeTree()
-ORDER BY (category_name, report_month);
-
--- Read Query:
-SELECT category_name, sum(net_flow_cr) FROM market_data.amfi_category_flows FINAL GROUP BY category_name;`
-  },
-  qdrant: {
-    title: '🧬 Qdrant Vector Store (768d COSINE)',
-    code: `Collection: market_anomalies (768 dimensions, COSINE distance)
-Embedding Model: nomic-embed-text
-Index: HNSW M=16 ef_construct=100
-Payload Indexes: is_tenant (keyword), symbol (keyword), regime_label (keyword)
-Collections: [market_anomalies, mf_holdings, mf_fund_profiles, news_articles, clickhouse_metadata]`
-  },
-  signals: {
-    title: '🎛️ 6-Pillar Composite Quant Aggregator',
-    code: `Pillars:
-1. Macro Overlay (20%)
-2. News Sentiment (15%)
-3. Valuation & iNAV Z-Score (20%)
-4. Institutional Flows (20%)
-5. LightGBM ML Return Forecast (15%)
-6. Anomaly Regime Scale (10%)
-Output: Composite Score 0–100 -> Regime (BUY / WATCH_LONG / HOLD / WATCH_SHORT / SELL)`
-  },
-  ml: {
-    title: '📈 LightGBM Walk-Forward Forecast',
-    code: `Model: LightGBM Regressor + Classifier
-Features: 24 technical & cross-asset indicators (GOLDBEES vs USDINR, US10Y, COMEX COT)
-Horizon: 5-Day Log Return (%) + prob_up (0.0 - 1.0)
-Evaluation: Walk-Forward CV (Skill > 0.05 required for Kelly allocation trigger)`
-  },
-  volatility: {
-    title: '⚖️ GARCH(1,1) Volatility & Risk Governor',
-    code: `Model: GARCH(1,1) Constant Mean, Student-t Residual Distribution
-Equation: σ_t^2 = ω + α * ε_{t-1}^2 + β * σ_{t-1}^2
-Position Sizing:
-- Kelly Fraction: w_kelly = max(0, (2 * prob_up - 1) / variance)
-- Blended Weight: 50% Risk Governor + 50% Kelly (weights.blended_50)`
-  },
-  anomaly: {
-    title: '🔬 5-Step Composite Anomaly Pipeline',
-    code: `Pipeline Steps:
-1. Robust MAD Z-Score (|Z| > 2.5)
-2. GARCH(1,1) Standardized Residual Spike (|e_t| > 2.8)
-3. Isolation Forest Outlier Mult (contamination=0.03)
-4. Ruptures PELT Change-Point Detection (RBF Cost)
-5. Corporate Event Suppression (NSE Split/Bonus ex-date filter)`
-  },
-  rag: {
-    title: '🧬 Vector RAG Retrieval Engine',
-    code: `Two-Pass Symbol Scoped Search:
-Pass 1: Qdrant vector similarity search over news_articles for target symbol.
-Pass 2: Fallback date-window search (+/- 7d) for cross-asset macro correlation.
-Output: Contextually grounded explanations without LLM hallucination.`
-  },
-  agent: {
-    title: '🧠 Multi-Agent LangGraph Router',
-    code: `Orchestrator: LangGraph StateGraph ReAct Router
-Agents (10): Macro Strategy, Quant DeepDive, Whale Tracker, ETF News, Intraday Monitor, Anomaly Explainer...
-Guardrail: LLM Grounding Rule — numbers computed strictly by Python/SQL tools.`
-  },
-  cache: {
-    title: '⚡ SQLite LLM Cache Middleware',
-    code: `Location: output/.cache/llm_cache.db
-TTL: 24 Hours
-Hit Policy: Exact prompt + symbol hash match returns pre-computed JSON response instantly (0 token cost).`
-  }
-};
-
-const nodeInspector = document.getElementById('nodeInspector');
-const nipTitle = document.getElementById('nipTitle');
-const nipCode = document.getElementById('nipCode');
-const nipClose = document.getElementById('nipClose');
-
-document.querySelectorAll('.flow-node').forEach(node => {
-  node.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const key = node.dataset.inspect;
-    if (inspectData[key]) {
-      nipTitle.textContent = inspectData[key].title;
-      nipCode.textContent = inspectData[key].code;
-      nodeInspector.classList.add('open');
-      nodeInspector.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-  });
-});
-
-if (nipClose) {
-  nipClose.addEventListener('click', () => nodeInspector.classList.remove('open'));
-}
-
-// Enhanced Data Flow Simulation Runner
-const simBtn = document.getElementById('simFlowBtn');
-if (simBtn) {
-  simBtn.addEventListener('click', () => {
-    const canvas = document.querySelector('.flow-canvas');
-    const l1 = document.getElementById('flowLayer1');
-    const l2 = document.getElementById('flowLayer2');
-    const l3 = document.getElementById('flowLayer3');
-    const l4 = document.getElementById('flowLayer4');
-
-    const l1Nodes = l1 ? l1.querySelectorAll('.ingest-cat-pill, .flow-store') : [];
-    const l2Nodes = l2 ? l2.querySelectorAll('.engine') : [];
-    const l3Nodes = l3 ? l3.querySelectorAll('.flow-orch, .flow-cache') : [];
-    const l4Nodes = l4 ? l4.querySelectorAll('.surface-pill') : [];
-
-    simBtn.disabled = true;
-    if (canvas) canvas.classList.add('sim-running');
-
-    const clearAll = () => {
-      [l1, l2, l3, l4].forEach(l => l && l.classList.remove('sim-active'));
-      document.querySelectorAll('.sim-node-active').forEach(n => n.classList.remove('sim-node-active'));
-    };
-
-    clearAll();
-
-    // Step 1: Ingest & Store
-    simBtn.textContent = '⚡ 1. Ingesting 14 Live Feeds...';
-    if (l1) l1.classList.add('sim-active');
-    l1Nodes.forEach((node, i) => {
-      setTimeout(() => node.classList.add('sim-node-active'), i * 150);
-    });
-
-    // Step 2: Compute 5 Quant Engines
-    setTimeout(() => {
-      clearAll();
-      simBtn.textContent = '⚡ 2. Computing 5 Quant Engines...';
-      if (l2) l2.classList.add('sim-active');
-      l2Nodes.forEach((node, i) => {
-        setTimeout(() => node.classList.add('sim-node-active'), i * 140);
-      });
-    }, 1400);
-
-    // Step 3: Multi-Agent Orchestrator
-    setTimeout(() => {
-      clearAll();
-      simBtn.textContent = '⚡ 3. Routing 10 Sub-Agents & Cache...';
-      if (l3) l3.classList.add('sim-active');
-      l3Nodes.forEach((node, i) => {
-        setTimeout(() => node.classList.add('sim-node-active'), i * 200);
-      });
-    }, 2800);
-
-    // Step 4: User Interfaces & Output
-    setTimeout(() => {
-      clearAll();
-      simBtn.textContent = '⚡ 4. Rendering Interfaces & Reports...';
-      if (l4) l4.classList.add('sim-active');
-      l4Nodes.forEach((node, i) => {
-        setTimeout(() => node.classList.add('sim-node-active'), i * 120);
-      });
-    }, 4200);
-
-    // Complete Simulation
-    setTimeout(() => {
-      clearAll();
-      if (canvas) canvas.classList.remove('sim-running');
-      simBtn.disabled = false;
-      simBtn.textContent = '▶ Simulate Data Flow';
-    }, 5600);
-  });
-}
 </script>
 
 </body>
