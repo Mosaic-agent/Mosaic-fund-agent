@@ -53,19 +53,23 @@ Import recent large institutional transactions (bulk/block deals):
 PYTHONPATH=. python src/main.py import --category bulk_deals
 ```
 
-### 6. Full Holistic Delta Sync & Vector Refresh (Mandatory when 'refresh' is requested)
-Per **Rule 17 (Holistic End-to-End Refresh Protocol)**, when refresh or "make db fresh" is called, always execute the full end-to-end update across both ClickHouse and Qdrant:
+### 6. Delta-First Refresh Protocol ("Refresh Only Delta")
+Per **Rule 17 (Delta-First Refresh Protocol)**, when refresh, "refresh only delta", or "make db fresh" is called, execute a strictly delta-only update:
 ```bash
-# 1. Delta-sync all ClickHouse market data categories
-./mosaic.sh import
+# 1. Audit freshness first to identify exclusively stale categories
+./mosaic.sh src/scripts/db/audit_freshness.py
 
-# 2. Synchronize Qdrant MF holdings and profiles vector index
+# 2. Targeted ClickHouse delta-sync (only for identified stale categories or market-hours iNAV)
+./mosaic.sh import --category inav
+# If any EOD category is stale: ./mosaic.sh import --category <stale_only> --source nse
+
+# 3. Synchronize Qdrant MF holdings vector index in delta mode (never use --force)
 ./mosaic.sh python -m src.scripts.backfill_mf_qdrant
 
-# 3. Re-aggregate composite signals
+# 4. Re-aggregate composite signals with fresh delta prices and iNAV
 ./mosaic.sh signals --save
 
-# 4. Final verification audit
+# 5. Final verification audit
 ./mosaic.sh src/scripts/db/audit_freshness.py
 ```
 
