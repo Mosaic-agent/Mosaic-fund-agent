@@ -53,3 +53,10 @@ python src/scripts/etf/premium_discount_report.py --refresh
 python src/scripts/etf/premium_discount_report.py --consolidated
 ```
 *(Can be combined with `--refresh` to fetch fresh iNAV data first: `python src/scripts/etf/premium_discount_report.py --refresh --consolidated`)*
+
+---
+
+## Persistent Rule: AMC iNAV Authority Over NSE EOD Feed (Rule 18)
+- **Never Use NSE EOD Feed for Premium vs Discount**: NEVER consider or use the NSE EOD feed (e.g. static declared NAV or lagged EOD prices from NSE `/api/etf` or `daily_prices`) to measure ETF premium vs discount when a live iNAV feed is available directly through the AMC (Nippon India, Zerodha, Mirae, Motilal, etc.).
+- **Static vs Live Prohibition**: The static `nav` field in NSE feeds represents historical/prior-day declared NAV, not real-time intraday iNAV.
+- **Synchronous Market Price & iNAV**: Always pair live real-time indicative NAV (iNAV) published directly by the AMC with the real-time live secondary market Last Traded Price (LTP). Never compare a live AMC iNAV against an EOD closing price or an NSE static NAV.

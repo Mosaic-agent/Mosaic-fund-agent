@@ -136,6 +136,11 @@ Whenever the user asks to "refresh", "make db fresh", "update database", "refres
 4. **Signal & Quant Delta Aggregation**: Run composite signal generator (`./mosaic.sh signals --save`) to refresh multi-pillar composite scores over the newly updated delta prices and intraday iNAV spreads.
 5. **Freshness Verification Audit**: Run `./mosaic.sh src/scripts/db/audit_freshness.py` to confirm 100% FRESH and SYNCED status across all layers.
 
+### 18. ETF Premium/Discount Authority: AMC iNAV Precedence Over NSE EOD Feed
+- **Never Use NSE EOD Feed for Premium vs Discount**: NEVER consider or use the NSE EOD feed (e.g. static declared NAV or lagged EOD prices from NSE `/api/etf` or `daily_prices`) to measure ETF premium vs discount when a live iNAV feed is available directly through the AMC (Nippon India, Zerodha, Mirae, Motilal, etc.).
+- **Static vs Live Prohibition**: The static `nav` field in NSE feeds represents historical/prior-day declared NAV, not real-time intraday iNAV. Measuring secondary market price against NSE static NAV produces corrupted, phantom premium/discount figures.
+- **Synchronous Market Price & iNAV**: Always pair live real-time indicative NAV (iNAV) published directly by the AMC with the real-time live secondary market Last Traded Price (LTP). Never compare a live AMC iNAV against an EOD closing price or an NSE static NAV.
+
 ---
 
 ## ClickHouse Schema & Documentation References

@@ -78,7 +78,10 @@ FIRST_ARG="$1"
 # If first arg is a python file, run it directly with python
 if [[ "$FIRST_ARG" == *.py ]]; then
     echo "Running Python script in Docker..."
-    docker compose run --rm --entrypoint python mosaic "$@"
+    docker compose run --rm -e PYTHONPATH=/app --entrypoint python mosaic "$@"
+elif [[ "$FIRST_ARG" == "python" ]]; then
+    shift
+    docker compose run --rm -e PYTHONPATH=/app --entrypoint python mosaic "$@"
 elif [[ "$FIRST_ARG" == "studio" ]]; then
     echo "Studio Workspace has been temporarily disabled in the docker-compose stack."
     echo "Please check git history or restore the 'studio' service in docker-compose.yml to run it."
