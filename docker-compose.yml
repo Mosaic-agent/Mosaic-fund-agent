@@ -135,6 +135,10 @@ services:
       qdrant:
         condition: service_started
 
+    # Keep container running as a background service for instant `docker compose exec` execution
+    entrypoint: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped
+
     # ENTRYPOINT is fixed to `python src/main.py` in the Dockerfile.
     # Override the default CMD per call:
     #

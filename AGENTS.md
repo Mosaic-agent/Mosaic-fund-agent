@@ -124,9 +124,10 @@ To prevent compounding reporting failures in mutual funds, SIFs, and alternative
 - **AUM Disambiguation (Regulatory Net AUM vs Gross Strategy Notional)**: Always explicitly qualify whether a fund size is **Audited Net AUM** ($\text{Units} \times \text{NAV}$ filed with AMFI) or **Gross Strategy Notional** (long equity + gross derivative notional cited in marketing brochures). If an AMC brochure cites a figure $>1.2\times$ the AMFI AAUM, append a mandatory disclosure flag.
 - **Metric-Label Locking**: NEVER extract financial ratios (Beta, Sharpe, Alpha) from unstructured narrative paragraphs without verifying the exact label key. Do not conflate net exposure percentages with portfolio beta.
 
-### 16. Stock & ETF Price Authority: Always Use NSE or Shoonya & Run in Container
+### 16. Stock & ETF Price Authority: Always Use NSE or Shoonya & Run via Persistent Service
 - **Price Authority**: For Indian stock and ETF prices, ALWAYS use NSE or Shoonya as the authoritative source of truth. NEVER rely on Yahoo Finance or fall back to AMC declared NAV for secondary market prices (which severely corrupts ETF premium/discount calculations, particularly for international ETFs subject to RBI scarcity caps).
-- **Container Execution Mandate**: NEVER use host-local Python/uv to execute tasks or pipelines (`uv run`). Always run everything inside the Docker container via `docker run --rm --network ofin-agent_default --env-file .env mosaic-fund-agent <cmd>` or `./mosaic.sh`.
+- **Container Execution Mandate**: NEVER use host-local Python/uv to execute tasks or pipelines (`uv run`). Always run everything inside Docker.
+- **Persistent Service Execution Mandate**: NEVER spawn transient one-off containers (`docker run --rm` or `docker compose run --rm`) for ad-hoc commands or scripts. ALWAYS maintain the `mosaic` container running persistently as a background service (`docker compose up -d mosaic`) and execute tasks via `docker compose exec [-T] mosaic <cmd>` or `./mosaic.sh <cmd>` for sub-second, zero-teardown execution.
 
 ### 17. Delta-First Refresh Protocol ("Refresh Only Delta")
 Whenever the user asks to "refresh", "make db fresh", "update database", "refresh only delta", or invokes `/db-freshness`, the system MUST execute a strictly delta-only update across data, vector, and signal layers without redundant historical re-fetches:
