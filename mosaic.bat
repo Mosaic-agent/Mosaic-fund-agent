@@ -20,6 +20,12 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: Ensure persistent mosaic service is running
+docker compose ps mosaic --status running -q >nul 2>&1
+if %errorlevel% neq 0 (
+    docker compose up -d mosaic >nul 2>&1
+)
+
 set FIRST_ARG=%1
 
 if "%FIRST_ARG%"=="" goto run_chat
@@ -32,28 +38,28 @@ if "%FIRST_ARG%"=="kite" goto run_kite
 set EXT=%FIRST_ARG:~-3%
 if /I "%EXT%"==".py" (
     echo Running Python script in Docker...
-    docker compose run --rm --entrypoint python mosaic %*
+    docker compose exec mosaic python %*
     exit /b %errorlevel%
 )
 
 :default_run
-docker compose run --rm mosaic %*
+docker compose exec mosaic python src/main.py %*
 exit /b %errorlevel%
 
 :run_chat
-docker compose run --rm -it mosaic chat
+docker compose exec -it mosaic python src/main.py chat
 exit /b %errorlevel%
 
 :run_chat_interactive
-docker compose run --rm -it mosaic %*
+docker compose exec -it mosaic python src/main.py %*
 exit /b %errorlevel%
 
 :run_chat_with_t
-docker compose run --rm -it mosaic chat %*
+docker compose exec -it mosaic python src/main.py chat %*
 exit /b %errorlevel%
 
 :run_kite
 REM -it: the login flow blocks on input() waiting for you to complete
 REM OAuth in the browser before it retries the profile fetch.
-docker compose run --rm -it mosaic %*
+docker compose exec -it mosaic python src/main.py %*
 exit /b %errorlevel%
