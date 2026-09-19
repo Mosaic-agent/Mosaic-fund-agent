@@ -97,7 +97,6 @@ if [[ "$FIRST_ARG" == "python" ]]; then
     docker compose exec $EXEC_FLAGS mosaic python "$@"
 # If first arg is a python file, run it directly with python inside the persistent service
 elif [[ "$FIRST_ARG" == *.py ]]; then
-
     ensure_mosaic_running
     docker compose exec $EXEC_FLAGS mosaic python "$@"
 elif [[ "$FIRST_ARG" == "studio" ]]; then

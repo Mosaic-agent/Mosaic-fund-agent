@@ -127,11 +127,54 @@ def try_fast_path(question: str) -> dict[str, Any] | None:
 
 
 
-def _handle_quote_lookup(symbol: str) -> str | None:
-    """Fetch direct quote via Shoonya API or yfinance fallback."""
+def _fetch_nse_quote(symbol: str) -> dict | None:
+    """Fetch official NSE quote data via nselib as primary fallback for Indian securities."""
     try:
-        from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
-        api = get_shoonya_api()
+        from nselib import capital_market
+        from datetime import date, timedelta
+        clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "").strip()
+        today = date.today()
+        from_str = (today - timedelta(days=7)).strftime("%d-%m-%Y")
+        to_str = today.strftime("%d-%m-%Y")
+        df = capital_market.price_volume_data(clean_sym, from_date=from_str, to_date=to_str)
+        if df is not None and not df.empty:
+            row = df.iloc[0]
+            def _flt(k):
+                try:
+                    return float(str(row.get(k, 0)).replace(",", ""))
+                except (ValueError, TypeError):
+                    return 0.0
+            lp = _flt("LastPrice") or _flt("ClosePrice")
+            c = _flt("PrevClose") or _flt("ClosePrice")
+            o = _flt("OpenPrice") or lp
+            h = _flt("HighPrice") or lp
+            l = _flt("LowPrice") or lp
+            v_str = str(row.get("TotalTradedQuantity", 0)).replace(",", "").split(".")[0]
+            v = int(v_str) if v_str.isdigit() else 0
+            chg = lp - c if c > 0 else 0
+            pct = (chg / c) * 100 if c > 0 else 0
+            return {
+                "symbol": clean_sym,
+                "ltp": lp,
+                "prev_close": c,
+                "open": o,
+                "high": h,
+                "low": l,
+                "volume": v,
+                "chg": chg,
+                "pct": pct,
+                "date": str(row.get("Date", today.isoformat())),
+            }
+    except Exception as exc:
+        logger.debug("NSE quote fetch fallback failed for %s: %s", symbol, exc)
+    return None
+
+
+def _handle_quote_lookup(symbol: str) -> str | None:
+    """Fetch direct quote via Shoonya API or official NSE fallback."""
+    try:
+        from src.data_importer.fetchers.shoonya_fetcher import get_shoonya_api
+        api = get_shoonya_api(interactive=False)
         if api:
             res = api.searchscrip(exchange="NSE", searchtext=symbol)
             if res and res.get("values"):
@@ -150,6 +193,9 @@ def _handle_quote_lookup(symbol: str) -> str | None:
                     chg = lp - c if c > 0 else 0
                     pct = (chg / c) * 100 if c > 0 else 0
 
+                    tbq = int(str(q.get('tbq', 0)).replace(',', '').split('.')[0] or 0)
+                    tsq = int(str(q.get('tsq', 0)).replace(',', '').split('.')[0] or 0)
+
                     return f"""### **Live Quote: {tsym} ({cname})**
 *Source: Shoonya REST API (Zero-Latency Deterministic Router)*
 
@@ -158,12 +204,33 @@ def _handle_quote_lookup(symbol: str) -> str | None:
 * **Day's Range**: ₹{l:.2f} – ₹{h:.2f} (Open: ₹{o:.2f})
 * **Intraday VWAP**: ₹{ap:.2f}
 * **Volume**: {v:,} shares
-* **Depth (B/S)**: {q.get('tbq', 0):,} buy qty / {q.get('tsq', 0):,} sell qty
+* **Depth (B/S)**: {tbq:,} buy qty / {tsq:,} sell qty
 """
     except Exception as exc:
         logger.debug("Shoonya quote lookup failed for %s: %s", symbol, exc)
 
-    # Fallback to Yahoo Finance quote
+    # Primary Fallback: NSE Official Capital Market Feed (nselib)
+    nse_data = _fetch_nse_quote(symbol)
+    if nse_data and nse_data.get("ltp"):
+        lp = nse_data["ltp"]
+        c = nse_data["prev_close"]
+        o = nse_data["open"]
+        h = nse_data["high"]
+        l = nse_data["low"]
+        v = nse_data["volume"]
+        pct = nse_data["pct"]
+        dt = nse_data["date"]
+        return f"""### **Quote: {nse_data['symbol']}**
+*Source: NSE Official Feed (nselib Fallback)*
+
+* **Last Price (LTP)**: **₹{lp:.2f}** ({pct:+.2f}%)
+* **Previous Close**: ₹{c:.2f}
+* **Day's Range**: ₹{l:.2f} – ₹{h:.2f} (Open: ₹{o:.2f})
+* **Volume**: {v:,} shares
+* **Filing Date**: {dt}
+"""
+
+    # Tertiary Fallback: Yahoo Finance quote (only if NSE unfulfilled or non-Indian asset)
     try:
         from src.tools.yahoo_finance import get_yahoo_finance_data
         yf_data = get_yahoo_finance_data.invoke({"symbol": symbol})
@@ -190,16 +257,17 @@ def _handle_quote_lookup(symbol: str) -> str | None:
 def _handle_inav_lookup(symbol: str) -> str | None:
     """Fetch live iNAV and calculate premium/discount percentage."""
     try:
-        from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
-        from src.importer.fetchers.nse_inav_fetcher import fetch_inav_snapshots
+        from src.data_importer.fetchers.shoonya_fetcher import get_shoonya_api
+        from src.data_importer.fetchers.nse_inav_fetcher import fetch_inav_snapshots
 
         snaps = fetch_inav_snapshots([symbol])
         inav_val = None
         if snaps:
             inav_val = snaps[0].get("inav")
 
-        api = get_shoonya_api()
+        api = get_shoonya_api(interactive=False)
         ltp = None
+        source_label = "Shoonya Feed"
         if api:
             res = api.searchscrip(exchange="NSE", searchtext=symbol)
             if res and res.get("values"):
@@ -207,12 +275,19 @@ def _handle_inav_lookup(symbol: str) -> str | None:
                 if q and q.get("stat") == "Ok":
                     ltp = float(q.get("lp", 0))
 
+        # Fallback to NSE direct if Shoonya is unavailable or timed out
+        if ltp is None or ltp <= 0:
+            nse_q = _fetch_nse_quote(symbol)
+            if nse_q and nse_q.get("ltp"):
+                ltp = nse_q["ltp"]
+                source_label = "NSE Official Feed (Fallback)"
+
         if ltp and inav_val and inav_val > 0:
             diff = ltp - inav_val
             prem_pct = (diff / inav_val) * 100
             status = "🔴 PREMIUM" if prem_pct > 0 else "🟢 DISCOUNT"
             return f"""### **Live iNAV Snapshot: {symbol}**
-*Source: NSE iNAV API & Shoonya Feed*
+*Source: NSE iNAV API & {source_label}*
 
 * **Market Price (LTP)**: **₹{ltp:.2f}**
 * **Indicative NAV (iNAV)**: **₹{inav_val:.2f}**
@@ -254,8 +329,8 @@ def _handle_dsp_holdings_lookup(symbol: str) -> str | None:
 def _handle_intraday_lookup(symbol: str) -> str | None:
     """Fetch live intraday order flow and tick metrics."""
     try:
-        from src.importer.fetchers.shoonya_fetcher import get_shoonya_api
-        api = get_shoonya_api()
+        from src.data_importer.fetchers.shoonya_fetcher import get_shoonya_api
+        api = get_shoonya_api(interactive=False)
         if api:
             res = api.searchscrip(exchange="NSE", searchtext=symbol)
             if res and res.get("values"):

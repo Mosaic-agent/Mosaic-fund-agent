@@ -129,12 +129,18 @@ To prevent compounding reporting failures in mutual funds, SIFs, and alternative
 - **Container Execution Mandate**: NEVER use host-local Python/uv to execute tasks or pipelines (`uv run`). Always run everything inside Docker.
 - **Persistent Service Execution Mandate**: NEVER spawn transient one-off containers (`docker run --rm` or `docker compose run --rm`) for ad-hoc commands or scripts. ALWAYS maintain the `mosaic` container running persistently as a background service (`docker compose up -d mosaic`) and execute tasks via `docker compose exec [-T] mosaic <cmd>` or `./mosaic.sh <cmd>` for sub-second, zero-teardown execution.
 
-### 17. Holistic End-to-End Refresh Protocol
-Whenever the user asks to "refresh", "make db fresh", "update database", or invokes `/db-freshness`, the system MUST execute a complete, holistic update across ALL data and vector layers without leaving pending or stale components:
-1. **ClickHouse Delta-Sync**: Sync all registered market data categories (`python src/main.py import` covering stocks, etfs, indices, commodities, us_stocks, fx_rates, fii_dii, cot, bulk_deals, indian_macro).
-2. **Qdrant Vector DB Sync**: Re-embed and synchronize updated mutual fund holdings (`python -m src.scripts.backfill_mf_qdrant`) and vector anomaly points so Qdrant collections remain 100% synchronized with ClickHouse.
-3. **Signal & Quant Aggregation**: Run composite signal generator (`python src/main.py signals --save`) to refresh multi-pillar composite scores and regime labels.
-4. **Freshness Audit**: Run `python src/scripts/db/audit_freshness.py` to confirm 100% FRESH and SYNCED status across all ClickHouse tables and Qdrant collections.
+### 17. Delta-First Refresh Protocol ("Refresh Only Delta")
+Whenever the user asks to "refresh", "make db fresh", "update database", "refresh only delta", or invokes `/db-freshness`, the system MUST execute a strictly delta-only update across data, vector, and signal layers without redundant historical re-fetches:
+1. **Targeted Freshness Audit First**: Run `./mosaic.sh src/scripts/db/audit_freshness.py` to identify exclusively stale categories. NEVER re-import categories that are already FRESH.
+2. **Targeted ClickHouse Delta Sync**: Sync ONLY the identified stale or in-session categories from their last watermark (`./mosaic.sh import --category <stale_categories> --source nse`). During active market hours when base tables are fresh, refresh live intraday ETF iNAV (`./mosaic.sh import --category inav`).
+3. **Delta Vector DB Sync**: Run Qdrant synchronization (`./mosaic.sh python -m src.scripts.backfill_mf_qdrant`) strictly in delta mode (default `delta=0` check; NEVER pass `--force`).
+4. **Signal & Quant Delta Aggregation**: Run composite signal generator (`./mosaic.sh signals --save`) to refresh multi-pillar composite scores over the newly updated delta prices and intraday iNAV spreads.
+5. **Freshness Verification Audit**: Run `./mosaic.sh src/scripts/db/audit_freshness.py` to confirm 100% FRESH and SYNCED status across all layers.
+
+### 18. ETF Premium/Discount Authority: AMC iNAV Precedence Over NSE EOD Feed
+- **Never Use NSE EOD Feed for Premium vs Discount**: NEVER consider or use the NSE EOD feed (e.g. static declared NAV or lagged EOD prices from NSE `/api/etf` or `daily_prices`) to measure ETF premium vs discount when a live iNAV feed is available directly through the AMC (Nippon India, Zerodha, Mirae, Motilal, etc.).
+- **Static vs Live Prohibition**: The static `nav` field in NSE feeds represents historical/prior-day declared NAV, not real-time intraday iNAV. Measuring secondary market price against NSE static NAV produces corrupted, phantom premium/discount figures.
+- **Synchronous Market Price & iNAV**: Always pair live real-time indicative NAV (iNAV) published directly by the AMC with the real-time live secondary market Last Traded Price (LTP). Never compare a live AMC iNAV against an EOD closing price or an NSE static NAV.
 
 ---
 
