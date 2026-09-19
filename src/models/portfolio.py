@@ -152,7 +152,14 @@ class QuarterlyResult(BaseModel):
 
 
 class YahooFinanceData(BaseModel):
-    """Financial metrics fetched from Yahoo Finance for a symbol."""
+    """
+    Company fundamentals for a symbol, merged across whichever upstream
+    sources are reachable (Yahoo Finance .info/fast_info, Screener.in, ...).
+    Kept as "YahooFinanceData" for backward compatibility with existing
+    call sites (asset_analyzer, valuation_alerts, equity_gatherer, etc.) —
+    see src/data_importer/tool_fetchers/fundamentals_sources.py for the
+    source-agnostic fetch layer that populates this model.
+    """
 
     symbol: str
     sector: str = ""
@@ -165,6 +172,17 @@ class YahooFinanceData(BaseModel):
     fifty_two_week_low: float = Field(default=0.0)
     current_price: float = Field(default=0.0, description="Latest close price in INR")
     description: str = Field(default="", description="Company business summary")
+    data_source: str = Field(
+        default="",
+        description="Comma-separated provenance: which upstream source(s) supplied this "
+        "data, e.g. 'yahoo_info' or 'yahoo_fast_info+screener' when Yahoo's .info was "
+        "blocked and a fallback filled the gap.",
+    )
+    fetch_error: str = Field(
+        default="",
+        description="Set when some fields could not be retrieved from any source — "
+        "distinguishes a failed fetch from a stock that genuinely has zero/empty fields.",
+    )
 
 
 class AssetAnalysis(BaseModel):
