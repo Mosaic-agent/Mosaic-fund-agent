@@ -16,7 +16,11 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from src.utils.symbol_mapper import SYMBOL_TO_COMPANY
+
 log = logging.getLogger(__name__)
+
+_GENERIC_NAME_WORDS = {"limited", "ltd", "the", "and", "company", "corp", "corporation", "inc"}
 
 
 @tool
@@ -35,15 +39,24 @@ def get_mf_holdings_for_stock(company_name_or_symbol: str) -> str:
     held by any DSP fund in the database.
     """
     query = company_name_or_symbol.strip()
-    # Build LIKE pattern — split into words and require all words to appear
-    words = [w for w in query.lower().split() if len(w) > 2]
+    # mf_holdings.security_name stores legal names ("Bajaj Finance Limited"),
+    # not tickers — resolve a bare NSE ticker (e.g. "BAJFINANCE") to its
+    # company name (e.g. "Bajaj Finance") first, or the raw substring match
+    # never hits. Falls back to the input as-is if it's already a name.
+    resolved = SYMBOL_TO_COMPANY.get(query.upper(), query)
+
+    # Require ALL significant words to appear (not just the single longest
+    # one) so "Bajaj Finance" doesn't also match unrelated names via a bare
+    # "finance" substring (e.g. "Shriram Finance", "L&T Finance").
+    words = [
+        w.replace("'", "''") for w in resolved.lower().split()
+        if len(w) > 2 and w not in _GENERIC_NAME_WORDS
+    ]
     if not words:
         return f"Invalid input: {company_name_or_symbol!r}"
 
-    # Use the longest single word for the primary filter
-    primary = max(words, key=len)
-
-    sql = f"""
+    def _query(where: str):
+        sql = f"""
 SELECT
     fund_name,
     security_name,
@@ -51,14 +64,29 @@ SELECT
     toString(as_of_month)      AS month,
     round(market_value_cr, 1)  AS market_value_cr
 FROM market_data.mf_holdings FINAL
-WHERE lower(security_name) LIKE '%{primary}%'
+WHERE {where}
 ORDER BY as_of_month DESC, pct_of_nav DESC
 LIMIT 40
 """
+        return ch.query(sql)
+
     try:
         from src.db.pool import get_pool
         ch = get_pool().get_client()
-        r  = ch.query(sql)
+
+        # Exact contiguous phrase first (e.g. "bajaj finance") so a similarly
+        # named but distinct entity ("Bajaj Housing Finance Limited") doesn't
+        # false-positive-match just because it contains both words separately.
+        exact_phrase = " ".join(words).replace("'", "''")
+        r = _query(f"lower(security_name) LIKE '%{exact_phrase}%'")
+
+        if not r.result_rows:
+            # Fall back to requiring all words present, in any order/position
+            # (handles legitimate word-order/suffix differences the exact
+            # phrase match would miss).
+            like_clauses = " AND ".join(f"lower(security_name) LIKE '%{w}%'" for w in words)
+            r = _query(like_clauses)
+
         if not r.result_rows:
             return (
                 f"No DSP fund holdings found for '{company_name_or_symbol}'. "

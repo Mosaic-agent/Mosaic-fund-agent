@@ -3,16 +3,19 @@ src/workflows/portfolio_analysis.py
 ────────────────────────────────────
 LangGraph StateGraph for portfolio analysis with adversarial verification.
 
-Replaces MosaicFundAgent.run_full_analysis() (parallel threads, single-pass scoring).
+The Portfolio Agent — the canonical `/analyze` implementation for both the
+CLI and chat REPL. Replaces MosaicFundAgent.run_full_analysis().
 
 Phases
 ------
-1. discover    — fetch holdings from ClickHouse user_holdings (0 LLM)
-2. enrich_all  — parallel: price + news + earnings per holding (0 LLM)
-3. score_all   — LLM: BUY/HOLD/SELL/EXIT + conviction per holding
-4. verify_high — adversarial: refute HIGH-conviction scores
-5. fetch_macro — parallel: COMEX + macro scanner + FII/DII (0 LLM)
-6. synthesise  — portfolio summary with verified scores (1 LLM call)
+1. sync_holdings — fetch live holdings from Kite MCP, delta-sync into
+                   ClickHouse (src/data_importer/portfolio_sync.py) (0 LLM)
+2. discover    — read current open holdings + holding period from ClickHouse (0 LLM)
+3. enrich_all  — parallel: price + news + earnings per holding (0 LLM)
+4. score_all   — LLM: BUY/HOLD/SELL/EXIT + conviction per holding
+5. verify_high — adversarial: refute HIGH-conviction scores
+6. fetch_macro — parallel: COMEX + macro scanner + FII/DII (0 LLM)
+7. synthesise  — portfolio summary with verified scores (1 LLM call)
 
 Token savings vs current: ~60% for 10 holdings, ~75% for 20+.
 """
@@ -30,7 +33,8 @@ logger = logging.getLogger(__name__)
 
 
 class PortfolioState(MosaicState):
-    holdings: list          # raw rows from user_holdings
+    holdings: list          # rows from MarketDataRepository.current_holdings_with_period()
+    sync_summary: dict      # what changed since the last Kite sync
     enriched: list          # [{symbol, price, news, earnings}]
     scored: list            # [{symbol, action, conviction, rationale}]
     verified: list          # scored list with HIGH ones adversarially checked
@@ -38,24 +42,51 @@ class PortfolioState(MosaicState):
     report: str
 
 
-def _discover_node(state: PortfolioState) -> dict:
-    """Read holdings from market_data.user_holdings FINAL via direct DataFrame query."""
+def _sync_holdings_node(state: PortfolioState) -> dict:
+    """Fetch live Kite holdings, diff against ClickHouse, persist the delta."""
+    import asyncio
+    from src.data_importer.portfolio_sync import sync_portfolio_holdings
+
     try:
-        from src.db.pool import query_df as _query_df
-        df = _query_df(
-            "SELECT tradingsymbol, isin, quantity, average_price, pnl "
-            "FROM market_data.user_holdings FINAL ORDER BY pnl DESC"
-        )
+        summary = asyncio.run(sync_portfolio_holdings())
+    except Exception as exc:
+        logger.warning("portfolio_analysis sync_holdings_node: %s", exc)
+        summary = {
+            "opened": [], "increased": [], "decreased": [],
+            "avg_price_changed": [], "closed": [], "unchanged_count": 0,
+            "error": str(exc),
+        }
+    return {"sync_summary": summary}
+
+
+def _discover_node(state: PortfolioState) -> dict:
+    """Read current open holdings + holding period from ClickHouse."""
+    try:
+        from src.db.pool import get_pool
+        from src.db.repository import MarketDataRepository
+        repo = MarketDataRepository(get_pool())
+        df = repo.current_holdings_with_period()
         holdings = df.to_dict("records") if not df.empty else []
     except Exception as exc:
         logger.warning("portfolio_analysis discover_node: %s", exc)
         holdings = []
+
+    from config.settings import settings
+    max_h = settings.max_holdings_per_run
+    if max_h and max_h > 0:
+        holdings = holdings[:max_h]
+
     logger.info("portfolio_analysis: discovered %d holdings", len(holdings))
     return {"holdings": holdings}
 
 
 def _enrich_all_node(state: PortfolioState) -> dict:
-    """Parallel enrich: price + news + earnings for every holding."""
+    """Parallel enrich: price + news + earnings for every holding.
+
+    Refreshes ClickHouse daily_prices for just this portfolio's symbols
+    (not a blanket "stocks" category backfill) — see `skip_global_freshness`
+    on `_par()`.
+    """
     holdings = state.get("holdings", [])
     if not holdings:
         return {"enriched": []}
@@ -63,9 +94,11 @@ def _enrich_all_node(state: PortfolioState) -> dict:
     def _make_enricher(h: dict):
         sym = h.get("tradingsymbol", "")
         def _enrich():
+            from src.tools.agent_tools import check_and_refresh_symbol_data
             from src.tools.yahoo_finance import get_yahoo_finance_data
             from src.tools.news_search import get_stock_news
             from src.tools.earnings_scraper import get_quarterly_results
+            check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True})
             price    = str(get_yahoo_finance_data.invoke({"input_str": f"{sym}:NSE"}))
             news     = str(get_stock_news.invoke({"company_name": sym, "days": 7}))
             earnings = str(get_quarterly_results.invoke({"input_str": f"{sym}:NSE"}))
@@ -74,7 +107,7 @@ def _enrich_all_node(state: PortfolioState) -> dict:
 
     fetchers = {h.get("tradingsymbol", str(i)): _make_enricher(h)
                 for i, h in enumerate(holdings)}
-    results = _par(fetchers, max_workers=min(len(holdings), 10))
+    results = _par(fetchers, max_workers=min(len(holdings), 10), skip_global_freshness=True)
     enriched = [v for v in results.values() if isinstance(v, dict)]
     return {"enriched": enriched}
 
@@ -201,11 +234,31 @@ def _fetch_macro_node(state: PortfolioState) -> dict:
         from src.tools.indian_equity_tools import get_fii_dii_summary
         return get_fii_dii_summary.invoke({"days": 7})
 
-    datasets = _par_datasets({"comex": _comex, "macro": _macro, "fii": _fii})
+    # comex/macro/fii tools each do their own narrowly-scoped freshness check
+    # internally — skip the blanket all-category check here too.
+    datasets = _par_datasets({"comex": _comex, "macro": _macro, "fii": _fii}, skip_global_freshness=True)
     macro_context = "\n\n---\n\n".join(
         f"## {k.title()}\n{v.content}" for k, v in datasets.items()
     )
     return {"macro_context": macro_context, "datasets": datasets}
+
+
+def _sync_summary_md(sync_summary: dict) -> str:
+    """Render the 'since last sync' delta section from the sync_holdings node."""
+    if not sync_summary:
+        return ""
+    lines = []
+    for label, key in (("🆕 Opened", "opened"), ("📈 Increased", "increased"),
+                        ("📉 Decreased", "decreased"), ("⚙️ Avg price changed", "avg_price_changed"),
+                        ("❌ Closed", "closed")):
+        symbols = sync_summary.get(key) or []
+        if symbols:
+            lines.append(f"- {label}: {', '.join(symbols)}")
+    unchanged = sync_summary.get("unchanged_count", 0)
+    if not lines:
+        return f"## Since Last Sync\nNo changes detected ({unchanged} holdings unchanged).\n"
+    lines.append(f"- Unchanged: {unchanged} holdings")
+    return "## Since Last Sync\n" + "\n".join(lines) + "\n"
 
 
 def _synthesise_node(state: PortfolioState) -> dict:
@@ -213,6 +266,7 @@ def _synthesise_node(state: PortfolioState) -> dict:
 
     llm = _get_llm()
     verified = state.get("verified", [])
+    sync_md = _sync_summary_md(state.get("sync_summary", {}))
 
     if llm is None or not verified:
         rows = "\n".join(
@@ -220,11 +274,12 @@ def _synthesise_node(state: PortfolioState) -> dict:
             f"({h.get('conviction','?')}) — {h.get('rationale','')}"
             for h in verified
         )
-        return {"report": f"## Portfolio Scores\n{rows}\n\n## Macro\n{state.get('macro_context', '')}"}
+        return {"report": f"{sync_md}\n## Portfolio Scores\n{rows}\n\n## Macro\n{state.get('macro_context', '')}"}
 
     holdings_table = "\n".join(
         f"| {h.get('tradingsymbol','?')} | {h.get('quantity','?')} | {h.get('pnl','?')} "
-        f"| {h.get('action','?')} | {h.get('conviction','?')} | {h.get('rationale','')} |"
+        f"| {h.get('holding_period_days','?')} | {h.get('action','?')} | {h.get('conviction','?')} "
+        f"| {h.get('rationale','')} |"
         for h in verified
     )
 
@@ -232,16 +287,18 @@ def _synthesise_node(state: PortfolioState) -> dict:
         SystemMessage(content=(
             "You are a senior portfolio analyst. Synthesise the holdings analysis into:\n"
             "1. Portfolio health summary (2-3 sentences)\n"
-            "2. Holdings table with action/conviction\n"
-            "3. Top 3 risks ranked by severity\n"
-            "4. Recommended actions (concrete, prioritised)\n"
-            "5. Macro context and how it affects the portfolio\n"
+            "2. Since-last-sync changes (given verbatim — do not recompute)\n"
+            "3. Holdings table with holding period/action/conviction\n"
+            "4. Top 3 risks ranked by severity\n"
+            "5. Recommended actions (concrete, prioritised)\n"
+            "6. Macro context and how it affects the portfolio\n"
             "Never compute numbers — only narrate tool output." + SYNTH_SUFFIX
         )),
         HumanMessage(content=(
+            f"Since last sync:\n{sync_md}\n\n"
             "Holdings:\n"
-            "| Symbol | Qty | PnL | Action | Conviction | Rationale |\n"
-            "|--------|-----|-----|--------|------------|-----------|\n"
+            "| Symbol | Qty | PnL | Holding Period (days) | Action | Conviction | Rationale |\n"
+            "|--------|-----|-----|------------------------|--------|------------|-----------|\n"
             f"{holdings_table}\n\n"
             f"Macro context:\n{state.get('macro_context', '')}"
         )),
@@ -258,13 +315,15 @@ def _build_graph():
     if _GRAPH is not None:
         return _GRAPH
     g = StateGraph(PortfolioState)
+    g.add_node("sync_holdings", _sync_holdings_node)
     g.add_node("discover",    _discover_node)
     g.add_node("enrich_all",  _enrich_all_node)
     g.add_node("score_all",   _score_all_node)
     g.add_node("verify_high", _verify_high_node)
     g.add_node("fetch_macro", _fetch_macro_node)
     g.add_node("synthesise",  _synthesise_node)
-    g.set_entry_point("discover")
+    g.set_entry_point("sync_holdings")
+    g.add_edge("sync_holdings", "discover")
     g.add_edge("discover",    "enrich_all")
     g.add_edge("enrich_all",  "score_all")
     g.add_edge("score_all",   "verify_high")
@@ -279,7 +338,8 @@ def run() -> str:
     """
     Run the portfolio analysis workflow.
 
-    Reads holdings from market_data.user_holdings FINAL (ClickHouse).
+    Syncs live holdings from Kite MCP into ClickHouse (with delta detection),
+    then reads the current open holdings + holding period back out.
 
     Returns
     -------
@@ -290,7 +350,7 @@ def run() -> str:
     graph = _build_graph()
     config = {"configurable": {"thread_id": _thread_id("portfolio_analysis", str(date.today()))}}
     result = graph.invoke({
-        "holdings": [], "enriched": [], "scored": [],
+        "holdings": [], "sync_summary": {}, "enriched": [], "scored": [],
         "verified": [], "macro_context": "", "datasets": {}, "report": "",
     }, config=config)
     return result.get("report", "*Portfolio workflow returned no report*")

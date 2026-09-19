@@ -8,6 +8,7 @@ REM Usage:
 REM   mosaic.bat [command/script] [options]
 REM
 REM Examples:
+REM   mosaic.bat kite                   — Kite MCP login/status check
 REM   mosaic.bat analyze --max 3
 REM   mosaic.bat ask "what is my riskiest holding?"
 REM   mosaic.bat comex
@@ -31,6 +32,7 @@ if "%FIRST_ARG%"=="" goto run_chat
 if "%FIRST_ARG%"=="chat" goto run_chat_interactive
 if "%FIRST_ARG%"=="-t" goto run_chat_with_t
 if "%FIRST_ARG%"=="--thread-id" goto run_chat_with_t
+if "%FIRST_ARG%"=="kite" goto run_kite
 
 :: Extract the last 3 characters to check if it ends with .py
 set EXT=%FIRST_ARG:~-3%
@@ -56,3 +58,8 @@ exit /b %errorlevel%
 docker compose exec -it mosaic python src/main.py chat %*
 exit /b %errorlevel%
 
+:run_kite
+REM -it: the login flow blocks on input() waiting for you to complete
+REM OAuth in the browser before it retries the profile fetch.
+docker compose exec -it mosaic python src/main.py %*
+exit /b %errorlevel%

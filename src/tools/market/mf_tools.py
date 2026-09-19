@@ -51,8 +51,10 @@ def find_funds_holding(
         return (
             f"No fund holdings found matching **{query}**"
             + (f" with asset_type={asset_type}" if asset_type else "")
-            + ".\n\nThe `mf_holdings` Qdrant collection may be empty. "
-            "Import fund holdings first: `import --category mf_holdings` "
+            + ".\n\nEither this security isn't held by any tracked fund, or it "
+            "isn't in the database. If you expect fund coverage to exist and "
+            "this looks wrong, the `mf_holdings` Qdrant collection may be "
+            "empty — import fund holdings first: `import --category mf_holdings` "
             "or run `dsp`, `icici`, `nippon` importers."
         )
 

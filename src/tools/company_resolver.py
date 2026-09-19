@@ -175,6 +175,9 @@ def _llm_resolve(query: str) -> str | None:
             "- For Indian stocks reply with the NSE symbol in UPPERCASE (e.g. RELIANCE, INFY, ASIANPAINT).\n"
             "- For US stocks reply with the NYSE/NASDAQ symbol (e.g. AAPL, MSFT).\n"
             "- Reply with ONLY the ticker symbol — no explanation, no punctuation.\n"
+            "- If the input is a common English word, greeting, or conversational reply "
+            "(e.g. \"yes\", \"no\", \"ok\", \"thanks\") rather than an actual company or "
+            "ticker name, reply UNKNOWN — do not fuzzy-match it to a similar-sounding ticker.\n"
             "- If you are not sure, reply UNKNOWN."
         )
         raw = _get_message_text(llm.invoke([HumanMessage(content=prompt)]).content).strip()
@@ -687,6 +690,37 @@ def _local_indian_lookup(query: str) -> Optional[str]:
     return None
 
 
+def _find_conflicting_explicit_ticker(query: str, candidate_symbol: str) -> str | None:
+    """
+    Returns the first standalone ALL-CAPS token in `query` — as literally
+    typed by the user, e.g. "why VAIBHAVGBL is falling" — that looks like a
+    ticker (length >= 4, not a common intent word) yet bears no resemblance
+    to `candidate_symbol`; None if no such conflicting token exists. An
+    all-caps token the user typed themselves is much stronger evidence of
+    intent than an LLM's training-memory guess; if it contradicts that guess,
+    the guess should not be trusted blindly and this token should be used
+    instead.
+    """
+    import difflib
+
+    explicit_tokens = [
+        w for w in re.findall(r"\b[A-Z][A-Z0-9&]{3,19}\b", query)
+        if re.sub(r"[^a-z]", "", w.lower()) not in _INTENT_WORDS
+    ]
+    if not explicit_tokens:
+        return None
+
+    for token in explicit_tokens:
+        if token == candidate_symbol.upper():
+            return None  # candidate matches what the user actually typed
+        ratio = difflib.SequenceMatcher(None, token, candidate_symbol.upper()).ratio()
+        if ratio >= 0.5:
+            return None  # close enough (typo/partial) — not a conflict
+
+    return explicit_tokens[0]  # every explicit token disagrees with the candidate
+
+
+
 def _get_llm_suggestions(query: str) -> list[dict]:
     """
     Use the LLM to suggest the top 3 matching company names and their ticker symbols
@@ -953,6 +987,23 @@ def _resolve_company_info_impl(query: str) -> dict:
     """
     Core resolver implementation.
     """
+    # ── -1. Strip prepended session context ───────────────────────────────
+    # Callers (e.g. mosaic_fund_agent's chat loop) prepend prior-turn context
+    # ahead of the actual question for follow-up/pronoun resolution, wrapped
+    # as "[Session context — prior turns...]\n...\n[End of context]\n<question>"
+    # (same convention used in mosaic_fund_agent.py / chat_cmd.py). Every
+    # lookup step below — especially the embedded-ticker scan in
+    # _local_indian_lookup(), which returns on the FIRST known ticker word it
+    # finds — must only ever see the real, current question. Otherwise an
+    # unrelated symbol mentioned earlier in a pasted portfolio table (e.g.
+    # "BAJFINANCE" in "get my stock holding" context) gets matched instead of
+    # the symbol the user is actually asking about now (e.g. "VAIBHAVGBL").
+    if "[End of context]\n" in query:
+        _clean = query.split("[End of context]\n", 1)[1].strip()
+        if _clean:
+            log.info("resolve_company: stripped session context %r → %r", query, _clean)
+            query = _clean
+
     # If the query itself is a caret-prefixed index, resolve immediately
     if query.strip().startswith("^"):
         sym = query.strip().upper()
@@ -1008,6 +1059,27 @@ def _resolve_company_info_impl(query: str) -> dict:
     llm_sym = _llm_resolve(query)
     if llm_sym:
         local_from_llm = _local_indian_lookup(llm_sym)
+        # Guard against LLM ticker hallucination: if the user's own query
+        # already contains an explicit, unknown ALL-CAPS token that looks
+        # like a ticker (e.g. "VAIBHAVGBL") but bears no resemblance to what
+        # the LLM guessed from training memory (e.g. "VBL" — a real but
+        # different company, Varun Beverages), trusting the LLM's guess —
+        # whether or not it happens to exist in our local map or in Yahoo's
+        # own search index — would silently resolve to the wrong stock.
+        # Replace it with the user's own explicit token so the Yahoo search
+        # below runs on that instead (Yahoo's search API needs an isolated
+        # ticker/name, not the full natural-language sentence in `query`).
+        if local_from_llm:
+            conflicting_token = _find_conflicting_explicit_ticker(query, local_from_llm)
+            if conflicting_token:
+                log.warning(
+                    "resolve_company: LLM guessed %r (found locally) but query %r contains "
+                    "unrelated explicit ticker %r — discarding LLM guess, searching Yahoo "
+                    "with %r instead",
+                    llm_sym, query, conflicting_token, conflicting_token,
+                )
+                local_from_llm = None
+                llm_sym = conflicting_token
         if local_from_llm:
             name = SYMBOL_TO_COMPANY.get(local_from_llm, local_from_llm)
             

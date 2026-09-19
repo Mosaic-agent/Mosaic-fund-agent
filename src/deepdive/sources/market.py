@@ -4,7 +4,11 @@ src/deepdive/sources/market.py
 Market data and valuation multiples via yfinance.
 
 Uses yfinance directly (not the Indian-equity fetch_yahoo_data() wrapper, which
-appends .NS/.BO suffixes and is built for Zerodha symbols).
+appends .NS/.BO suffixes and is built for Zerodha symbols). market_cap /
+current_price / 52-week range still route through the source-agnostic
+fetch_company_fundamentals() layer (fundamentals_sources.py) so they keep
+working via Yahoo's fast_info fallback when .info is blocked; the EV/P-E/
+cash-flow multiples below have no non-.info alternative for US tickers.
 
 For each ticker, fetches:
   - Price and volume info (market cap, current price, 52w range)
@@ -28,6 +32,7 @@ from typing import Any
 import yfinance as yf
 
 from src.deepdive.models import ValuationSnapshot
+from src.data_importer.tool_fetchers.fundamentals_sources import fetch_company_fundamentals
 
 log = logging.getLogger(__name__)
 
@@ -48,28 +53,48 @@ def _safe(value: Any, default: float | None = None) -> float | None:
 
 def _ticker_snapshot(symbol: str) -> dict[str, Any]:
     """
-    Fetch yfinance .info dict for a single US ticker.
-    Returns empty dict on failure — never raises.
+    Fetch valuation multiples for a single US ticker.
+
+    market_cap / current_price / 52-week range are resolved via the
+    source-agnostic fetch_company_fundamentals() layer (fundamentals_sources.py),
+    which falls back to Yahoo's non-crumb-gated fast_info when .info 401s
+    (Screener.in is a no-op here — India-only). trailing P/E and the
+    EV/revenue, EV/EBITDA, free cash flow, and revenue fields below have no
+    fallback source for US tickers, so they still come straight from
+    yfinance .info and read as None whenever that endpoint is blocked.
+    Returns a dict with "symbol" only on total failure — never raises.
     """
     try:
-        info = yf.Ticker(symbol).info or {}
-        return {
-            "symbol": symbol,
-            "name": info.get("shortName", symbol),
-            "market_cap_usd": _safe(info.get("marketCap")),
-            "current_price": _safe(info.get("currentPrice") or info.get("regularMarketPrice")),
-            "pe_trailing": _safe(info.get("trailingPE")),
-            "pe_forward": _safe(info.get("forwardPE")),
-            "ev_revenue": _safe(info.get("enterpriseToRevenue")),
-            "ev_ebitda": _safe(info.get("enterpriseToEbitda")),
-            "free_cash_flow": _safe(info.get("freeCashflow")),
-            "revenue_ttm": _safe(info.get("totalRevenue")),
-            "fifty_two_week_high": _safe(info.get("fiftyTwoWeekHigh")),
-            "fifty_two_week_low": _safe(info.get("fiftyTwoWeekLow")),
-        }
+        fundamentals = fetch_company_fundamentals(symbol, symbol, "US")
     except Exception as exc:
-        log.warning("yfinance fetch failed for %s: %s", symbol, exc)
+        log.warning("fetch_company_fundamentals failed for %s: %s", symbol, exc)
+        fundamentals = {}
+
+    try:
+        info = yf.Ticker(symbol).info or {}
+    except Exception as exc:
+        log.warning("yfinance .info fetch failed for %s: %s", symbol, exc)
+        info = {}
+
+    if not fundamentals.get("market_cap") and not info:
+        log.warning("No market data available for %s from any source", symbol)
         return {"symbol": symbol}
+
+    return {
+        "symbol": symbol,
+        "name": info.get("shortName", symbol),
+        "market_cap_usd": _safe(fundamentals.get("market_cap")) or _safe(info.get("marketCap")),
+        "current_price": _safe(fundamentals.get("current_price"))
+        or _safe(info.get("currentPrice") or info.get("regularMarketPrice")),
+        "pe_trailing": _safe(fundamentals.get("pe_ratio")) or _safe(info.get("trailingPE")),
+        "pe_forward": _safe(info.get("forwardPE")),
+        "ev_revenue": _safe(info.get("enterpriseToRevenue")),
+        "ev_ebitda": _safe(info.get("enterpriseToEbitda")),
+        "free_cash_flow": _safe(info.get("freeCashflow")),
+        "revenue_ttm": _safe(info.get("totalRevenue")),
+        "fifty_two_week_high": _safe(fundamentals.get("fifty_two_week_high")) or _safe(info.get("fiftyTwoWeekHigh")),
+        "fifty_two_week_low": _safe(fundamentals.get("fifty_two_week_low")) or _safe(info.get("fiftyTwoWeekLow")),
+    }
 
 
 def _median(values: list[float | None]) -> float | None:

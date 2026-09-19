@@ -12,6 +12,7 @@
 #   ./mosaic.sh                        — start interactive chat (also starts Studio)
 #   ./mosaic.sh studio                 — build & start the Studio UI at :8502
 #   ./mosaic.sh chat                   — same as no-args (explicit)
+#   ./mosaic.sh kite                   — Kite MCP login/status check
 #   ./mosaic.sh analyze --max 3
 #   ./mosaic.sh ask "what is my riskiest holding?"
 #   ./mosaic.sh comex
@@ -125,6 +126,12 @@ elif [[ "$FIRST_ARG" == "live-monitor" ]]; then
         echo "Running Live Monitor in Docker (foreground, Ctrl+C to stop)..."
         docker compose run --rm live-monitor "$@"
     fi
+elif [[ "$FIRST_ARG" == "kite" ]]; then
+    echo "Running Kite MCP login/status check in Docker..."
+    # -it: the login flow blocks on input() waiting for you to complete
+    # OAuth in the browser before it retries the profile fetch.
+    ensure_mosaic_running
+    docker compose exec -it mosaic python src/main.py "$@"
 elif [[ "$FIRST_ARG" == "mf" ]]; then
     ensure_mosaic_running
     docker compose exec $EXEC_FLAGS mosaic python src/main.py "$@"

@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import sqlite3
+import time
 from typing import Any
 
 import httpx
@@ -35,37 +38,61 @@ class KiteMCPClient:
     We use the 'tools/call' method to invoke MCP tools.
     """
 
-    # Session file persists the session_id across restarts / new client instances.
-    _SESSION_FILE = "/tmp/.kite_mcp_session"
+    # Session key/value store persists across restarts / new client instances.
+    # Lives under settings.output_dir (bind-mounted into the container at
+    # /app/output) rather than /tmp, so a login done in one `mosaic.sh kite`
+    # run survives into a later `mosaic.sh analyze` run's fresh --rm container.
+    # SQLite (not a flat JSON file) — same convention as output/.cache/llm_cache.db.
+    _DB_PATH = os.path.join(settings.output_dir, ".cache", "kite_mcp_session.db")
+
+    # Two distinct keys: the MCP protocol session (from the `initialize`
+    # handshake) and the legacy Kite OAuth cookie are unrelated identifiers —
+    # storing them under one shared slot let one silently clobber the other.
+    _MCP_SESSION_KEY = "mcp_session_id"
+    _KITE_COOKIE_KEY = "kite_cookie_session_id"
 
     @classmethod
-    def _load_session(cls) -> str | None:
-        """Load persisted session_id from disk."""
-        import os, json as _json
+    def _conn(cls) -> sqlite3.Connection:
+        os.makedirs(os.path.dirname(cls._DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(cls._DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS kite_session ("
+            "key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL)"
+        )
+        return conn
+
+    @classmethod
+    def _load_session(cls, key: str) -> str | None:
+        """Load a persisted session value from SQLite."""
         try:
-            if os.path.exists(cls._SESSION_FILE):
-                data = _json.loads(open(cls._SESSION_FILE).read())
-                return data.get("session_id")
+            with cls._conn() as conn:
+                row = conn.execute(
+                    "SELECT value FROM kite_session WHERE key = ?", (key,)
+                ).fetchone()
+                return row[0] if row else None
+        except Exception:
+            return None
+
+    @classmethod
+    def _save_session(cls, key: str, value: str) -> None:
+        """Persist a session value to SQLite for reuse across instances/restarts."""
+        try:
+            with cls._conn() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO kite_session (key, value, updated_at) VALUES (?, ?, ?)",
+                    (key, value, time.time()),
+                )
         except Exception:
             pass
-        return None
 
     @classmethod
-    def _save_session(cls, session_id: str) -> None:
-        """Persist session_id to disk for reuse across instances."""
-        import json as _json
+    def _clear_session(cls, key: str) -> None:
+        """Remove a persisted session value."""
         try:
-            open(cls._SESSION_FILE, "w").write(_json.dumps({"session_id": session_id}))
+            with cls._conn() as conn:
+                conn.execute("DELETE FROM kite_session WHERE key = ?", (key,))
         except Exception:
-            pass
-
-    @classmethod
-    def _clear_session(cls) -> None:
-        """Remove stale session file."""
-        import os
-        try:
-            os.remove(cls._SESSION_FILE)
-        except FileNotFoundError:
             pass
 
     def __init__(self) -> None:
@@ -73,8 +100,8 @@ class KiteMCPClient:
         self._base_url: str = settings.kite_mcp_url.rstrip("/")
         self._timeout: int = settings.kite_mcp_timeout
         self._client: httpx.AsyncClient | None = None
-        self._session_id: str | None = self._load_session()   # Kite OAuth session (legacy cookie)
-        self._mcp_session_id: str | None = self._load_session()  # MCP protocol session ID
+        self._session_id: str | None = self._load_session(self._KITE_COOKIE_KEY)   # Kite OAuth session (legacy cookie)
+        self._mcp_session_id: str | None = self._load_session(self._MCP_SESSION_KEY)  # MCP protocol session ID
         self._runner = CommandRunner(max_retries=3)
 
     # ── Context Manager ───────────────────────────────────────────────────────
@@ -124,7 +151,7 @@ class KiteMCPClient:
             sid = r.headers.get("mcp-session-id")
             if sid:
                 self._mcp_session_id = sid
-                self._save_session(sid)
+                self._save_session(self._MCP_SESSION_KEY, sid)
                 logger.info("KiteMCPClient: mcp-session-id established (%s…)", sid[:12])
             # Send initialized notification to complete handshake
             if self._mcp_session_id:
@@ -187,7 +214,7 @@ class KiteMCPClient:
             if tool_name != "login":
                 # Kite OAuth session expired — clear and prompt re-login.
                 self._session_id = None
-                self._clear_session()
+                self._clear_session(self._KITE_COOKIE_KEY)
                 raise RuntimeError(
                     "Kite session expired. Run: initiate_kite_login() → "
                     "open the URL in your browser → retry."
@@ -203,7 +230,7 @@ class KiteMCPClient:
             cookie = response.headers["set-cookie"]
             if "session_id=" in cookie:
                 self._session_id = cookie.split("session_id=")[1].split(";")[0]
-                self._save_session(self._session_id)
+                self._save_session(self._KITE_COOKIE_KEY, self._session_id)
                 logger.info("KiteMCPClient: session_id captured and persisted")
 
         if "error" in data:
@@ -234,12 +261,31 @@ class KiteMCPClient:
         Returns:
             Authorization URL that the user must open in a browser to authenticate.
         """
+        import re
         from src.commands.kite_cmd import KiteToolCommand
         cmd = KiteToolCommand(self, "login", {})
         result = await self._runner.run_async(cmd)
+
         if isinstance(result, dict):
-            return result.get("url", str(result))
-        return str(result)
+            for key in ("url", "login_url", "authorization_url", "auth_url", "redirect_url"):
+                value = result.get(key)
+                if value:
+                    return str(value)
+            text = str(result)
+        else:
+            text = str(result)
+
+        # The hosted MCP server's "login" tool returns free-form instructional
+        # prose for an LLM agent to parse (AI-risk disclaimer + a markdown
+        # link), not a clean JSON URL field — pull the URL out of it directly.
+        # `[^\s)\]]+` stops before a markdown link's closing ')' so the match
+        # doesn't swallow trailing punctuation.
+        match = re.search(r"https?://[^\s)\]]+", text)
+        if match:
+            return match.group(0)
+
+        logger.warning("KiteMCPClient.login(): could not find a URL in response: %s", text[:200])
+        return text
 
     # ── Portfolio Tools ───────────────────────────────────────────────────────
 
@@ -299,3 +345,37 @@ class KiteMCPClient:
         from src.commands.kite_cmd import KiteToolCommand
         cmd = KiteToolCommand(self, "get_ltp", {"instruments": instruments})
         return await self._runner.run_async(cmd)
+
+
+async def fetch_authenticated_profile(client: "KiteMCPClient") -> dict[str, Any]:
+    """
+    Fetch the Kite profile, transparently handling the login flow if needed.
+
+    The MCP server sometimes returns 200 OK with a plain-text "not logged in"
+    body instead of raising, so a non-dict response is treated the same as
+    an auth failure. Prints the OAuth URL and blocks on input() for the user
+    to complete browser login, then retries once.
+
+    Shared by the `kite` CLI command, the `/kite` chat command, and the
+    portfolio sync service — all three need identical login-detection and
+    retry behaviour.
+    """
+    async def _fetch() -> dict[str, Any]:
+        result = await client.get_profile()
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Kite login required: {result}")
+        return result
+
+    try:
+        return await _fetch()
+    except Exception as exc:
+        exc_lower = str(exc).lower()
+        if "401" in str(exc) or "unauthorized" in exc_lower or "login" in exc_lower or "logged in" in exc_lower:
+            login_url = await client.login()
+            print(
+                "\nKite login required. Copy the link below and open it in your "
+                f"browser to authenticate:\n{login_url}\n"
+            )
+            input("Press ENTER after completing authentication in the browser...")
+            return await _fetch()
+        raise

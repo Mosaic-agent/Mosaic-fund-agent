@@ -822,11 +822,12 @@ def run_multi_fund_consensus_workflow(period: str = "mom") -> str:
 @tool
 def run_portfolio_workflow() -> str:
     """
-    Portfolio analysis with adversarial verification.
+    Portfolio Agent: sync + delta-detect + analyze with adversarial verification.
 
-    Reads holdings from market_data.user_holdings FINAL, enriches each in
-    parallel, scores with LLM, adversarially verifies HIGH-conviction calls,
-    then synthesises with macro context.
+    Syncs live holdings from Kite MCP into ClickHouse (delta-detecting what
+    changed since the last sync), reads back current open holdings with
+    holding period, enriches each in parallel, scores with LLM, adversarially
+    verifies HIGH-conviction calls, then synthesises with macro context.
     """
     from src.workflows.portfolio_analysis import run
     return run()

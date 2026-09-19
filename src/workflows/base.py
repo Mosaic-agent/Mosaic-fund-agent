@@ -118,6 +118,7 @@ def _par(
     max_workers: int | None = None,
     retries: int = 2,
     backoff: float = 1.5,
+    skip_global_freshness: bool = False,
 ) -> dict[str, Any]:
     """
     Execute a dict of {key: callable} concurrently via ThreadPoolExecutor.
@@ -139,15 +140,22 @@ def _par(
     Note: this retries on *raised* errors. A scraper that returns empty/zero
     data instead of raising (e.g. yfinance under throttle) can't be detected
     here — the low concurrency cap is the primary mitigation for that.
+
+    Pass ``skip_global_freshness=True`` when the caller already does its own
+    narrowly-scoped freshness check (e.g. per-symbol, not per-category) —
+    otherwise every `_par()` call also triggers a blanket check across all
+    market categories (`check_global_freshness`), which can kick off an
+    expensive whole-category backfill (e.g. all "stocks") as a side effect.
     """
     if not fetchers:
         return {}
 
-    try:
-        from src.importer.freshness import check_global_freshness
-        check_global_freshness()
-    except Exception as exc:
-        logger.debug("Workflow auto-freshness check skipped: %s", exc)
+    if not skip_global_freshness:
+        try:
+            from src.importer.freshness import check_global_freshness
+            check_global_freshness()
+        except Exception as exc:
+            logger.debug("Workflow auto-freshness check skipped: %s", exc)
 
     n = max_workers or min(len(fetchers), _PAR_MAX_WORKERS)
 
@@ -187,6 +195,7 @@ def _par_datasets(
     max_workers: int | None = None,
     retries: int = 2,
     backoff: float = 1.5,
+    skip_global_freshness: bool = False,
 ) -> dict[str, DatasetRef]:
     """
     Like `_par()`, but compresses each raw result into a `DatasetRef` — bounded,
@@ -194,8 +203,13 @@ def _par_datasets(
     audit compaction. Use this for fetch-then-synthesize workflows: assign
     `.content` to the workflow's existing named fields (unchanged synthesis
     prompts) and stash the full dict on `state["datasets"]` for audit.
+
+    See `_par()` for `skip_global_freshness`.
     """
-    raw = _par(fetchers, max_workers=max_workers, retries=retries, backoff=backoff)
+    raw = _par(
+        fetchers, max_workers=max_workers, retries=retries, backoff=backoff,
+        skip_global_freshness=skip_global_freshness,
+    )
     return {key: _context_manager.to_dataset_ref(key, value) for key, value in raw.items()}
 
 
