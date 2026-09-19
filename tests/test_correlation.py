@@ -10,7 +10,6 @@ from src.ml.correlation import (
     EventType,
     PreEventLeakStrategy,
     PostMacroShockStrategy,
-    CrossAssetCoMovementStrategy,
 )
 
 def test_candidate_event_and_finding_structures():
@@ -415,75 +414,6 @@ def test_news_quality_and_hierarchy_weights(monkeypatch):
 
     finally:
         anomaly_mod.run_composite_anomaly = original_anomaly
-
-
-def test_cross_asset_direction_mismatch_penalises_score():
-    """Same-direction co-movement (FX up + stock up) contradicts negative beta — score penalised 70%."""
-    dates = pd.date_range(start="2026-05-01", periods=5, freq="D")
-    df_ohlcv = pd.DataFrame({
-        "trade_date": dates,
-        "open": [100.0] * 5,
-        "high": [101.0] * 5,
-        "low": [99.0] * 5,
-        "close": [100.0, 100.0, 100.0, 103.0, 100.0],  # +3% on index 3
-        "volume": [1000.0] * 5,
-    })
-    df_anomaly = pd.DataFrame({
-        "trade_date": dates,
-        "is_anomaly": [False, False, False, True, False],
-        "garch_vol": [1.0] * 5,
-    })
-    # FX shock on same day as anomaly (index 3), pct_change +0.01 = USDINR up (INR depreciates)
-    # Stock also up on same day → same direction → mismatch for negative-beta stock
-    fx_event = CandidateEvent(
-        trade_date=dates[3].date(),
-        event_type=EventType.MACRO_COMMODITY_SHOCK,
-        label="USDINR Depreciation (+1.50%)",
-        description="FX shock",
-        metadata={"fx_pct_change": 0.015},
-    )
-    strategy = CrossAssetCoMovementStrategy()
-    findings = strategy.analyze(df_ohlcv, df_anomaly, None, [fx_event])
-
-    assert len(findings) == 1
-    f = findings[0]
-    # Score should be 75.0 * 0.3 = 22.5 (same-day base penalised 70%)
-    assert abs(f.correlation_score - 22.5) < 0.1
-    assert "Direction mismatch" in f.explanation
-
-
-def test_cross_asset_direction_consistent_score_unchanged():
-    """Opposite-direction co-movement (FX up + stock down) is consistent — score not penalised."""
-    dates = pd.date_range(start="2026-05-01", periods=5, freq="D")
-    df_ohlcv = pd.DataFrame({
-        "trade_date": dates,
-        "open": [100.0] * 5,
-        "high": [101.0] * 5,
-        "low": [99.0] * 5,
-        "close": [100.0, 100.0, 100.0, 97.0, 100.0],  # -3% on index 3
-        "volume": [1000.0] * 5,
-    })
-    df_anomaly = pd.DataFrame({
-        "trade_date": dates,
-        "is_anomaly": [False, False, False, True, False],
-        "garch_vol": [1.0] * 5,
-    })
-    # FX up (INR depreciates) + stock down → consistent with negative beta
-    fx_event = CandidateEvent(
-        trade_date=dates[3].date(),
-        event_type=EventType.MACRO_COMMODITY_SHOCK,
-        label="USDINR Depreciation (+1.50%)",
-        description="FX shock",
-        metadata={"fx_pct_change": 0.015},
-    )
-    strategy = CrossAssetCoMovementStrategy()
-    findings = strategy.analyze(df_ohlcv, df_anomaly, None, [fx_event])
-
-    assert len(findings) == 1
-    f = findings[0]
-    # Score should be 75.0 — no penalty
-    assert abs(f.correlation_score - 75.0) < 0.1
-    assert "Direction mismatch" not in f.explanation
 
 
 def test_pre_event_leak_bonus_with_metadata_uses_positioning_framing():

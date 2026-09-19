@@ -2,7 +2,7 @@
 
 The **🔬 Anomaly Detection** tab runs a six-strategy composite pipeline (`src/ml/anomaly/` — a package, not a single file) on any symbol in ClickHouse: robust MAD-Z → GARCH(1,1) volatility normalization → Isolation Forest → PELT change-point detection → Volume GMM (institutional-block detection) → Company Event classification. Cross-asset features (COT gold positioning, USDINR) are injected before the strategies run when available.
 
-Detected anomalies are automatically written to **Qdrant** (`market_anomalies` collection) for semantic memory and historical precedent retrieval. A separate **Correlation Engine** attributes each flagged date to external causal events (macro shocks, FX moves, insider activity) using three pluggable strategies.
+Detected anomalies are automatically written to **Qdrant** (`market_anomalies` collection) for semantic memory and historical precedent retrieval. A separate **Correlation Engine** attributes each flagged date to external causal events (macro shocks, insider activity) using pluggable strategies — currently `PostMacroShockStrategy` (registered by default) plus the deprecated `PreEventLeakStrategy` (importable but not registered by default; a former `CrossAssetCoMovementStrategy`/FX-shock strategy was removed after being found to attribute noise indiscriminately across symbols regardless of real currency exposure).
 
 ## Architectural Pipeline & Data Flow
 
@@ -46,7 +46,6 @@ graph TD
     subgraph CorrelEngine ["5. Correlation Engine (ml/correlation/)"]
         CE_STRAT1["PreEventLeakStrategy<br/>(insider accumulation before corporate action)"]
         CE_STRAT2["PostMacroShockStrategy<br/>(macro event → price reaction lag)"]
-        CE_STRAT3["CrossAssetCoMovementStrategy<br/>(FX / commodity co-movement)"]
         CE_NEWS["News RAG (Qdrant news_articles)<br/>retrieve_articles() semantic search"]
         CE_OUT["CorrelationFinding[]<br/>(event_type, date, lag_days, score, explanation)"]
     end
@@ -94,14 +93,11 @@ graph TD
     %% Connections — Correlation Engine
     FLAG --> CE_STRAT1
     FLAG --> CE_STRAT2
-    FLAG --> CE_STRAT3
     NEWS --> CE_NEWS
     MACRO --> CE_STRAT2
-    FX --> CE_STRAT3
     CE_NEWS --> CE_STRAT2
     CE_STRAT1 --> CE_OUT
     CE_STRAT2 --> CE_OUT
-    CE_STRAT3 --> CE_OUT
 
     %% Connections — Composite & Governor
     RS --> P_Anomaly
@@ -178,7 +174,9 @@ This **boosts** days suspicious to both algorithms while filtering noise where o
 
 Steps 2–3 detect **point shocks** (single surprising days). PELT detects **structural breaks** — the boundary where the return *distribution* shifts to a new variance regime (calm → turbulent). These are different objects: a one-day spike is not a regime change, and a regime change need not contain a single dramatic day.
 
-`ruptures.Pelt(model="rbf")` is fit on **standardised log-returns** (z-scored so the penalty is scale-invariant across assets). The rbf kernel cost reacts to changes in the whole distribution (mean + variance), pinpointing volatility-regime boundaries. Auto penalty = `2·log(n)` when not supplied; higher penalty → fewer breaks.
+`ruptures.Pelt(model="rbf")` is fit on **standardised log-returns** (z-scored so the penalty is scale-invariant across assets). The rbf kernel cost reacts to changes in the whole distribution (mean + variance), pinpointing volatility-regime boundaries.
+
+**Penalty selection**: a single fixed `2·log(n)` auto-penalty was found to be badly miscalibrated in practice — empirically it detected **zero** breaks on 21 of 22 diverse symbols tested (large-cap stocks + ETFs spanning 0.75%–3.71% daily volatility), silently disabling the confirmation boost below for nearly every symbol. `PeltChangePointStrategy` now defaults (when `cp_penalty` is left `None`) to an **adaptive multi-penalty scan** (`fit_change_points_adaptive()`): it tries penalties from `0.6×` down to `0.2×` the auto-penalty, accepting the first factor whose break count falls in a sensible `1..max_breaks` band (`max_breaks = max(2, n_valid // 120)`, ~1 break per 120 trading days) — so volatile and steady symbols detect at comparable rates instead of one fixed value working for neither. Passing an explicit `cp_penalty` still uses the original single fixed-penalty path. This is the same adaptive logic the correlation engine's `EventRegistry._from_regime_shifts()` already used for its `REGIME_SHIFT` candidate events — both now share one implementation.
 
 | Column | Meaning |
 |---|---|
@@ -196,7 +194,9 @@ and its regime is relabelled **🔀 Regime Shift (Change Point)**. The Final-Z t
 A 2-component Gaussian Mixture Model is fit on `log(volume)` over the symbol's full history (no rolling window) to separate two latent trading regimes: normal retail/market-maker flow vs. institutional block-deal activity (crossed bulk/block deals, large MF portfolio additions, FII rebalancing). Despite the class name `VolumeHMMStrategy` (`src/ml/anomaly/_pipeline.py`), this is a GMM, not a true HMM — there is no temporal state-transition matrix, only a per-day posterior probability.
 
 - Output column: `p_institutional` (0–1). Values > 0.70 indicate volume more consistent with the institutional cluster than normal trading.
-- A day is flagged **📊 Volume Anomaly (Institutional Block)** when `p_institutional > 0.70` AND `|z_volume| > 5.0` AND the price move is *not* already flagged by the Final-Z gate — i.e. it catches silent block deals that move volume but not price, which the other five strategies (all price-based) cannot see.
+- A day is flagged **📊 Volume Anomaly (Institutional Block)** when `p_institutional > 0.90` AND `|z_volume| > 5.0` AND the price move is *not* already flagged by the Final-Z gate — i.e. it catches silent block deals that move volume but not price, which the other five strategies (all price-based) cannot see.
+
+> **Distinct from 📶 "Elevated Volume / Muted Price"** (assigned in `classify_regime()`, [Regime Classification](#regime-classification) below): that label uses percentile thresholds (`|z_volume|` top-quintile AND price/GARCH-residual *not* top-quintile) which by construction fire on a fairly constant ~10–13% of days on almost any symbol, regardless of genuine institutional activity — empirically confirmed across 22 diverse symbols (large-caps + ETFs), all converging to ~10–12%. The two labels were previously conflated under one string, which diluted the much rarer, GMM-confirmed 📊 signal with this generic, always-present-at-a-fixed-rate one.
 
 ## Step 6 — Company Event Classification (mechanical shock identification)
 
@@ -228,6 +228,8 @@ Each regime label is also mapped to a **numeric score (0–100)** that participa
 | 🧨 Blow-off Top (Weak) | High z_robust + Low volume + Positive return | 30 | Thin-volume rally |
 | 📈 Strong Trend (HODL) | High z_robust + Low z_resid | 70 | Predictable uptrend — hold position |
 | 🔀 Regime Shift (Change Point) | Flagged date confirmed by a PELT break (±3 rows) | 35 | Structural vol-regime change — re-assess sizing |
+| 📶 Elevated Volume / Muted Price | Top-quintile `\|z_volume\|` + price/GARCH-residual **not** top-quintile — percentile-relative, fires ~10-13% of days on any symbol by construction | 50 | Generic — not institutional-specific on its own; no action |
+| 📊 Volume Anomaly (Institutional Block) | `p_institutional > 0.90` (GMM) AND `\|z_volume\| > 5.0` AND price not already flagged | 35 | Silent block deal — price reaction may follow next-day disclosure |
 | 🏢 Price Driven by Company Event | Mechanical price adjustment on ex-date (split/bonus/demerger/rights) — **suppressed from df_flagged for ETFs only**; stocks/commodities still flagged with this label | 50 | ETFs: excluded from df_flagged; Stocks: included in df_flagged and Qdrant |
 | 😱 Panic | Extreme drawdown across multiple indicators | 20 | Severe stress — maximum defensive |
 | ✅ Normal | All other | 50 | No action |
@@ -311,7 +313,7 @@ At current gold vol (34.5%) with a 15% target: `w = min(1.0, 15/34.5) = 43%` →
 | IF Contamination (`contamination`) | 5% (0.05) | 1–20% | Expected anomaly fraction |
 | Final-Z threshold (`z_threshold`) | 2.5 | 1.0–5.0 | Flagging sensitivity |
 | Z-score rolling window (`z_window`) | 30 | 10–60 | Rolling MAD lookback |
-| Change-point penalty (`cp_penalty`) | auto `2·log n_valid` | — | PELT penalty; higher → fewer change points |
+| Change-point penalty (`cp_penalty`) | `None` → adaptive scan (0.6×–0.2× of `2·log n_valid`) | — | PELT penalty; explicit value overrides the adaptive scan with a single fixed penalty |
 | Change-point proximity (`cp_proximity_days`) | 3 | 0–10 | ± rows around a break that count as confirmed |
 | Change-point boost (`cp_boost`) | 1.15 | 1.0–2.0 | Final-Z multiplier for confirmed dates (1.0 = off) |
 
@@ -333,8 +335,7 @@ df_flagged (anomaly dates)
       ▼
 CorrelationService.find_correlations(df_ohlcv, df_flagged)
       ├── PreEventLeakStrategy._detect_signals()   → _score_signal()
-      ├── PostMacroShockStrategy._detect_signals() → _score_signal()   ← uses News RAG
-      └── CrossAssetCoMovementStrategy._detect_signals() → _score_signal()
+      └── PostMacroShockStrategy._detect_signals() → _score_signal()   ← uses News RAG
       │
       ▼
 FindingsPipeline (filters + deduplication)
@@ -353,7 +354,15 @@ Each strategy is split into two phases:
 |---|---|---|
 | `PreEventLeakStrategy` | NSE corporate actions (`market_data.corporate_actions`) | Unusual price moves 1–5 days *before* an ex-date (split/bonus/demerger) — possible insider accumulation or pre-positioning |
 | `PostMacroShockStrategy` | Macro events (EventRegistry) + **News RAG** (Qdrant `news_articles`) | Price reaction within a configurable lag window after a macro shock (RBI policy, US Fed, global tariff, commodity move) |
-| `CrossAssetCoMovementStrategy` | USDINR FX rates, COMEX commodity prices | Same-day or next-day co-movement between the flagged asset and a cross-asset shock (USD spike, gold crash, crude move) |
+
+> **Note:** A third strategy, `CrossAssetCoMovementStrategy` (USDINR FX-shock
+> co-movement), was removed. Because FX shocks were unbounded by lookback and
+> matched within a wide window, it attributed a large share of *any* symbol's
+> anomalies — including domestic names with no real currency exposure — to
+> routine ≥1% USDINR moves, purely by event density rather than genuine
+> causality. `PostMacroShockStrategy`'s hardcoded macro milestones still cover
+> currency-relevant events (e.g. gold import duty changes) where materiality
+> can be asserted explicitly.
 
 ### News RAG Integration
 

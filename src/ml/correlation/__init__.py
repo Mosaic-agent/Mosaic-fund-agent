@@ -11,7 +11,6 @@ All public symbols are re-exported here for backward compatibility:
 from .models import CandidateEvent, CorrelationFinding, EventType
 from .strategies import (
     CorrelationStrategy,
-    CrossAssetCoMovementStrategy,
     PostMacroShockStrategy,
     PreEventLeakStrategy,  # deprecated — kept for backward compat imports only
 )
@@ -30,7 +29,6 @@ __all__ = [
     "CorrelationFinding",
     "CorrelationService",
     "CorrelationStrategy",
-    "CrossAssetCoMovementStrategy",
     "EventRegistry",
     "EventType",
     "FindingsPipeline",
