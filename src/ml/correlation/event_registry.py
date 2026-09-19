@@ -11,6 +11,7 @@ methods and calling them from `load_all()`.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime
 from typing import List, Optional
 
@@ -42,23 +43,18 @@ class EventRegistry:
         events.extend(self._from_corporate_actions(df_corp))
         events.extend(self._from_nse_announcements(symbol, lookback_days))
         events.extend(self._from_macro_milestones())
-        events.extend(self._from_fx_shocks())
         events.extend(self._from_news(symbol, lookback_days))
         if df_ohlcv is not None:
             events.extend(self._from_regime_shifts(df_ohlcv))
         return events
 
     # ── Regime shifts (PELT structural breaks) ────────────────────────────────
-
-    # Adaptive change-point sensitivity. A single fixed penalty is miscalibrated
-    # across asset classes: a value giving ~2 clean breaks on a volatile ETF
-    # gives 0 on a steadier large-cap. Instead scan penalties from conservative
-    # → sensitive (fractions of the BIC auto-penalty 2·log n) and accept the
-    # FIRST that yields a sensible 1..max_breaks count — so each symbol surfaces
-    # its own structural breaks at comparable rates, while the cap rejects the
-    # over-segmentation you get at very low penalties (noise). Descending, fine
-    # steps → the count grows gradually, so we catch it inside the band.
-    _REGIME_PENALTY_FACTORS = (0.6, 0.45, 0.35, 0.27, 0.2)
+    #
+    # Adaptive multi-penalty scan logic now lives in
+    # src/ml/anomaly/_changepoint.py::fit_change_points_adaptive() (shared with
+    # PeltChangePointStrategy in the anomaly-detection pipeline, which was
+    # found to use a single fixed penalty that detected zero breaks on 21/22
+    # tested symbols).
 
     @staticmethod
     def _from_regime_shifts(df_ohlcv: pd.DataFrame) -> List[CandidateEvent]:
@@ -67,7 +63,7 @@ class EventRegistry:
         events: List[CandidateEvent] = []
         try:
             import numpy as np
-            from src.ml.anomaly._changepoint import fit_change_points
+            from src.ml.anomaly._changepoint import fit_change_points_adaptive
 
             df = df_ohlcv.copy()
             if "trade_date" not in df.columns or "close" not in df.columns or len(df) < 60:
@@ -76,26 +72,11 @@ class EventRegistry:
             if "log_return" not in df.columns:
                 df["log_return"] = np.log(df["close"] / df["close"].shift(1))
 
-            n_valid = int(df["log_return"].notna().sum())
-            auto = 2.0 * np.log(max(n_valid, 2))
-            max_breaks = max(2, n_valid // 120)  # ~1 per 120 trading days
-
-            chosen = None
-            used_pen = None
-            for fct in EventRegistry._REGIME_PENALTY_FACTORS:
-                pen = auto * fct
-                res = fit_change_points(df, penalty=pen)
-                nb = int(res["is_changepoint"].sum())
-                if nb == 0:
-                    continue           # too conservative — go more sensitive
-                if nb > max_breaks:
-                    break              # over-segmented — reject; nothing trustworthy
-                chosen, used_pen = res, pen
-                break                  # first sensible count wins
-            if chosen is None:
+            res = fit_change_points_adaptive(df)
+            if not bool(res["is_changepoint"].any()):
                 return events          # genuinely no clear regime shift
 
-            for bd in chosen.loc[chosen["is_changepoint"], "trade_date"]:
+            for bd in res.loc[res["is_changepoint"], "trade_date"]:
                 events.append(
                     CandidateEvent(
                         trade_date=pd.Timestamp(bd).date(),
@@ -106,7 +87,7 @@ class EventRegistry:
                             "around this date — anomalies here are part of a regime "
                             "transition, not isolated blips."
                         ),
-                        metadata={"detector": "pelt", "penalty": round(used_pen, 2)},
+                        metadata={"detector": "pelt"},
                     )
                 )
         except Exception as e:
@@ -159,6 +140,52 @@ class EventRegistry:
 
     # ── NSE Corporate Announcements (official disclosures) ────────────────────
 
+    # Boilerplate NSE filing-description prefixes that carry no information —
+    # stripped so what's left (if anything) is the actual substantive detail.
+    _NSE_DESC_BOILERPLATE_RE = re.compile(
+        r'^.*?\b(?:has informed the exchange|has submitted to the exchange|'
+        r'has submitted the exchange)\b(?:\s+(?:regarding|about|a copy of|the|that))?\s*',
+        re.IGNORECASE,
+    )
+    # A quoted sub-title inside the filing text (e.g. `titled "Press Release on
+    # the financial results for the quarter ended June 30, 2026"`) is usually
+    # the single most informative fragment NSE provides.
+    _NSE_QUOTED_TITLE_RE = re.compile(r'["\u201c]([^"\u201d]{10,150})["\u201d]')
+
+    @staticmethod
+    def _informative_filing_label(category: str, raw_description: str) -> str:
+        """Build a more informative event label than NSE's bare category
+        (e.g. "Press Release", "Resignation", "General Updates").
+
+        NSE's `desc` field is a coarse category bucket; the real substance
+        (which press release, whose resignation, what the board decided) sits
+        in the free-text `attchmntText`. This pulls that fact out — quoted
+        sub-titles first, otherwise the description with generic
+        "has informed the Exchange ..." boilerplate stripped — and prefixes
+        the category only when the detail doesn't already restate it, so
+        category keywords used by materiality weighting stay present.
+        Falls back to the bare category when the description adds nothing
+        beyond it (e.g. a bare "Credit Rating" filing with no attached text).
+        """
+        if not raw_description:
+            return category
+
+        m = EventRegistry._NSE_QUOTED_TITLE_RE.search(raw_description)
+        if m:
+            detail = m.group(1).strip()
+        else:
+            detail = EventRegistry._NSE_DESC_BOILERPLATE_RE.sub("", raw_description)
+            detail = detail.strip().lstrip(",:;- ").strip().rstrip(".")
+
+        if not detail or detail.lower() == category.lower():
+            return category
+        detail = detail[:140]
+        if detail and detail[0].islower():
+            detail = detail[0].upper() + detail[1:]
+        if detail.lower().startswith(category.lower()):
+            return detail
+        return f"{category}: {detail}"
+
     @staticmethod
     def _from_nse_announcements(symbol: str, lookback_days: int) -> List[CandidateEvent]:
         """Official NSE announcements — board outcomes, M&A, credit ratings,
@@ -187,17 +214,19 @@ class EventRegistry:
                     else:
                         cat = title or "Corporate Disclosure"
 
-                desc = str(r.get("description") or "").strip()
+                raw_desc = str(r.get("description") or "").strip()
+                desc = raw_desc
                 if not desc or desc.lower() == "nse_announcements":
                     desc = title or cat
+                    raw_desc = ""  # placeholder fallback text carries no real detail
 
                 events.append(
                     CandidateEvent(
                         trade_date=pub_dt,
                         event_type=EventType.COMPANY_FILING,
-                        label=cat,
+                        label=EventRegistry._informative_filing_label(cat, raw_desc),
                         description=desc,
-                        metadata={"source": "nse", "url": r.get("url", "")},
+                        metadata={"source": "nse", "url": r.get("url", ""), "category": cat},
                     )
                 )
         except Exception as e:
@@ -221,7 +250,7 @@ class EventRegistry:
             (date(2026, 2, 6), EventType.MACRO_RATE_DECISION, "RBI Policy Pause", "RBI pauses rate cuts to monitor food inflation"),
             # Geopolitical
             (date(2025, 10, 1), EventType.MACRO_GEOPOLITICAL, "Middle East Geopolitical Escalation", "Spike in energy and global risk off sentiment"),
-            (date(2026, 1, 12), EventType.MACRO_GEOPOLITICAL, "Global Trade War Tariff Tariffs", "Geopolitical tensions trigger worldwide supply shock"),
+            (date(2026, 1, 12), EventType.MACRO_GEOPOLITICAL, "Global Trade War Tariffs", "Geopolitical tensions trigger worldwide supply shock"),
             # India commodity policy
             (date(2026, 5, 13), EventType.MACRO_RATE_DECISION, "India Gold Import Duty Hike to 15%", "Government raises gold import duty from 6% to 15%; caps duty-free imports at 100kg per licence. Bearish for gold demand, bullish for domestic gold prices short-term on supply squeeze."),
         ]
@@ -229,47 +258,6 @@ class EventRegistry:
             CandidateEvent(trade_date=dt, event_type=ev_type, label=label, description=desc)
             for dt, ev_type, label, desc in milestones
         ]
-
-    # ── Dynamic FX Shocks ─────────────────────────────────────────────────────
-
-    # Minimum daily USDINR move to qualify as a macro shock candidate.
-    # The earlier 0.0075 (0.75%) threshold produced ~30+ events per year, which
-    # caused the PostMacroShockStrategy to attach an FX event to nearly every
-    # stock anomaly within its ±3-day window. Raised to 1.00% to surface only
-    # genuinely market-moving USDINR days.
-    _FX_SHOCK_MIN_PCT = 0.01
-
-    @staticmethod
-    def _from_fx_shocks() -> List[CandidateEvent]:
-        """USDINR daily moves ≥ ``_FX_SHOCK_MIN_PCT`` from ClickHouse fx_rates."""
-        events: List[CandidateEvent] = []
-        try:
-            from src.db.pool import query_df
-            df_fx = query_df(
-                "SELECT trade_date, toFloat64(close) AS close "
-                "FROM market_data.fx_rates FINAL WHERE symbol = 'USDINR' "
-                "ORDER BY trade_date ASC"
-            )
-            if not df_fx.empty:
-                df_fx["trade_date"] = pd.to_datetime(df_fx["trade_date"])
-                df_fx["pct_change"] = df_fx["close"].pct_change()
-                extreme_fx = df_fx[df_fx["pct_change"].abs() >= EventRegistry._FX_SHOCK_MIN_PCT]
-                for _, row in extreme_fx.iterrows():
-                    fx_date = pd.to_datetime(row["trade_date"]).date()
-                    pct = float(row["pct_change"])
-                    direction = "Depreciation" if pct > 0 else "Appreciation"
-                    events.append(
-                        CandidateEvent(
-                            trade_date=fx_date,
-                            event_type=EventType.MACRO_COMMODITY_SHOCK,
-                            label=f"USDINR {direction} ({pct*100:+.2f}%)",
-                            description="Significant daily currency volatility shock in INR exchange rates.",
-                            metadata={"fx_pct_change": float(pct)},
-                        )
-                    )
-        except Exception as e:
-            log.warning("Could not dynamically build USDINR macro events: %s", e)
-        return events
 
     # ── News (RAG + Live Fallback) ────────────────────────────────────────────
 
@@ -400,7 +388,89 @@ class EventRegistry:
                 if is_relevant_article(le.label.lower(), le.description.lower()):
                     filtered_events.append(le)
 
-        return filtered_events
+        return self._dedupe_same_day_news(filtered_events)
+
+    # Near-duplicate news are treated as the SAME candidate when their semantic
+    # similarity is >= this cutoff. Empirically calibrated on GOLDBEES: same-day
+    # syndicated "gold rate today" recaps from different publishers (identical
+    # information, different wording/cities) scored 0.82-0.91 cosine similarity
+    # against each other; genuinely distinct same-day stories (e.g. "ETF inflows
+    # hit 5-month high" vs "Central banks snapping up gold") scored 0.60-0.78.
+    # 0.82 sits just below the recap cluster and above the distinct-story band.
+    _NEWS_DEDUPE_SIM_THRESHOLD = 0.82
+
+    @staticmethod
+    def _dedupe_same_day_news(events: List[CandidateEvent]) -> List[CandidateEvent]:
+        """Collapse near-duplicate same-day news candidates before scoring.
+
+        Syndicated outlets (FXStreet, Economic Times, Business Standard, ...)
+        often republish the exact same routine fact (e.g. "gold rate today: X
+        in Mumbai/Delhi/...") independently on the same date. These are
+        semantically near-identical but textually distinct, so exact
+        title/url dedup in retrieve_articles() doesn't catch them — they
+        become separate CandidateEvents, wasting retrieval budget and
+        correlation-strategy compute (they're near-universally filtered out
+        downstream by news quality scoring anyway, but crowd out genuinely
+        distinct same-day stories from the fixed top-k retrieval).
+
+        Greedy single-linkage clustering within each trade_date: for each
+        event (in original relevance-ranked order), keep it only if its
+        embedding similarity to every already-kept event on that date is
+        below the threshold; otherwise it's folded into an existing cluster
+        and dropped as redundant.
+        """
+        if len(events) < 2:
+            return events
+
+        by_date: dict = {}
+        for ev in events:
+            by_date.setdefault(ev.trade_date, []).append(ev)
+
+        # Only dates with 2+ candidates need embedding/clustering.
+        multi_date_events = [ev for evs in by_date.values() if len(evs) > 1 for ev in evs]
+        if not multi_date_events:
+            return events
+
+        try:
+            from .news_rag import embed_batch
+            import numpy as np
+
+            labels = [ev.label for ev in multi_date_events]
+            vecs = np.array(embed_batch(labels), dtype=np.float32)
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            vecs_n = vecs / norms
+            vec_by_id = {id(ev): vecs_n[i] for i, ev in enumerate(multi_date_events)}
+        except Exception as e:
+            log.debug("News dedup embedding failed, skipping clustering: %s", e)
+            return events
+
+        deduped: List[CandidateEvent] = []
+        for trade_date, evs in by_date.items():
+            if len(evs) == 1:
+                deduped.append(evs[0])
+                continue
+            kept: List[CandidateEvent] = []
+            for ev in evs:
+                v = vec_by_id.get(id(ev))
+                if v is None:
+                    kept.append(ev)
+                    continue
+                is_dup = any(
+                    float(np.dot(v, vec_by_id[id(k)])) >= EventRegistry._NEWS_DEDUPE_SIM_THRESHOLD
+                    for k in kept
+                    if vec_by_id.get(id(k)) is not None
+                )
+                if not is_dup:
+                    kept.append(ev)
+            if len(kept) < len(evs):
+                log.debug(
+                    "News dedup on %s: %d candidates → %d after collapsing near-duplicates",
+                    trade_date, len(evs), len(kept),
+                )
+            deduped.extend(kept)
+
+        return deduped
 
     @staticmethod
     def _fetch_live_newsapi(symbol: str, lookback_days: int) -> List[CandidateEvent]:

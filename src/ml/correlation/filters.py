@@ -34,6 +34,59 @@ _MIN_MACRO_RELEVANCE = 0.42
 _RELEVANCE_FALLBACK = 0.5
 
 
+# ── NSE Filing Materiality Table ──────────────────────────────────────────────
+#
+# COMPANY_FILING events (official NSE corporate announcements) were previously
+# all treated near-identically (0.8/1.0 sector-keyword weight), which let
+# routine administrative disclosures ("General Updates", "Press Release",
+# "Investor Presentation") explain price anomalies just as readily as genuinely
+# market-moving ones ("Resignation", "Credit Rating", "Change in Management").
+# Graduated by how likely the category is to actually move price.
+_FILING_MATERIALITY_HIGH = {
+    "financial result", "board meeting outcome", "outcome of board meeting",
+    "dividend", "buyback", "bonus", "split", "face value",
+    "credit rating", "rating action", "downgrade", "upgrade",
+    "resignation", "change in managing director", "change in ceo",
+    "change in cfo", "key managerial personnel", "kmp",
+    "scheme of arrangement", "merger", "amalgamation", "acquisition",
+    "demerger", "litigation", "insolvency", "delisting", "winding up",
+    "sebi takeover regulations", "open offer",
+    "fund raising", "preferential allotment", "qip",
+    "qualified institutions placement", "rights issue",
+    "order win", "contract win", "change in auditor", "auditor resignation",
+}
+_FILING_MATERIALITY_MEDIUM = {
+    "allotment of securities", "change in director", "change in company secretary",
+    "change in compliance officer", "board meeting", "postal ballot",
+    "shareholding pattern", "related party transaction",
+}
+_FILING_MATERIALITY_LOW = {
+    "general update", "general updates", "updates", "press release",
+    "investor presentation", "newspaper publication", "record date",
+    "trading window", "analyst", "institutional investor meet",
+    "con. call", "conference call", "compliance certificate",
+    "certificate under sebi",
+}
+_FILING_MATERIALITY_FALLBACK = 0.4
+
+
+def _filing_materiality_weight(text: str) -> float:
+    """Graduated materiality weight for a COMPANY_FILING event's label+description.
+
+    Matched by case-insensitive keyword substring, HIGH checked first so a
+    filing matching both a HIGH and a MEDIUM/LOW keyword (e.g. "Board Meeting
+    Outcome — Dividend") is scored as material.
+    """
+    t = text.lower()
+    if any(kw in t for kw in _FILING_MATERIALITY_HIGH):
+        return 1.0
+    if any(kw in t for kw in _FILING_MATERIALITY_MEDIUM):
+        return 0.5
+    if any(kw in t for kw in _FILING_MATERIALITY_LOW):
+        return 0.2
+    return _FILING_MATERIALITY_FALLBACK
+
+
 # ── Individual Filter Stages ──────────────────────────────────────────────────
 
 
@@ -44,7 +97,9 @@ def apply_quality_weights(
 ) -> List[CorrelationFinding]:
     """Apply source hierarchy and news quality weights to adjust scores.
 
-    - Company filings/news with sector keywords get h_weight=0.8
+    - COMPANY_FILING (NSE announcements) get a graduated materiality weight
+      (HIGH=1.0 / MEDIUM=0.5 / LOW=0.2 / fallback=0.4) by category keyword
+    - NEWS_ANNOUNCEMENT with sector keywords get h_weight=0.8
     - Macro events get semantic relevance weight (cosine similarity between
       event description and symbol context), ranging [0.3, 1.0]
     - NEWS_ANNOUNCEMENT gets semantic quality weight via RAG exemplar scoring
@@ -56,7 +111,15 @@ def apply_quality_weights(
         # 1. Source Hierarchy Weight
         h_weight = 1.0
         et = f.event.event_type
-        if et in (EventType.COMPANY_FILING, EventType.NEWS_ANNOUNCEMENT):
+        if et == EventType.COMPANY_FILING:
+            # Official NSE filings: weight by category materiality rather than
+            # a blunt sector-keyword check — routine disclosures ("General
+            # Updates", "Press Release") shouldn't explain price anomalies as
+            # readily as genuinely market-moving ones ("Resignation", "Credit
+            # Rating", "Change in Management").
+            text = f"{f.event.label} {f.event.description}"
+            h_weight = _filing_materiality_weight(text)
+        elif et == EventType.NEWS_ANNOUNCEMENT:
             text = (f.event.label + " " + f.event.description).lower()
             clean_text = "".join(c if c.isalnum() or c.isspace() else " " for c in text)
             words = set(clean_text.split())
