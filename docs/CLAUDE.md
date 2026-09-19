@@ -21,6 +21,7 @@ docker compose up clickhouse -d
 ### Running the CLI
 ```bash
 python src/main.py --help
+python src/main.py kite                    # Kite MCP login/status check (run before analyze)
 python src/main.py analyze --max 3         # limit to 3 holdings
 python src/main.py analyze                 # full live portfolio (requires Zerodha login)
 python src/main.py ask "what is my riskiest holding?"
@@ -61,6 +62,7 @@ python tests/_backtest_anomaly.py
 - **Start UI:** `./run.sh` (macOS/Linux) or `run.bat` (Windows)
 - **Stop UI:** `./stop.sh` (macOS/Linux) or `stop.bat` (Windows)
 - **Run CLI/Scripts in Docker:** Use the `mosaic.sh`/`mosaic.bat` wrappers:
+  - `./mosaic.sh kite` — Kite MCP login/status check (also available as `/kite` inside the chat REPL)
   - `./mosaic.sh comex`
   - `./mosaic.sh ask "what is my riskiest holding?"`
   - `./mosaic.sh src/scripts/goldbees_report.py`
@@ -70,20 +72,36 @@ python tests/_backtest_anomaly.py
 
 ## Architecture
 
-### Request Flow (analyze command)
+### Request Flow (analyze command) — the Portfolio Agent
+`/analyze` (CLI `python src/main.py analyze` and chat `/analyze`, plus free-text "analyse my portfolio" via the `run_portfolio_workflow` tool) all run the same LangGraph `StateGraph`, checkpointed via the same `SqliteSaver` the chat REPL uses (`output/checkpoints.db`):
 ```
-CLI (src/main.py)
-  → MosaicFundAgent.run()
-      → KiteMCPClient  — authenticates with Zerodha via mcp.kite.trade
-      → _parse_holdings()  — raw Kite response → List[Holding]
-      → asset_analyzer.analyze_holding()  per holding (parallel)
-            ↳ yahoo_finance tools  — OHLCV, price, 52w range
-            ↳ earnings_scraper     — Screener.in → BSE fallback
-            ↳ news_search          — GNews + NewsAPI sentiment
-      → portfolio_analyzer.build_portfolio_report()
-            ↳ LangGraph ReAct agent (create_react_agent)  — LLM scoring
-      → output/  — JSON + HTML report files
+src/workflows/portfolio_analysis.py  (the Portfolio Agent)
+  1. sync_holdings — KiteMCPClient.get_holdings() (mcp.kite.trade)
+       ↳ src/data_importer/portfolio_sync.py: diff live holdings vs. last
+         ClickHouse snapshot → classify OPENED/INCREASED/DECREASED/
+         AVG_PRICE_CHANGED/CLOSED per symbol
+       ↳ always upserts market_data.user_holdings (current-state snapshot);
+         writes one market_data.portfolio_holding_events row per real change
+         (unchanged holdings produce no event row — this is the delta log)
+  2. discover    — MarketDataRepository.current_holdings_with_period():
+                   current open holdings + holding_period_days (days since
+                   Mosaic first observed the position — Kite's holdings API
+                   has no true purchase-date field)
+  3. enrich_all  — parallel per holding: yahoo_finance (price) + news_search
+                   + earnings_scraper, after a per-symbol ClickHouse
+                   daily_prices freshness check (check_and_refresh_symbol_data)
+                   scoped to just this portfolio's symbols
+  4. score_all   — LLM: BUY/HOLD/SELL/EXIT + conviction per holding
+  5. verify_high — adversarial: refute HIGH-conviction scores
+  6. fetch_macro — parallel: COMEX + macro scanner + FII/DII
+  7. synthesise  — portfolio summary + "Since Last Sync" delta section (1 LLM call)
 ```
+Replaces the older `MosaicFundAgent.run_full_analysis()` (still present but no
+longer the active path for this trigger). Kite auth: `KiteMCPClient` implements
+the actual MCP JSON-RPC protocol against `mcp.kite.trade`; session persists
+across container restarts in `output/.cache/kite_mcp_session.db` (SQLite, not
+`/tmp`). Run `python src/main.py kite` (or `/kite` in chat) to complete the
+one-time OAuth login before `analyze`.
 
 ### Key Layers
 
@@ -91,6 +109,7 @@ CLI (src/main.py)
 |-------|------|------|
 | CLI | `src/main.py` | 30 Typer commands; entry point |
 | Agents | `src/agents/` | LangChain/LangGraph orchestrators |
+| Workflows | `src/workflows/` | Stateful LangGraph `StateGraph` pipelines, checkpointed via shared `SqliteSaver` (`output/checkpoints.db`). `base.py`: `_get_llm()`, `_par()`/`_par_datasets()` (parallel fan-out; pass `skip_global_freshness=True` to opt out of the blanket all-category freshness sweep when the caller already does a narrower check), `_get_checkpointer()`/`_thread_id()`. `portfolio_analysis.py` — the Portfolio Agent (see Request Flow above). |
 | Signal Sources | `src/agents/signal_sources.py` | Strategy pattern: `SignalSource` ABC + 5 pillar classes + `GARCHAnomalySource`; `SIGNAL_ETFS` list |
 | Analyzers | `src/analyzers/` | `asset_analyzer` (per-holding), `portfolio_analyzer` (aggregate) |
 | Tools | `src/tools/` | Pure functions returning dict/DataFrame; composable in agents or scripts |
@@ -130,11 +149,17 @@ New pattern (Adapter + Repository):
 
 **Fetcher adapters** (Adapter pattern, `src/data_importer/fetchers/adapters.py`): All general categories (`etfs`, `stocks`, `fii_dii`, `fx_rates`, `cot`, `cb_reserves`, `etf_aum`, `world_bank`, `imf_weo`, `amfi_flows`, `mf`, `bulk_deals`/`events`, etc.) subclass `Fetcher` and map in `FETCHER_REGISTRY`. Orchestrator loop picks up new sources automatically.
 
+**Portfolio holdings sync** (`src/data_importer/portfolio_sync.py`) deliberately bypasses the `Fetcher`/watermark framework above — holdings are a full point-in-time snapshot, not a date-ranged series. `sync_portfolio_holdings()` fetches live Kite holdings, diffs against the last ClickHouse snapshot, and writes deltas — see Request Flow above.
+
+**Auto-freshness guard** (`src/data_importer/freshness.py`, `check_global_freshness()`): every `_par()`/`_par_datasets()` call in `src/workflows/` (5-min TTL) audits `daily_prices` staleness across **all** categories (etfs, stocks, fii_dii, indices, commodities, fx_rates, us_stocks) and auto-triggers a full category backfill for any stale one — expensive if a workflow only cares about a handful of symbols. Pass `skip_global_freshness=True` and do a narrower check instead (e.g. `check_and_refresh_symbol_data(symbol)` per symbol you actually need, as `portfolio_analysis.py`'s `_enrich_all_node` does) rather than relying on the blanket sweep.
+
 ### LLM Configuration
 `LLM_PROVIDER` (`openai` or `anthropic`) + `LLM_MODEL` control which model is used. Set `LLM_BASE_URL` to an OpenAI-compatible endpoint (Ollama, LM Studio) for local inference — no API key needed in that case.
 
 ### ClickHouse Schema
 Database: `market_data`. Tables are auto-created on first import (DDL in `src/data_importer/clickhouse.py`). Primary tables: `daily_prices` (OHLCV), `mf_nav`, `fii_dii_flows`, `ml_predictions`, `signal_composite`, `inav_snapshots`, `import_watermarks`, `macro_indicators` (World Bank / IMF WEO annual data), `corporate_actions` (NSE split/bonus/demerger/rights/dividend history — keyed by `(symbol, ex_date, action_type)`), `bulk_block_deals` (NSE bulk & block deal transactions). All use `ReplacingMergeTree` — idempotent inserts are safe.
+
+`user_holdings` — current-state Kite holdings snapshot, `ORDER BY (tradingsymbol)` (dedup column `imported_at` is deliberately *not* in the sort key, so `FINAL` correctly collapses to the latest row per symbol — keep it that way; ClickHouse can't narrow this via `ALTER` once populated, only widen it). `status` column: `OPEN` | `CLOSED`. `portfolio_holding_events` — plain `MergeTree` (no dedup — every row is a real, distinct event), one row per detected structural change (`OPENED`/`INCREASED`/`DECREASED`/`AVG_PRICE_CHANGED`/`CLOSED`); source for both the "since last sync" delta report and holding-period math (`MarketDataRepository.current_holdings_with_period()`).
 
 ### Qdrant Vector DB
 Database: `Qdrant` (served on port `6333` with built-in dashboard at `/dashboard`). Six collections (all 768-dim nomic-embed-text, COSINE distance). **Full reference incl. diagram, embedding pipeline, two-pass news retrieval, and read tools: [rag-architecture.md](rag-architecture.md).**

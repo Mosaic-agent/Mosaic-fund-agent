@@ -1631,6 +1631,7 @@ _BANNER = """[bold blue]
 [/bold blue]
 Type your question, or use a slash command:
 
+  [cyan]/kite[/cyan]                — Kite MCP login/status check
   [cyan]/analyze [--max N][/cyan]   — full Zerodha portfolio analysis
   [cyan]/signals[/cyan]             — ETF composite signal dashboard
   [cyan]/ml[/cyan]                  — ML model status + live prediction
@@ -1661,6 +1662,7 @@ _HELP_MD = """
 
 | Command | Action |
 |---|---|
+| `/kite` | Kite MCP login/status check — authenticate before `/analyze` |
 | `/analyze [--max N]` | Full Zerodha portfolio analysis (use --max 3 for quick test) |
 | `/signals` | ETF composite signal aggregator (all 18 ETFs) |
 | `/ml` | ML model status — LightGBM prediction, GARCH vol, anomaly regime |
@@ -1834,6 +1836,34 @@ def _dispatch_slash(
         console.print(f"\n[dim]To resume a thread, restart the chat with: [cyan]--thread-id <id>[/cyan] or [cyan]-t <id>[/cyan][/dim]")
         return "", thread_id
 
+    # ── /kite ──────────────────────────────────────────────────────────────
+    if name == "kite":
+        import asyncio
+        from rich.table import Table
+        from src.clients.mcp_client import KiteMCPClient, fetch_authenticated_profile
+
+        async def _kite_status() -> None:
+            async with KiteMCPClient() as client:
+                profile = await fetch_authenticated_profile(client)
+                holdings = await client.get_holdings()
+
+            table = Table(title="Kite Connection Status", show_header=False)
+            table.add_column(style="bold")
+            table.add_column()
+            table.add_row("Status", "[bold green]✓ Authenticated[/bold green]")
+            table.add_row("User", str(profile.get("user_name", profile.get("user_id", "unknown"))))
+            table.add_row("Email", str(profile.get("email", "n/a")))
+            table.add_row("Broker", str(profile.get("broker", "Zerodha")))
+            table.add_row("Holdings", str(len(holdings)))
+            console.print(table)
+
+        try:
+            asyncio.run(_kite_status())
+        except Exception as exc:
+            from rich.markup import escape
+            console.print(f"[bold red]✗ Kite connection failed:[/bold red] {escape(str(exc))}")
+        return "", thread_id
+
     # ── /analyze [--max N] ─────────────────────────────────────────────────
     if name == "analyze":
         max_n = 0
@@ -1849,15 +1879,15 @@ def _dispatch_slash(
                 p = p[1:]
         if max_n > 0:
             os.environ["MAX_HOLDINGS_PER_RUN"] = str(max_n)
-        with console.status("[yellow]Running full portfolio analysis…[/yellow]", spinner="dots"):
+        with console.status("[yellow]Running portfolio agent (Kite sync + delta + analysis)…[/yellow]", spinner="dots"):
             try:
-                report = agent.run_full_analysis(console=console)
+                from src.workflows.portfolio_analysis import run as run_portfolio_workflow
+                report = run_portfolio_workflow()
             except Exception as exc:
                 console.print(f"[bold red]✗ Analysis failed:[/bold red] {exc}")
                 return "", thread_id
         if report:
-            from src.formatters.output import print_report_to_console
-            print_report_to_console(report, console=console)
+            console.print(Panel(render_markdown_to_group(report), title="[bold green]Portfolio Report[/bold green]", border_style="green"))
         return "", thread_id
 
     # ── /signals ───────────────────────────────────────────────────────────
@@ -2151,13 +2181,29 @@ def _dispatch_slash(
     return f"Unknown command: `/{name}` — type `/help` for the full list.", thread_id
 
 
+_CONVERSATIONAL_FILLERS = frozenset({
+    "yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", "please",
+    "no", "n", "nah", "nope", "not now", "not really",
+    "go ahead", "do it", "sounds good", "that works", "continue",
+    "correct", "right", "thanks", "thank you",
+})
+
+
 def extract_company_subject(question: str, intent: str) -> str | None:
     """Extract a candidate company name from the query if it targets stock/news research."""
     import re
     from src.agents.sub_agents import _GENERAL_RESEARCH_RE
-    
+
     clean = question.strip().rstrip("?.")
-    
+
+    # A bare affirmation/filler replying to the agent's own previous follow-up
+    # question (e.g. "yes" after "want me to drill into X?") is conversational
+    # continuation, not a company/ticker lookup — resolving it would otherwise
+    # send it to the LLM ticker-resolver, which can fuzzy-match nonsense (e.g.
+    # "yes" -> YESBANK) and derail the chat with an interactive confirmation.
+    if clean.lower() in _CONVERSATIONAL_FILLERS:
+        return None
+
     # Strip common command verbs from the start of the query
     clean = re.sub(r"^(import|refresh|sync|update|backfill)\s+", "", clean, flags=re.I)
     

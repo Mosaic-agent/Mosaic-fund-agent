@@ -133,6 +133,61 @@ class MarketDataRepository:
             "as_of":               r[4],
         }
 
+    # ── Portfolio holdings ───────────────────────────────────────────────────
+
+    def current_holdings_with_period(self) -> pd.DataFrame:
+        """
+        Current open holdings joined with holding-period metadata.
+
+        `holding_since` is the earliest `OPENED` event in
+        `portfolio_holding_events` for that symbol that isn't followed by a
+        more recent `CLOSED` event — i.e. "since Mosaic first observed this
+        position", not Kite's true purchase date (Kite's holdings API has no
+        such field). Falls back to `now()` (0-day period) for a symbol with
+        no OPENED event on record yet, e.g. holdings synced before this
+        column existed.
+
+        Columns: tradingsymbol, isin, exchange, quantity, average_price,
+        last_price, pnl, pnl_percent, day_change, day_change_percentage,
+        holding_since, holding_period_days.
+        """
+        return self._qdf(
+            """
+            WITH last_closed AS (
+                SELECT tradingsymbol, max(detected_at) AS closed_at
+                FROM market_data.portfolio_holding_events
+                WHERE event_type = 'CLOSED'
+                GROUP BY tradingsymbol
+            ),
+            opened AS (
+                SELECT e.tradingsymbol AS tradingsymbol, min(e.detected_at) AS holding_since
+                FROM market_data.portfolio_holding_events e
+                LEFT JOIN last_closed lc ON e.tradingsymbol = lc.tradingsymbol
+                WHERE e.event_type = 'OPENED'
+                  AND (lc.closed_at IS NULL OR e.detected_at > lc.closed_at)
+                GROUP BY e.tradingsymbol
+            )
+            SELECT
+                h.tradingsymbol AS tradingsymbol,
+                h.isin AS isin,
+                h.exchange AS exchange,
+                h.quantity AS quantity,
+                h.average_price AS average_price,
+                h.last_price AS last_price,
+                h.pnl AS pnl,
+                (h.pnl / nullIf(h.quantity * h.average_price, 0)) * 100 AS pnl_percent,
+                h.day_change AS day_change,
+                h.day_change_percentage AS day_change_percentage,
+                coalesce(o.holding_since, now()) AS holding_since,
+                dateDiff('day', coalesce(o.holding_since, now()), now()) AS holding_period_days
+            FROM (
+                SELECT * FROM market_data.user_holdings FINAL WHERE status = 'OPEN'
+            ) h
+            LEFT JOIN opened o ON h.tradingsymbol = o.tradingsymbol
+            ORDER BY h.pnl DESC
+            """
+        )
+
     # ── Price data ───────────────────────────────────────────────────────────
 
     def ohlcv(self, symbol: str, category: str) -> pd.DataFrame:

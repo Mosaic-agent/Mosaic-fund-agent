@@ -128,30 +128,28 @@ def analyze(
         "-m",
         help="Limit analysis to top N holdings (0 = all). Useful for testing.",
     ),
-    output_json: bool = typer.Option(
+    save: bool = typer.Option(
         True,
-        "--json/--no-json",
-        help="Save a JSON report to the output directory.",
+        "--save/--no-save",
+        help="Save the report as a Markdown file in the output directory.",
     ),
     quiet: bool = typer.Option(
         False,
         "--quiet",
         "-q",
-        help="Skip terminal report display; only save JSON.",
+        help="Skip terminal report display; only save the file.",
     ),
 ) -> None:
     """
-    Run full portfolio intelligence analysis on your Zerodha holdings.
-
-    Fetches holdings from Kite MCP, enriches with Yahoo Finance data,
-    recent news (NewsAPI), and quarterly results (Screener.in),
-    then generates an AI-powered report with risk scores and insights.
+    Run the Portfolio Agent: sync live Zerodha holdings via Kite MCP,
+    delta-detect what changed, and generate an AI-powered report with
+    holding period, risk scores, and insights.
     """
     _setup_logging()
 
     console.print(
         Panel(
-            "[bold]Mosaic-fund-agent[/bold]\n"
+            "[bold]Mosaic-fund-agent — Portfolio Agent[/bold]\n"
             "[dim]Indian Equity Market Analysis | NSE & BSE[/dim]",
             border_style="blue",
         )
@@ -167,35 +165,72 @@ def analyze(
         # Re-read settings to pick up the override
         settings.__dict__["max_holdings_per_run"] = max_holdings
 
-    # Import agent lazily to avoid import errors when just checking config
-    from src.agents.mosaic_fund_agent import MosaicFundAgent
-    from src.formatters.output import print_report_to_console, save_json_report
-
-    agent = MosaicFundAgent()
+    from src.workflows.portfolio_analysis import run as run_portfolio_workflow
 
     try:
-        report = agent.run_full_analysis(console=console)
+        report = run_portfolio_workflow()
     except Exception as exc:
         console.print(f"\n[bold red]✗ Analysis failed:[/bold red] {exc}")
-        logging.exception("Full analysis failed")
+        logging.exception("Portfolio workflow failed")
         raise typer.Exit(code=1)
 
     if not report:
         console.print(
             "\n[bold red]✗ No report generated.[/bold red] "
-            "Check your Kite authentication."
+            "Check your Kite authentication (run `python src/main.py kite`)."
         )
         raise typer.Exit(code=1)
 
-    # Save JSON report
-    if output_json:
-        console.print("\n[bold cyan]Step 4/4:[/bold cyan] Saving report...")
-        filepath = save_json_report(report)
-        console.print(f"[green]✓ JSON report saved:[/green] {filepath}")
+    if save:
+        import os
+        from datetime import datetime
+        reports_dir = os.path.join(settings.output_dir, "reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        filepath = os.path.join(reports_dir, f"portfolio_analysis_{datetime.now():%Y%m%d_%H%M%S}.md")
+        with open(filepath, "w") as f:
+            f.write(report)
+        console.print(f"[green]✓ Report saved:[/green] {filepath}")
 
-    # Print to terminal
     if not quiet:
-        print_report_to_console(report, console=console)
+        from src.utils.markdown_renderer import render_markdown_to_group
+        console.print(Panel(render_markdown_to_group(report), title="[bold green]Portfolio Report[/bold green]", border_style="green"))
+
+
+@app.command()
+def kite() -> None:
+    """
+    Authenticate with Zerodha via Kite MCP and show connection status.
+
+    Triggers the OAuth login flow (prints a URL to open in your browser)
+    if no session is active yet, then prints the connected profile and
+    holdings count. Run this once before `analyze` so the interactive
+    login prompt doesn't interrupt a longer analysis run.
+    """
+    _setup_logging()
+    import asyncio
+    from src.clients.mcp_client import KiteMCPClient, fetch_authenticated_profile
+
+    async def _run() -> None:
+        async with KiteMCPClient() as client:
+            profile = await fetch_authenticated_profile(client)
+            holdings = await client.get_holdings()
+
+        table = Table(title="Kite Connection Status", box=box.ROUNDED, show_header=False)
+        table.add_column(style="bold")
+        table.add_column()
+        table.add_row("Status", "[bold green]✓ Authenticated[/bold green]")
+        table.add_row("User", str(profile.get("user_name", profile.get("user_id", "unknown"))))
+        table.add_row("Email", str(profile.get("email", "n/a")))
+        table.add_row("Broker", str(profile.get("broker", "Zerodha")))
+        table.add_row("Holdings", str(len(holdings)))
+        console.print(table)
+
+    try:
+        asyncio.run(_run())
+    except Exception as exc:
+        from rich.markup import escape
+        console.print(f"[bold red]✗ Kite connection failed:[/bold red] {escape(str(exc))}")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -300,7 +335,7 @@ def chat(
       - Infinite prompt loop (exit with 'quit' or Ctrl-C)
       - Persistent conversation memory via SqliteSaver (saved in output/checkpoints.db)
       - Intent-based sub-agent routing: deepdive / signals / macro / main
-      - Slash commands: /analyze, /signals, /deepdive TICKER, /macro, /clear, /help
+      - Slash commands: /kite, /analyze, /signals, /deepdive TICKER, /macro, /clear, /help
 
     Examples:
       ./mosaic.sh                     — default: starts this chat

@@ -426,19 +426,34 @@ def vectorize_holdings(rows: list[dict]) -> None:
 
 # ── Public read API ───────────────────────────────────────────────────────────
 
+_MIN_HOLDING_SIMILARITY = 0.65  # below this, nearest neighbors are noise, not matches
+# Calibrated empirically: genuine matches (e.g. "HDFC Bank" -> "HDFC Bank
+# Limited", "Reliance Industries" -> "Reliance Industries Limited") score
+# 0.72-0.83; an unrelated nearest-neighbor fallback for a poorly-embedding
+# query (e.g. an obscure ticker with no real holding) scores ~0.53-0.54.
+
+
 def find_funds_holding_security(
     query: str,
     k: int = 10,
     asset_type: str = "",
+    min_similarity: float = _MIN_HOLDING_SIMILARITY,
 ) -> list[dict]:
     """
     Semantic search in `mf_holdings`: which funds hold a security matching *query*?
 
     Args:
-        query:      Free-text — stock name, ISIN, sector, asset type
-                    e.g. "HDFC Bank", "gold ETF", "INE040A01034"
-        k:          Max results (default 10)
-        asset_type: Optional filter — equity | gold | bond | cash | other
+        query:          Free-text — stock name, ISIN, sector, asset type
+                        e.g. "HDFC Bank", "gold ETF", "INE040A01034"
+        k:              Max results (default 10)
+        asset_type:     Optional filter — equity | gold | bond | cash | other
+        min_similarity: Drop hits below this cosine-similarity score. Qdrant's
+                        nearest-neighbor search always returns the top-k
+                        closest points even when none are a real match (e.g.
+                        an obscure ticker embeds poorly and the "nearest"
+                        results end up being unrelated high-frequency names
+                        like Reliance/Bharti Airtel) — without this filter
+                        those irrelevant hits render as if they were matches.
 
     Returns:
         List of dicts with fund_name, security_name, isin, asset_type,
@@ -478,6 +493,7 @@ def find_funds_holding_security(
                 "similarity":      float(h.score),
             }
             for h in hits.points
+            if h.score >= min_similarity
         ]
     except Exception as e:
         log.warning("MFVector: find_funds_holding_security failed: %s", e)
