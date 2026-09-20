@@ -170,13 +170,21 @@ class KiteMCPClient:
 
     # ── Low-level MCP call ────────────────────────────────────────────────────
 
-    async def _call_tool(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
+    async def _call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        _reinitialized: bool = False,
+    ) -> Any:
         """
         Invoke a named MCP tool via JSON-RPC 2.0.
 
         Args:
             tool_name:  Name of the MCP tool (e.g. "get_holdings").
             arguments:  Optional dict of tool arguments.
+            _reinitialized: Internal — set on the retry after a stale-MCP-session
+                            re-handshake, to stop a persistently-400ing server
+                            from looping forever.
 
         Returns:
             Parsed JSON result from the MCP server.
@@ -211,7 +219,26 @@ class KiteMCPClient:
         )
         if response.status_code == 400:
             body = response.text[:200]
-            if tool_name != "login":
+            if "session id" in body.lower() or "invalid session" in body.lower():
+                # The MCP protocol session itself is stale (server restart,
+                # expiry, etc.) — a different failure mode than the Kite OAuth
+                # login expiring. Resending the same stale mcp-session-id
+                # header (including on the "login" tool call itself) 400s
+                # forever, so re-run the initialize handshake for a fresh
+                # session and retry this call once before giving up.
+                logger.warning(
+                    "KiteMCPClient: MCP session invalid (%s) — reinitializing", body[:80]
+                )
+                self._mcp_session_id = None
+                self._clear_session(self._MCP_SESSION_KEY)
+                if not _reinitialized:
+                    await self._mcp_initialize()
+                    return await self._call_tool(tool_name, arguments, _reinitialized=True)
+                raise RuntimeError(
+                    "MCP session still invalid after reinitializing — the "
+                    "mcp.kite.trade server itself may be unavailable. Try again shortly."
+                )
+            elif tool_name != "login":
                 # Kite OAuth session expired — clear and prompt re-login.
                 self._session_id = None
                 self._clear_session(self._KITE_COOKIE_KEY)
@@ -219,8 +246,8 @@ class KiteMCPClient:
                     "Kite session expired. Run: initiate_kite_login() → "
                     "open the URL in your browser → retry."
                 )
-            # login itself returning 400 means MCP session gone — fall through
-            logger.warning("KiteMCPClient: login 400 (%s) — MCP session may be stale", body[:80])
+            else:
+                logger.warning("KiteMCPClient: login 400 (%s)", body[:80])
         response.raise_for_status()
 
         data = response.json()
