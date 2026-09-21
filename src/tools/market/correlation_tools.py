@@ -234,8 +234,8 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         log.warning("Could not calculate total anomalies: %s", e)
 
     # Placebo / base-rate: what fraction of non-anomaly days also have a qualifying FX
-    # shock (|USDINR change| ≥ 0.75%) within ±1 day?  Provides context for evaluating
-    # how often FX shocks coincide with any given day by chance.
+    # move (|USDINR change| ≥ 0.75%) within ±1 day?  Provides context for the separate
+    # FX Statistical Validation regression above — not part of event-based attribution.
     if validation_block and not df_usdinr.empty and df_anomaly_res is not None and not df_anomaly_res.empty:
         try:
             df_usdinr_pc = df_usdinr.copy()
@@ -265,14 +265,12 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
 
     driver_stats = {
         "Company News & Filings": {"count": 0, "total_score": 0.0},
-        "USDINR Volatility": {"count": 0, "total_score": 0.0},
         "Global Rate Decisions": {"count": 0, "total_score": 0.0},
         "Geopolitical Shocks": {"count": 0, "total_score": 0.0}
     }
 
     for f in findings:
         et = f.event.event_type
-        lbl = f.event.label.upper()
         score = f.correlation_score
         if et in (EventType.COMPANY_FILING, EventType.NEWS_ANNOUNCEMENT):
             driver_stats["Company News & Filings"]["count"] += 1
@@ -283,9 +281,6 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         elif et == EventType.MACRO_GEOPOLITICAL:
             driver_stats["Geopolitical Shocks"]["count"] += 1
             driver_stats["Geopolitical Shocks"]["total_score"] += score
-        elif et == EventType.MACRO_COMMODITY_SHOCK or "USDINR" in lbl:
-            driver_stats["USDINR Volatility"]["count"] += 1
-            driver_stats["USDINR Volatility"]["total_score"] += score
 
     # Format the Root Cause Attribution & Strength table
     attribution_table_lines = [
@@ -303,7 +298,6 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     # Most Influential Drivers
     category_scores = {
         "Corporate actions & news": driver_stats["Company News & Filings"]["total_score"],
-        "USDINR volatility": driver_stats["USDINR Volatility"]["total_score"],
         "Global rate decisions": driver_stats["Global Rate Decisions"]["total_score"],
         "Geopolitical shocks": driver_stats["Geopolitical Shocks"]["total_score"],
     }
@@ -314,7 +308,6 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
     # Attribution summary details
     total_findings_count = len(findings)
     company_pct = (driver_stats["Company News & Filings"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
-    fx_pct = (driver_stats["USDINR Volatility"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
     rate_pct = (driver_stats["Global Rate Decisions"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
     geo_pct = (driver_stats["Geopolitical Shocks"]["count"] / total_findings_count * 100.0) if total_findings_count > 0 else 0.0
 
@@ -348,14 +341,10 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         highest_confidence_str = f"**{highest_conf_finding.anomaly_date}** ({highest_conf_finding.event.label})"
 
     most_influential_factor = sorted_drivers[0][0] if sorted_drivers else "N/A"
-    # When FX tops the driver ranking but R² is low, flag it as tentative
-    if most_influential_factor == "USDINR volatility" and r_squared < 0.10:
-        most_influential_factor = "USDINR volatility (low R² — tentative)"
 
     attribution_summary_block = (
         "\n### 📊 Attribution Summary\n\n"
         f"• **Company News:** `{driver_stats['Company News & Filings']['count']}` events (`{company_pct:.0f}%`)\n"
-        f"• **FX Shocks:** `{driver_stats['USDINR Volatility']['count']}` events (`{fx_pct:.0f}%`)\n"
         f"• **Macro Decisions:** `{driver_stats['Global Rate Decisions']['count']}` events (`{rate_pct:.0f}%`)\n"
         f"• **Geopolitical:** `{driver_stats['Geopolitical Shocks']['count']}` events (`{geo_pct:.0f}%`)\n\n"
         f"• **Most Influential Factor:** **{most_influential_factor}**\n"
@@ -468,9 +457,9 @@ def find_anomaly_correlations(symbol: str, lookback_days: int = 365) -> str:
         abn_val = f.abnormal_return if f.abnormal_return is not None else ret_val
         abn_str = f"{abn_val*100:+.2f}%"
         offset_str = f"{f.lead_lag_days:+}d"
-        event_lbl = f.event.label
-        if len(event_lbl) > 25:
-            event_lbl = event_lbl[:22] + "..."
+        event_lbl = f.event.label.replace("|", "/")
+        if len(event_lbl) > 60:
+            event_lbl = event_lbl[:57] + "..."
         lines.append(
             f"| {f.anomaly_date} | {ret_str} | {abn_str} | {pct_str} | {offset_str} | {event_lbl} | {f.strategy_name} | {f.correlation_score:.1f} | **{f.confidence}** |"
         )

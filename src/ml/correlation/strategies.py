@@ -29,7 +29,6 @@ boundary (with elapsed milliseconds), and returns the surviving findings.
 Strategies:
   - PreEventLeakStrategy         — detects insider leaks before corporate actions
   - PostMacroShockStrategy       — detects reactions after macro events
-  - CrossAssetCoMovementStrategy — correlates with extreme FX/commodity shocks
 """
 
 from __future__ import annotations
@@ -205,9 +204,8 @@ class PreEventLeakStrategy(CorrelationStrategy):
     actions. Scans the window [T - W, T - 1] before an ex-date.
 
     .. deprecated:: 2026-06-20
-        Use PostMacroShockStrategy and CrossAssetCoMovementStrategy instead.
-        This class remains importable for existing callers that register it
-        explicitly.
+        Use PostMacroShockStrategy instead. This class remains importable for
+        existing callers that register it explicitly.
     """
 
     def __init__(self, window_days: int = 5, min_score: float = 20.0) -> None:
@@ -523,15 +521,7 @@ class PostMacroShockStrategy(CorrelationStrategy):
         lag_weight = np.exp(-abs(lag_days - 1) / 3.0)
         score = score * lag_weight
 
-        # Direction-consistency check for FX events
-        direction_mismatch = False
         ev = signal.event
-        if ev.event_type == EventType.MACRO_COMMODITY_SHOCK and ev.metadata:
-            fx_pct = float(ev.metadata.get("fx_pct_change", 0.0))
-            if fx_pct != 0.0 and shock_return != 0.0 and (fx_pct * shock_return) > 0:
-                score *= 0.3
-                direction_mismatch = True
-
         if score < 15.0:
             return None
 
@@ -541,12 +531,6 @@ class PostMacroShockStrategy(CorrelationStrategy):
             f"deviation of {shock_return*100:+.2f}% with post-event anomaly flag: "
             f"{is_anomaly_day}."
         )
-        if direction_mismatch:
-            explanation += (
-                " ⚠️ Direction mismatch: stock and FX moved in the same direction on "
-                "this date, contradicting a negative-beta relationship — this match "
-                "is likely spurious."
-            )
         if (
             abs(abnormal_return) >= 0.02
             and ev.event_type in (EventType.MACRO_RATE_DECISION, EventType.MACRO_GEOPOLITICAL)
@@ -564,136 +548,6 @@ class PostMacroShockStrategy(CorrelationStrategy):
             strategy_name=self.name,
             correlation_score=score,
             lead_lag_days=lag_days,
-            confidence=_confidence_for(score),
-            explanation=explanation,
-            abnormal_return=abnormal_return,
-        )
-
-
-# ── Cross-Asset Co-Movement Strategy ──────────────────────────────────────────
-
-
-class CrossAssetCoMovementStrategy(CorrelationStrategy):
-    """Correlates stock/ETF anomalies with extreme macro currency or commodity
-    daily shocks. Maps co-movements within a window [T - 1, T + 1].
-    """
-
-    @property
-    def name(self) -> str:
-        return "Cross-Asset Co-Movement"
-
-    # ── Phase 1: SIGNAL ──────────────────────────────────────────────────────
-    def _detect_signals(
-        self,
-        df_ohlcv: pd.DataFrame,
-        df_anomaly: pd.DataFrame,
-        df_benchmark: Optional[pd.DataFrame],
-        events: List[CandidateEvent],
-    ) -> List[_Signal]:
-        signals: List[_Signal] = []
-
-        shocks = [e for e in events if e.event_type == EventType.MACRO_COMMODITY_SHOCK]
-        if not shocks or df_ohlcv.empty:
-            return signals
-
-        df_ohlcv = df_ohlcv.sort_values("trade_date").reset_index(drop=True)
-
-        for ev in shocks:
-            ev_date = ev.trade_date
-            for idx, row in df_anomaly.iterrows():
-                if not row.get("is_anomaly", False):
-                    continue
-
-                anom_date = pd.to_datetime(row["trade_date"]).date()
-                days_diff = (anom_date - ev_date).days
-                if abs(days_diff) > 1:
-                    continue
-
-                # Compute the raw daily return at this anomaly row
-                prev_idx = max(0, idx - 1)
-                prev_close = float(df_ohlcv.iloc[prev_idx]["close"])
-                curr_close = float(df_ohlcv.iloc[idx]["close"])
-                daily_ret = (curr_close / prev_close) - 1.0 if prev_close > 0 else 0.0
-
-                # Benchmark return on the shock date
-                bench_return = 0.0
-                if df_benchmark is not None and not df_benchmark.empty:
-                    anom_date_val = df_ohlcv.iloc[idx]["trade_date"]
-                    df_bench_match = df_benchmark[df_benchmark["trade_date"] == anom_date_val]
-                    if not df_bench_match.empty:
-                        b_idx_list = df_benchmark.index[df_benchmark["trade_date"] == anom_date_val].tolist()
-                        if b_idx_list:
-                            b_idx = b_idx_list[0]
-                            b_close_curr = float(df_benchmark.iloc[b_idx]["close"])
-                            b_close_prev = float(df_benchmark.iloc[b_idx - 1]["close"]) if b_idx > 0 else b_close_curr
-                            bench_return = (b_close_curr / b_close_prev) - 1.0 if b_close_prev > 0 else 0.0
-
-                abnormal_return = daily_ret - bench_return
-                fx_pct = float(ev.metadata.get("fx_pct_change", 0.0)) if ev.metadata else 0.0
-                fx_magnitude = abs(fx_pct)
-
-                signals.append(_Signal(
-                    anomaly_date=anom_date,
-                    event=ev,
-                    metrics={
-                        "days_diff": days_diff,
-                        "daily_ret": daily_ret,
-                        "abnormal_return": abnormal_return,
-                        "fx_pct": fx_pct,
-                        "fx_magnitude": fx_magnitude,
-                    },
-                ))
-
-        return signals
-
-    # ── Phase 2: EXECUTION ───────────────────────────────────────────────────
-    def _score_signal(
-        self,
-        signal: _Signal,
-        df_ohlcv: pd.DataFrame,
-        df_anomaly: pd.DataFrame,
-        df_benchmark: Optional[pd.DataFrame],
-    ) -> Optional[CorrelationFinding]:
-        m = signal.metrics
-        days_diff       = m["days_diff"]
-        daily_ret       = m["daily_ret"]
-        abnormal_return = m["abnormal_return"]
-        fx_pct          = m["fx_pct"]
-        fx_magnitude    = m["fx_magnitude"]
-
-        # Require a meaningful *idiosyncratic* move before attributing to FX.
-        # A day where stock = +5.5% but abnormal = +0.16% is the market moving,
-        # not the stock reacting to USDINR — attributing FX here is a textbook
-        # false positive.  Threshold ≈ 0.5% covers ~95% of trading days as noise.
-        if abs(abnormal_return) < 0.005:
-            return None
-
-        # Scale base score by FX shock magnitude (cap at 0.015 = ~1.5% USDINR move)
-        magnitude_scale = min(1.0, fx_magnitude / 0.015) if fx_magnitude > 0 else 0.5
-        base_score = 75.0 if days_diff == 0 else 50.0
-        score = base_score * magnitude_scale
-
-        explanation = (
-            f"Price anomaly on {signal.anomaly_date} correlated with extreme asset "
-            f"shock '{signal.event.label}' on {signal.event.trade_date} "
-            f"(lead/lag offset: {days_diff} days)."
-        )
-
-        # Penalise same-direction co-movement (negative-beta violation)
-        if fx_pct != 0.0 and daily_ret != 0.0 and (fx_pct * daily_ret) > 0:
-            score *= 0.3
-            explanation += (
-                " ⚠️ Direction mismatch: stock and FX moved in the same direction on "
-                "this date, contradicting a negative-beta relationship — this match is "
-                "likely spurious."
-            )
-
-        return CorrelationFinding(
-            anomaly_date=signal.anomaly_date,
-            event=signal.event,
-            strategy_name=self.name,
-            correlation_score=score,
-            lead_lag_days=days_diff,
             confidence=_confidence_for(score),
             explanation=explanation,
             abnormal_return=abnormal_return,
