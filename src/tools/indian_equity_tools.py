@@ -23,20 +23,51 @@ log = logging.getLogger(__name__)
 _GENERIC_NAME_WORDS = {"limited", "ltd", "the", "and", "company", "corp", "corporation", "inc"}
 
 
+def _detect_amc(fund_name: str) -> str:
+    fn = fund_name.upper()
+    if fn.startswith("DSP"):
+        return "DSP"
+    elif fn.startswith("NIPPON") or "RELIANCE" in fn:
+        return "Nippon"
+    elif fn.startswith("HDFC"):
+        return "HDFC"
+    elif fn.startswith("ICICI"):
+        return "ICICI Pru"
+    elif fn.startswith("KOTAK"):
+        return "Kotak"
+    elif fn.startswith("QUANT"):
+        return "Quant"
+    elif fn.startswith("BAJAJ"):
+        return "Bajaj"
+    elif fn.startswith("AXIS"):
+        return "Axis"
+    elif fn.startswith("MOTILAL"):
+        return "Motilal"
+    elif fn.startswith("ABAKKUS"):
+        return "Abakkus"
+    elif fn.startswith("HELIOS"):
+        return "Helios"
+    elif fn.startswith("INVESCO"):
+        return "Invesco"
+    elif fn.startswith("CANARA"):
+        return "Canara Robeco"
+    elif fn.startswith("MIRAE"):
+        return "Mirae"
+    return "Other"
+
+
 @tool
 def get_mf_holdings_for_stock(company_name_or_symbol: str) -> str:
     """
-    Look up which DSP mutual funds hold a given Indian stock.
+    Look up which institutional mutual funds (across all tracked AMCs: Nippon,
+    DSP, HDFC, ICICI, Kotak, Quant, Bajaj, Motilal, Axis, Mirae, Helios, etc.)
+    hold a given Indian stock.
 
-    Queries ``market_data.mf_holdings`` in ClickHouse which covers 62 DSP
-    funds from Sep 2023–Mar 2026 (Top 10 funds back to Jun 2022).
+    Queries ``market_data.mf_holdings`` in ClickHouse covering 1,100+ schemes.
 
-    Accepts either a company name (e.g. "Adani Enterprises") or NSE symbol
-    (e.g. "ADANIENT").  Returns a Markdown table of fund_name, % of NAV,
-    month, and market value in Crore INR.
-
-    If no results are found, returns a message indicating the stock is not
-    held by any DSP fund in the database.
+    Accepts either a company name (e.g. "Reliance Industries") or NSE symbol
+    (e.g. "RELIANCE"). Returns a multi-AMC breakdown of fund_name, % of NAV,
+    reporting month, and market value in Crore INR, plus DSP conviction trend.
     """
     query = company_name_or_symbol.strip()
     # mf_holdings.security_name stores legal names ("Bajaj Finance Limited"),
@@ -65,8 +96,8 @@ SELECT
     round(market_value_cr, 1)  AS market_value_cr
 FROM market_data.mf_holdings FINAL
 WHERE {where}
-ORDER BY as_of_month DESC, pct_of_nav DESC
-LIMIT 40
+ORDER BY as_of_month DESC, market_value_cr DESC
+LIMIT 120
 """
         return ch.query(sql)
 
@@ -89,8 +120,8 @@ LIMIT 40
 
         if not r.result_rows:
             return (
-                f"No DSP fund holdings found for '{company_name_or_symbol}'. "
-                "The stock may not be held by any DSP fund or may not be in the database."
+                f"No mutual fund holdings found for '{company_name_or_symbol}' across tracked AMCs. "
+                "The stock may not be held in disclosed portfolios or may not be in the database."
             )
 
         # Deduplicate: keep latest month per fund
@@ -100,14 +131,35 @@ LIMIT 40
             if fund not in seen:
                 seen[fund] = list(row)
 
-        lines = ["| Fund Name | Security | Weight (% NAV) | Month | Value (₹ Cr) |"]
-        lines.append("|---|---|---|---|---|")
-        for row in list(seen.values())[:20]:
+        lines = ["| AMC | Fund Name | Security | Weight (% NAV) | Month | Value (₹ Cr) |"]
+        lines.append("|---|---|---|---|---|---|")
+        total_val = 0.0
+        amcs_seen = set()
+        dsp_funds = []
+        for row in seen.values():
             fund, sec, wt, month, val = row
-            lines.append(f"| {fund} | {sec} | {wt}% | {month} | ₹{val}Cr |")
+            amc = _detect_amc(fund)
+            amcs_seen.add(amc)
+            if amc == "DSP":
+                dsp_funds.append((fund, wt, month, val))
 
-        header = f"**DSP Fund Holdings for '{company_name_or_symbol}'** ({len(seen)} funds)\n\n"
-        return header + "\n".join(lines)
+        for row in list(seen.values())[:25]:
+            fund, sec, wt, month, val = row
+            amc = _detect_amc(fund)
+            total_val += (val or 0.0)
+            lines.append(f"| {amc} | {fund} | {sec} | {wt}% | {month} | ₹{val}Cr |")
+
+        header = (
+            f"### 🏛️ Institutional Mutual Fund Holdings (Multi-AMC) for '{company_name_or_symbol}'\n"
+            f"- **Cross-AMC Breadth:** Held across **{len(amcs_seen)} AMCs** in **{len(seen)} funds**\n"
+            f"- **Top-25 Disclosed Institutional Value:** ₹{total_val:.1f} Cr\n\n"
+        )
+        out = header + "\n".join(lines)
+        if dsp_funds:
+            out += "\n\n**DSP Active Conviction:**\n"
+            for df_name, df_wt, df_m, df_v in dsp_funds[:6]:
+                out += f"- **{df_name}**: {df_wt}% NAV (₹{df_v}Cr, {df_m})\n"
+        return out
     except Exception as exc:
         log.error("get_mf_holdings_for_stock failed: %s", exc)
         return f"Error querying ClickHouse: {exc}"
