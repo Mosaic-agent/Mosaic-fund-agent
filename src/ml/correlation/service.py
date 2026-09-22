@@ -16,7 +16,6 @@ from .filters import FindingsPipeline
 from .models import CorrelationFinding
 from .strategies import (
     CorrelationStrategy,
-    CrossAssetCoMovementStrategy,
     PostMacroShockStrategy,
 )
 
@@ -27,8 +26,7 @@ class CorrelationService:
     """Orchestrates candidate event loading and pluggable correlation strategies.
 
     Default strategies:
-      - PostMacroShockStrategy   — anomaly → macro event attribution
-      - CrossAssetCoMovementStrategy — anomaly → FX/commodity shock attribution
+      - PostMacroShockStrategy   — anomaly → macro/company-filing event attribution
     """
 
     def __init__(self) -> None:
@@ -39,7 +37,6 @@ class CorrelationService:
         # Register default strategies (anomaly-first: detect anomalies, then
         # attribute them to external signals that impacted the price).
         self.register_strategy(PostMacroShockStrategy())
-        self.register_strategy(CrossAssetCoMovementStrategy())
 
     def register_strategy(self, strategy: CorrelationStrategy) -> None:
         self._strategies.append(strategy)
@@ -86,6 +83,26 @@ class CorrelationService:
         df_anomaly_res, _, _ = run_composite_anomaly(
             df_ohlcv, df_corp_actions=df_corp, symbol=symbol, store=False,
         )
+
+        # run_composite_anomaly() drops leading burn-in rows (GARCH/rolling-window
+        # warm-up) without preserving row alignment with df_ohlcv — its output can
+        # be shorter, with a fresh 0-based index. Strategies use *positional*
+        # df_anomaly.iloc[...]/[start_idx:end_idx] lookups assuming 1:1 alignment
+        # with df_ohlcv (e.g. is_anomaly_day, garch_vol), so once the row count
+        # diverges those lookups silently read the wrong calendar date. Reindex
+        # by trade_date here so position i always refers to the same date in both
+        # frames; dropped burn-in rows become "not anomalous" placeholder rows.
+        if not df_anomaly_res.empty and "trade_date" in df_anomaly_res.columns:
+            anomaly_cols = [c for c in df_anomaly_res.columns if c != "trade_date"]
+            df_anomaly_res = df_ohlcv[["trade_date"]].merge(
+                df_anomaly_res[["trade_date"] + anomaly_cols], on="trade_date", how="left",
+            )
+            for bcol in ("is_changepoint", "cp_confirmed", "is_corporate_action",
+                         "suppress_corp_action", "is_anomaly"):
+                if bcol in df_anomaly_res.columns:
+                    df_anomaly_res[bcol] = df_anomaly_res[bcol].fillna(False).astype(bool)
+            if "regime" in df_anomaly_res.columns:
+                df_anomaly_res["regime"] = df_anomaly_res["regime"].fillna("")
 
         # 2. Build candidate events from all sources (df_ohlcv enables PELT
         #    regime-shift events — structural breaks in this symbol's returns).

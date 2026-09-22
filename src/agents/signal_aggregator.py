@@ -84,6 +84,19 @@ ANOMALY_REGIME_SCORES: dict[str, float] = {
     "Blow-off Top":                  30.0,
     "Panic":                         20.0,
     "🏢 Price Driven by Company Event": 50.0,   # mechanical — neutral
+    # 📶 fires on a fairly constant ~10-13% of days on almost any symbol by
+    # construction (percentile thresholds on ~independent z-scores) — it is
+    # NOT institutional-specific and not a strong signal on its own; scored
+    # neutral. Keep distinct from the stricter 📊 label below (previously the
+    # two shared one label, which let this common/generic case dilute the
+    # rarer, GMM-confirmed institutional-block signal).
+    "📶 Elevated Volume / Muted Price": 50.0,
+    # 📊 requires p_institutional > 0.90 AND |z_volume| > 5.0 AND price flat —
+    # a genuinely rare, GMM-confirmed silent block deal that hasn't yet been
+    # disclosed via exchange filing. Scored cautious like other pre-shock
+    # regimes (Regime Shift, Crowded Long) since a price reaction often
+    # follows the next-day disclosure.
+    "📊 Volume Anomaly (Institutional Block)": 35.0,
 }
 
 

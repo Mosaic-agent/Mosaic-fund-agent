@@ -11,7 +11,7 @@ import pandas as pd
 from ._features import build_features, robust_zscore, fit_volume_regime
 from ._garch import fit_garch_residuals
 from ._isolation import fit_isolation_forest
-from ._changepoint import fit_change_points
+from ._changepoint import fit_change_points, fit_change_points_adaptive
 from ._regime import classify_regime
 from ._cross_asset import _inject_cross_asset
 from ._qdrant import _store_anomalies
@@ -70,16 +70,30 @@ class IsolationForestStrategy(AnomalyDetectorStrategy):
 
 
 class PeltChangePointStrategy(AnomalyDetectorStrategy):
-    """Applies PELT Change-Point Detection to identify structural regime shifts."""
+    """Applies PELT Change-Point Detection to identify structural regime shifts.
+
+    A single fixed penalty (the ``2·log(n)`` auto-penalty used when ``penalty``
+    is left at its default of ``None``) is miscalibrated across asset classes —
+    confirmed empirically to find ZERO breaks on 21/22 diverse symbols tested
+    (large-cap stocks + ETFs spanning 0.75%-3.71% daily volatility), silently
+    disabling the ``cp_confirmed`` corroboration boost in ``CompositeAnomalyPipeline.run()``
+    for nearly every symbol. Defaults to the adaptive multi-penalty scan
+    (``fit_change_points_adaptive``, the same one already used by
+    ``EventRegistry._from_regime_shifts()`` in the correlation engine) instead.
+    Passing an explicit ``penalty`` still uses the single fixed-penalty path,
+    preserving exact behaviour for any caller that tunes it directly.
+    """
 
     def __init__(self, penalty: float | None = None, proximity_days: int = 3):
         self.penalty = penalty
         self.proximity_days = proximity_days
 
     def fit_predict(self, df: pd.DataFrame, **kwargs) -> pd.DataFrame:
-        return fit_change_points(
-            df, penalty=self.penalty, proximity_days=self.proximity_days
-        )
+        if self.penalty is not None:
+            return fit_change_points(
+                df, penalty=self.penalty, proximity_days=self.proximity_days
+            )
+        return fit_change_points_adaptive(df, proximity_days=self.proximity_days)
 
 
 class VolumeHMMStrategy(AnomalyDetectorStrategy):

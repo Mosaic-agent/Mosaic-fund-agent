@@ -14,13 +14,24 @@ def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
     making them robust to different asset price scales.
 
     Regime priority (checked top-to-bottom):
-        📊  Volume Anomaly (Institutional Block) — NEW: high volume Z + low price Z
+        📶  Elevated Volume / Muted Price          — high volume Z + low price Z (percentile-relative; NOT institutional-specific — see VolumeHMMStrategy for that)
         ⚠️  Crowded Long (Squeeze Risk)          — high COT crowding + high price Z
         🧨  Blow-off Top (Weak)                  — high Z, low volume, positive return
         📈  Strong Trend (HODL)                  — high Z, low residual Z
         ⚡  Flash Crash / Black Swan             — low Z, high residual Z  ← key GARCH signal
         🔥  Volatile Breakout                    — both high
         ✅  Normal
+
+    Note: 📊 "Volume Anomaly (Institutional Block)" is a *different*, stricter
+    label assigned later in `CompositeAnomalyPipeline.run()` — it overwrites
+    this function's 📶 label only for rows where the GMM's `p_institutional`
+    posterior additionally clears its own threshold. Keeping the two labels
+    distinct matters: the 80th-percentile-based `hi_vol` condition below is
+    *guaranteed* to fire on a fairly constant ~10-13% of days on almost any
+    symbol by construction (percentile thresholds on ~independent z-scores),
+    regardless of whether genuine institutional activity occurred — it was
+    previously mislabeled with the institutional-specific string, which
+    diluted that stricter signal with this much more common, generic one.
 
     Added columns: final_z, final_z_abs, regime.
     """
@@ -44,12 +55,18 @@ def classify_regime(df: pd.DataFrame) -> pd.DataFrame:
         lo_vol = abs(row["z_volume"]) < z_vol_med
         hi_vol = abs(row["z_volume"]) > z_vol_hi
 
-        # ── Volume-priority regime (catches crossed block deals before price moves) ──
-        # Volume Anomaly: extraordinary volume with no commensurate price move.
-        # Classic signature of an institutional crossed bulk/block deal that will
-        # be disclosed the next day via exchange filing, triggering a price reaction.
+        # ── Volume-priority regime (percentile-relative, NOT institutional-specific) ──
+        # Elevated Volume / Muted Price: volume in the top-quintile of this
+        # symbol's own history with no commensurate price/GARCH-residual move.
+        # This is a *generic* volume/price divergence signal, guaranteed by the
+        # percentile thresholds themselves to fire on a fairly constant ~10-13%
+        # of days regardless of symbol — it is NOT evidence of institutional
+        # activity on its own. `CompositeAnomalyPipeline.run()` overwrites this
+        # label with the stricter 📊 "Volume Anomaly (Institutional Block)" only
+        # when the GMM's p_institutional posterior additionally clears its own
+        # (much rarer) threshold.
         if hi_vol and not hi_z and not hi_res:
-            return "📊 Volume Anomaly (Institutional Block)"
+            return "📶 Elevated Volume / Muted Price"
 
         # ── Shock-priority regimes (GARCH residual drives classification) ──
         # Flash Crash: unexpected large move regardless of trend/COT context
