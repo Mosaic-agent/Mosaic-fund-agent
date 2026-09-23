@@ -22,6 +22,7 @@ class ImportDataCommand(Command):
     data_source: str = ""
     target_month: str = ""
     freshness_months: int = 0
+    include_fundamentals: bool = False
     _snapshot: Optional[list[dict[str, Any]]] = field(default=None, repr=False)
 
     def execute(self) -> dict[str, Any]:
@@ -36,6 +37,7 @@ class ImportDataCommand(Command):
             data_source=self.data_source,
             target_month=self.target_month,
             freshness_months=self.freshness_months,
+            include_fundamentals=self.include_fundamentals,
         )
 
     def undo(self) -> None:

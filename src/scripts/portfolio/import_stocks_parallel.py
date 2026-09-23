@@ -10,7 +10,7 @@ from src.importer.registry import STOCKS, US_STOCKS
 from src.importer.parallel_importer import run_parallel_stock_import
 
 @click.command()
-@click.option("--workers", default=5, help="Number of parallel worker threads.")
+@click.option("--workers", default=10, help="Number of parallel worker threads.")
 @click.option("--lookback", default=365, help="Lookback days for historical prices.")
 @click.option("--full", is_flag=True, help="Full reimport (ignore watermarks).")
 @click.option("--symbol", default=None, help="Import a specific stock symbol only.")

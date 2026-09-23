@@ -276,7 +276,29 @@ def main():
         "| :--- | :---: | :---: | :---: | :---: | :--- | :--- |"
     ]
     table_str = "\n".join(table_hdr + table_rows)
-    
+
+    # 4b. Live Order Book Imbalance (OBI) & Market Microstructure via Shoonya
+    obi_ascii = ""
+    try:
+        from src.data_importer.tool_fetchers.shoonya_tools import fetch_and_calculate_obi, format_order_book_ascii
+        obi_data = fetch_and_calculate_obi(symbol)
+        if obi_data:
+            obi_ascii = format_order_book_ascii(obi_data)
+            print("\n" + obi_ascii)
+    except Exception:
+        pass
+
+    obi_section = ""
+    if obi_ascii:
+        obi_section = f"""---
+
+### ⚖️ Live Order Book Microstructure & Liquidity Depth (Shoonya OBI)
+
+```text
+{obi_ascii}
+```
+"""
+
     # 5. Assemble final report
     report_md = f"""# 🔬 {symbol} Price Anomaly & Event Correlation Report
 
@@ -291,7 +313,7 @@ This report presents a unified view of all price anomalies and their underlying 
 {ascii_chart}
 ```
 
----
+{obi_section}---
 
 ### 🎯 Consolidated Anomaly & News Correlation Table
 This table lists all detected anomalies, matching news events, and their economic/arbitrage reasoning:

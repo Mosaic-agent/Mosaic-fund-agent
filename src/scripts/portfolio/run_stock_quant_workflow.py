@@ -34,6 +34,8 @@ sys.path.insert(0, str(ROOT_DIR))
 from src.db.pool import get_pool
 from src.ml.anomaly._regime import classify_regime
 from src.tools.nse_announcements import fetch_corporate_announcements
+from src.data_importer.tool_fetchers.shoonya_tools import fetch_and_calculate_obi, format_order_book_ascii
+
 
 
 def get_artifact_dir() -> Path:
@@ -131,6 +133,16 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
     print("\n" + price_chart)
     print("\n" + vol_chart)
 
+    # 3b. Live Order Book Imbalance (OBI) & Market Microstructure via Shoonya
+    obi_panel_str = ""
+    try:
+        obi_data = fetch_and_calculate_obi(clean_sym)
+        if obi_data:
+            obi_panel_str = format_order_book_ascii(obi_data)
+            print("\n" + obi_panel_str)
+    except Exception as exc:
+        pass
+
     # 4. Fetch Official NSE Regulatory Corporate Disclosures
     today_dt = date.today()
     start_dt = today_dt - timedelta(days=days)
@@ -196,6 +208,17 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
     target_dir = Path(artifact_dir) if artifact_dir else get_artifact_dir()
     target_file = target_dir / f"{clean_sym.lower()}_quant_workflow.md"
 
+    obi_md_section = ""
+    if obi_panel_str:
+        obi_md_section = f"""---
+
+## ⚖️ Live Order Book Microstructure & Queue Depth (Shoonya OBI)
+
+```text
+{obi_panel_str}
+```
+"""
+
     md_content = f"""# {clean_sym} — Preserved Quantitative, Anomaly & Institutional Report
 
 **Symbol:** {clean_sym}  
@@ -213,7 +236,7 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
 {vol_chart}
 ```
 
----
+{obi_md_section}---
 
 ## 🐳 Mutual Fund Cross-Ownership (Latest Disclosures)
 

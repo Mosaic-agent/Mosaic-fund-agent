@@ -803,40 +803,57 @@ def premium_alerts(
 
     # ── Results table ─────────────────────────────────────────────────────────
     tbl = Table(
-        title=f"Premium Z-Score Report  (lookback {lookback}d · Z threshold {z_threshold:+.1f})",
+        title=f"Arbitrage Premium Z-Score Report  (lookback {lookback}d · Z threshold {z_threshold:+.1f})",
         box=box.ROUNDED,
         show_header=True,
         header_style="bold magenta",
     )
-    tbl.add_column("Symbol",             min_width=14, style="bold")
-    tbl.add_column("Latest Prem (%)",    min_width=16, justify="right")
-    tbl.add_column(f"{lookback}d Avg (%)",  min_width=14, justify="right")
-    tbl.add_column("Std Dev",            min_width=9,  justify="right")
-    tbl.add_column("Z-Score",            min_width=9,  justify="right")
-    tbl.add_column("Snapshots",          min_width=11, justify="right")
-    tbl.add_column("Action",             min_width=20)
+    tbl.add_column("Symbol",             min_width=12, style="bold")
+    tbl.add_column("Latest Prem (%)",    min_width=14, justify="right")
+    tbl.add_column(f"{lookback}d Avg (%)",  min_width=13, justify="right")
+    tbl.add_column("Std Dev",            min_width=8,  justify="right")
+    tbl.add_column("Z-Score",            min_width=8,  justify="right")
+    tbl.add_column("Parity Gap",         min_width=11, justify="right")
+    tbl.add_column("Turnover",           min_width=10, justify="right")
+    tbl.add_column("Vol Mult",           min_width=8,  justify="right")
+    tbl.add_column("Volume Regime",      min_width=18)
+    tbl.add_column("Arbitrage Signal",   min_width=24)
 
-    n_buy = n_entry = n_noaction = n_bad = 0
+    n_buy = n_entry = n_hold = n_trim = n_exit = n_bubble = n_bad = 0
 
     for r in results:
         latest = f"{r['latest_premium']:+.3f}%" if r["latest_premium"] is not None else "[dim]—[/dim]"
         avg    = f"{r['mean_premium']:+.3f}%"   if r["mean_premium"]   is not None else "[dim]—[/dim]"
         std    = f"{r['std_premium']:.4f}"       if r["std_premium"]    is not None else "[dim]—[/dim]"
         zscore = f"{r['z_score']:+.3f}"          if r["z_score"]        is not None else "[dim]—[/dim]"
-        n_out  = r.get("n_outliers_removed", 0)
-        snaps  = f"{r['n_snapshots']}" + (f" [dim](-{n_out}✂)[/dim]" if n_out else "")
         style  = r["action_style"]
         action = f"[{style}]{r['action']}[/{style}]"
 
-        if r["error"]:
+        downside = r.get("downside_risk_to_inav_pct")
+        if downside is not None:
+            col_down = "green" if downside >= 0 else ("red" if downside < -15 else "yellow")
+            down_str = f"[{col_down}]{downside:+.2f}%[/{col_down}]"
+        else:
+            down_str = "[dim]—[/dim]"
+
+        t_cr = f"₹{r.get('turnover_cr', 0.0):.2f}Cr"
+        v_mult = f"{r.get('vol_multiple', 1.0):.2f}x"
+        v_regime = r.get("volume_regime", "—")
+
+        if r["error"] and not r.get("z_score"):
             action = f"[dim]{r['action']}[/dim]\n[dim italic]{r['error']}[/dim italic]"
 
-        tbl.add_row(r["symbol"], latest, avg, std, zscore, snaps, action)
+        tbl.add_row(r["symbol"], latest, avg, std, zscore, down_str, t_cr, v_mult, v_regime, action)
 
-        if "SCREAMING" in r["action"]:  n_buy     += 1
-        elif "ENTRY"   in r["action"]:  n_entry   += 1
-        elif "NO ACTION" in r["action"]: n_noaction += 1
-        else:                           n_bad     += 1
+        act = r.get("action", "")
+        if "BUBBLE" in act:       n_bubble += 1
+        elif "EXIT" in act:       n_exit   += 1
+        elif "CAUTION" in act:    n_trim   += 1
+        elif "SCREAMING" in act:  n_buy    += 1
+        elif "ENTRY" in act:      n_entry  += 1
+        elif "FAIR VALUE" in act: n_hold   += 1
+        elif "Error" in act:      n_bad    += 1
+        else:                     n_hold   += 1
 
     console.print(tbl)
 
@@ -844,19 +861,25 @@ def premium_alerts(
     console.print()
     summary_parts = []
     if n_buy:
-        summary_parts.append(f"[bold green]{n_buy} SCREAMING BUY[/bold green]")
+        summary_parts.append(f"[bold green]{n_buy} ARBITRAGE BUY (ENTRY)[/bold green]")
     if n_entry:
-        summary_parts.append(f"[bold yellow]{n_entry} GOOD ENTRY[/bold yellow]")
-    if n_noaction:
-        summary_parts.append(f"[red]{n_noaction} NO ACTION[/red]")
+        summary_parts.append(f"[green]{n_entry} GOOD ENTRY (ACCUMULATE)[/green]")
+    if n_hold:
+        summary_parts.append(f"[cyan]{n_hold} FAIR VALUE (HOLD)[/cyan]")
+    if n_trim:
+        summary_parts.append(f"[bold yellow]{n_trim} CAUTION (TRIM/AVOID)[/bold yellow]")
+    if n_exit:
+        summary_parts.append(f"[bold red]{n_exit} ARBITRAGE EXIT (SELL)[/bold red]")
+    if n_bubble:
+        summary_parts.append(f"[bold white on red] {n_bubble} BUBBLE (LIQUIDATE) [/bold white on red]")
     if n_bad:
         summary_parts.append(f"[dim]{n_bad} insufficient/error[/dim]")
 
     console.print("  Signals: " + "  ·  ".join(summary_parts) if summary_parts else "")
     console.print(
         "[dim]  Strategy: RBI cap → structural premium. "
-        "Buy when premium dips below its mean (low Z), "
-        "not when it is high.[/dim]"
+        "Arbitrage Entry when premium dips below mean (low Z / discount); "
+        "Arbitrage Exit when premium stretches into extreme bubble territory (high Z / high premium).[/dim]"
     )
 
     # ── Signal logging (paper-trade track record) ─────────────────────────────
@@ -892,6 +915,49 @@ def premium_alerts(
             console.print(f"  [yellow]⚠ Signal logging failed: {exc}[/yellow]")
 
     console.rule("[dim]End of Premium Alerts[/dim]")
+
+
+@app.command(name="intl-etf")
+def intl_etf_cmd(
+    mode: str = typer.Argument("all", help="Subcommand: scan, backtest, signals, plot, all"),
+    symbol: str = typer.Option("MONQ50", "--symbol", "-s", help="Symbol for signals or deep dive plot"),
+    years: float = typer.Option(2.0, "--years", "-y", help="Historical backtest window in years"),
+    limit: int = typer.Option(25, "--limit", "-n", help="Max signals to display"),
+    output_dir: str = typer.Option("/app/output/reports", "--output-dir", "-o", help="Output directory for plots"),
+) -> None:
+    """
+    Consolidated International ETF Suite (Facade & Presenter pattern).
+    Executes live scarcity scan, 2-year statistical backtest, trigger log, and matplotlib plots.
+
+    Examples:
+      ./mosaic.sh intl-etf scan
+      ./mosaic.sh intl-etf backtest --years 2.0
+      ./mosaic.sh intl-etf signals --symbol MONQ50 --limit 15
+      ./mosaic.sh intl-etf plot --symbol MONQ50
+      ./mosaic.sh intl-etf all
+    """
+    _setup_logging()
+    import argparse
+    from src.scripts.etf.intl_etf_suite import cmd_scan, cmd_backtest, cmd_signals, cmd_plot, cmd_all
+
+    args = argparse.Namespace(
+        command=mode,
+        years=years,
+        lookback=30,
+        symbol=symbol,
+        limit=limit,
+        output_dir=output_dir,
+    )
+    if mode == "scan":
+        cmd_scan(args)
+    elif mode == "backtest":
+        cmd_backtest(args)
+    elif mode == "signals":
+        cmd_signals(args)
+    elif mode == "plot":
+        cmd_plot(args)
+    else:
+        cmd_all(args)
 
 
 @app.command()
@@ -1010,6 +1076,11 @@ def import_data(
         "--fresh",
         help="Re-import the N most recent months even if already in DB. AMC category only.",
     ),
+    include_fundamentals: bool = typer.Option(
+        False,
+        "--include-fundamentals",
+        help="Include quarterly earnings, insider filings, and valuation when importing stocks.",
+    ),
 ) -> None:
     """
     Import historical market data (stocks, ETFs, MF NAV, commodities, indices)
@@ -1093,6 +1164,7 @@ def import_data(
         data_source=data_source,
         target_month=target_month,
         freshness_months=freshness_months,
+        include_fundamentals=include_fundamentals,
     )
     runner = CommandRunner()
     

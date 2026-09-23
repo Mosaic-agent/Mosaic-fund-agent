@@ -45,7 +45,7 @@ class SignalSubAgent(_SubAgent):
         "Use `search_anomaly_events(symbol)` for equity/stock anomaly investigation — it suppresses corporate actions and runs parallel Google News searches per flagged date.\n"
         "Use `find_similar_anomaly_events(symbol, regime)` to retrieve historical anomaly events similar to a current regime from Qdrant `market_anomalies` — answer 'what historical crashes looked like this?' or 'find past GOLDBEES flash crashes'.\n"
         "PDF EXPORT: Only call `publish_consolidated_pdf(report_markdown=<full_output>)` when the user explicitly asks to save, export, or publish as PDF.\n"
-        "Use `get_shoonya_quotes` or `get_shoonya_live_tick` when the user asks for live prices or ticks via Shoonya. "
+        "Use `get_shoonya_quotes`, `get_shoonya_live_tick`, or `get_order_book_imbalance` when the user asks for live prices, ticks, order book imbalance (OBI), or queue depth via Shoonya. "
         "CRITICAL: Never invent composite scores or labels like ACCUMULATE/STRONG BUY. "
         "Use regime_signal and blended_50 exactly as the pipeline outputs them. "
         "Format all signal tables in clean Markdown.\n\n"
@@ -82,7 +82,7 @@ class SignalSubAgent(_SubAgent):
             plot_signal_breakdown, plot_weight_recommendations,
             plot_garch_volatility_chart, plot_macd_chart,
         )
-        from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick
+        from src.tools.shoonya_tools import get_shoonya_quotes, get_shoonya_live_tick, get_order_book_imbalance
         from src.tools.market.equity import search_anomaly_events, find_similar_anomaly_events
         from src.tools.market.correlation_tools import find_anomaly_correlations
         from src.tools.report_publisher import publish_research_pdf, publish_consolidated_pdf
@@ -107,6 +107,7 @@ class SignalSubAgent(_SubAgent):
             plot_macd_chart,
             get_shoonya_quotes,
             get_shoonya_live_tick,
+            get_order_book_imbalance,
             publish_research_pdf,
             publish_consolidated_pdf,
         ]

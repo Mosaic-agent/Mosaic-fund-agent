@@ -14,45 +14,81 @@ Use this skill when the user asks:
 - "Group ETF iNAV by AMC"
 - "Sort premiums from highest to lowest"
 - "Are ETFs trading at a premium or discount?"
+- "Can you identify arbitrage entry or exit signals?"
+- "Which ETFs to buy or sell based on premium?"
 - "Can I get a consolidated report of ETF premiums, COMEX, and macro news?"
 - "/etf-premium-discount"
 
 ## What it does
 
-Runs the premium and discount report generator to pull prices, live iNAV, and compute the premium/discount percentage (`((Market Price - iNAV) / iNAV) * 100`) for all 32 ETFs from ClickHouse. 
+Runs the premium and discount report generator to pull prices, live iNAV, compute the premium/discount percentage (`((Market Price - iNAV) / iNAV) * 100`), compute the **Parity Gap / Downside Risk to iNAV**, and generate **Actionable Arbitrage Entry & Exit Directives**:
 
-If `--consolidated` is passed, it compiles a complete unified report containing:
-1. **ETF Premium vs Discount Status** (sorted descending)
-2. **COMEX Commodity Pre-Market Signals** (Gold, Silver, Platinum, Palladium, Copper)
-3. **Macro Geopolitical news scanner and Aggregated ETF signals**
+- **Arbitrage Entry Signals**:
+  - `🟢 ARBITRAGE BUY (DEEP DISCOUNT)`: Discount < -1.5% (or Z ≤ -1.5) — High probability snap-back to iNAV.
+  - `🟢 ARBITRAGE ENTRY (DISCOUNT)`: Discount -0.4% to -1.5% — Underpriced secondary market entry.
+  - `🟡 GOOD ENTRY (ACCUMULATE)`: Z ≤ -1.0 — Dips below historical mean.
+- **Arbitrage Exit Signals**:
+  - `💥 BUBBLE (LIQUIDATE)`: Premium > +40.0% (or Z ≥ +2.5) — Asymmetric crash risk; immediate exit / do not buy (e.g. MONQ50, MASPTOP50).
+  - `🚨 ARBITRAGE EXIT (SELL)`: Premium > +25.0% (or Z ≥ +1.8) — Severe scarcity markup; take profits / liquidate long.
+  - `⚠️ CAUTION (OVERPRICED)`: Premium > +12.0% — Elevated premium; avoid fresh entry.
+- **Hold / Parity**:
+  - `⚪ FAIR VALUE (PARITY)`: Secondary price trading within ±0.5% of iNAV.
 
 ## Usage
 
-### 1. Show all ETFs sorted from highest premium to deepest discount:
+### 1. Show all Actionable Arbitrage Entry & Exit Signals:
 ```bash
-python src/scripts/etf/premium_discount_report.py
+./mosaic.sh python src/scripts/etf/premium_discount_report.py --arbitrage
 ```
 
-### 2. Sort from deepest discount to highest premium:
+### 2. Show all ETFs sorted from highest premium to deepest discount:
 ```bash
-python src/scripts/etf/premium_discount_report.py --sort asc
+./mosaic.sh python src/scripts/etf/premium_discount_report.py
 ```
 
-### 3. Group ETFs by their respective AMC (Nippon, Zerodha, Mirae, Motilal, etc.):
+### 3. Run Statistical Z-Score Arbitrage Alerts Engine:
 ```bash
-python src/scripts/etf/premium_discount_report.py --group-by-amc
+./mosaic.sh python src/main.py premium-alerts
 ```
 
-### 4. Fetch the absolute latest iNAV data before generating the report:
+### 4. Sort from deepest discount to highest premium:
 ```bash
-python src/scripts/etf/premium_discount_report.py --refresh
+./mosaic.sh python src/scripts/etf/premium_discount_report.py --sort asc
 ```
 
-### 5. Generate the Consolidated Report (Premiums/Discounts + COMEX + Macro Geopolitical):
+### 5. Group ETFs by their respective AMC (Nippon, Zerodha, Mirae, Motilal, etc.):
 ```bash
-python src/scripts/etf/premium_discount_report.py --consolidated
+./mosaic.sh python src/scripts/etf/premium_discount_report.py --group-by-amc
 ```
-*(Can be combined with `--refresh` to fetch fresh iNAV data first: `python src/scripts/etf/premium_discount_report.py --refresh --consolidated`)*
+
+### 6. Fetch the absolute latest iNAV data before generating the report:
+```bash
+./mosaic.sh python src/scripts/etf/premium_discount_report.py --refresh
+```
+
+### 7. Generate the Consolidated Report (Premiums/Discounts + Arbitrage + COMEX + Macro):
+```bash
+./mosaic.sh python src/scripts/etf/premium_discount_report.py --consolidated
+```
+*(Can be combined with `--refresh` to fetch fresh iNAV data first: `./mosaic.sh python src/scripts/etf/premium_discount_report.py --refresh --consolidated`)*
+
+### 8. Consolidated International ETF Suite (Facade & Presenter Pattern):
+```bash
+# Complete suite: Live scan + 2Y Backtest + Plotext + Signals + Matplotlib figures
+./mosaic.sh intl-etf all
+
+# Live scarcity & arbitrage scan:
+./mosaic.sh intl-etf scan
+
+# 2-Year statistical backtest with forward win rates & crash avoidance:
+./mosaic.sh intl-etf backtest --years 2.0
+
+# Chronological trigger history for specific ETF:
+./mosaic.sh intl-etf signals --symbol MONQ50 --limit 20
+
+# Generate publication-grade dark-theme Matplotlib figures:
+./mosaic.sh intl-etf plot --symbol MONQ50
+```
 
 ---
 
