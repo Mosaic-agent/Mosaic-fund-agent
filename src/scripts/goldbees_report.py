@@ -233,6 +233,21 @@ def main():
     else:
         inav_alert = "  ✅ No premium alert"
 
+    # 6. Shoonya Order Book Imbalance (OBI) & Market Microstructure
+    obi_str = "N/A"
+    try:
+        from src.data_importer.tool_fetchers.shoonya_tools import fetch_and_calculate_obi
+        obi_data = fetch_and_calculate_obi("GOLDBEES")
+        if obi_data:
+            tot_obi = obi_data["total_obi_pct"]
+            reg = obi_data["regime"]
+            sp = obi_data.get("spread")
+            sp_bps = obi_data.get("spread_bps")
+            sp_txt = f" | Spread: ₹{sp:.2f} ({sp_bps:.1f} bps)" if sp is not None else ""
+            obi_str = f"{tot_obi:+.1f}% ({reg}){sp_txt}"
+    except Exception:
+        pass
+
     rec = get_llm_recommendation(
         regime=regime,
         garch_vol=garch_vol,
@@ -261,6 +276,7 @@ def main():
   Regime        : {regime:<18}  GARCH vol: {garch_vol:.1f}%
   Price vs EMA50: ₹{price:.2f} vs ₹{ema50:.2f}  →  {ema_dir}
   iNAV Premium  : {inav_str}{inav_alert}
+  Order Book OBI: {obi_str}
   Anomaly       : {sig['anomaly_flag']}
 
   ML Signal
