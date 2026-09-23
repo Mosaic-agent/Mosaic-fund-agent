@@ -172,6 +172,7 @@ class DeclarativeAgentRunner:
         for tool_mod, tool_name in [
             ("src.tools.shoonya_tools",     "get_shoonya_quotes"),
             ("src.tools.shoonya_tools",     "get_shoonya_live_tick"),
+            ("src.tools.shoonya_tools",     "get_order_book_imbalance"),
             ("src.tools.nse_announcements", "get_nse_announcements"),
         ]:
             try:

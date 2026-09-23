@@ -195,11 +195,33 @@ def check_premium_alerts(
             result["n_snapshots"] = n
 
             if n < min_snapshots:
-                result["error"] = f"Only {n} snapshots (need ≥ {min_snapshots})"
-                results.append(result)
-                continue
+                # ── Fallback: check historical EOD premium from daily_prices JOIN mf_nav
+                nav_rows = ch_client.query(
+                    """
+                    SELECT
+                        p.trade_date,
+                        ((p.close - n.nav) / n.nav) * 100 AS premium
+                    FROM market_data.daily_prices p FINAL
+                    JOIN market_data.mf_nav n FINAL
+                      ON p.symbol = n.symbol AND p.trade_date = n.nav_date
+                    WHERE p.symbol = {sym:String}
+                      AND p.trade_date >= toDate({cutoff:String})
+                    ORDER BY p.trade_date ASC
+                    """,
+                    parameters={"sym": sym, "cutoff": cutoff},
+                ).result_rows
+                if len(nav_rows) >= min_snapshots:
+                    premiums = [float(r[1]) for r in nav_rows]
+                    n = len(premiums)
+                    result["history_source"] = "daily_prices_mf_nav"
+                else:
+                    result["error"] = f"Only {n} snapshots (need ≥ {min_snapshots})"
+                    results.append(result)
+                    continue
+            else:
+                premiums = [float(r[1]) for r in hist_rows]
+                result["history_source"] = "inav_snapshots"
 
-            premiums = [float(r[1]) for r in hist_rows]
             premiums, n_removed = _remove_outliers(premiums)
             result["n_outliers_removed"] = n_removed
             if n_removed:
@@ -217,36 +239,116 @@ def check_premium_alerts(
             result["mean_premium"] = round(mean_prem, 4)
             result["std_premium"]  = round(std_prem, 4)
 
+            # ── Downside / Parity Risk metric ────────────────────────────────
+            live_price = float(live.get("market_price") or 0.0)
+            live_inav = float(live.get("inav") or 0.0)
+            result["market_price"] = live_price
+            result["inav"] = live_inav
+            if live_price > 0 and live_inav > 0:
+                result["downside_risk_to_inav_pct"] = round(((live_inav - live_price) / live_price) * 100, 2)
+            else:
+                result["downside_risk_to_inav_pct"] = 0.0
+
+            # ── Volume & Liquidity Sizing metric ─────────────────────────────
+            try:
+                vol_rows = ch_client.query(
+                    """
+                    SELECT 
+                        argMax(volume, trade_date) as latest_vol,
+                        argMax(close, trade_date) as latest_close,
+                        round(argMax(volume * close, trade_date) / 10000000, 2) as turnover_cr,
+                        round(avg(volume), 0) as avg_vol_20d,
+                        round(argMax(volume, trade_date) / nullif(avg(volume), 0), 2) as vol_multiple
+                    FROM (
+                        SELECT trade_date, close, volume
+                        FROM market_data.daily_prices FINAL
+                        WHERE symbol = {sym:String} AND trade_date >= today() - 35
+                        ORDER BY trade_date DESC
+                    )
+                    """,
+                    parameters={"sym": sym},
+                ).result_rows
+                if vol_rows and vol_rows[0][0] is not None:
+                    v_latest, _, v_turnover, v_avg20, v_mult = vol_rows[0]
+                    result["latest_volume"] = float(v_latest or 0.0)
+                    result["turnover_cr"]   = float(v_turnover or 0.0)
+                    result["avg_vol_20d"]   = float(v_avg20 or 0.0)
+                    result["vol_multiple"]  = float(v_mult or 1.0)
+                else:
+                    result["latest_volume"] = 0.0
+                    result["turnover_cr"]   = 0.0
+                    result["avg_vol_20d"]   = 0.0
+                    result["vol_multiple"]  = 1.0
+            except Exception:
+                result["latest_volume"] = 0.0
+                result["turnover_cr"]   = 0.0
+                result["avg_vol_20d"]   = 0.0
+                result["vol_multiple"]  = 1.0
+
+            # Volume Confirmation & Liquidity Regime
+            v_mult = result.get("vol_multiple", 1.0)
+            t_cr   = result.get("turnover_cr", 0.0)
+            if v_mult >= 3.0 and latest_prem > 20.0:
+                result["volume_regime"] = "🔥 CLIMAX DISTRIBUTION"
+            elif v_mult <= 0.4 and latest_prem > 20.0:
+                result["volume_regime"] = "🔒 CIRCUIT FROZEN"
+            elif t_cr >= 10.0:
+                result["volume_regime"] = "🌊 DEEP LIQUIDITY"
+            elif t_cr >= 1.0:
+                result["volume_regime"] = "✅ NORMAL LIQUIDITY"
+            else:
+                result["volume_regime"] = "⚠️ THIN LIQUIDITY"
+
             if std_prem < 1e-8:
                 # Flat premium — market holiday or no intraday movement.
-                result["action"]       = "⚪ FLAT PREMIUM"
-                result["action_style"] = "dim"
-                result["error"]        = "Spread is constant — likely a market holiday or stale iNAV"
+                result["action"]          = "⚪ FLAT PREMIUM"
+                result["action_style"]    = "dim"
+                result["arbitrage_signal"] = "HOLD"
+                result["error"]           = "Spread is constant — likely a market holiday or stale iNAV"
                 results.append(result)
                 continue
 
-            # ── Z-score and action signal ─────────────────────────────────────
+            # ── Z-score and Bidirectional Arbitrage Action Signal ─────────────
             result["n_snapshots"] = len(premiums)  # count after outlier removal
             z = (latest_prem - mean_prem) / std_prem
             result["z_score"] = round(z, 3)
             result["raw_z_score"] = round(z, 3)
 
-            if z <= z_threshold:
-                result["action"]       = "🟢 SCREAMING BUY"
-                result["action_style"] = "bold green"
+            # Bidirectional Arbitrage Signal Logic
+            if latest_prem > 40.0 or z >= 2.5:
+                result["action"]          = "💥 BUBBLE (LIQUIDATE)"
+                result["action_style"]    = "bold white on red"
+                result["arbitrage_signal"] = "LIQUIDATE"
+            elif z <= z_threshold or latest_prem < -0.5:
+                result["action"]          = "🟢 ARBITRAGE BUY (ENTRY)"
+                result["action_style"]    = "bold green"
+                result["arbitrage_signal"] = "ENTRY"
             elif z <= good_entry_threshold:
-                result["action"]       = "🟡 GOOD ENTRY"
-                result["action_style"] = "bold yellow"
+                result["action"]          = "🟡 GOOD ENTRY (ACCUMULATE)"
+                result["action_style"]    = "green"
+                result["arbitrage_signal"] = "ACCUMULATE"
+            elif z >= 1.8 or latest_prem > 25.0:
+                result["action"]          = "🚨 ARBITRAGE EXIT (SELL)"
+                result["action_style"]    = "bold red"
+                result["arbitrage_signal"] = "EXIT"
+            elif latest_prem > 12.0 or z >= 1.0:
+                result["action"]          = "⚠️ CAUTION (OVERPRICED)"
+                result["action_style"]    = "bold yellow"
+                result["arbitrage_signal"] = "TRIM"
             else:
-                result["action"]       = "🔴 NO ACTION"
-                result["action_style"] = "red"
+                result["action"]          = "⚪ FAIR VALUE (HOLD)"
+                result["action_style"]    = "cyan"
+                result["arbitrage_signal"] = "HOLD"
 
             # ── OU-adjusted expected reversion (with graceful fallback) ───────
-            from src.db.repository import MarketDataRepository
-            from src.db.pool import get_pool as _get_ou_pool
-            from src.ml.ou_estimator import expected_reversion, expected_premium, prob_revert
+            try:
+                from src.db.repository import MarketDataRepository
+                from src.db.pool import get_pool as _get_ou_pool
+                from src.ml.ou_estimator import expected_reversion, expected_premium, prob_revert
 
-            ou = MarketDataRepository(_get_ou_pool()).ou_state(sym)
+                ou = MarketDataRepository(_get_ou_pool()).ou_state(sym)
+            except Exception:
+                ou = None
             if ou is not None:
                 fit_age = (date.today() - date.fromisoformat(ou["fit_date"])).days
                 if fit_age <= 7:

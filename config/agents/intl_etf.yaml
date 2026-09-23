@@ -13,8 +13,9 @@ task_brief: |
   </task_context>
 
   <evaluation_rules>
-  - SEBI/RBI cap overseas fund exposure at USD 7B — unit creation freeze drives scarcity premium.
-  - Premium > +5% = expensive (avoid fresh entry), 0-5% = normal friction, < 0% = rare buying window.
+  - SEBI/RBI cap overseas fund exposure at USD 7B — unit creation freeze drives structural scarcity premium.
+  - Arbitrage Exit/Liquidate: Premium > +40% = extreme bubble (liquidate/avoid); > +25% = severe markup (arbitrage exit).
+  - Arbitrage Entry: Premium < 0% (discount) or Z ≤ -1.5 = statistical buy entry window.
   - These ETFs are INR-denominated — weakening INR inflates NAV even with flat underlying index.
   - Never invent numbers — use only tool output.
   </evaluation_rules>

@@ -81,15 +81,16 @@ P(→μ in 5/10/20d), and 🟢 BUY / ⚪ HOLD / 🔴 SELL signal. Also saves a 3
 
 For a full picture, combine: performance → premium → regime → correlation.
 
-## Scarcity Premium — Key Mechanism
-SEBI/RBI cap India's overseas fund exposure at USD 7 billion industry-wide. When the
-limit is fully utilised, AMCs cannot create new ETF units → ETF market price detaches
-from NAV and trades at a PREMIUM. When RBI relaxes headroom, the premium compresses.
-Interpretation:
-- Premium > +5%  → expensive; avoid fresh entry, demand exceeds supply
-- Premium 0–5%   → normal; unit-creation friction priced in
-- Discount < 0%  → rare buying window; overseas cap has headroom, creation is open
-Always check the premium trend alongside the regime before recommending.
+## Scarcity Premium & Arbitrage Entry / Exit Framework
+SEBI/RBI cap India's overseas fund exposure at USD 7 billion industry-wide (and $1B for ETFs).
+When the limit is reached, AMCs suspend fresh unit creation → secondary prices detach from iNAV.
+Actionable Arbitrage Directives:
+- Premium > +40% or Z ≥ +2.5 → 💥 BUBBLE (LIQUIDATE): Catastrophic collapse risk upon cap relaxation or profit taking. Immediate exit. Do not buy (e.g. MONQ50, MASPTOP50).
+- Premium +25% to +40% or Z ≥ +1.8 → 🚨 ARBITRAGE EXIT (SELL): Severe overvaluation. Take profits, liquidate long exposure.
+- Premium +12% to +25% → ⚠️ CAUTION (OVERPRICED): Avoid fresh capital deployment.
+- Premium 0% to +5% → 🟡 SCARCITY PREMIUM: Normal operational friction; hold with trailing stops.
+- Premium < 0% or Z ≤ -1.5 → 🟢 ARBITRAGE ENTRY (BUY): Rare discount or deep mean-reversion dip. Strong statistical entry window.
+Always check the parity gap ((iNAV - Price)/Price) to quantify downside capital loss to fair value.
 
 ## USDINR Sensitivity
 These ETFs have a built-in USDINR (or HKDINR) currency overlay — a weakening INR
