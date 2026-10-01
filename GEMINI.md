@@ -25,6 +25,7 @@ python src/main.py ui                       # Streamlit hub at localhost:8501
 python src/scripts/goldbees_report.py                              # Pre-baked GOLDBEES signal (~2s)
 python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc all  # Multi-AMC Small Cap accumulation & conviction analyzer
 python src/scripts/portfolio/run_stock_quant_workflow.py BAJFINANCE --days 180 --artifact-dir /app/output  # Stock ASCII chart, live Shoonya OBI, anomalies & ISIN-keyed active-fund holdings
+python src/scripts/portfolio/ma_lens_screen.py NUVAMA GODIGIT       # DSP Multi Asset lens: 5 gates + price-neutral accumulation test
 python src/scripts/portfolio/fund_mom_returns.py --scheme 152056   # MoM NAV returns
 python src/scripts/portfolio/fund_mom_returns.py --search "<name>"  # resolve scheme code by fund name (any AMC)
 
