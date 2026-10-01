@@ -7,7 +7,9 @@ Integrated Capabilities:
   1. Price Snapshot & Momentum Metrics (20d/50d SMA)
   2. Multi-Model Anomaly Engine & Bulk/Block Deal Classifier (classify_regime)
   3. Official NSE Regulatory Announcements & Filings (fetch_corporate_announcements)
-  4. Multi-AMC Institutional Cross-Ownership & Whale Conviction (market_data.mf_holdings)
+  4. Multi-AMC Institutional Cross-Ownership & Whale Conviction (market_data.mf_holdings),
+     keyed on ISIN (resolved via amfi_market_cap, then security_symbol_map) and
+     restricted to ACTIVE funds -- index / ETF / arbitrage funds are excluded.
   5. Terminal ASCII Plotting Engine (plotext with Red Circle 🔴 Anomaly Markers)
   6. Automatic Chart & Artifact Preservation (<symbol>_quant_workflow.md)
 
@@ -15,6 +17,17 @@ Usage:
   python src/scripts/portfolio/run_stock_quant_workflow.py BAJFINANCE --days 120
   python src/scripts/portfolio/run_stock_quant_workflow.py BECTORFOOD --days 180
   python src/scripts/portfolio/run_stock_quant_workflow.py RELIANCE --days 120
+
+Flags are scanned positionally, so they must be space-separated
+(`--days 180`, never `--days=180`).
+
+Reports default to /app/output in the container (<repo>/output on the host);
+override with --artifact-dir or $ANTIGRAVITY_ARTIFACT_DIR.
+
+Price authority: EOD comes from market_data.daily_prices (NSE/Shoonya). Only
+61 stocks are covered locally; for anything else the script falls back to
+yfinance and prints a loud UNVERIFIED banner. Import the symbol rather than
+trusting that fallback.
 """
 
 from __future__ import annotations
@@ -39,13 +52,25 @@ from src.data_importer.tool_fetchers.shoonya_tools import fetch_and_calculate_ob
 
 
 def get_artifact_dir() -> Path:
-    """Detect or fallback to the current conversation artifact directory."""
+    """Resolve the report output directory.
+
+    Order: ANTIGRAVITY_ARTIFACT_DIR env -> /app/output (bind-mounted into the
+    mosaic container) -> <repo>/output.
+
+    The previous default was a hardcoded ~/.gemini/antigravity-cli path. Only
+    src/ and output/ are bind-mounted, so that path was created *inside* the
+    container and every report was silently lost on teardown while the script
+    printed a host-looking path and "SUCCESS".
+    """
     env_dir = os.getenv("ANTIGRAVITY_ARTIFACT_DIR")
     if env_dir and os.path.exists(env_dir):
         return Path(env_dir)
-    default_dir = Path("/Users/dhiraj.thakur/.gemini/antigravity-cli/brain/9cfa6ba8-34d7-436e-9748-767e8130f116")
-    default_dir.mkdir(parents=True, exist_ok=True)
-    return default_dir
+    for cand in (Path("/app/output"), ROOT_DIR / "output"):
+        if cand.exists():
+            return cand
+    fallback = ROOT_DIR / "output"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_height: int = 14, artifact_dir: str = "") -> None:
@@ -65,15 +90,47 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
         ORDER BY trade_date ASC
     """)
 
+    price_source = "market_data.daily_prices FINAL (NSE/Shoonya)"
+
     if df.empty:
+        price_source = "yfinance / Yahoo — UNVERIFIED"
+        print(
+            "\n" + "!" * 85
+            + f"\n⚠️  PRICE AUTHORITY WARNING — '{clean_sym}' has NO rows in"
+              " market_data.daily_prices.\n"
+              "    Falling back to yfinance (Yahoo). This BREAKS the NSE/Shoonya\n"
+              "    price-authority rule. Yahoo OHLC for Indian small caps is routinely\n"
+              "    stale, split-unadjusted or simply wrong, and unadjusted splits show\n"
+              "    up as fake 80% drawdowns.\n"
+              "    Treat EVERY number below as UNVERIFIED. Import the symbol first:\n"
+              f"       ./mosaic.sh import --category stocks --source nse\n"
+            + "!" * 85 + "\n"
+        )
         import yfinance as yf
+        start = (date.today() - timedelta(days=days)).isoformat()
         t = yf.Ticker(f"{clean_sym}.NS")
-        df = t.history(period="6mo").reset_index()
+        df = t.history(start=start).reset_index()
         df = df.rename(columns={"Date": "trade_date", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
 
     if df.empty:
         print(f"❌ Error: No price data available for '{clean_sym}'.")
         return
+
+    # Absent data triggers the Yahoo banner above, but STALE local data is just
+    # as misleading: GODIGIT sits in daily_prices with a watermark of
+    # 2026-09-19, so its last close reads as current when it is ~2 weeks old.
+    _latest_bar = pd.to_datetime(df["trade_date"]).max().date()
+    _lag_days = (date.today() - _latest_bar).days
+    if _lag_days > 5:
+        print(
+            f"\n⚠️  STALE PRICE WARNING: latest bar for '{clean_sym}' is {_latest_bar}"
+            f" ({_lag_days} calendar days old).\n"
+            "    Every price, return and drawdown below is as-of that date, NOT today."
+            "\n    Refresh before acting:  ./mosaic.sh import --category stocks --source nse\n"
+        )
+        price_source += f" [STALE: as-of {_latest_bar}, {_lag_days}d lag]"
+
+    print(f"Price source: {price_source}")
 
     df["trade_date"] = pd.to_datetime(df["trade_date"])
     df = df.sort_values("trade_date").reset_index(drop=True)
@@ -167,26 +224,97 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
                 specific = cat if cat.lower() not in ("nse_announcements", "general updates", "updates") else "Official NSE Disclosure"
             ann_map[pub_date] = specific
 
-    # 5. Institutional Mutual Fund Cross-Ownership Query
-    mf_df = pool.query_df(f"""
-        SELECT 
-            fund_name, 
-            max(as_of_month) as latest_month, 
-            round(sum(market_value_cr), 2) as val_cr, 
-            round(avg(pct_of_nav), 2) as pct_nav
-        FROM market_data.mf_holdings FINAL
-        WHERE (security_name LIKE '%{clean_sym}%' OR security_name LIKE '%{clean_sym.replace('BEES', '')}%')
-          AND lower(asset_type) = 'equity'
-          AND as_of_month >= '2026-06-01'
-        GROUP BY fund_name
-        ORDER BY val_cr DESC
-        LIMIT 10
+    # 5. Institutional Mutual Fund Cross-Ownership Query (ISIN-keyed)
+    #
+    # NEVER match the ticker against security_name. mf_holdings stores company
+    # names ("Nuvama Wealth Management Limited"), ClickHouse LIKE is
+    # case-sensitive, so '%NUVAMA%' matched 0 rows for a stock held by 29
+    # funds -- and the section then printed nothing at all, making heavy
+    # institutional ownership indistinguishable from none. A loose
+    # case-insensitive name match is worse: '%nuvama%' also pulls in bonds of
+    # affiliated entities under unrelated ISINs. ISIN is the only safe key.
+    isin_df = pool.query_df(f"""
+        SELECT isin FROM market_data.amfi_market_cap FINAL
+        WHERE nse_symbol = '{clean_sym}'
+          AND period_end_date = (SELECT max(period_end_date) FROM market_data.amfi_market_cap FINAL)
+        LIMIT 1
     """)
+    if isin_df.empty:
+        isin_df = pool.query_df(f"""
+            SELECT isin FROM market_data.security_symbol_map FINAL
+            WHERE symbol = '{clean_sym}' AND isin != '' LIMIT 1
+        """)
 
-    mf_table_str = ""
-    if not mf_df.empty:
-        mf_table_str = mf_df.to_string(index=False)
-        print("\n=== 🐳 TOP MUTUAL FUND HOLDINGS (LATEST MONTH) ===")
+    resolved_isin = str(isin_df["isin"].iloc[0]) if not isin_df.empty else ""
+    # Each fund is taken at ITS OWN latest disclosed month, never at a single
+    # global max(as_of_month) for the ISIN. AMC filing calendars are ragged: for
+    # GODIGIT, 14 funds had filed 2026-08-31 while ICICI_MULTI_ASSET had already
+    # filed 2026-10-01. Pinning to the ISIN-wide max month returned that ONE
+    # fund (Rs 35.8 Cr) and silently dropped the other 16 (Rs ~1,494 Cr).
+    mf_df = pd.DataFrame()
+    if resolved_isin:
+        mf_df = pool.query_df(f"""
+            SELECT fund_name,
+                   argMax(as_of_month, as_of_month) AS latest_month,
+                   round(argMax(market_value_cr, as_of_month), 2) AS val_cr,
+                   round(argMax(pct_of_nav, as_of_month), 2) AS pct_nav
+            FROM market_data.mf_holdings FINAL
+            WHERE isin = '{resolved_isin}'
+              AND lower(asset_type) = 'equity'
+              AND lower(fund_name) NOT LIKE '%index%'
+              AND lower(fund_name) NOT LIKE '%etf%'
+              AND lower(fund_name) NOT LIKE '%arbitrage%'
+            GROUP BY fund_name
+            ORDER BY val_cr DESC
+            LIMIT 25
+        """)
+
+    print("\n=== 🐳 ACTIVE-FUND CROSS-OWNERSHIP (latest disclosed month, ISIN-keyed) ===")
+    if not resolved_isin:
+        mf_table_str = (
+            f"[UNRESOLVED_SECURITY: symbol={clean_sym}] no ISIN found in"
+            " amfi_market_cap or security_symbol_map."
+            " Ownership was NOT checked -- this is a lookup gap, not an absence of holders."
+        )
+        print(f"⚠️  {mf_table_str}")
+    elif mf_df.empty:
+        mf_table_str = (
+            f"ISIN {resolved_isin} resolved, but zero ACTIVE-fund equity holdings on the"
+            " latest disclosed month (index / ETF / arbitrage funds excluded)."
+        )
+        print(f"ℹ️  {mf_table_str}")
+    else:
+        mf_df["latest_month"] = pd.to_datetime(mf_df["latest_month"])
+        newest = mf_df["latest_month"].max()
+        oldest = mf_df["latest_month"].min()
+        # Mark funds whose last filing lags the newest one by more than ~2
+        # months: they may have exited rather than simply not filed yet.
+        mf_df["stale"] = np.where(
+            (newest - mf_df["latest_month"]).dt.days > 62, "<- STALE/possible exit", ""
+        )
+        mf_df["latest_month"] = mf_df["latest_month"].dt.date
+
+        header = (
+            f"ISIN {resolved_isin} | {len(mf_df)} active funds |"
+            f" total ₹{mf_df['val_cr'].sum():,.1f} Cr"
+            f" | disclosures {oldest.date()} .. {newest.date()}"
+        )
+        notes = []
+        if oldest != newest:
+            notes.append(
+                "⚠️  RAGGED DISCLOSURE: AMC filing months differ across these funds,"
+                " so the total is NOT a single-date figure. Each row is that fund's"
+                " own latest filing."
+            )
+        n_stale = int((mf_df["stale"] != "").sum())
+        if n_stale:
+            notes.append(
+                f"⚠️  {n_stale} fund(s) last filed >62d before the newest disclosure"
+                " and may have EXITED -- verify before citing as current holders."
+            )
+        mf_table_str = header + "\n\n" + mf_df.to_string(index=False)
+        if notes:
+            mf_table_str += "\n\n" + "\n".join(notes)
         print(mf_table_str)
 
     # 6. Anomaly & Bulk/Block Deal Classification Table
@@ -223,6 +351,7 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
 
 **Symbol:** {clean_sym}  
 **Snapshot:** {summary_hdr}  
+**Price source:** {price_source}  
 
 ---
 
@@ -238,10 +367,10 @@ def run_stock_workflow(symbol: str, days: int = 120, plot_width: int = 80, plot_
 
 {obi_md_section}---
 
-## 🐳 Mutual Fund Cross-Ownership (Latest Disclosures)
+## 🐳 Active-Fund Cross-Ownership (latest disclosed month, ISIN-keyed)
 
 ```text
-{mf_table_str if mf_table_str else "No direct holding records found in market_data.mf_holdings"}
+{mf_table_str}
 ```
 
 ---
