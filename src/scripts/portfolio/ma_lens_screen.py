@@ -558,9 +558,24 @@ def chart(pm: dict, symbol: str, n_pass: int) -> None:
     plt.horizontal_line(float(g["adj"].max()), color="red")
     sma = float(g["adj"].tail(200).mean())
     plt.horizontal_line(sma, color="orange")
+
+    # Staleness / split stamps go on their own console line ABOVE the chart, not
+    # into plt.title(): plotext silently DROPS a title longer than the plot
+    # width, so appending to it loses the whole title. The x-axis also carries
+    # the as-of date, because several charts side by side otherwise look
+    # same-dated when they are not.
+    stamps = []
+    if pm["lag"] > STALE_PRICE_DAYS:
+        stamps.append(f"[bold red]!! STALE as-of {pm['asof']} ({pm['lag']}d old)[/bold red]")
+    if pm["n_adj"]:
+        stamps.append(f"[yellow]split-adjusted x{pm['n_adj']}[/yellow]")
+    if stamps:
+        console.print(f"  [dim]chart:[/dim] " + "  [dim]|[/dim]  ".join(stamps))
+
     plt.title(f"{symbol} [{n_pass}/5]  52wHi {g['adj'].max():,.0f} (red) | "
               f"SMA200 {sma:,.0f} (orange) | last {g['adj'].iloc[-1]:,.0f}")
-    plt.xlabel(f"{g['trade_date'].iloc[0].date()} -> {g['trade_date'].iloc[-1].date()}")
+    plt.xlabel(f"{g['trade_date'].iloc[0].date()} -> {g['trade_date'].iloc[-1].date()}"
+               f"   (as-of {pm['asof']})")
     plt.show()
     print()
 

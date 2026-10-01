@@ -73,6 +73,27 @@ Each step exists because the naive version produces a specific wrong answer:
   variants) and a loose name match pulls in bonds of affiliated NBFCs that
   `asset_type='equity'` misclassifies.
 
+## Charts
+
+Every symbol renders a 12-month split-adjusted plotext chart: cyan close line, **red**
+horizontal 52-week high, **orange** horizontal SMA200. Pass `--no-chart` to suppress.
+
+Read the **SMA200 relationship, not the drawdown**, to tell a correction from a trend -
+ranked on drawdown alone the worst chart often looks the most attractive. A worked example:
+
+| Symbol | DD 52wHi | vs SMA200 | Shape |
+|---|---|---|---|
+| NUVAMA | -14.8% | **+10.8%** | uptrend + pullback |
+| BECTORFOOD | -26.1% | +2.3% | base, fading bounce |
+| GODIGIT | **-31.6%** | **-18.9%** | sustained downtrend |
+
+GODIGIT has the deepest drawdown and is the only one actually breaking down.
+
+The chart x-axis carries its own `as-of` date, and a `!! STALE` / `split-adjusted xN`
+stamp prints on the line directly above the chart, so charts shown side by side cannot be
+mistaken for same-dated. (The stamp is deliberately not in `plt.title()` - plotext
+silently drops a title that exceeds the plot width.)
+
 ## Warnings the script emits - surface all of them
 
 - `STALE PRICE` - latest bar more than 5 days old; all price figures are as-of that date
