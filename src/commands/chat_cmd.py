@@ -1652,7 +1652,7 @@ Auto-routing (no slash needed):
 
 ML models running:  LightGBM 5-day forecast · GARCH volatility · Isolation Forest anomaly
 Type [cyan]/ml[/cyan] to see live model state and ML-powered prompts.
-Tool calls and logs are shown live for every turn.
+Tool calls and logs are shown live for every turn. Use [cyan]/verbose off[/cyan] for quieter output.
 """
 
 _HELP_MD = """
@@ -1677,6 +1677,7 @@ _HELP_MD = """
 | `/caveman [level]` | Toggle Caveman mode (`lite`/`full`/`ultra`/`wenyan`/`off`) |
 | `/cache` | Show LLM cache stats; `/cache clear` wipes cached responses |
 | `/telemetry` | View telemetry; `/telemetry on` or `off` toggles turn overlay |
+| `/verbose [on/off]` | Toggle live Tool Call/Tool Output panels (default on); `off` shows just the final answer |
 | `/clear` | Reset session memory — next question starts a fresh thread |
 | `/list thread` | List all previous conversation threads with summaries |
 | `/help` | This help text |
@@ -1950,6 +1951,28 @@ def _dispatch_slash(
         else:
             from src.scripts.portfolio.system_telemetry import get_dashboard_renderable
             console.print(get_dashboard_renderable())
+            return "", thread_id
+
+    # ── /verbose [on/off] ────────────────────────────────────────────────
+    if name == "verbose":
+        sub_arg = parts[1].lower() if len(parts) > 1 else ""
+        if sub_arg in ("off", "disable", "quiet"):
+            os.environ["MOSAIC_CHAT_QUIET"] = "1"
+            console.print(
+                "[yellow]✓ Verbose tool-call/output panels disabled.[/yellow] "
+                "[dim]Only the final answer will be shown per turn.[/dim]\n"
+            )
+            return "", thread_id
+        elif sub_arg in ("on", "enable"):
+            os.environ.pop("MOSAIC_CHAT_QUIET", None)
+            console.print("[green]✓ Verbose tool-call/output panels enabled.[/green]\n")
+            return "", thread_id
+        else:
+            state = "off (quiet)" if os.environ.get("MOSAIC_CHAT_QUIET") == "1" else "on"
+            console.print(
+                f"Verbose tool-call output is currently **{state}**. "
+                "Use `/verbose on` or `/verbose off` to toggle.\n"
+            )
             return "", thread_id
 
     # ── /caveman [level] ───────────────────────────────────────────────────
@@ -2565,7 +2588,10 @@ def _run_chat_loop_inner(console: Console, checkpointer: Any, thread_id: str | N
                 logger.info("DB optimisation: injecting planner SQL into agent query")
 
             _prev_verbose = os.environ.get("VERBOSE")
-            os.environ["VERBOSE"] = "1"
+            if os.environ.get("MOSAIC_CHAT_QUIET") == "1":
+                os.environ.pop("VERBOSE", None)
+            else:
+                os.environ["VERBOSE"] = "1"
             try:
                 answer = agent.chat(_effective_query, thread_id=thread_id, forced_intent=_intent)
             finally:

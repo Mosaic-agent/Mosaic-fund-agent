@@ -100,7 +100,7 @@ def _enrich_all_node(state: PortfolioState) -> dict:
             from src.tools.earnings_scraper import get_quarterly_results
             check_and_refresh_symbol_data.invoke({"symbol": sym, "auto_import": True})
             price    = str(get_yahoo_finance_data.invoke({"input_str": f"{sym}:NSE"}))
-            news     = str(get_stock_news.invoke({"company_name": sym, "days": 7}))
+            news     = str(get_stock_news.invoke({"input_str": sym}))
             earnings = str(get_quarterly_results.invoke({"input_str": f"{sym}:NSE"}))
             return {**h, "price": price, "news": news, "earnings": earnings}
         return _enrich

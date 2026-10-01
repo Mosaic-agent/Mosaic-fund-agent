@@ -131,7 +131,7 @@ def _fetch_all_node(state: ResearchState, config: RunnableConfig) -> dict:
     def _news():
         from src.tools.news_search import get_stock_news, search_financial_news
         from src.tools.newsapi_search import get_newsapi_stock_news
-        gn  = get_stock_news.invoke({"company_name": state["company_name"], "days": 14}, config=config)
+        gn  = get_stock_news.invoke({"input_str": f"{sym}|{state['company_name']}"}, config=config)
         na  = get_newsapi_stock_news.invoke({"symbol": sym}, config=config)
         sf  = search_financial_news.invoke({"query": f"{sym} {state['company_name']} India"}, config=config)
         return f"## GNews\n{gn}\n\n## NewsAPI\n{na}\n\n## Financial News\n{sf}"

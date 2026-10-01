@@ -182,6 +182,93 @@ _DSP_ACTIVE_FUNDS = [
 ]
 
 
+def _detect_amc(fund_name: str) -> str:
+    fn = fund_name.upper()
+    if fn.startswith("DSP"):
+        return "DSP"
+    elif fn.startswith("NIPPON") or "RELIANCE" in fn:
+        return "Nippon"
+    elif fn.startswith("HDFC"):
+        return "HDFC"
+    elif fn.startswith("ICICI"):
+        return "ICICI Pru"
+    elif fn.startswith("KOTAK"):
+        return "Kotak"
+    elif fn.startswith("QUANT"):
+        return "Quant"
+    elif fn.startswith("BAJAJ"):
+        return "Bajaj"
+    elif fn.startswith("AXIS"):
+        return "Axis"
+    elif fn.startswith("MOTILAL"):
+        return "Motilal"
+    elif fn.startswith("ABAKKUS"):
+        return "Abakkus"
+    elif fn.startswith("HELIOS"):
+        return "Helios"
+    elif fn.startswith("INVESCO"):
+        return "Invesco"
+    elif fn.startswith("CANARA"):
+        return "Canara Robeco"
+    elif fn.startswith("MIRAE"):
+        return "Mirae"
+    return "Other"
+
+
+def _run_multi_amc_holdings(sym: str, cn: str) -> str:
+    """Query mf_holdings across all tracked AMCs for institutional whale ownership."""
+    try:
+        name_tokens = cn.split()[:2]
+        like_clause = " OR ".join(f"security_name ILIKE '%{t}%'" for t in name_tokens if len(t) > 3)
+        sym_clause = f"security_name ILIKE '%{sym}%'"
+        where_expr = f"({like_clause}) OR ({sym_clause})" if like_clause else sym_clause
+        
+        df = query_df(
+            f"""
+            SELECT fund_name,
+                   as_of_month,
+                   security_name,
+                   pct_of_nav,
+                   market_value_cr
+            FROM market_data.mf_holdings FINAL
+            WHERE ({where_expr})
+            ORDER BY as_of_month DESC, market_value_cr DESC
+            LIMIT 150
+            """
+        )
+    except Exception as e:
+        return f"\n*Multi-AMC Whale Holdings query failed: {e}*"
+
+    if df.empty:
+        return f"\n*No institutional mutual fund holdings found for {cn} ({sym}).*"
+
+    # Deduplicate: keep latest disclosure per fund
+    df_latest = df.sort_values("as_of_month", ascending=False).groupby("fund_name").first().reset_index()
+    df_latest["amc"] = df_latest["fund_name"].apply(_detect_amc)
+    
+    total_val = float(df_latest["market_value_cr"].sum() or 0.0)
+    fund_count = len(df_latest)
+    amc_count = df_latest["amc"].nunique()
+    
+    top_funds = df_latest.sort_values("market_value_cr", ascending=False).head(15)
+    
+    lines = [f"### 🐋 Multi-AMC Institutional Whale Holdings\n"]
+    lines.append(f"**Institutional Consensus:** Held by **{fund_count} funds** across **{amc_count} AMCs** with ₹{total_val:.1f} Cr top disclosed ownership.\n")
+    
+    table_rows = []
+    for _, r in top_funds.iterrows():
+        pct = r["pct_of_nav"]
+        mv = r["market_value_cr"]
+        pct_str = f"{pct:.2f}%" if pct and pct == pct else "—"
+        mv_str = f"₹{mv:.1f} Cr" if mv and mv == mv else "—"
+        m_str = str(r["as_of_month"])[:7]
+        table_rows.append(f"| {r['amc']} | {r['fund_name']} | {pct_str} | {mv_str} | {m_str} |")
+        
+    header_table = "| AMC | Fund Scheme | Weight (% NAV) | Value | Month |\n|---|---|---|---|---|\n"
+    lines.append(header_table + "\n".join(table_rows))
+    return "\n".join(lines)
+
+
 def _run_dsp_mom_trend(sym: str, cn: str) -> str:
     """Query mf_holdings for DSP active-fund cross-ownership and the 6-month MoM
     trend for the highest-conviction holder. All numbers from ClickHouse — no LLM math."""
@@ -445,8 +532,9 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
                 fetched_data[name] = f"Error: {e}"
                 print(f" ✗ Failed: {name} ({e})")
                 
-    # 2a. DSP MoM conviction trend (ClickHouse mf_holdings)
-    print("\nQuerying DSP active-fund MoM conviction trend...")
+    # 2a. Multi-AMC Institutional Whale holdings & DSP MoM conviction trend (ClickHouse mf_holdings)
+    print("\nQuerying Multi-AMC institutional whale holdings & DSP conviction...")
+    multi_amc_summary = _run_multi_amc_holdings(sym, cn)
     dsp_mom_summary = _run_dsp_mom_trend(sym, cn)
 
     # 2b. Qdrant RAG news cluster (news_articles collection)
@@ -533,6 +621,10 @@ def run_deepdown_analysis(query_or_symbol: str, artifact_dir: str):
 ---
 
 {base_report_data}
+
+---
+
+{multi_amc_summary}
 
 ---
 
