@@ -149,6 +149,8 @@ Whenever the user asks to "refresh", "make db fresh", "update database", "refres
 - **Database:** `market_data` (ReplacingMergeTree tables; always query with `FINAL`).
 - **Core Tables:** `daily_prices`, `mf_nav`, `mf_holdings`, `fii_dii_flows`, `fii_dii_monthly`, `cot_gold`, `cb_gold_reserves`, `etf_aum`, `inav_snapshots`, `fx_rates`, `ml_predictions`, `signal_composite`, `news_articles`, `import_watermarks`, `corporate_actions`, `amfi_category_flows`, `bulk_block_deals` (37 tables total — full list in [docs/import-schema.md](docs/import-schema.md#clickhouse-schema)).
 - **Full Architecture & Details:**
+  - HLD Diagram — [docs/hld-architecture.drawio](docs/hld-architecture.drawio), 10 tabs: Context · Layers · Ingestion · Storage · Signal Pipeline · ML & Risk · Agent Flow · Context & Harness · Deployment · Component Index.
+    Render to PDF locally (PDFs are gitignored): `/Applications/draw.io.app/Contents/MacOS/draw.io --export --format pdf --all-pages --output docs/hld-architecture.pdf docs/hld-architecture.drawio`
   - System & Data Pipelines: [docs/architecture.md](docs/architecture.md)
   - Agent Orchestration & Playbooks: [docs/agent-architecture.md](docs/agent-architecture.md)
   - Anomaly Detection Pipeline: [docs/anomaly-detection.md](docs/anomaly-detection.md)
