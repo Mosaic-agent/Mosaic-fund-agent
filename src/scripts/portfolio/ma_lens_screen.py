@@ -268,7 +268,12 @@ def ownership(pool, isin: str) -> dict:
         top_amc_pct=float(by_amc.max() / by_amc.sum() * 100) if by_amc.sum() > 0 else np.nan,
         n_stale=int((~df["is_current"]).sum()),
         dsp_cr=float(cur[cur["amc"] == "DSP"]["val_cr"].sum()),
-        newest=newest, oldest=df["latest_month"].min(), n_dupes=n_dupes,
+        # Span is over CURRENT holders only. Taking min() across every fund that
+        # ever held the name reports spans like "2017-02-28 .. 2026-10-01",
+        # which looks like a broken query rather than ragged AMC filing dates.
+        newest=newest,
+        oldest=cur["latest_month"].min() if not cur.empty else newest,
+        n_dupes=n_dupes,
     )
 
 
@@ -363,7 +368,9 @@ def score(pm: dict, own: dict, val: dict, res: dict, g: dict) -> list[dict]:
         dict(name=f"G2 AMFI rank <= {g['max_rank']}",
              ok=rank is not None and rank <= g["max_rank"],
              got=str(rank) if rank is not None else "unclassified",
-             why=f"deepest rank the fund actually owns in this sleeve is {g['max_rank']}"),
+             why=(f"deepest rank the fund actually owns in this sleeve is {g['max_rank']}"
+                  if rank is not None else
+                  "no AMFI cap classification - cannot be placed in any sleeve")),
         dict(name="G3 >=3 funds, >=3 AMCs, top AMC <60%",
              ok=(own["n_funds"] >= 3 and own["n_amcs"] >= 3
                  and own["top_amc_pct"] == own["top_amc_pct"] and own["top_amc_pct"] < 60),
@@ -381,8 +388,16 @@ def score(pm: dict, own: dict, val: dict, res: dict, g: dict) -> list[dict]:
     ]
 
 
-def house_signal(acc: pd.DataFrame) -> tuple[str, str]:
-    """What DSP's own active funds are doing, price-neutral."""
+def house_signal(acc: pd.DataFrame, isin_resolved: bool = True) -> tuple[str, str]:
+    """What DSP's own active funds are doing, price-neutral.
+
+    An unresolved ISIN must NOT be reported as an absence of holders: the lookup
+    never ran, so claiming "no DSP fund holds this" invents a fact from a
+    pipeline gap.
+    """
+    if not isin_resolved:
+        return "NOT CHECKED", ("ISIN unresolved, so ownership was never queried - "
+                               "this is NOT evidence of an absence of holders")
     if acc.empty:
         return "NO DSP POSITION", "no DSP active fund holds this name"
     dsp = acc[acc["amc"] == "DSP"]
@@ -398,7 +413,14 @@ def house_signal(acc: pd.DataFrame) -> tuple[str, str]:
     return "DSP HOLDING", funds
 
 
-def verdict(n_pass: int, signal: str) -> tuple[str, str]:
+def verdict(n_pass: int, signal: str, isin_resolved: bool = True) -> tuple[str, str]:
+    # Never return REJECT on an unresolved symbol: REJECT asserts the name was
+    # evaluated and failed, when in fact it could not be placed in a sleeve or
+    # ownership-checked at all.
+    if not isin_resolved:
+        return "OUT OF SCOPE", ("no AMFI cap classification or ISIN - cannot be placed in a "
+                                "sleeve or ownership-checked. Not a judgement on the asset; "
+                                "if it is an ETF use /goldbees-pipeline or /etf-premium-discount")
     if n_pass == 5 and signal == "DSP ADDING":
         return "BUY", "clears every gate and DSP is adding - size toward the template median"
     if n_pass == 5:
@@ -488,9 +510,13 @@ def render_symbol(symbol, res, pm, own, acc, val, g, gates, sig, sig_detail, ver
                       f"[yellow]{r['flag']}[/yellow]")
         console.print(t)
         if own["oldest"] != own["newest"]:
-            console.print("[yellow]⚠️  RAGGED DISCLOSURE: filing months span "
+            console.print("[yellow]⚠️  RAGGED DISCLOSURE: current holders' filing months span "
                           f"{own['oldest'].date()} .. {own['newest'].date()} — the total is "
                           "NOT a single-date figure.[/yellow]")
+        if own["n_stale"]:
+            console.print(f"[yellow]⚠️  {own['n_stale']} fund(s) last filed >"
+                          f"{STALE_FILING_DAYS}d before the newest disclosure and may have "
+                          "EXITED — excluded from the counts above.[/yellow]")
         if own.get("n_dupes"):
             console.print(f"[yellow]⚠️  {own['n_dupes']} duplicate fund_name spelling(s) collapsed "
                           "(e.g. MIDCAP vs MID_CAP) — counting both would inflate breadth.[/yellow]")
@@ -516,8 +542,9 @@ def render_symbol(symbol, res, pm, own, acc, val, g, gates, sig, sig_detail, ver
         console.print(t)
 
     n_pass = sum(1 for gt in gates if gt["ok"])
-    vcol = {"BUY": "bold green", "STARTER": "green", "WATCH": "yellow", "REJECT": "bold red"}[verd]
-    if verd == "REJECT":
+    vcol = {"BUY": "bold green", "STARTER": "green", "WATCH": "yellow",
+            "REJECT": "bold red", "OUT OF SCOPE": "bold yellow"}.get(verd, "dim")
+    if verd in ("REJECT", "OUT OF SCOPE"):
         size = "n/a - not investable under this lens"
     elif g["target_cr"] == g["target_cr"]:
         floor = g["target_cr"] / 2
@@ -607,8 +634,9 @@ def main() -> None:
             continue
         gates = score(pm, own, val, res, g)
         n_pass = sum(1 for x in gates if x["ok"])
-        sig, detail = house_signal(acc)
-        verd, why = verdict(n_pass, sig)
+        resolved = bool(res["isin"]) and res["cap"] is not None
+        sig, detail = house_signal(acc, resolved)
+        verd, why = verdict(n_pass, sig, resolved)
         render_symbol(sym, res, pm, own, acc, val, g, gates, sig, detail, verd, why)
         if not a.no_chart:
             chart(pm, sym, n_pass)

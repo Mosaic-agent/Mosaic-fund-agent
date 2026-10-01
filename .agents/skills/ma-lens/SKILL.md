@@ -53,7 +53,14 @@ compared against the sleeve matching the symbol's own AMFI cap category.
 | G5 | Drawdown from 52w high <= -10% | Buying a correction, not chasing a high |
 
 Verdicts: **BUY** (5/5 and DSP adding) - **STARTER** (5/5, DSP not adding; size at floor,
-by elimination not endorsement) - **WATCH** (4/5) - **REJECT** (<=3/5).
+by elimination not endorsement) - **WATCH** (4/5) - **REJECT** (<=3/5) -
+**OUT OF SCOPE** (no ISIN or no AMFI cap classification).
+
+`OUT OF SCOPE` is distinct from `REJECT` on purpose: REJECT asserts the name was evaluated
+and failed, whereas an unresolved symbol could not be placed in a sleeve or
+ownership-checked at all. In that case the house signal reads `NOT CHECKED`, never
+`NO DSP POSITION` - reporting an absence of holders from a failed lookup would invent a
+fact. ETFs land here (GOLDBEES does); send those to `/goldbees-pipeline`.
 
 ## Why the pipeline does what it does
 
@@ -111,4 +118,10 @@ silently drops a title that exceeds the plot width.)
 - `stock_valuation` has ROE / D-E / beta NULL for most names - G4 uses PE/PB only.
 - `pct_of_nav` in `mf_holdings` is corrupt for some rows; the script relies on
   `market_value_cr` and implied share count instead.
+- **Kotak rows are cross-assigned** in `mf_holdings`: for RELIANCE @ 2026-10-01,
+  `KOTAK_BALANCED_ADVANTAGE` and `KOTAK_EQUITY_OPPORTUNITIES` carry byte-identical values
+  (1400.8052 / 4.01957), as do `KOTAK_BLUECHIP` and `KOTAK_SMALL_CAP` (0.9324 / 3.52377).
+  `fund_key()` cannot collapse these because the names are genuinely different funds, so
+  G3 fund counts and institutional totals are inflated for large caps. Treat a large-cap
+  G3 pass as directional, not exact.
 - Holdings lag prices by roughly a month, so recent fund activity is invisible.
