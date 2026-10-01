@@ -571,7 +571,7 @@ Each level overrides or specialises the one above. Global user mandates (Level 1
 | **Claude Code** | `docs/CLAUDE.md` | `.claude/settings.local.json` (139 pre-approved patterns) | `.claude/commands/` (5: `/commit`, `/goldbees-pipeline`, `/intraday`, `/macro-strategy`, `/risk-governor`) + `.claude/skills/` (7 Cavecrew files + 8 Qdrant skill dirs) |
 | **Codex (OpenAI)** | `AGENTS.md` | `.codex/config.toml` (MCP server: `ofin-pipeline`) | — |
 | **Gemini CLI** | `GEMINI.md` | — | `docs/gemini-prompts.md` (20 structured prompts) |
-| **Antigravity** | `AGENTS.md` + `GEMINI.md` (both auto-loaded) | `.antigravitycli/` (workspace registration) | `.agents/agents/` (21 agent defs) + `.agents/skills/` (21 skill dirs) |
+| **Antigravity** | `AGENTS.md` + `GEMINI.md` (both auto-loaded) | `.antigravitycli/` (workspace registration) | `.agents/agents/` (21 agent defs) + `.agents/skills/` (22 skill dirs) |
 | **Internal LangGraph** | `sub_agents/prompts.py` (`NO_LLM_CALC_RULE`) | `config/settings.py` | — |
 
 ### Context File Overlap
