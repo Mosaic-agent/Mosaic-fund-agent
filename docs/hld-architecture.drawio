@@ -1,0 +1,569 @@
+<mxfile host="app.diagrams.net" modified="2026-10-01T00:00:00.000Z" agent="mosaic" version="24.7.17" type="device">
+  <diagram id="p1-context" name="1 · Context">
+    <mxGraphModel dx="1700" dy="1000" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p1t" value="1 · System Context&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;What Mosaic consumes, and what it produces&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="15" width="1500" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p1in1" value="&lt;b&gt;Market Prices &amp;amp; iNAV&lt;/b&gt;&lt;br&gt;NSE · Shoonya WebSocket&lt;br&gt;AMC live iNAV endpoints" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="190" y="95" width="330" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1in2" value="&lt;b&gt;Fund &amp;amp; Holdings Data&lt;/b&gt;&lt;br&gt;AMFI · MFAPI.in NAV&lt;br&gt;SEBI monthly filings — 14 AMCs" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="550" y="95" width="330" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1in3" value="&lt;b&gt;Flows &amp;amp; Macro&lt;/b&gt;&lt;br&gt;Sensibull FII/DII · CFTC COT&lt;br&gt;IMF · World Bank · FX rates" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="910" y="95" width="330" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1in4" value="&lt;b&gt;News &amp;amp; Events&lt;/b&gt;&lt;br&gt;GNews · NewsAPI · earnings&lt;br&gt;NSE announcements · deals · insider" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="95" width="330" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1core" value="&lt;b style=&quot;font-size:22px&quot;&gt;MOSAIC PLATFORM&lt;/b&gt;&lt;br&gt;&lt;br&gt;agentic quantitative research · asset allocation · risk&lt;br&gt;&lt;br&gt;&lt;i&gt;ingest → store → compute → reason → report&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#dbeafe;strokeColor=#1d4ed8;strokeWidth=3;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="560" y="400" width="560" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="p1user" value="👤 &lt;b&gt;Analyst / User&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffffff;strokeColor=#0f172a;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="80" y="440" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="p1kite" value="&lt;b&gt;Zerodha Kite MCP&lt;/b&gt;&lt;br&gt;live portfolio, holdings&lt;br&gt;&amp;amp; order book" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="80" y="640" width="240" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p1llm" value="&lt;b&gt;LLM &amp;amp; Embeddings&lt;/b&gt; — Anthropic / OpenAI API · local Ollama (gemma4 · nomic-embed-text)&lt;br&gt;&lt;i&gt;used for routing, narration and embeddings only — never for arithmetic&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#e2e8f0;strokeColor=#64748b;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="560" y="770" width="560" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1o1" value="&lt;b&gt;Terminal Reports&lt;/b&gt;&lt;br&gt;rich / plotext charts · HTML · PDF" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="330" width="340" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p1o2" value="&lt;b&gt;Streamlit UI&lt;/b&gt;&lt;br&gt;localhost:8501" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="435" width="340" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p1o3" value="&lt;b&gt;Slack Alerts&lt;/b&gt;&lt;br&gt;live anomaly + iNAV arbitrage" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="540" width="340" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p1o4" value="&lt;b&gt;MCP Clients&lt;/b&gt;&lt;br&gt;Claude · Gemini · Codex harnesses" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="645" width="340" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p1e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#64748b;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.1;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p1in1" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#64748b;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.37;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p1in2" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#64748b;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.63;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p1in3" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#64748b;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.9;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p1in4" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1eu" value="questions · commands" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#0f172a;fontSize=12;" edge="1" parent="1" source="p1user" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1ek" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#64748b;" edge="1" parent="1" source="p1kite" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1el" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#64748b;startArrow=classic;startFill=1;" edge="1" parent="1" source="p1llm" target="p1core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1eo1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p1core" target="p1o1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1eo2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p1core" target="p1o2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1eo3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p1core" target="p1o3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p1eo4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p1core" target="p1o4"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p2-layers" name="2 · Layers">
+    <mxGraphModel dx="1500" dy="1080" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p2t" value="2 · Layered View&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Seven layers, top to bottom — each one only talks to its neighbours&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="15" width="1300" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L1" value="&lt;b style=&quot;font-size:16px&quot;&gt;1 · EXTERNAL SOURCES&lt;/b&gt;&lt;br&gt;NSE · Shoonya · AMC iNAV · AMFI/MFAPI · SEBI filings · Sensibull · CFTC · IMF · News · Kite · LLM" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="200" y="100" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L2" value="&lt;b style=&quot;font-size:16px&quot;&gt;2 · INGESTION&lt;/b&gt;&amp;nbsp;&amp;nbsp;src/data_importer/&lt;br&gt;30+ fetcher adapters · watermark delta sync · EventBus + 4 post-import observers" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;" vertex="1" parent="1">
+          <mxGeometry x="200" y="230" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L3" value="&lt;b style=&quot;font-size:16px&quot;&gt;3 · STORAGE&lt;/b&gt;&lt;br&gt;ClickHouse market_data (37 tables) · Qdrant (6 collections) · SQLite caches · file artifacts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="1">
+          <mxGeometry x="200" y="360" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L4" value="&lt;b style=&quot;font-size:16px&quot;&gt;4 · QUANT &amp;amp; INTELLIGENCE&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;i&gt;all numbers are produced here&lt;/i&gt;&lt;br&gt;Signal Aggregator (6 pillars) · LightGBM forecast · GARCH anomaly · Kelly / VLRT risk · 40+ tools" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="200" y="490" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L5" value="&lt;b style=&quot;font-size:16px&quot;&gt;5 · AGENT ORCHESTRATION&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;i&gt;reasons over numbers, never computes them&lt;/i&gt;&lt;br&gt;Intent Router · 10 ReAct sub-agents · 8 StateGraph workflows · 10 YAML playbooks" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="200" y="620" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L6" value="&lt;b style=&quot;font-size:16px&quot;&gt;6 · INTERFACE &amp;amp; DELIVERY&lt;/b&gt;&lt;br&gt;Typer CLI (30+ commands) · Streamlit :8501 · MCP server · live monitors → Slack · reports :8502" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="200" y="750" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2L7" value="&lt;b style=&quot;font-size:16px&quot;&gt;7 · RUNTIME&lt;/b&gt;&amp;nbsp;&amp;nbsp;Docker Compose&lt;br&gt;mosaic · clickhouse · qdrant · ollama · ui · live-monitor · etf-scanner · files" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="200" y="880" width="1100" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p2a1" value="delta fetch" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#475569;fontSize=12;" edge="1" parent="1" source="p2L1" target="p2L2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2a2" value="typed insert" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#475569;fontSize=12;" edge="1" parent="1" source="p2L2" target="p2L3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2a3" value="FINAL reads" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#475569;fontSize=12;" edge="1" parent="1" source="p2L3" target="p2L4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2a4" value="dict / DataFrame" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#475569;fontSize=12;" edge="1" parent="1" source="p2L4" target="p2L5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2a5" value="narrated answers" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#475569;fontSize=12;" edge="1" parent="1" source="p2L5" target="p2L6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2a6" value="runs on" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;dashed=1;strokeColor=#ef4444;fontSize=12;" edge="1" parent="1" source="p2L6" target="p2L7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2note" value="&lt;b&gt;Tabs 3–9&lt;/b&gt; expand one layer each" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#ffffff;strokeColor=#94a3b8;dashed=1;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="490" width="150" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p3-ingest" name="3 · Ingestion">
+    <mxGraphModel dx="1800" dy="1020" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1020" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p3t" value="3 · Ingestion Pipeline&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Adapter → Repository → ClickHouse → EventBus → Observers&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="15" width="1600" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p3src" value="&lt;b&gt;External Sources&lt;/b&gt;&lt;br&gt;&lt;br&gt;NSE — quotes · delivery · corp actions&lt;br&gt;Shoonya — WebSocket LTP&lt;br&gt;AMC endpoints — live iNAV&lt;br&gt;MFAPI.in — scheme NAV&lt;br&gt;SEBI monthly .xlsx — 14 AMCs&lt;br&gt;Sensibull · CFTC · IMF · FX&lt;br&gt;GNews · NewsAPI" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f1f5f9;strokeColor=#94a3b8;fontColor=#334155;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="300" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="p3rule" value="&lt;b&gt;Delta-First Rule&lt;/b&gt;&lt;br&gt;&lt;br&gt;audit_freshness.py marks each category&lt;br&gt;FRESH / STALE, and only STALE ones&lt;br&gt;are imported.&lt;br&gt;&lt;br&gt;&lt;i&gt;Never re-fetch a FRESH category.&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffffff;strokeColor=#16a34a;dashed=1;fontColor=#14532d;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="300" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="p3ad" value="&lt;b&gt;Fetcher Adapters&lt;/b&gt;&lt;br&gt;src/data_importer/fetchers/&lt;br&gt;30+ BaseFetcher implementations&lt;br&gt;FETCHER_REGISTRY — 19 categories" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;" vertex="1" parent="1">
+          <mxGeometry x="440" y="110" width="330" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="p3amc" value="&lt;b&gt;AMC Holdings Importers&lt;/b&gt;&lt;br&gt;amc_downloaders/ + amc_holdings/&lt;br&gt;factory per AMC (14)&lt;br&gt;ISIN → symbol via company_resolver" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;" vertex="1" parent="1">
+          <mxGeometry x="440" y="270" width="330" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="p3pref" value="&lt;b&gt;Source Preference&lt;/b&gt;&lt;br&gt;Shoonya (1) → NSE (2) → yfinance (3)&lt;br&gt;&lt;i&gt;yfinance is a fallback, never a default&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;" vertex="1" parent="1">
+          <mxGeometry x="440" y="440" width="330" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p3run" value="&lt;b&gt;MarketDataRepository.run_fetcher()&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;1&lt;/b&gt;&amp;nbsp; read watermark for (source, category)&lt;br&gt;&lt;br&gt;&lt;b&gt;2&lt;/b&gt;&amp;nbsp; fetch only rows after that date&lt;br&gt;&lt;br&gt;&lt;b&gt;3&lt;/b&gt;&amp;nbsp; normalise → typed rows&lt;br&gt;&lt;br&gt;&lt;b&gt;4&lt;/b&gt;&amp;nbsp; insert, commit watermark, emit event" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="850" y="170" width="370" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="p3ch" value="&lt;b&gt;ClickHouse — market_data&lt;/b&gt;&lt;br&gt;ReplacingMergeTree · query with FINAL" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=12;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="150" width="420" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="p3wm" value="&lt;b&gt;import_watermarks&lt;/b&gt;&lt;br&gt;(source, category) → last imported date" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=12;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="340" width="420" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="p3bus" value="&lt;b&gt;EventBus&lt;/b&gt;&amp;nbsp;&amp;nbsp;src/events/bus.py&amp;nbsp;&amp;nbsp;—&amp;nbsp;&amp;nbsp;&lt;b&gt;DataImportedEvent&lt;/b&gt;&amp;nbsp;(source · category · n_rows · to_date)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="700" width="1290" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p3ob1" value="&lt;b&gt;ModelCacheInvalidator&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#b91c1c&quot;&gt;● sync&lt;/font&gt;&lt;br&gt;deletes stale .joblib models" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="840" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p3ob2" value="&lt;b&gt;MLPredictionObserver&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#a16207&quot;&gt;○ async&lt;/font&gt;&lt;br&gt;re-runs LightGBM forecast" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="770" y="840" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p3ob3" value="&lt;b&gt;SignalAggregatorObserver&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#a16207&quot;&gt;○ async&lt;/font&gt;&lt;br&gt;refreshes composite scores" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="840" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p3ob4" value="&lt;b&gt;SanityCheckObserver&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#a16207&quot;&gt;○ async&lt;/font&gt;&lt;br&gt;anomaly validation on new rows" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="840" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p3e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#16a34a;" edge="1" parent="1" source="p3src" target="p3ad"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#16a34a;" edge="1" parent="1" source="p3src" target="p3amc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p3ad" target="p3run"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p3amc" target="p3run"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#16a34a;" edge="1" parent="1" source="p3pref" target="p3ad"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e6" value="insert" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#9333ea;fontSize=12;" edge="1" parent="1" source="p3run" target="p3ch"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e7" value="commit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#9333ea;fontSize=12;" edge="1" parent="1" source="p3run" target="p3wm"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e8" value="emit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="p3run" target="p3bus"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p3bus" target="p3ob1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p3bus" target="p3ob2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p3bus" target="p3ob3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p3bus" target="p3ob4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3e13" value="writes back" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#9333ea;fontSize=12;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="p3ob4" target="p3ch"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1770" y="895" /><mxPoint x="1770" y="300" /></Array></mxGeometry></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p4-storage" name="4 · Storage">
+    <mxGraphModel dx="1800" dy="920" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="920" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p4t" value="4 · Storage Model&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;What lives where — grouped by domain, not by table order&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="15" width="1600" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p4ch" value="ClickHouse  —  database: market_data" style="swimlane;html=1;startSize=36;fillColor=#faf5ff;strokeColor=#9333ea;fontSize=16;fontStyle=1;fontColor=#3b0764;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="1080" height="500" as="geometry" />
+        </mxCell>
+        <mxCell id="p4g1" value="&lt;b&gt;Prices &amp;amp; iNAV&lt;/b&gt;&lt;br&gt;&lt;br&gt;daily_prices&lt;br&gt;inav_snapshots&lt;br&gt;fx_rates&lt;br&gt;etf_aum" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=10;" vertex="1" parent="p4ch">
+          <mxGeometry x="30" y="60" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4g2" value="&lt;b&gt;Funds &amp;amp; Holdings&lt;/b&gt;&lt;br&gt;&lt;br&gt;mf_nav&lt;br&gt;mf_holdings&lt;br&gt;amfi_category_flows" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=10;" vertex="1" parent="p4ch">
+          <mxGeometry x="385" y="60" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4g3" value="&lt;b&gt;Flows &amp;amp; Macro&lt;/b&gt;&lt;br&gt;&lt;br&gt;fii_dii_flows&lt;br&gt;fii_dii_monthly&lt;br&gt;cot_gold&lt;br&gt;cb_gold_reserves" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=10;" vertex="1" parent="p4ch">
+          <mxGeometry x="740" y="60" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4g4" value="&lt;b&gt;Signals &amp;amp; ML&lt;/b&gt;&lt;br&gt;&lt;br&gt;ml_predictions&lt;br&gt;signal_composite&lt;br&gt;&lt;br&gt;&lt;i&gt;written by the quant layer&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=10;" vertex="1" parent="p4ch">
+          <mxGeometry x="30" y="270" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4g5" value="&lt;b&gt;News &amp;amp; Events&lt;/b&gt;&lt;br&gt;&lt;br&gt;news_articles&lt;br&gt;corporate_actions&lt;br&gt;bulk_block_deals" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=10;" vertex="1" parent="p4ch">
+          <mxGeometry x="385" y="270" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4g6" value="&lt;b&gt;Ops &amp;amp; Metadata&lt;/b&gt;&lt;br&gt;&lt;br&gt;import_watermarks&lt;br&gt;agent_traces&lt;br&gt;&lt;br&gt;&lt;i&gt;… 37 tables in total&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=10;" vertex="1" parent="p4ch">
+          <mxGeometry x="740" y="270" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4note1" value="&lt;b&gt;Every table is a ReplacingMergeTree — always query with FINAL&lt;/b&gt;&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;all access through the thread-safe CHPool singleton (src/db/pool.py)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffffff;strokeColor=#9333ea;dashed=1;fontColor=#3b0764;" vertex="1" parent="1">
+          <mxGeometry x="60" y="625" width="1080" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4note2" value="&lt;b&gt;Write paths&lt;/b&gt;&amp;nbsp;&amp;nbsp;—&amp;nbsp;&amp;nbsp;importers → ClickHouse domain tables&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;AnomalyDetector → market_anomalies&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;news embedder → news_articles&lt;br&gt;backfill_mf_qdrant → mf_holdings / mf_fund_profiles&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;SignalAggregator → signal_composite&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;TrendPredictor → ml_predictions" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f8fafc;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="60" y="710" width="1080" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p4qd" value="Qdrant  —  Vector DB   (768-d · COSINE)" style="swimlane;html=1;startSize=36;fillColor=#faf5ff;strokeColor=#9333ea;fontSize=16;fontStyle=1;fontColor=#3b0764;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="100" width="560" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="p4q1" value="&lt;b&gt;news_articles&lt;/b&gt;&lt;br&gt;tenant: symbol[]" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p4qd">
+          <mxGeometry x="25" y="55" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4q2" value="&lt;b&gt;market_anomalies&lt;/b&gt;&lt;br&gt;tenant: symbol" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p4qd">
+          <mxGeometry x="290" y="55" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4q3" value="&lt;b&gt;mf_holdings&lt;/b&gt;&lt;br&gt;tenant: isin" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p4qd">
+          <mxGeometry x="25" y="145" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4q4" value="&lt;b&gt;mf_fund_profiles&lt;/b&gt;&lt;br&gt;tenant: fund_name" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p4qd">
+          <mxGeometry x="290" y="145" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4q5" value="&lt;b&gt;clickhouse_metadata&lt;/b&gt;&lt;br&gt;schemas + SQL templates" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p4qd">
+          <mxGeometry x="25" y="235" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4q6" value="&lt;b&gt;market_data&lt;/b&gt;&lt;br&gt;general market RAG" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p4qd">
+          <mxGeometry x="290" y="235" width="250" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p4sq" value="&lt;b style=&quot;font-size:15px&quot;&gt;SQLite stores&lt;/b&gt;&lt;br&gt;&lt;br&gt;llm_cache.db — LLM response cache, 24 h TTL&lt;br&gt;plans/index.db — PlanStore, Jaccard plan reuse&lt;br&gt;checkpoints.db — LangGraph checkpoints" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="480" width="560" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="p4fs" value="&lt;b style=&quot;font-size:15px&quot;&gt;File artifacts&lt;/b&gt;&lt;br&gt;&lt;br&gt;output/reports/ — HTML · Markdown · PDF&lt;br&gt;output/.cache/ml_models/ — cached .joblib models&lt;br&gt;&lt;i&gt;model cache is invalidated on every matching import&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;spacingTop=12;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="660" width="560" height="160" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p5-signal" name="5 · Signal Pipeline">
+    <mxGraphModel dx="1700" dy="880" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="880" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p5t" value="5 · Signal Pipeline&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Six independent pillars → one composite score&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="10" width="1500" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p5p1" value="&lt;b&gt;Macro&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#9a3412&quot;&gt;&lt;b&gt;25%&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;— GNews theme scan" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="90" y="130" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5p2" value="&lt;b&gt;Flow&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#9a3412&quot;&gt;&lt;b&gt;25%&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;— fii_dii_flows, 5-day net" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="90" y="240" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5p3" value="&lt;b&gt;Sentiment&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#9a3412&quot;&gt;&lt;b&gt;15%&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;— news_articles + Qdrant RAG" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="90" y="350" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5p4" value="&lt;b&gt;Valuation&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#9a3412&quot;&gt;&lt;b&gt;15%&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;— live iNAV Z-score" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="90" y="460" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5p5" value="&lt;b&gt;ML&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#9a3412&quot;&gt;&lt;b&gt;15%&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;— ml_predictions (5-day LightGBM)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="90" y="570" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5p6" value="&lt;b&gt;GARCH anomaly&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font color=&quot;#9a3412&quot;&gt;&lt;b&gt;5%&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;— composite anomaly score" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="90" y="680" width="440" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="p5agg" value="&lt;b style=&quot;font-size:16px&quot;&gt;SignalAggregator&lt;/b&gt;&lt;br&gt;src/agents/signal_aggregator.py&lt;br&gt;&lt;br&gt;all 6 sources run in parallel&lt;br&gt;(ThreadPoolExecutor)&lt;br&gt;&lt;br&gt;graceful pillar degradation —&lt;br&gt;a dead source drops out,&lt;br&gt;it never fabricates a score&lt;br&gt;&lt;br&gt;&lt;i&gt;79 s → 9 s after parallelisation&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fed7aa;strokeColor=#ea580c;strokeWidth=3;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="640" y="330" width="380" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="p5rule" value="&lt;b&gt;Hard rule&lt;/b&gt; — every pillar score is computed in Python / SQL.&lt;br&gt;The LLM reads the result and narrates it; it never does the arithmetic,&lt;br&gt;and never invents a label such as “ACCUMULATE” on top of regime_signal." style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffffff;strokeColor=#ea580c;dashed=1;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="620" y="110" width="960" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p5comp" value="&lt;b style=&quot;font-size:16px&quot;&gt;Composite score 0–100&lt;/b&gt;&lt;br&gt;→ BUY / HOLD / SELL&lt;br&gt;&lt;i&gt;regime_signal is used exactly as returned&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;strokeWidth=2;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="330" width="460" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p5tab" value="&lt;b&gt;signal_composite&lt;/b&gt;&lt;br&gt;ClickHouse · written by: signals --save" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=12;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="500" width="460" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p5cons" value="&lt;b&gt;Consumers&lt;/b&gt;&lt;br&gt;CLI: signals · Streamlit Signals tab&lt;br&gt;Signal sub-agent · GOLDBEES pipeline" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="670" width="460" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5p1" target="p5agg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5p2" target="p5agg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5p3" target="p5agg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5p4" target="p5agg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5p5" target="p5agg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p5p6" target="p5agg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=3;strokeColor=#ea580c;" edge="1" parent="1" source="p5agg" target="p5comp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e8" value="persist" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#9333ea;fontSize=12;" edge="1" parent="1" source="p5comp" target="p5tab"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ca8a04;" edge="1" parent="1" source="p5tab" target="p5cons"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p6-ml" name="6 · ML &amp; Risk">
+    <mxGraphModel dx="1800" dy="920" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="920" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p6t" value="6 · ML &amp;amp; Risk&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Forecast, anomaly detection, and how a position size is actually chosen&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="10" width="1600" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6a" value="Trend Forecast  —  src/ml/trend_predictor.py" style="swimlane;html=1;startSize=36;fillColor=#fff7ed;strokeColor=#ea580c;fontSize=16;fontStyle=1;fontColor=#7c2d12;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="820" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="p6a1" value="&lt;b&gt;1&lt;/b&gt;&amp;nbsp;&amp;nbsp;Features — OHLCV + DXY + US10Y&amp;nbsp;&amp;nbsp;&lt;i&gt;(fetched in parallel)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6a">
+          <mxGeometry x="30" y="60" width="760" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p6a2" value="&lt;b&gt;2&lt;/b&gt;&amp;nbsp;&amp;nbsp;LightGBM walk-forward CV&amp;nbsp;&amp;nbsp;&lt;i&gt;(no look-ahead — train only on the past)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6a">
+          <mxGeometry x="30" y="150" width="760" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p6a3" value="&lt;b&gt;3&lt;/b&gt;&amp;nbsp;&amp;nbsp;Model cache — output/.cache/ml_models/ — cached .joblib models&lt;br&gt;&lt;i&gt;invalidated synchronously by the import observer&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6a">
+          <mxGeometry x="30" y="240" width="760" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p6a4" value="&lt;b&gt;4&lt;/b&gt;&amp;nbsp;&amp;nbsp;5-day forecast&amp;nbsp;&amp;nbsp;→&amp;nbsp;&amp;nbsp;&lt;b&gt;ml_predictions&lt;/b&gt;&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;drift_monitor watches decay" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6a">
+          <mxGeometry x="30" y="330" width="760" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b" value="Composite Anomaly Detector  —  src/ml/anomaly.py" style="swimlane;html=1;startSize=36;fillColor=#fff7ed;strokeColor=#ea580c;fontSize=16;fontStyle=1;fontColor=#7c2d12;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="920" y="100" width="820" height="470" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b1" value="&lt;b&gt;1&lt;/b&gt;&amp;nbsp;&amp;nbsp;MAD-Z — robust z-score on returns" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6b">
+          <mxGeometry x="30" y="55" width="760" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b2" value="&lt;b&gt;2&lt;/b&gt;&amp;nbsp;&amp;nbsp;GARCH(1,1) — conditional volatility" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6b">
+          <mxGeometry x="30" y="123" width="760" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b3" value="&lt;b&gt;3&lt;/b&gt;&amp;nbsp;&amp;nbsp;IsolationForest — multivariate outliers" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6b">
+          <mxGeometry x="30" y="191" width="760" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b4" value="&lt;b&gt;4&lt;/b&gt;&amp;nbsp;&amp;nbsp;PELT — structural change points" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6b">
+          <mxGeometry x="30" y="259" width="760" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b5" value="&lt;b&gt;5&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;b&gt;Corporate-action guard&lt;/b&gt; — suppresses the is_anomaly flag on ex-dates" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p6b">
+          <mxGeometry x="30" y="327" width="760" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6b6" value="&lt;b&gt;6&lt;/b&gt;&amp;nbsp;&amp;nbsp;Volume HMM — accumulation / distribution state&amp;nbsp;&amp;nbsp;→&amp;nbsp;&amp;nbsp;&lt;b&gt;market_anomalies&lt;/b&gt; (Qdrant)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="p6b">
+          <mxGeometry x="30" y="395" width="760" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p6r0" value="Position sizing chain" style="text;html=1;align=left;verticalAlign=middle;fontSize=16;fontStyle=1;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="600" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p6r1" value="&lt;b&gt;GARCH realised vol&lt;/b&gt;&lt;br&gt;target-vol scaling" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="640" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p6r2" value="&lt;b&gt;Adaptive Kelly&lt;/b&gt;&lt;br&gt;fractional Kelly weight" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="390" y="640" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p6r3" value="&lt;b&gt;Risk Governor&lt;/b&gt;&lt;br&gt;drawdown-aware weight (RG)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="720" y="640" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p6r4" value="&lt;b&gt;weights.blended_50&lt;/b&gt;&lt;br&gt;50% RG + 50% Kelly&lt;br&gt;&lt;i&gt;◀ this is the recommendation&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fed7aa;strokeColor=#ea580c;strokeWidth=3;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="640" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p6r5" value="&lt;b&gt;VLRT v3&lt;/b&gt;&lt;br&gt;dynamic allocation across sleeves" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="640" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p6note" value="&lt;b&gt;Rule&lt;/b&gt; — the recommended GOLDBEES position weight is always &lt;b&gt;weights.blended_50&lt;/b&gt;, never weights.rg on its own." style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffffff;strokeColor=#ea580c;dashed=1;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="790" width="1620" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p6e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;" edge="1" parent="1" source="p6r1" target="p6r2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p6e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;" edge="1" parent="1" source="p6r2" target="p6r3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p6e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;" edge="1" parent="1" source="p6r3" target="p6r4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p6e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;" edge="1" parent="1" source="p6r4" target="p6r5"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p7-agents" name="7 · Agent Flow">
+    <mxGraphModel dx="1700" dy="1050" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1050" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p7t" value="7 · Agent Request Flow&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;What happens between a question and an answer&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="100" y="10" width="1500" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p7user" value="👤&amp;nbsp;&amp;nbsp;&lt;b&gt;mosaic ask&lt;/b&gt; “what is my GOLDBEES signal?”" style="rounded=1;whiteSpace=wrap;html=1;fontSize=14;fillColor=#ffffff;strokeColor=#0f172a;strokeWidth=2;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="620" y="90" width="380" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p7router" value="&lt;b style=&quot;font-size:16px&quot;&gt;Intent Router&lt;/b&gt;&amp;nbsp;&amp;nbsp;src/agents/intent_router.py&lt;br&gt;&lt;br&gt;&lt;b&gt;1&lt;/b&gt; LLM classifier&amp;nbsp;&amp;nbsp;→&amp;nbsp;&amp;nbsp;&lt;b&gt;2&lt;/b&gt; RAG semantic match&amp;nbsp;&amp;nbsp;→&amp;nbsp;&amp;nbsp;&lt;b&gt;3&lt;/b&gt; regex fallback" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#bfdbfe;strokeColor=#3b82f6;strokeWidth=2;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="560" y="200" width="500" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p7fast" value="&lt;b&gt;fast_path_router&lt;/b&gt;&lt;br&gt;known question → pre-baked&lt;br&gt;deterministic answer&lt;br&gt;&lt;i&gt;no LLM call at all&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;dashed=1;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="205" width="400" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="p7d1" value="&lt;b&gt;ReAct Sub-Agents&lt;/b&gt;&amp;nbsp;(10)&lt;br&gt;src/agents/sub_agents/&lt;br&gt;&lt;br&gt;DeepDive · IndianEquity · Signal · Macro&lt;br&gt;MF · News · Code · Database · IntlETF&lt;br&gt;AutonomousResearch" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="180" y="390" width="400" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="p7d2" value="&lt;b&gt;StateGraph Workflows&lt;/b&gt;&amp;nbsp;(8)&lt;br&gt;src/workflows/&lt;br&gt;&lt;br&gt;fixed graphs · parallel fetch&lt;br&gt;Plan-Execute-Replan (mf_planner)&lt;br&gt;adversarial verification nodes" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="610" y="390" width="400" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="p7d3" value="&lt;b&gt;Declarative Playbooks&lt;/b&gt;&amp;nbsp;(10)&lt;br&gt;config/agents/*.yaml&lt;br&gt;&lt;br&gt;configuration-driven specs&lt;br&gt;executed by declarative_runner.py" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="390" width="400" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="p7tools" value="&lt;b style=&quot;font-size:15px&quot;&gt;Tools layer&lt;/b&gt;&amp;nbsp;&amp;nbsp;src/tools/&amp;nbsp;&amp;nbsp;—&amp;nbsp;&amp;nbsp;pure functions returning dict / DataFrame&lt;br&gt;&lt;i&gt;this is the only place a number is ever produced&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;strokeWidth=2;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="420" y="590" width="800" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p7repo" value="&lt;b&gt;MarketDataRepository&lt;/b&gt;&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;vector stores&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;CHPool" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="420" y="740" width="800" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="p7ch" value="&lt;b&gt;ClickHouse&lt;/b&gt;&lt;br&gt;market_data · FINAL" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=12;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="420" y="880" width="385" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p7qd" value="&lt;b&gt;Qdrant&lt;/b&gt;&lt;br&gt;semantic retrieval" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=12;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="835" y="880" width="385" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p7cm" value="&lt;b&gt;Context Manager&lt;/b&gt;&lt;br&gt;&lt;i&gt;see tab 8&lt;/i&gt;&lt;br&gt;&lt;br&gt;compress() — truncate / summarise&lt;br&gt;→ DatasetRef + artifact key&lt;br&gt;&lt;br&gt;the agent gets a bounded view,&lt;br&gt;the full output stays on disk" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#ecfeff;strokeColor=#0891b2;fontColor=#164e63;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="60" y="590" width="300" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p7ret" value="&lt;b&gt;Return path&lt;/b&gt;&lt;br&gt;&lt;br&gt;Values travel back up &lt;b&gt;unchanged&lt;/b&gt;.&lt;br&gt;The agent quotes them verbatim&lt;br&gt;and cites the source table and&lt;br&gt;watermark timestamp." style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f0fdf4;strokeColor=#16a34a;fontColor=#14532d;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="830" width="300" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="p7guard" value="&lt;b style=&quot;font-size:15px&quot;&gt;Guardrails&lt;/b&gt;&lt;br&gt;&lt;br&gt;●&amp;nbsp; No LLM arithmetic — ever&lt;br&gt;&lt;br&gt;●&amp;nbsp; Zero-trust: re-read raw tool output&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; before citing any number&lt;br&gt;&lt;br&gt;●&amp;nbsp; Symbol-row locking — the row must&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; match the symbol that was asked for&lt;br&gt;&lt;br&gt;●&amp;nbsp; Tool-loop protection&lt;br&gt;&lt;br&gt;●&amp;nbsp; Budget + tracing middleware&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; → agent_traces&lt;br&gt;&lt;br&gt;●&amp;nbsp; Unresolved security → explicit&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; [UNRESOLVED_SECURITY] marker,&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; never an invented label" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;verticalAlign=top;spacingTop=10;align=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="590" width="340" height="410" as="geometry" />
+        </mxCell>
+        <mxCell id="p7e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#0f172a;" edge="1" parent="1" source="p7user" target="p7router"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e2" value="short-circuit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#3b82f6;fontSize=12;" edge="1" parent="1" source="p7router" target="p7fast"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p7router" target="p7d1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p7router" target="p7d2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p7router" target="p7d3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e6" value="tool calls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;fontSize=12;" edge="1" parent="1" source="p7d1" target="p7tools"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;" edge="1" parent="1" source="p7d2" target="p7tools"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ea580c;" edge="1" parent="1" source="p7d3" target="p7tools"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p7tools" target="p7repo"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#9333ea;" edge="1" parent="1" source="p7repo" target="p7ch"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#9333ea;" edge="1" parent="1" source="p7repo" target="p7qd"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e12" value="answer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#16a34a;fontSize=12;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p7ret" target="p7user"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="25" y="915" /><mxPoint x="25" y="125" /></Array></mxGeometry></mxCell>
+        <mxCell id="p7e13" value="raw output" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#0891b2;fontSize=12;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="p7tools" target="p7cm"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p7e14" value="bounded view" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeWidth=2;strokeColor=#16a34a;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="p7cm" target="p7ret"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p8-context" name="8 · Context &amp; Harness">
+    <mxGraphModel dx="1800" dy="950" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="950" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p8ct" value="8 · Context Management &amp;amp; Harness&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;How tool output is bounded before it reaches the model — and what shapes the model's behaviour&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="60" y="10" width="1680" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p8craw" value="&lt;b&gt;Raw tool output&lt;/b&gt;&amp;nbsp;&amp;nbsp;—&amp;nbsp;&amp;nbsp;a holdings dump or price history can run to hundreds of thousands of characters" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="840" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p8ccm" value="ContextManager  —  src/workflows/context_manager.py" style="swimlane;html=1;startSize=34;fillColor=#ecfeff;strokeColor=#0891b2;fontSize=15;fontStyle=1;fontColor=#164e63;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="205" width="840" height="285" as="geometry" />
+        </mxCell>
+        <mxCell id="p8cm1" value="&lt;b&gt;run_scope()&lt;/b&gt;&amp;nbsp;&amp;nbsp;— opens a run-local cache + artifact ledger for one fan-out&lt;br&gt;&lt;b&gt;fetch_once(key, fetcher)&lt;/b&gt;&amp;nbsp;&amp;nbsp;— identical fetches inside a run execute once" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#cffafe;strokeColor=#0891b2;fontColor=#164e63;" vertex="1" parent="p8ccm">
+          <mxGeometry x="25" y="45" width="790" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p8cm2" value="&lt;b&gt;compress(key, raw)&lt;/b&gt;&amp;nbsp;&amp;nbsp;— truncate_text (cap &lt;b&gt;250,000 chars&lt;/b&gt;)&amp;nbsp;·&amp;nbsp;summarize_dict&amp;nbsp;·&amp;nbsp;dedup_rows" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#cffafe;strokeColor=#0891b2;fontColor=#164e63;" vertex="1" parent="p8ccm">
+          <mxGeometry x="25" y="120" width="790" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p8cm3" value="&lt;b&gt;to_dataset_ref(key, raw)&lt;/b&gt;&amp;nbsp;&amp;nbsp;→ &lt;b&gt;DatasetRef&lt;/b&gt;, appended to the run's artifact ledger&lt;br&gt;&lt;b&gt;artifacts()&lt;/b&gt;&amp;nbsp;&amp;nbsp;— every DatasetRef the run produced, in order" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#cffafe;strokeColor=#0891b2;fontColor=#164e63;" vertex="1" parent="p8ccm">
+          <mxGeometry x="25" y="190" width="790" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="p8cart" value="Artifact store  —  src/tools/mf_artifact.py" style="swimlane;html=1;startSize=34;fillColor=#faf5ff;strokeColor=#9333ea;fontSize=15;fontStyle=1;fontColor=#3b0764;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="530" width="840" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="p8ar1" value="&lt;b&gt;write_mf_artifact(tool, params, full)&lt;/b&gt;&amp;nbsp;&amp;nbsp;→ key &lt;b&gt;mf_artifact_&amp;lt;tool&amp;gt;_&amp;lt;digest&amp;gt;&lt;/b&gt;&lt;br&gt;&lt;i&gt;the complete output is persisted to disk, keyed by a hash of the call&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p8cart">
+          <mxGeometry x="25" y="45" width="790" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p8ar2" value="&lt;b&gt;condense_text(...)&lt;/b&gt;&amp;nbsp;&amp;nbsp;— small output passes through unchanged; large output becomes&lt;br&gt;head + tail + the artifact key the agent can call back for" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p8cart">
+          <mxGeometry x="25" y="110" width="790" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p8ar3" value="&lt;b&gt;read_mf_artifact(key)&lt;/b&gt;&amp;nbsp;&amp;nbsp;— retrieves the full output on demand — &lt;i&gt;nothing is ever lost, only deferred&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#3b0764;" vertex="1" parent="p8cart">
+          <mxGeometry x="25" y="175" width="790" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="p8cout" value="&lt;b&gt;Agent sees:&lt;/b&gt; a token-bounded excerpt + a retrieval key&amp;nbsp;&amp;nbsp;—&amp;nbsp;&amp;nbsp;&lt;i&gt;context stays small without discarding data&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#dbeafe;strokeColor=#3b82f6;strokeWidth=2;fontColor=#1e3a5f;" vertex="1" parent="1">
+          <mxGeometry x="60" y="800" width="840" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p8hl" value="&lt;b style=&quot;font-size:17px&quot;&gt;Agentic Harness — 5 layers&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:12px;font-weight:normal&quot;&gt;applied top-down; a lower layer never overrides a higher one&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=17;fontStyle=1;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="960" y="105" width="780" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p8h1" value="&lt;b&gt;L1 · Global mandate&lt;/b&gt;&lt;br&gt;no LLM arithmetic · zero-trust re-read · verify dilution before&lt;br&gt;flagging a promoter sale · DSP cross-fund conviction signal" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="960" y="175" width="780" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="p8h2" value="&lt;b&gt;L2 · Context files&lt;/b&gt;&lt;br&gt;AGENTS.md (Codex) · GEMINI.md (Gemini CLI) · docs/CLAUDE.md&lt;br&gt;&lt;i&gt;kept content-identical — edit one, mirror the other&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="960" y="295" width="780" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="p8h3" value="&lt;b&gt;L3 · Sub-agent definitions&lt;/b&gt;&lt;br&gt;.agents/agents/ — 23 definitions&lt;br&gt;&lt;i&gt;mosaic · stock-research · risk-governor · macro-strategy · live-monitor …&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="960" y="415" width="780" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="p8h4" value="&lt;b&gt;L4 · Skills &amp;amp; commands&lt;/b&gt;&lt;br&gt;.agents/skills/ (24) · .claude/skills/ · .claude/commands/ (5) · .claude/workflows/&lt;br&gt;&lt;i&gt;goldbees-pipeline · ma-lens · intraday · risk-governor · commit …&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="960" y="535" width="780" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="p8h5" value="&lt;b&gt;L5 · Caveman / cavecrew compression&lt;/b&gt;&lt;br&gt;.agents/skills/cavecrew · .claude/skills/&lt;br&gt;&lt;i&gt;sub-agent results come back compressed, so the main thread's context lasts longer&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="1">
+          <mxGeometry x="960" y="655" width="780" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="p8hn" value="&lt;b&gt;Why two mechanisms&lt;/b&gt; — the &lt;b&gt;harness&lt;/b&gt; (right) decides what an agent is allowed to do before it runs;&lt;br&gt;the &lt;b&gt;ContextManager&lt;/b&gt; (left) decides how much of the result it is allowed to see afterwards." style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffffff;strokeColor=#64748b;dashed=1;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="960" y="790" width="780" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p8ce1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#0891b2;" edge="1" parent="1" source="p8craw" target="p8ccm"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8ce2" value="persist full output" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#9333ea;fontSize=12;" edge="1" parent="1" source="p8ccm" target="p8cart"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8ce3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#3b82f6;" edge="1" parent="1" source="p8cart" target="p8cout"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8he1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ef4444;" edge="1" parent="1" source="p8h1" target="p8h2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8he2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ef4444;" edge="1" parent="1" source="p8h2" target="p8h3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8he3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ef4444;" edge="1" parent="1" source="p8h3" target="p8h4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8he4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#ef4444;" edge="1" parent="1" source="p8h4" target="p8h5"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p8-deploy" name="9 · Deployment">
+    <mxGraphModel dx="1600" dy="940" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="940" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p8t" value="9 · Deployment&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Everything runs in Docker Compose — the app container stays up&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="60" y="10" width="1480" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p8host" value="macOS host  —  Colima  (socket: ~/.colima/default/docker.sock)" style="swimlane;html=1;startSize=36;fillColor=#fef2f2;strokeColor=#ef4444;fontSize=16;fontStyle=1;fontColor=#7f1d1d;align=center;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="1480" height="660" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s1" value="&lt;b&gt;mosaic&lt;/b&gt;&lt;br&gt;persistent app container&lt;br&gt;entrypoint: tail -f /dev/null&lt;br&gt;restart: unless-stopped" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;strokeWidth=3;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="40" y="60" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s2" value="&lt;b&gt;clickhouse&lt;/b&gt;&lt;br&gt;:8123 HTTP · :9000 native&lt;br&gt;healthcheck: SELECT 1" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="400" y="60" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s3" value="&lt;b&gt;qdrant&lt;/b&gt;&lt;br&gt;:6333 REST · :6334 gRPC" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="760" y="60" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s4" value="&lt;b&gt;ollama&lt;/b&gt; + ollama-init&lt;br&gt;:11434&lt;br&gt;pulls nomic-embed-text" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="1120" y="60" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s5" value="&lt;b&gt;ui&lt;/b&gt;&lt;br&gt;Streamlit :8501" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="40" y="205" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s6" value="&lt;b&gt;live-monitor&lt;/b&gt;&lt;br&gt;compose profile — opt-in&lt;br&gt;Shoonya WS → Slack alerts" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="400" y="205" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s7" value="&lt;b&gt;etf-scanner&lt;/b&gt;&lt;br&gt;compose profile — opt-in&lt;br&gt;live iNAV arbitrage scan" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="760" y="205" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8s8" value="&lt;b&gt;files&lt;/b&gt;&lt;br&gt;report server :8502" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="1120" y="205" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="p8vol" value="&lt;b&gt;Named volumes&lt;/b&gt; — clickhouse-data · clickhouse-backups · qdrant-data · ollama-models&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;|&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&lt;b&gt;Bind mounts&lt;/b&gt; — ./src · ./config · ./tests · ./output&lt;br&gt;&lt;i&gt;bind mounts mean edited source and generated reports are visible on the host instantly&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#ffffff;strokeColor=#ef4444;dashed=1;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="40" y="355" width="1410" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="p8exec" value="&lt;b style=&quot;font-size:15px&quot;&gt;Execution path&lt;/b&gt;&lt;br&gt;&lt;br&gt;./mosaic.sh &amp;lt;cmd&amp;gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;→&amp;nbsp;&amp;nbsp;&amp;nbsp;docker compose exec -T mosaic python src/main.py &amp;lt;cmd&amp;gt;&lt;br&gt;&lt;br&gt;&lt;i&gt;Never a transient one-off container, never host-local python / uv — exec into the running service for sub-second startup.&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#fef2f2;strokeColor=#ef4444;strokeWidth=2;fontColor=#7f1d1d;" vertex="1" parent="p8host">
+          <mxGeometry x="40" y="485" width="1410" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="p8note" value="&lt;b&gt;Startup&lt;/b&gt;&amp;nbsp;&amp;nbsp;docker compose up -d mosaic&amp;nbsp;&amp;nbsp;(brings up clickhouse + qdrant via depends_on / healthcheck)&amp;nbsp;&amp;nbsp;·&amp;nbsp;&amp;nbsp;profiles keep live-monitor and etf-scanner off by default&lt;br&gt;&lt;b&gt;Secrets&lt;/b&gt;&amp;nbsp;&amp;nbsp;.env stays on the host and is loaded with env_file — it is never copied into the image" style="rounded=1;whiteSpace=wrap;html=1;fontSize=13;fillColor=#f8fafc;strokeColor=#94a3b8;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="60" y="790" width="1480" height="90" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p9-index" name="10 · Component Index">
+    <mxGraphModel dx="2000" dy="890" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2000" pageHeight="975" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p9t" value="10 · Component Index&lt;br&gt;&lt;font style=&quot;font-size:14px;font-weight:normal&quot;&gt;Every component, where it lives, and which tab draws it — &lt;i&gt;component&lt;/i&gt; · &lt;i&gt;path or detail&lt;/i&gt; · &lt;i&gt;tab&lt;/i&gt;&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="60" y="10" width="1880" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c1" value="&lt;b style=&quot;font-size:14px&quot;&gt;1 · EXTERNAL SOURCES&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;NSE&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;quotes · delivery · corp actions&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;1, 3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Shoonya&lt;/td&gt;&lt;td&gt;WebSocket LTP — primary tick source&lt;/td&gt;&lt;td&gt;1, 3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;AMC iNAV feeds&lt;/td&gt;&lt;td&gt;Nippon · Mirae · Motilal · Zerodha&lt;/td&gt;&lt;td&gt;1, 3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;AMFI / MFAPI.in&lt;/td&gt;&lt;td&gt;scheme NAV, fetched live&lt;/td&gt;&lt;td&gt;1, 3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;SEBI filings&lt;/td&gt;&lt;td&gt;14 AMCs · monthly .xlsx · Tier-1&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Sensibull / CFTC / IMF&lt;/td&gt;&lt;td&gt;FII-DII · COT · reserves · FX&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;GNews / NewsAPI&lt;/td&gt;&lt;td&gt;news · earnings · deals · insider&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Zerodha Kite MCP&lt;/td&gt;&lt;td&gt;live portfolio · holdings · orders&lt;/td&gt;&lt;td&gt;1&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;LLM providers&lt;/td&gt;&lt;td&gt;Anthropic · OpenAI · local Ollama&lt;/td&gt;&lt;td&gt;1, 7&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f8fafc;strokeColor=#94a3b8;fontColor=#334155;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="940" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c2" value="&lt;b style=&quot;font-size:14px&quot;&gt;2 · INGESTION&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;Fetcher adapters&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;src/data_importer/fetchers/ — 30+&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Fetcher registry&lt;/td&gt;&lt;td&gt;registry.py — 19 categories&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;AMC importers&lt;/td&gt;&lt;td&gt;amc_downloaders/ · amc_holdings/&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Parallel importer&lt;/td&gt;&lt;td&gt;parallel_importer.py&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Source preference&lt;/td&gt;&lt;td&gt;source_preference.py&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Freshness audit&lt;/td&gt;&lt;td&gt;freshness.py · db/audit_freshness.py&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Repository runner&lt;/td&gt;&lt;td&gt;src/db/repository.py — run_fetcher()&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;EventBus&lt;/td&gt;&lt;td&gt;src/events/bus.py&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Observers (4)&lt;/td&gt;&lt;td&gt;src/events/observers.py&lt;/td&gt;&lt;td&gt;3&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#f0fdf4;strokeColor=#16a34a;fontColor=#14532d;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="90" width="940" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c3" value="&lt;b style=&quot;font-size:14px&quot;&gt;3 · STORAGE&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;Connection pool&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;src/db/pool.py — CHPool singleton&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Repository&lt;/td&gt;&lt;td&gt;src/db/repository.py — typed reads&lt;/td&gt;&lt;td&gt;4, 7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;market_data&lt;/td&gt;&lt;td&gt;37 ReplacingMergeTree tables · FINAL&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Qdrant collections&lt;/td&gt;&lt;td&gt;6 · 768-d · src/db/*_vector.py&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Qdrant backfill&lt;/td&gt;&lt;td&gt;src/scripts/backfill_mf_qdrant.py&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;SQLite caches&lt;/td&gt;&lt;td&gt;llm_cache · plans/index · checkpoints&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Model cache&lt;/td&gt;&lt;td&gt;output/.cache/ml_models/&lt;/td&gt;&lt;td&gt;4, 6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Report artifacts&lt;/td&gt;&lt;td&gt;output/reports/ — HTML · MD · PDF&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Schema reference&lt;/td&gt;&lt;td&gt;docs/import-schema.md&lt;/td&gt;&lt;td&gt;4&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#faf5ff;strokeColor=#9333ea;fontColor=#3b0764;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="300" width="940" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c4" value="&lt;b style=&quot;font-size:14px&quot;&gt;4 · QUANT &amp;amp; INTELLIGENCE&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;SignalAggregator&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;src/agents/signal_aggregator.py&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;5&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;SignalSource (6)&lt;/td&gt;&lt;td&gt;src/agents/signal_sources.py&lt;/td&gt;&lt;td&gt;5&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;TrendPredictor&lt;/td&gt;&lt;td&gt;src/ml/trend_predictor.py — LightGBM&lt;/td&gt;&lt;td&gt;6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;AnomalyDetector&lt;/td&gt;&lt;td&gt;src/ml/anomaly/ — 6-step composite&lt;/td&gt;&lt;td&gt;6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;OU estimator&lt;/td&gt;&lt;td&gt;src/ml/ou_estimator.py · premium_regime&lt;/td&gt;&lt;td&gt;6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Drift monitor&lt;/td&gt;&lt;td&gt;src/ml/drift_monitor.py&lt;/td&gt;&lt;td&gt;6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Position sizing&lt;/td&gt;&lt;td&gt;garch_position_sizer · adaptive_kelly&lt;/td&gt;&lt;td&gt;6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Analyzers&lt;/td&gt;&lt;td&gt;src/analyzers/ — asset · portfolio&lt;/td&gt;&lt;td&gt;6&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Tools (40+)&lt;/td&gt;&lt;td&gt;src/tools/ — dict / DataFrame only&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="300" width="940" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c5" value="&lt;b style=&quot;font-size:14px&quot;&gt;5 · AGENT ORCHESTRATION&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;Intent router&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;src/agents/intent_router.py&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Fast path&lt;/td&gt;&lt;td&gt;src/agents/fast_path_router.py&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Sub-agents (10)&lt;/td&gt;&lt;td&gt;src/agents/sub_agents/&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Workflows (8)&lt;/td&gt;&lt;td&gt;src/workflows/ — StateGraph&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Playbooks (10)&lt;/td&gt;&lt;td&gt;config/agents/ — YAML specs&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Declarative runner&lt;/td&gt;&lt;td&gt;src/agents/declarative/&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;PlanStore&lt;/td&gt;&lt;td&gt;src/workflows/plan_store.py&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Middleware&lt;/td&gt;&lt;td&gt;tracer.py · budget.py → agent_traces&lt;/td&gt;&lt;td&gt;7&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;ContextManager&lt;/td&gt;&lt;td&gt;src/workflows/context_manager.py — 250k cap&lt;/td&gt;&lt;td&gt;8&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Artifact store&lt;/td&gt;&lt;td&gt;src/tools/mf_artifact.py — keyed, on disk&lt;/td&gt;&lt;td&gt;8&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Harness L1–L2&lt;/td&gt;&lt;td&gt;AGENTS.md · GEMINI.md · docs/CLAUDE.md&lt;/td&gt;&lt;td&gt;8&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Harness L3–L5&lt;/td&gt;&lt;td&gt;.agents/agents (23) · .agents/skills (24)&lt;/td&gt;&lt;td&gt;8&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#eff6ff;strokeColor=#3b82f6;fontColor=#1e3a5f;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="510" width="940" height="215" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c6" value="&lt;b style=&quot;font-size:14px&quot;&gt;6 · INTERFACE &amp;amp; DELIVERY&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;Typer CLI&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;src/main.py — 30+ commands&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;1, 9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Streamlit UI&lt;/td&gt;&lt;td&gt;src/ui/app.py — :8501&lt;/td&gt;&lt;td&gt;1, 9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;MCP server&lt;/td&gt;&lt;td&gt;src/mcp_server.py&lt;/td&gt;&lt;td&gt;1&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Live monitor&lt;/td&gt;&lt;td&gt;src/agents/live_monitor.py&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;ETF scanner&lt;/td&gt;&lt;td&gt;src/agents/etf_opportunity_scanner.py&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Terminal charts&lt;/td&gt;&lt;td&gt;src/tools/chart_tools.py — plotext/rich&lt;/td&gt;&lt;td&gt;1&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Report publisher&lt;/td&gt;&lt;td&gt;src/tools/report_publisher.py&lt;/td&gt;&lt;td&gt;1&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;File server&lt;/td&gt;&lt;td&gt;compose service: files — :8502&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Slack alerts&lt;/td&gt;&lt;td&gt;SLACK_WEBHOOK_URL — live monitors&lt;/td&gt;&lt;td&gt;1, 9&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="510" width="940" height="215" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c7" value="&lt;b style=&quot;font-size:14px&quot;&gt;7 · RUNTIME&lt;/b&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;Compose definition&lt;/td&gt;&lt;td width=&quot;610&quot;&gt;docker-compose.yml&lt;/td&gt;&lt;td width=&quot;80&quot;&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Wrapper&lt;/td&gt;&lt;td&gt;./mosaic.sh → compose exec mosaic&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;App container&lt;/td&gt;&lt;td&gt;mosaic — persistent, restart always&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;ClickHouse&lt;/td&gt;&lt;td&gt;:8123 HTTP · :9000 native&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Qdrant&lt;/td&gt;&lt;td&gt;:6333 REST · :6334 gRPC&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Ollama&lt;/td&gt;&lt;td&gt;:11434 · ollama-models volume&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Opt-in profiles&lt;/td&gt;&lt;td&gt;live-monitor · etf-scanner&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Settings&lt;/td&gt;&lt;td&gt;config/settings.py — Pydantic + .env&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Docker host&lt;/td&gt;&lt;td&gt;Colima on macOS&lt;/td&gt;&lt;td&gt;9&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#fef2f2;strokeColor=#ef4444;fontColor=#7f1d1d;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="750" width="940" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p9c8" value="&lt;b style=&quot;font-size:14px&quot;&gt;CROSS-CUTTING RULES&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size:11px;font-weight:normal&quot;&gt;&lt;i&gt;these hold on every tab&lt;/i&gt;&lt;/font&gt;&lt;table width=&quot;905&quot; cellpadding=&quot;1&quot; cellspacing=&quot;0&quot; style=&quot;font-size:11px;text-align:left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;215&quot;&gt;No LLM arithmetic&lt;/td&gt;&lt;td width=&quot;690&quot;&gt;tools compute every number; the LLM only narrates&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Zero-trust reads&lt;/td&gt;&lt;td&gt;re-read raw output · symbol-row locking before citing&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;ClickHouse&lt;/td&gt;&lt;td&gt;always query with FINAL — ReplacingMergeTree&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Price authority&lt;/td&gt;&lt;td&gt;Shoonya / NSE — never yfinance by default&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Premium / discount&lt;/td&gt;&lt;td&gt;live AMC iNAV vs live LTP — never NSE static NAV&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Refresh&lt;/td&gt;&lt;td&gt;delta only — never re-import a FRESH category&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Execution&lt;/td&gt;&lt;td&gt;exec into the running container — never host python&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Provenance&lt;/td&gt;&lt;td&gt;cite table + watermark on every figure presented&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;Unresolved data&lt;/td&gt;&lt;td&gt;emit an explicit marker — never an invented label&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=11;fillColor=#ffffff;strokeColor=#0f172a;dashed=1;fontColor=#0f172a;verticalAlign=top;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="750" width="940" height="190" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
