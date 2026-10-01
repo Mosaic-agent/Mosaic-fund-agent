@@ -312,9 +312,17 @@ def accumulation(pool, isin: str, px: pd.DataFrame, months: int = 4) -> pd.DataF
         span = ((lastr["shares_lk"] / first["shares_lk"] - 1) * 100
                 if len(g) > 1 and first["shares_lk"] and first["shares_lk"] == first["shares_lk"]
                 else np.nan)
-        read = ("n/a" if span != span else "ADDING" if span > 2
+        # A filing month with no price bars yields no month-end close, so the
+        # share count is undefined. Label it rather than emitting a bare NaN,
+        # which reads as noise and invites being dropped from a summary. Do NOT
+        # substitute the last available close: that splices two dates together
+        # and breaks the one-date rule.
+        px_missing = bool(first["m_close"] != first["m_close"]
+                          or lastr["m_close"] != lastr["m_close"])
+        read = ("UNVERIFIABLE" if px_missing
+                else "n/a" if span != span else "ADDING" if span > 2
                 else "TRIMMING" if span < -2 else "HOLDING")
-        out.append(dict(fund=fund, amc=amc_of(fund), months=len(g),
+        out.append(dict(fund=fund, amc=amc_of(fund), months=len(g), px_missing=px_missing,
                         first_month=first["as_of_month"].date(),
                         last_month=lastr["as_of_month"].date(),
                         shares_first=first["shares_lk"], shares_last=lastr["shares_lk"],
@@ -532,14 +540,34 @@ def render_symbol(symbol, res, pm, own, acc, val, g, gates, sig, sig_detail, ver
                   "Shares lk first→last", "Shares Δ%", "Read"]:
             t.add_column(h, justify="right")
         for _, r in acc.head(10).iterrows():
-            colour = {"ADDING": "bold green", "TRIMMING": "bold red",
-                      "HOLDING": "yellow", "n/a": "dim"}[r["read"]]
+            colour = {"ADDING": "bold green", "TRIMMING": "bold red", "HOLDING": "yellow",
+                      "UNVERIFIABLE": "bold magenta", "n/a": "dim"}[r["read"]]
+            if r["px_missing"]:
+                px_cell = "[magenta]NO MONTH-END CLOSE[/magenta]"
+                sh_cell = "[magenta]undefined[/magenta]"
+            else:
+                px_cell = f"{r['px_first']:,.0f} → {r['px_last']:,.0f}"
+                sh_cell = f"{r['shares_first']:,.2f} → {r['shares_last']:,.2f}"
             t.add_row(r["fund"][:40], f"{r['first_month']} → {r['last_month']}",
-                      f"{r['px_first']:,.0f} → {r['px_last']:,.0f}",
-                      f"{r['val_first']:,.1f} → {r['val_last']:,.1f}",
-                      f"{r['shares_first']:,.2f} → {r['shares_last']:,.2f}",
-                      fmt_signed(r["share_chg"]), f"[{colour}]{r['read']}[/{colour}]")
+                      px_cell, f"{r['val_first']:,.1f} → {r['val_last']:,.1f}",
+                      sh_cell, fmt_signed(r["share_chg"]), f"[{colour}]{r['read']}[/{colour}]")
         console.print(t)
+
+        # Report the unverifiable weight explicitly so it cannot be quietly
+        # dropped from a downstream summary.
+        miss = acc[acc["px_missing"]]
+        if not miss.empty:
+            share = (miss["val_last"].sum() / own["total_cr"] * 100
+                     if own["total_cr"] else float("nan"))
+            names = ", ".join(miss["fund"].head(4).tolist())
+            console.print(
+                f"[bold magenta]⚠️  ACCUMULATION UNVERIFIABLE for {len(miss)} fund(s) — "
+                f"Rs {miss['val_last'].sum():,.1f} Cr"
+                + (f" ({share:.1f}% of the institutional total)" if share == share else "")
+                + f": {names}.\n"
+                "    Their filing month has no price bars, so implied share count is "
+                "undefined. Do not read this as HOLDING.[/bold magenta]"
+            )
 
     n_pass = sum(1 for gt in gates if gt["ok"])
     vcol = {"BUY": "bold green", "STARTER": "green", "WATCH": "yellow",
