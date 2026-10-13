@@ -36,8 +36,13 @@ flowchart LR
 | `world_bank` | World Bank WDI API (free) | Annual macro indicators (GDP, CPI, etc.) | `macro_indicators` |
 | `imf_weo` | IMF WEO API (free) | Annual macro projections/forecasts | `macro_indicators` |
 | `indian_macro` | RBI / MOSPI public series | Indian macro indicators | `indian_macro_indicators` |
-| `amfi_flows` | AMFI portal | Category-wise monthly MF flows + AUM | `amfi_category_flows` |
 | `bulk_deals` / `events` | NSE bulk & block deals API (aliases — same fetcher) | Large institutional/promoter transactions | `bulk_block_deals` |
+| `stockscans` | StockScans API | Tracked NSE stocks | `stock_valuation`, `stock_financial_statements`, `ipo_pipeline`, `concall_schedules` |
+| `stockscans_fundamentals` | StockScans API | Tracked NSE stocks | `stock_valuation`, `stock_financial_statements` |
+| `stockscans_ipo` / `ipo` | StockScans API | Mainboard & SME IPOs | `ipo_pipeline` |
+| `stockscans_concalls` / `concalls` | StockScans API | Scheduled earnings conference calls | `concall_schedules` |
+| `stockscans_insider` | StockScans Private API (authtoken) | Tracked NSE stocks | `stock_insider_trades` |
+| `stockscans_shareholding` / `shareholding_pattern` | StockScans Private API (authtoken) | Tracked NSE stocks | `stock_shareholding_pattern`, `stock_shareholding_entities` |
 
 ### Special-cased categories (handled directly in `cli.py`, not via the registry)
 
@@ -107,6 +112,7 @@ All general data categories have typed **Fetcher adapters** (`src/data_importer/
 | `AmfiCategoryFlowsFetcher` | amfi_flows | 0 days | AMFI category-wise monthly flows + AUM |
 | `NseDeliveryFetcher` | nse_delivery | 3 days | NSE daily delivery %/volume (bhavcopy, whole-market) |
 | `BulkBlockDealsFetcher` | bulk_deals, events | 3 days | NSE Bulk & Block Deals (large institutional/promoter transactions) |
+| `StockScansFetcher` | stockscans, stockscans_fundamentals, stockscans_ipo, stockscans_concalls, ipo, concalls | 0 days | StockScans Indian equity fundamentals, statements, IPO board, and earnings calls |
 | `MfHoldingsFetcher` | mf_holdings | — (month-presence check, not watermark) | Monthly MF portfolio holdings (constructed per-call in `cli.py`, not registry-cached) |
 
 Use `MarketDataRepository.run_fetcher(fetcher)` to execute the full watermark → fetch → validate → insert → event cycle programmatically:
@@ -237,7 +243,17 @@ Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent 
 |---|---|---|---|
 | `stock_earnings` | — | (symbol, earnings_date) | US quarterly earnings + surprise % |
 | `stock_insider_trades` | — | (symbol, transaction_date, insider_name) | US insider buy/sell transactions |
-| `stock_valuation` | — | (symbol, snapshot_date) | US valuation/fundamentals snapshot |
+| `stock_valuation` | — | (symbol, snapshot_date) | US & Indian valuation/fundamentals snapshot |
+
+#### Indian Equity Statements & Events (StockScans)
+
+| Table | Partition | Order Key | Purpose |
+|---|---|---|---|
+| `stock_financial_statements` | — | (symbol, statement_type, period_date) | Multi-year quarterly & yearly P&L, balance sheet, margins & cash flows |
+| `ipo_pipeline` | — | (company_id, issue_type) | Indian Mainboard & SME IPO pipeline, price bands, lot size & subscription status |
+| `concall_schedules` | — | (company_key, call_time) | Earnings conference call schedules (today and upcoming 30 days) |
+| `stock_shareholding_pattern` | — | (symbol, quarter_date) | 11-quarter aggregate Promoter, FII, DII, Government, Public % and shareholder count |
+| `stock_shareholding_entities` | — | (symbol, category, holder_name, quarter_date) | Major institutional & promoter entity holdings (>1% disclosures) |
 
 #### News
 

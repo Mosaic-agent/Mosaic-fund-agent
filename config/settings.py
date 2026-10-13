@@ -518,6 +518,10 @@ class Settings(BaseSettings):
     # [NON-SENSITIVE] Timeout in seconds for the news filter LLM requests
     news_filter_llm_timeout: int = Field(default=10, description="News filter LLM timeout (s)")
 
+    # ── StockScans Settings ───────────────────────────────────────────────────
+    # [SENSITIVE] StockScans.in authentication token (authtoken cookie JWT)
+    stockscans_auth_token: str = Field(default="", description="StockScans.in JWT authtoken for private APIs")
+
     def __init__(self, **values):
         super().__init__(**values)
         if "$$" in self.shoonya_password:
