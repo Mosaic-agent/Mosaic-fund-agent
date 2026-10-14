@@ -61,3 +61,12 @@ def fmt_date_ist(d: date | datetime | None) -> str:
 def ist_date_today() -> date:
     """Return today's date in IST."""
     return now_ist().date()
+
+
+def is_market_hours(dt: datetime | None = None) -> bool:
+    """Return True if the given datetime (or current IST time if None) is within NSE market hours (Mon-Fri 09:15 - 15:30 IST)."""
+    current = utc_to_ist(dt) if dt else now_ist()
+    if current.weekday() >= 5:  # Saturday or Sunday
+        return False
+    from datetime import time
+    return time(9, 15) <= current.time() <= time(15, 30)

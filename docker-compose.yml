@@ -58,6 +58,7 @@ services:
       - clickhouse-data:/var/lib/clickhouse
       - clickhouse-backups:/backups
       - ./config/clickhouse:/etc/clickhouse-server/config.d
+      - ./config/clickhouse/users.d:/etc/clickhouse-server/users.d
     environment:
       CLICKHOUSE_DB: market_data
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
@@ -65,6 +66,15 @@ services:
       nofile:
         soft: 262144
         hard: 262144
+    cap_add:
+      - SYS_NICE
+    shm_size: 4g
+    deploy:
+      resources:
+        reservations:
+          memory: 4G
+        limits:
+          memory: 16G
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 10s

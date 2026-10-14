@@ -1,0 +1,13 @@
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- Max memory usage per individual query (16 GB) -->
+            <max_memory_usage>17179869184</max_memory_usage>
+            <!-- Max memory usage across all concurrent queries for user (16 GB) -->
+            <max_memory_usage_for_user>17179869184</max_memory_usage_for_user>
+            <!-- Spill to disk if memory exceeds 8 GB for GROUP BY and ORDER BY -->
+            <max_bytes_before_external_group_by>8589934592</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>8589934592</max_bytes_before_external_sort>
+        </default>
+    </profiles>
+</clickhouse>
