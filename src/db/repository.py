@@ -709,3 +709,142 @@ class MarketDataRepository:
             f"WHERE cap_category = '{category}' "
             f"ORDER BY rank ASC LIMIT {limit}"
         )
+
+    # ── Stock research cache-aside (promoter holding / peer valuation / concalls) ──
+    #
+    # Cache-aside (lazy-loading) pattern, same shape as check_and_refresh_symbol_data
+    # in src/tools/agent_tools.py: check ClickHouse first; on a miss or stale read,
+    # call the StockScans adapter directly (NOT run_fetcher — these datasets are
+    # single-symbol snapshots and StockScansFetcher.symbol_key is a fixed "NSE"
+    # class attribute shared by every instance, so the watermark table can't
+    # distinguish one symbol's refresh from another's here), insert, then re-read.
+
+    def _refresh_stockscans(self, dataset: str, symbol: str) -> None:
+        from datetime import date as _date
+        from src.importer.clickhouse import ClickHouseImporter
+        from src.data_importer.fetchers.adapters import StockScansFetcher
+
+        fetcher = StockScansFetcher(category="stockscans", dataset=dataset, symbols=[symbol])
+        rows = fetcher.fetch(_date.today(), _date.today())
+        rows = fetcher.validate(rows)
+        if not rows:
+            return
+        ch = ClickHouseImporter(**self._ch_kwargs())
+        try:
+            ch.ensure_schema()
+            fetcher.insert(rows, ch)
+        finally:
+            ch.close()
+
+    def promoter_holding_trend(self, symbol: str, max_age_days: int = 120, auto_refresh: bool = True) -> list[dict]:
+        """
+        Quarterly promoter/FII/DII/public shareholding trend for `symbol`,
+        oldest quarter first. Refreshes from StockScans if the latest quarter
+        on file is older than `max_age_days`. Default of 120 accounts for the
+        full quarterly cycle (~90 days) plus the ~1-month disclosure lag
+        after quarter-end — a tighter threshold re-fetches every call for no
+        new data, since the next quarter isn't disclosed yet.
+        """
+        def _read() -> list[dict]:
+            rows = self._q(
+                "SELECT quarter_str, quarter_date, promoter_pct, fii_pct, dii_pct, "
+                "       public_pct, no_of_shareholders "
+                "FROM market_data.stock_shareholding_pattern FINAL "
+                f"WHERE symbol = '{symbol}' ORDER BY quarter_date ASC"
+            )
+            return [
+                {
+                    "quarter_str": str(r[0]), "quarter_date": str(r[1]),
+                    "promoter_pct": float(r[2]), "fii_pct": float(r[3]),
+                    "dii_pct": float(r[4]), "public_pct": float(r[5]),
+                    "no_of_shareholders": int(r[6]),
+                }
+                for r in rows
+            ]
+
+        data = _read()
+        stale = not data or (_date_today() - pd.Timestamp(data[-1]["quarter_date"]).date()).days > max_age_days
+        if stale and auto_refresh:
+            self._refresh_stockscans("shareholding", symbol)
+            data = _read()
+        return data
+
+    def promoter_entities(self, symbol: str, max_age_days: int = 120, auto_refresh: bool = True) -> list[dict]:
+        """
+        Named promoter holders (>1% stake) for `symbol`'s latest quarter,
+        largest first. Shares the same `shareholding` refresh/freshness
+        window as promoter_holding_trend (one StockScans call populates both
+        stock_shareholding_pattern and stock_shareholding_entities).
+        """
+        def _read() -> list[dict]:
+            rows = self._q(
+                "SELECT holder_name, quarter_date, holding_pct "
+                "FROM market_data.stock_shareholding_entities FINAL "
+                f"WHERE symbol = '{symbol}' AND category = 'promoter' "
+                "ORDER BY quarter_date DESC, holding_pct DESC LIMIT 1 BY holder_name"
+            )
+            return [{"holder_name": str(r[0]), "quarter_date": str(r[1]), "holding_pct": float(r[2])} for r in rows]
+
+        data = _read()
+        stale = not data or (_date_today() - pd.Timestamp(data[0]["quarter_date"]).date()).days > max_age_days
+        if stale and auto_refresh:
+            self._refresh_stockscans("shareholding", symbol)
+            data = _read()
+        return data
+
+    def peer_valuation(self, symbol: str, max_age_days: int = 1, auto_refresh: bool = True) -> list[dict]:
+        """
+        Peer valuation matrix (anchor symbol + its peers) as of the most
+        recent snapshot_date on file. Valuation multiples move daily, so the
+        default freshness window is same-day.
+        """
+        def _read() -> list[dict]:
+            rows = self._q(
+                "SELECT peer_symbol, snapshot_date, market_cap, trailing_pe, price_to_book, "
+                "       price_to_sales, return_on_equity, operating_margin "
+                "FROM market_data.stock_peer_valuation FINAL "
+                f"WHERE symbol = '{symbol}' "
+                "ORDER BY snapshot_date DESC LIMIT 1 BY peer_symbol"
+            )
+            return [
+                {
+                    "peer_symbol": str(r[0]), "snapshot_date": str(r[1]),
+                    "market_cap": float(r[2]), "trailing_pe": float(r[3]),
+                    "price_to_book": float(r[4]), "price_to_sales": float(r[5]),
+                    "return_on_equity": float(r[6]), "operating_margin": float(r[7]),
+                }
+                for r in rows
+            ]
+
+        data = _read()
+        stale = not data or (_date_today() - pd.Timestamp(data[0]["snapshot_date"]).date()).days > max_age_days
+        if stale and auto_refresh:
+            self._refresh_stockscans("peer_valuation", symbol)
+            data = _read()
+        return data
+
+    def upcoming_concalls(self, symbol: str, max_age_days: int = 1, auto_refresh: bool = True) -> list[dict]:
+        """
+        Scheduled/upcoming concalls for `symbol`. The underlying StockScans
+        board is market-wide (not symbol-scoped), so a refresh re-pulls the
+        whole board — cheap and already the behavior of the batch importer.
+        """
+        def _read() -> list[dict]:
+            rows = self._q(
+                "SELECT company_name, call_time, status, imported_at "
+                "FROM market_data.concall_schedules FINAL "
+                f"WHERE symbol = '{symbol}' ORDER BY call_time ASC"
+            )
+            return [
+                {"company_name": str(r[0]), "call_time": str(r[1]), "status": str(r[2]), "imported_at": str(r[3])}
+                for r in rows
+            ]
+
+        last_checked_rows = self._q(
+            "SELECT max(imported_at) FROM market_data.concall_schedules FINAL"
+        )
+        last_checked = last_checked_rows[0][0] if last_checked_rows and last_checked_rows[0][0] else None
+        stale = last_checked is None or (pd.Timestamp.now() - pd.Timestamp(last_checked)).days > max_age_days
+        if stale and auto_refresh:
+            self._refresh_stockscans("concalls", symbol)
+        return _read()

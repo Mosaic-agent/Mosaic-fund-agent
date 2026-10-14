@@ -1,0 +1,11 @@
+<clickhouse>
+    <!-- Server-wide memory limits -->
+    <max_server_memory_usage_to_ram_ratio>0.95</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Caches: Accelerated index mark cache & uncompressed block cache -->
+    <mark_cache_size>4294967296</mark_cache_size>
+    <uncompressed_cache_size>2147483648</uncompressed_cache_size>
+
+    <!-- Background merges & mutations memory allocation ratio -->
+    <merges_mutations_memory_usage_to_ram_ratio>0.7</merges_mutations_memory_usage_to_ram_ratio>
+</clickhouse>

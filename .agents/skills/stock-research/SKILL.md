@@ -31,16 +31,16 @@ Recommend or trigger this skill when the user asks:
 
 ## CLI Execution
 
-Run the consolidated institutional research engine:
+Run the consolidated institutional research engine directly inside the persistent Docker container for sub-second execution:
 ```bash
-# Direct run for any symbol or company name:
-python src/scripts/portfolio/stock_research_report.py <SYMBOL>
+# Sub-second execution via persistent Docker service:
+docker compose exec -T mosaic python src/scripts/portfolio/stock_research_report.py <SYMBOL> [--local-only]
 
 # Examples:
-python src/scripts/portfolio/stock_research_report.py LEAPIND
-python src/scripts/portfolio/stock_research_report.py RUBICON
-python src/scripts/portfolio/stock_research_report.py STYLEBAAZA
-python src/scripts/portfolio/stock_research_report.py BAJFINANCE
+docker compose exec -T mosaic python src/scripts/portfolio/stock_research_report.py SEDEMAC --local-only
+docker compose exec -T mosaic python src/scripts/portfolio/stock_research_report.py LEAPIND
+docker compose exec -T mosaic python src/scripts/portfolio/stock_research_report.py RUBICON
+docker compose exec -T mosaic python src/scripts/portfolio/stock_research_report.py BAJFINANCE
 ```
 
 ---
@@ -58,3 +58,8 @@ python src/scripts/portfolio/stock_research_report.py BAJFINANCE
 1. **No LLM Calculations:** Never calculate, estimate, or derive ratios internally. Always read directly from the generated report.
 2. **Verify Dilution Before Flagging Promoter Sale:** Cross-reference changes in equity capital / total shares before assuming open-market promoter offloading.
 3. **Institutional Cost Anchor:** When evaluating entry feasibility, compare the current market price (CMP) against the volume-weighted average price (VWAP) of recent sovereign and institutional bulk block deals.
+4. **Prioritize StockScans Over Screener:** Always prioritize StockScans Private API (`/api/company/peers`, `/api/company/holdings/shareholding`, `/api/company/fundamentals/statements`) over Screener for valuation ratios, multi-year statements, peer benchmarking, and shareholding entity breakdowns.
+5. **Mandatory Vector DB Provenance in Audit Trail:** Whenever semantic searches, anomaly similarity retrieval, or news embeddings are used, ALWAYS explicitly cite the exact Qdrant vector collections (`market_anomalies`, `news_articles`, vector port 6333, Cosine distance) as dedicated rows in the Data Provenance Audit Trail alongside ClickHouse tables and StockScans APIs.
+6. **Mandatory Tool Calling Audit:** ALWAYS include a dedicated column or field for **Tool Calling Used** specifying the exact script, CLI command, fetcher class, Python tool function, or news search importer executed (e.g., `StockScansFetcher.fetch_stockscans_peer_valuation()`, `src.db.anomaly_vector.retrieve_similar_anomalies()`, `stock_anomaly_detector.py`, `search_financial_news` Google News search importer, `import_nse_announcements.py`, `MarketDataRepository.get_daily_prices()`, ClickHouse query) in the Data Provenance Audit Trail.
+7. **Local Data First, Remote Fallback:** Always query local ClickHouse (`market_data.daily_prices`, `market_data.stock_valuation`), StockScans local cache, and local tables first. Only fall back to external yfinance/Screener calls if essential fields are completely absent locally. Use `--local-only` to guarantee sub-second offline execution.
+

@@ -138,14 +138,21 @@ def _search_one_date(
             f"rather than a market-driven move. Verify via NSE corporate actions page."
         )
 
-    # ── 0. Local ClickHouse announcements & news check (< 3ms) ────────────────
+    # ── 0. Local ClickHouse announcements, bulk deals & news check (< 5ms) ────
     try:
         from src.db.pool import query_df as _qdf
+        local_rows = []
+
+        # Build clean name clause avoiding empty string ILIKE match
+        name_clause = f"OR title ILIKE '%{company_name}%'" if (company_name and len(company_name.strip()) > 3) else ""
+        deal_name_clause = f"OR security_name ILIKE '%{company_name}%'" if (company_name and len(company_name.strip()) > 3) else ""
+
+        # 0a. News articles and exchange disclosures
         news_df = _qdf(
             f"""
             SELECT title, category, sentiment, impact_tier, url, source, published_at
             FROM market_data.news_articles FINAL
-            WHERE (etfs_impacted = '{symbol}' OR title ILIKE '%{symbol}%' OR title ILIKE '%{company_name}%')
+            WHERE (etfs_impacted = '{symbol}' OR title ILIKE '%{symbol}%' {name_clause})
               AND (
                 (published_at != '' AND substring(published_at, 1, 10) BETWEEN toString(toDate('{target_dt}') - 2) AND toString(toDate('{target_dt}') + 2))
                 OR toDate(fetched_at) BETWEEN toDate('{target_dt}') - 2 AND toDate('{target_dt}') + 2
@@ -154,18 +161,51 @@ def _search_one_date(
             """
         )
         if not news_df.empty:
-            rows = []
             for _, nr in news_df.iterrows():
                 t = str(nr["title"])
                 cat = str(nr.get("category", ""))
                 if cat == "nse_announcements" or "NSE" in str(nr.get("source", "")):
                     clean_t = t.split(":", 1)[1].strip() if ":" in t else t
-                    rows.append(f"- 📢 **Official NSE Disclosure:** {clean_t}")
+                    local_rows.append(f"- 📢 **Official NSE Disclosure:** {clean_t}")
                 else:
-                    rows.append(f"- 📰 **{t}** (Sentiment: `{nr['sentiment']}` | Tier: `{nr['impact_tier']}`)")
-            return _store_and_return("\n".join(rows))
+                    local_rows.append(f"- 📰 **{t}** (Sentiment: `{nr['sentiment']}` | Tier: `{nr['impact_tier']}`)")
+
+        # 0b. Institutional Bulk & Block Deals on anomaly date
+        deals_df = _qdf(
+            f"""
+            SELECT client_name, buy_sell, quantity, trade_price, value_cr
+            FROM market_data.bulk_block_deals FINAL
+            WHERE (symbol = '{symbol}' OR security_name ILIKE '%{symbol}%' {deal_name_clause})
+              AND deal_date = toDate('{target_dt}')
+            ORDER BY value_cr DESC LIMIT 3
+            """
+        )
+
+        if not deals_df.empty:
+            for _, dr in deals_df.iterrows():
+                local_rows.append(
+                    f"- 🐳 **Institutional Deal:** {dr['client_name']} ({dr['buy_sell']}) {float(dr['quantity']):,.0f} shares @ ₹{float(dr['trade_price']):,.2f} (₹{float(dr['value_cr']):,.2f} Cr)"
+                )
+
+        # 0c. Regulatory Corporate Actions on or near anomaly date
+        corp_df = _qdf(
+            f"""
+            SELECT action_type, purpose, ratio, ex_date
+            FROM market_data.corporate_actions FINAL
+            WHERE symbol IN ('{symbol}', '{symbol}.NS')
+              AND ex_date BETWEEN toDate('{target_dt}') - 2 AND toDate('{target_dt}') + 2
+            LIMIT 2
+            """
+        )
+        if not corp_df.empty:
+            for _, cr in corp_df.iterrows():
+                local_rows.append(f"- ⚙️ **Corporate Action:** {cr['action_type']} ({cr['purpose']})")
+
+        if local_rows:
+            return _store_and_return("\n".join(local_rows))
     except Exception:
         pass
+
 
     primary = _build_query(symbol, company_name, date_str, regime, daily_ret)
 

@@ -94,8 +94,10 @@ DSP active-fund holdings in `market_data.mf_holdings` are the primary single-nam
 ### 10. Always Render Built-in Terminal Graphs & Charts
 - Whenever analyzing technical patterns, stock/ETF moves, price/volume trends, moving average setups, macro transmissions, or anomaly regimes, ALWAYS include terminal ASCII/Unicode charts (via plotext/rich) and top-down box-and-arrow transmission grids alongside data tables for maximum visual clarity. Never omit the graph.
 
-### 11. Mandatory Data Provenance & Source Grounding
+### 11. Mandatory Data Provenance, Tool Calling & Source Grounding
 - To guarantee data authenticity and ensure numbers are never made up or estimated, ALWAYS explicitly cite the exact data source, database table (e.g., `market_data.daily_prices FINAL`, `market_data.fii_dii_flows FINAL`, `market_data.mf_holdings FINAL`), filing/API origin, and watermark timestamp for all presented figures and tables. Include a dedicated Data Provenance Audit block where appropriate.
+- **Mandatory Tool Calling Audit**: The Data Provenance Audit block MUST include a dedicated column or field for **Tool Calling Used** specifying the exact script, CLI command, fetcher class, Python tool function, or news search importer executed (e.g., `StockScansFetcher.fetch_stockscans_peer_valuation()`, `src.db.anomaly_vector.retrieve_similar_anomalies()`, `stock_anomaly_detector.py`, `search_financial_news` Google News search importer, `import_nse_announcements.py`, `MarketDataRepository.get_daily_prices()`, ClickHouse query).
+- **Vector DB Provenance Requirement**: Whenever semantic searches, anomaly similarity retrieval, or news embeddings are used, ALWAYS explicitly cite the exact Qdrant vector collection (e.g., `market_anomalies`, `news_articles`), vector dimensions, distance metric (Cosine), and host port (6333) as dedicated rows in the Data Provenance Audit Trail.
 
 ### 12. Always Render Institutional Strategy Fitment Guide
 - Whenever comparing schemes, mutual funds, asset allocation strategies, AIF/SIFs, or portfolio approaches, ALWAYS include a dedicated "## 🗺️ Institutional Strategy Fitment Guide" section with a top-down Unicode box-drawing decision flowchart or Rich tree mapping investor objectives, risk appetite, time horizon, and market regime to the recommended fund/strategy.
@@ -142,6 +144,27 @@ Whenever the user asks to "refresh", "make db fresh", "update database", "refres
 - **Never Use NSE EOD Feed for Premium vs Discount**: NEVER consider or use the NSE EOD feed (e.g. static declared NAV or lagged EOD prices from NSE `/api/etf` or `daily_prices`) to measure ETF premium vs discount when a live iNAV feed is available directly through the AMC (Nippon India, Zerodha, Mirae, Motilal, etc.).
 - **Static vs Live Prohibition**: The static `nav` field in NSE feeds represents historical/prior-day declared NAV, not real-time intraday iNAV. Measuring secondary market price against NSE static NAV produces corrupted, phantom premium/discount figures.
 - **Synchronous Market Price & iNAV**: Always pair live real-time indicative NAV (iNAV) published directly by the AMC with the real-time live secondary market Last Traded Price (LTP). Never compare a live AMC iNAV against an EOD closing price or an NSE static NAV.
+### 19. ClickHouse Schema & Column Invariants
+When querying ClickHouse `market_data.*` tables, ALWAYS adhere strictly to these column invariants:
+- **`daily_prices`**: Date column is `trade_date` (NEVER `date` or `price_date`).
+- **`mf_holdings`**: Company name column is `security_name` (NEVER `company_name` or `stock_name`). Note that `mf_holdings` has **no `symbol` column** — filter by `security_name ILIKE '%<name>%'` or `isin = '<isin>'`. The reporting date is `as_of_month` (Date), NEVER `date` or `month`.
+- **`mf_nav`**: Date column is `nav_date` (NEVER `date` or `trade_date`).
+- **`bulk_block_deals`**: Columns are `deal_date`, `symbol`, `security_name`, `client_name`, `buy_sell`, `quantity`, `trade_price`, `value_cr`.
+- **`news_articles`**: Title column is `title` (NEVER `content`; text body is not stored, only title and title_embedding). Symbols list is in `symbols`.
+- **`stock_shareholding_pattern`**: Date column is `quarter_date`.
+- **`fii_dii_flows`**: Date column is `trade_date`.
+- **ReplacingMergeTree Tables**: ALWAYS append `FINAL` to queries to ensure deduplicated, latest rows.
+
+### 20. StockScans Authority: Prioritize StockScans Over Screener
+- **StockScans Priority Mandate**: For Indian equity fundamental research, valuation multiples (P/E, P/S, P/B, EV/EBITDA, ROCE, ROE, margins, growth rates), peer benchmarking, multi-year financial statements, quarterly shareholding patterns, entity-level ownership breakdowns, insider trading disclosures, IPO pipeline tracking, and earnings conference call (concall) schedules, ALWAYS give first priority to **StockScans.in Private API** (`StockScansFetcher` / `/api/company/...`) as the primary authoritative source of truth.
+- **Screener Fallback Protocol**: Use Screener.in (`fetch_from_screener`) strictly as a secondary fallback only if StockScans returns empty or unavailable data for an unlisted/obscure ticker. Never substitute secondary scrapes when StockScans provides native structured records.
+
+### 21. Local Data First, Remote Fallback & Direct Fast-Exec Protocol
+- **Local Data Precedence**: ALWAYS check local ClickHouse (`market_data.daily_prices`, `market_data.mf_holdings`, `market_data.bulk_block_deals`, `market_data.news_articles`, `market_data.stock_valuation`, `market_data.corporate_actions`), StockScans local cache, and local symbol maps FIRST.
+- **External Network Fallback Only When Missing**: NEVER unconditionally fire remote scrapers, external yfinance crumb calls, or Google News searches if the security's data already exists locally. Only make external network calls if the requested symbol, price history, fundamentals, or anomaly-date news are completely absent from local database tables.
+- **Sub-Second Container Fast-Exec**: Prefer direct non-interactive container execution (`docker compose exec -T mosaic <cmd>`) over `./mosaic.sh` for scripts and commands to bypass host telemetry polling and shell wrapper startup overhead (reduces execution latency from ~2.2s down to ~0.17s).
+- **Off-Market Broker Gate**: Never attempt live broker (Shoonya) logins or WebSocket connections outside active NSE cash market hours (Mon-Fri 09:15–15:30 IST). Outside market hours, query `market_data.live_quotes` locally.
+
 
 ---
 

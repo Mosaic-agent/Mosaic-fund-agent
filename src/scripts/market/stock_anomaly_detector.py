@@ -57,7 +57,8 @@ def draw_ascii_chart(df: pd.DataFrame, symbol: str, anomaly_dates: set, width: i
                 idx = row_df.index[0]
                 if idx > 0:
                     r_val = (df.loc[idx, "price"] / df.loc[idx - 1, "price"] - 1.0) * 100.0
-            marker = "▲" if r_val >= 0 else "▼"
+            # Highlight anomaly points in RED (\033[91;1m)
+            marker = "\033[91;1m▲\033[0m" if r_val >= 0 else "\033[91;1m▼\033[0m"
             grid[height - 1 - row_idx][col_idx] = marker
         else:
             grid[height - 1 - row_idx][col_idx] = "●"
@@ -129,9 +130,11 @@ def main():
     parser.add_argument("--days", type=int, default=180, help="Lookback window in days (default 180)")
     parser.add_argument("--z-threshold", type=float, default=5.0, help="Anomaly Z-score threshold (default 5.0)")
     parser.add_argument("--contamination", type=float, default=0.01, help="Isolation Forest contamination (default 0.01)")
+    parser.add_argument("--local-only", action="store_true", help="Run purely from local ClickHouse data; skip external web calls")
     
     args = parser.parse_args()
     symbol = args.symbol.upper().strip()
+
     
     print(f"=== Loading Price Data for {symbol} ===")
     end_dt = date.today()
@@ -215,14 +218,24 @@ def main():
         dt_str = pd.to_datetime(f.anomaly_date).strftime("%Y-%m-%d")
         findings_by_date[dt_str] = f
         
-    # Generate Google News search report
-    print("Running Google News search agent...")
-    news_report = search_anomaly_events.invoke({
-        "symbol": symbol,
-        "days": args.days,
-        "z_threshold": args.z_threshold,
-        "contamination": args.contamination
-    })
+    # Generate Anomaly News & Event Attribution Report
+    if args.local_only:
+        print("⚡ Skipping external Google News search (--local-only active). Using local ClickHouse records...")
+        report_blocks = []
+        for dt_str in sorted(list(anomaly_dates), reverse=True):
+            f = findings_by_date.get(dt_str)
+            event_txt = f"- 📢 **Local Event Registry:** {f.event.label} (Confidence: {f.confidence}, Score: {f.correlation_score:.1f})" if f else "> ℹ️ *Price shock recorded in summary table above.*"
+            report_blocks.append(f"#### 📅 {dt_str}\n{event_txt}")
+        news_report = "\n\n".join(report_blocks)
+    else:
+        print("Running anomaly news & event attribution agent...")
+        news_report = search_anomaly_events.invoke({
+            "symbol": symbol,
+            "days": args.days,
+            "z_threshold": args.z_threshold,
+            "contamination": args.contamination
+        })
+
     
     # Load daily prices for ASCII chart rendering
     df_chart = df_prices[pd.to_datetime(df_prices["trade_date"]) >= cutoff_date].copy()
@@ -270,12 +283,25 @@ def main():
         table_rows.append(
             f"| **{dt_str}** | ₹{close_price:.2f} | {ret_str} | {z_val} | {conf_level} | {event_trigger} | {reasoning} |"
         )
-        
     table_hdr = [
         "| Anomaly Date | Close Price | Daily Return | GARCH Z-Score | Confidence Score (Level) | Event Trigger | Causal Reasoning & Correlation |",
         "| :--- | :---: | :---: | :---: | :---: | :--- | :--- |"
     ]
     table_str = "\n".join(table_hdr + table_rows)
+
+    # Build Diff Syntax Anomaly Block (Highlights anomalies in Red across all Markdown clients)
+    diff_lines = []
+    for dt_str in sorted_anom_list:
+        row_df = df_prices[df_prices["trade_date"].astype(str).str.startswith(dt_str)]
+        if row_df.empty:
+            continue
+        idx = row_df.index[0]
+        close_p = row_df.iloc[0]["price"]
+        ret_v = (close_p / df_prices.loc[idx-1, "price"] - 1.0) * 100.0 if idx > 0 else 0.0
+        f = findings_by_date.get(dt_str)
+        cat = f.event.label if f else "Statistical Anomaly Shock"
+        diff_lines.append(f"- [{dt_str}] Close: ₹{close_p:,.2f} ({ret_v:+.2f}%) | Catalyst: {cat}")
+    diff_str = "\n".join(diff_lines)
 
     # 4b. Live Order Book Imbalance (OBI) & Market Microstructure via Shoonya
     obi_ascii = ""
@@ -306,11 +332,16 @@ This report presents a unified view of all price anomalies and their underlying 
 
 ---
 
-### 📈 EOD Price Trend & Anomaly Markers (ASCII)
-`▲` represents a Positive Anomaly Shock; `▼` represents a Negative Anomaly Shock; `●` represents a normal trading day.
+### 📈 EOD Price Trend & Anomaly Markers (Anomalies Highlighted in Red)
+`▲` represents a Positive Anomaly Shock (Red); `▼` represents a Negative Anomaly Shock (Red); `●` represents a normal trading day.
 
-```text
+```ansi
 {ascii_chart}
+```
+
+### 🚨 Anomalies Highlighted in Red (Markdown Diff Block)
+```diff
+{diff_str}
 ```
 
 {obi_section}---

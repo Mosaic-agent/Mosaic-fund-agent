@@ -555,11 +555,15 @@ _ALIAS: dict[str, str] = {
     "welspun india": "WELSPUNLIV",
     "welspun enterprises": "WELENT",
     "welspun corp": "WELCORP",
-    "leap india": "LEAPIND",
-    "leap india ltd": "LEAPIND",
     "leap india limited": "LEAPIND",
     "leapind": "LEAPIND",
+    # Sedemac Mechatronics
+    "sedemac": "SEDEMAC",
+    "sedemac mechatronics": "SEDEMAC",
+    "sedemac mechatronics ltd": "SEDEMAC",
+    "sedemac mechatronics limited": "SEDEMAC",
 }
+
 
 
 # Research/action/format words that are never a company name on their own.
@@ -658,7 +662,29 @@ def _local_indian_lookup(query: str) -> Optional[str]:
 
         return w_upper
 
+    # 3c. Direct check against ClickHouse daily_prices or security_symbol_map (< 3ms)
+    # If the user passed a clean valid ticker present in local database, use it immediately
+    if _query_df is not None and re.match(r"^[A-Z0-9&]{2,20}$", upper):
+        try:
+            ch_check = _query_df(f"""
+                SELECT symbol FROM market_data.daily_prices FINAL
+                WHERE symbol IN ('{upper}', '{upper}.NS')
+                LIMIT 1
+            """)
+            if not ch_check.empty:
+                return upper
+            ch_sym_map = _query_df(f"""
+                SELECT symbol FROM market_data.security_symbol_map FINAL
+                WHERE symbol = '{upper}' AND symbol != ''
+                LIMIT 1
+            """)
+            if not ch_sym_map.empty:
+                return upper
+        except Exception:
+            pass
+
     # 4. Partial alias match — word-tokenized, longest word-count match wins.
+
     # Uses word boundaries to avoid "lt" matching "ltd" inside "insurance ltd".
     q_words = q_clean.split()
     best: tuple[int, str] = (0, "")

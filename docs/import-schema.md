@@ -189,7 +189,20 @@ Once registered:
 
 Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent re-imports. This is the single source of truth for the full schema — [architecture.md](architecture.md#clickhouse-tables) links back here rather than duplicating it.
 
-#### Prices & Live Market Data
+> [!IMPORTANT]
+> **Common Column-Name Gotchas**:
+> - Use `trade_date` in `daily_prices`, `fii_dii_flows`, `nse_delivery`, `etf_aum`, `fx_rates` (NOT `date` or `price_date`).
+> - Use `security_name` in `mf_holdings` and `bulk_block_deals` (NOT `company_name` or `stock_name`).
+> - Use `as_of_month` in `mf_holdings` for the portfolio reporting date (NOT `date` or `month`).
+> - Use `nav_date` in `mf_nav`.
+> - Use `quarter_date` in `stock_shareholding_pattern` and `stock_shareholding_entities`.
+> - Use `title` in `news_articles` (there is no `content` column; articles store metadata, title, and embeddings).
+
+---
+
+### Detailed Table Schemas
+
+#### 1. Prices & Live Market Data
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
@@ -199,7 +212,17 @@ Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent 
 | `live_quotes` | toYYYYMM(last_trade_time) | (symbol, last_trade_time) | Real-time quote snapshots |
 | `live_alerts` | toYYYYMM(alert_timestamp) | (symbol, alert_timestamp) | Real-time z-score/volume anomaly alert log |
 
-#### Mutual Funds
+**Column Specifications:**
+- **`daily_prices`**:
+  `symbol: String`, `category: LowCardinality(String)`, `trade_date: Date`, `open: Float64`, `high: Float64`, `low: Float64`, `close: Float64`, `volume: Float64`, `imported_at: DateTime`
+- **`nse_delivery`**:
+  `trade_date: Date`, `symbol: String`, `series: LowCardinality(String)`, `prev_close: Float64`, `open_price: Float64`, `high_price: Float64`, `low_price: Float64`, `last_price: Float64`, `close_price: Float64`, `avg_price: Float64`, `ttl_trd_qty: UInt64`, `turnover_lacs: Float64`, `no_of_trades: UInt64`, `deliv_qty: Nullable(UInt64)`, `deliv_per: Nullable(Float64)`, `source: LowCardinality(String)`, `imported_at: DateTime`
+- **`inav_snapshots`**:
+  `symbol: String`, `snapshot_at: DateTime`, `inav: Float64`, `market_price: Float64`, `premium_discount_pct: Float64`, `source: LowCardinality(String)`
+
+---
+
+#### 2. Mutual Funds
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
@@ -208,7 +231,17 @@ Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent 
 | `mf_holding_summaries` | — | (isin, as_of_month) | Cross-fund security ownership rollup (active_funds_count, total value) |
 | `amfi_category_flows` | — | (report_month, category_name) | AMFI category-wise monthly flows + AUM |
 
-#### Institutional Flows & Corporate Actions
+**Column Specifications:**
+- **`mf_holdings`**:
+  `scheme_code: String`, `fund_name: String`, `as_of_month: Date`, `isin: String`, `security_name: String`, `asset_type: LowCardinality(String)`, `market_value_cr: Float64`, `pct_of_nav: Float64`, `imported_at: DateTime`
+- **`mf_nav`**:
+  `symbol: String`, `scheme_code: String`, `nav_date: Date`, `nav: Float64`, `imported_at: DateTime`
+- **`amfi_category_flows`**:
+  `report_month: Date`, `category_name: String`, `subcategory_group: LowCardinality(String)`, `gross_purchase_cr: Float64`, `gross_redemption_cr: Float64`, `net_flow_cr: Float64`, `closing_aum_cr: Float64`, `flow_pct_of_aum: Float64`, `imported_at: DateTime`
+
+---
+
+#### 3. Institutional Flows & Corporate Actions
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
@@ -218,7 +251,21 @@ Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent 
 | `bulk_block_deals` | — | (deal_date, deal_type, symbol, client_name, buy_sell, quantity, trade_price) | NSE bulk & block deal transactions |
 | `corporate_actions` | — | (symbol, ex_date, action_type) | NSE split/bonus/demerger/rights/dividend history |
 
-#### Macro & Commodities
+**Column Specifications:**
+- **`bulk_block_deals`**:
+  `deal_date: Date`, `deal_type: LowCardinality(String)`, `symbol: LowCardinality(String)`, `security_name: String`, `client_name: String`, `buy_sell: LowCardinality(String)`, `quantity: Float64`, `trade_price: Float64`, `value_cr: Float64`, `remarks: String`, `imported_at: DateTime`
+- **`fii_dii_flows`**:
+  `trade_date: Date`, `fii_gross_buy_cr: Float64`, `fii_gross_sell_cr: Float64`, `fii_net_cr: Float64`, `dii_gross_buy_cr: Float64`, `dii_gross_sell_cr: Float64`, `dii_net_cr: Float64`, `imported_at: DateTime`
+- **`fii_dii_monthly`**:
+  `month_date: Date`, `fii_buy_cr: Float64`, `fii_sell_cr: Float64`, `fii_net_cr: Float64`, `dii_buy_cr: Float64`, `dii_sell_cr: Float64`, `dii_net_cr: Float64`, `nifty_close: Float64`, `nifty_change_pct: Float64`, `imported_at: DateTime`
+- **`fii_dii_fno_daily`**:
+  `trade_date: Date`, `fii_fut_net_oi: Float64`, `fii_fut_outstanding_oi: Float64`, `fii_fut_nifty_net_oi: Float64`, `fii_fut_banknifty_net_oi: Float64`, `dii_fut_net_oi: Float64`, `dii_fut_outstanding_oi: Float64`, `pro_fut_net_oi: Float64`, `pro_fut_outstanding_oi: Float64`, `client_fut_net_oi: Float64`, `client_fut_outstanding_oi: Float64`, `fii_fut_stock_net_oi: Float64`, `dii_fut_stock_net_oi: Float64`, `pro_fut_stock_net_oi: Float64`, `client_fut_stock_net_oi: Float64`, `fii_opt_overall_net_oi: Float64`, `fii_opt_overall_net_oi_change: Float64`, `fii_opt_call_net_oi: Float64`, `fii_opt_put_net_oi: Float64`, `dii_opt_overall_net_oi: Float64`, `dii_opt_overall_net_oi_change: Float64`, `pro_opt_overall_net_oi: Float64`, `pro_opt_overall_net_oi_change: Float64`, `client_opt_overall_net_oi: Float64`, `client_opt_overall_net_oi_change: Float64`, `nifty_close: Float64`, `banknifty_close: Float64`, `nifty_change_pct: Float64`, `banknifty_change_pct: Float64`, `imported_at: DateTime`
+- **`corporate_actions`**:
+  `symbol: String`, `ex_date: Date`, `action_type: LowCardinality(String)`, `ratio: String`, `purpose: String`, `series: String`, `face_val: Float64`, `record_date: Date`, `source: LowCardinality(String)`, `imported_at: DateTime`
+
+---
+
+#### 4. Macro & Commodities
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
@@ -229,7 +276,17 @@ Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent 
 | `macro_indicators` | — | (ref_year, country_code, indicator_code, source) | World Bank / IMF WEO annual macro indicators |
 | `indian_macro_indicators` | — | (as_of_date, indicator_code) | RBI/MOSPI Indian macro series |
 
-#### ML, Signals & Risk
+**Column Specifications:**
+- **`cot_gold`**: `report_date: Date`, `mm_long: Int64`, `mm_short: Int64`, `mm_spread: Int64`, `mm_net: Int64`, `comm_long: Int64`, `comm_short: Int64`, `comm_net: Int64`, `open_interest: Int64`, `source: LowCardinality(String)`, `_ver: DateTime`
+- **`cb_gold_reserves`**: `ref_period: Date`, `country_code: String`, `country_name: String`, `reserves_tonnes: Float64`, `source: LowCardinality(String)`, `_ver: DateTime`
+- **`etf_aum`**: `trade_date: Date`, `symbol: String`, `aum_usd: Float64`, `price: Float64`, `implied_tonnes: Float64`, `source: LowCardinality(String)`, `_ver: DateTime`
+- **`fx_rates`**: `trade_date: Date`, `symbol: String`, `open: Float64`, `high: Float64`, `low: Float64`, `close: Float64`, `source: LowCardinality(String)`, `imported_at: DateTime`
+- **`macro_indicators`**: `ref_year: UInt16`, `country_code: String`, `indicator_code: String`, `indicator_name: String`, `value: Float64`, `source: LowCardinality(String)`, `is_forecast: UInt8`, `imported_at: DateTime`
+- **`indian_macro_indicators`**: `as_of_date: Date`, `indicator_code: String`, `indicator_name: String`, `parent_code: String`, `value: Float64`, `unit: String`, `imported_at: DateTime`
+
+---
+
+#### 5. ML, Signals & Risk
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
@@ -237,49 +294,69 @@ Database: `market_data`, **37 tables**, all `ReplacingMergeTree` for idempotent 
 | `signal_composite` | — | (as_of, etf_symbol) | Multi-pillar ETF composite scores + BUY/HOLD/SELL |
 | `weight_checkpoints` | — | (as_of, symbol, method) | Kelly / Risk Governor position-sizing decisions |
 
-#### US Stock Fundamentals
+**Column Specifications:**
+- **`ml_predictions`**: `as_of: Date`, `horizon_days: UInt8`, `expected_return_pct: Float64`, `confidence_low: Float64`, `confidence_high: Float64`, `regime_signal: LowCardinality(String)`, `cv_r2_mean: Float64`, `n_training_rows: UInt32`, `goldbees_close: Float64`, `created_at: DateTime`, `prob_up: Float64`, `cv_auc_mean: Float64`, `realized_return_pct: Float64`
+- **`signal_composite`**: `as_of: Date`, `etf_symbol: String`, `macro_score: Float32`, `sentiment_score: Float32`, `valuation_score: Float32`, `flow_score: Float32`, `ml_score: Float32`, `anomaly_flag: LowCardinality(String)`, `composite_score: Float32`, `action: LowCardinality(String)`, `rationale: String`, `imported_at: DateTime`
+- **`weight_checkpoints`**: `as_of: Date`, `symbol: String`, `method: LowCardinality(String)`, `recommended_weight: Float32`, `expected_return_pct: Nullable(Float32)`, `expected_vol_pct: Nullable(Float32)`, `garch_vol_pct: Nullable(Float32)`, `regime: LowCardinality(String)`, `composite_score: Nullable(Float32)`, `price_below_ema50: UInt8`, `cv_r2: Nullable(Float32)`, `horizon_days: UInt8`, `rationale: String`, `created_at: DateTime`
+
+---
+
+#### 6. Stock Fundamentals & Valuation
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
-| `stock_earnings` | — | (symbol, earnings_date) | US quarterly earnings + surprise % |
-| `stock_insider_trades` | — | (symbol, transaction_date, insider_name) | US insider buy/sell transactions |
-| `stock_valuation` | — | (symbol, snapshot_date) | US & Indian valuation/fundamentals snapshot |
+| `stock_valuation` | — | (symbol, snapshot_date) | Valuation multiples & ratios (PE, PB, PS, margins) |
+| `stock_financial_statements` | — | (symbol, statement_type, period_date) | Multi-year quarterly/yearly P&L, balance sheet, margins & cash flows |
+| `stock_earnings` | — | (symbol, earnings_date) | Quarterly earnings + surprise % |
+| `stock_insider_trades` | — | (symbol, transaction_date, insider_name) | Insider buy/sell transactions |
 
-#### Indian Equity Statements & Events (StockScans)
+**Column Specifications:**
+- **`stock_valuation`**: `symbol: String`, `snapshot_date: Date`, `market_cap: Float64`, `trailing_pe: Float64`, `forward_pe: Float64`, `peg_ratio: Float64`, `price_to_book: Float64`, `price_to_sales: Float64`, `debt_to_equity: Float64`, `return_on_equity: Float64`, `profit_margin: Float64`, `operating_margin: Float64`, `gross_margin: Float64`, `revenue_growth: Float64`, `earnings_growth: Float64`, `free_cashflow: Float64`, `beta: Float64`, `target_price: Float64`, `recommendation: String`, `analyst_count: UInt32`, `imported_at: DateTime`
+- **`stock_financial_statements`**: `symbol: String`, `statement_type: LowCardinality(String)`, `period_date: String`, `revenue: Float64`, `revenue_growth_yoy: Float64`, `operating_profit: Float64`, `opm: Float64`, `other_income: Float64`, `interest: Float64`, `depreciation: Float64`, `pbt: Float64`, `tax: Float64`, `pat: Float64`, `pat_growth_yoy: Float64`, `npm: Float64`, `eps: Float64`, `book_value: Float64`, `source: LowCardinality(String)`, `imported_at: DateTime`
+
+---
+
+#### 7. Corporate Governance, Shareholding & Corporate Events
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
-| `stock_financial_statements` | — | (symbol, statement_type, period_date) | Multi-year quarterly & yearly P&L, balance sheet, margins & cash flows |
-| `ipo_pipeline` | — | (company_id, issue_type) | Indian Mainboard & SME IPO pipeline, price bands, lot size & subscription status |
-| `concall_schedules` | — | (company_key, call_time) | Earnings conference call schedules (today and upcoming 30 days) |
 | `stock_shareholding_pattern` | — | (symbol, quarter_date) | 11-quarter aggregate Promoter, FII, DII, Government, Public % and shareholder count |
 | `stock_shareholding_entities` | — | (symbol, category, holder_name, quarter_date) | Major institutional & promoter entity holdings (>1% disclosures) |
+| `concall_schedules` | — | (company_key, call_time) | Earnings conference call schedules (today and upcoming 30 days) |
+| `ipo_pipeline` | — | (company_key, issue_type) | Indian Mainboard & SME IPO pipeline, price bands, lot size & subscription status |
 
-#### News
+**Column Specifications:**
+- **`stock_shareholding_pattern`**: `symbol: String`, `quarter_date: Date`, `quarter_str: String`, `promoter_pct: Float64`, `fii_pct: Float64`, `dii_pct: Float64`, `government_pct: Float64`, `public_pct: Float64`, `no_of_shareholders: UInt64`, `source: LowCardinality(String)`, `imported_at: DateTime`
+- **`stock_shareholding_entities`**: `symbol: String`, `category: LowCardinality(String)`, `holder_name: String`, `quarter_date: Date`, `quarter_str: String`, `holding_pct: Float64`, `source: LowCardinality(String)`, `imported_at: DateTime`
+- **`concall_schedules`**: `company_key: String`, `symbol: String`, `company_name: String`, `call_time: Nullable(DateTime)`, `status: LowCardinality(String)`, `imported_at: DateTime`
+- **`ipo_pipeline`**: `company_key: String`, `symbol: String`, `slug: String`, `name: String`, `sector: String`, `board: LowCardinality(String)`, `stage: LowCardinality(String)`, `open_date: Nullable(Date)`, `close_date: Nullable(Date)`, `allotment_date: Nullable(Date)`, `listing_date: Nullable(Date)`, `price_band_low: Float64`, `price_band_high: Float64`, `lot_size: UInt32`, `min_investment: Float64`, `issue_size_cr: Float64`, `sub_qib: Float64`, `sub_nii: Float64`, `sub_retail: Float64`, `sub_total: Float64`, `imported_at: DateTime`
+
+---
+
+#### 8. News & Sentiment
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
 | `news_articles` | — | (fetched_at, source_type, category, title) | ETF-tagged news + macro events (gnews + yfinance, no key) |
 
-#### User (Zerodha Kite backups)
+**Column Specifications:**
+- **`news_articles`**: `fetched_at: DateTime`, `published_at: String`, `source_type: LowCardinality(String)`, `fetch_source: LowCardinality(String)`, `category: LowCardinality(String)`, `etfs_impacted: String`, `sentiment: LowCardinality(String)`, `impact_tier: LowCardinality(String)`, `title: String`, `source: LowCardinality(String)`, `url: String`, `imported_at: DateTime`, `embedding: Array(Float32)`
+
+---
+
+#### 9. User & System Management
 
 | Table | Partition | Order Key | Purpose |
 |---|---|---|---|
 | `user_holdings` | — | (tradingsymbol, imported_at) | Personal CNC holdings snapshot |
-| `user_profile` | — | (user_id, imported_at) | Kite account profile details |
-| `user_margins` | — | (segment, imported_at) | Available cash & utilised margins |
-| `user_positions` | — | (tradingsymbol, imported_at) | Intraday (MIS/NRML) open positions |
-| `user_orders` | — | (order_id, imported_at) | Historical order book log |
-
-#### System / Ops
-
-| Table | Partition | Order Key | Purpose |
-|---|---|---|---|
 | `import_watermarks` | — | (source, symbol, dataset) | Delta-sync watermarks |
 | `import_failures` | — | (source, dataset, symbol, failed_at) | Failed fetch/insert attempts log |
 | `agent_traces` | toYYYYMM(created_at) | (agent, run_id, step_idx) | LLM agent tool-call execution traces (latency, tokens, errors) |
 | `agent_preferences` | — | (preference_key) | Key-value store for agent-learned preferences |
 | `pipeline_manifest` | — | (stage, symbol) | Per-stage pipeline run manifest (fingerprint/idempotency tracking) |
+
+**Column Specifications:**
+- **`import_watermarks`**: `source: LowCardinality(String)`, `symbol: String`, `last_date: Date`, `updated_at: DateTime`, `dataset: LowCardinality(String)`
 
 ### Querying tips
 
