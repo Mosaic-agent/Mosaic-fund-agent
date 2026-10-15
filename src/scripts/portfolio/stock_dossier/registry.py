@@ -20,6 +20,7 @@ from .sections.dcf import DcfValuationSection
 from .sections.deals import BulkBlockDealsSection
 from .sections.dilution import DilutionAuditSection
 from .sections.financials import FinancialsSection
+from .sections.insider import InsiderTradesSection
 from .sections.momentum import MomentumSection
 from .sections.news import NewsSection
 from .sections.nse_events import NseAnnouncementsSection
@@ -36,6 +37,7 @@ REGISTRY: list[DossierSection] = [
     MomentumSection(),
     WhaleOwnershipSection(),
     BulkBlockDealsSection(),
+    InsiderTradesSection(),
     ValuationUniverseSection(),
     AnomalySection(),
     NseAnnouncementsSection(),

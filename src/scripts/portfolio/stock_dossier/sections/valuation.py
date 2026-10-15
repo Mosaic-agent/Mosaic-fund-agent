@@ -6,7 +6,8 @@ from ..utils import make_markdown_table
 
 
 class ValuationUniverseSection(DossierSection):
-    """Market-cap-ranked universe snapshot from stock_valuation. Renamed from
+    """Market-cap-ranked universe snapshot from stock_valuation (StockScans-
+    sourced — see stockscans_fetcher.py / StockScansFetcher). Renamed from
     the deleted stock_quant_deepdive_cli.py's "Peer Valuation Matrix" — it
     queries every symbol in the table sorted by market cap, not a
     sector/peer-filtered comparison set, so the old name overclaimed what the
