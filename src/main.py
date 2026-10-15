@@ -1731,6 +1731,27 @@ def research(
     _console.print(Markdown(report))
 
 
+@app.command(name="stock-research")
+def stock_research(
+    symbol: str = typer.Argument(..., help="Symbol or company name, e.g. SEDEMAC"),
+    days: int = typer.Option(120, "--days", help="Lookback window in trading days"),
+    live: bool = typer.Option(False, "--live", help="Include live Shoonya order-book imbalance (market hours only)"),
+    artifact_dir: str = typer.Option(None, "--artifact-dir", help="Override output directory"),
+) -> None:
+    """360° institutional equity research dossier for an Indian stock."""
+    _setup_logging()
+    from rich.console import Console
+    from rich.markdown import Markdown
+    _console = Console()
+    from src.scripts.portfolio.stock_dossier.cli import run_dossier
+    try:
+        report = run_dossier(symbol, days=days, live=live, artifact_dir=artifact_dir)
+    except RuntimeError as exc:
+        console.print(f"[bold red]❌ {exc}[/bold red]")
+        raise typer.Exit(code=1)
+    _console.print(Markdown(report))
+
+
 @app.command(name="portfolio-wf")
 def portfolio_wf() -> None:
     """Portfolio analysis with adversarial verification from ClickHouse holdings."""

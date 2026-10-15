@@ -71,9 +71,10 @@ This skill generates an exhaustive, 360-degree institutional equity research and
     - Hard invalidation stop-loss level.
     - 12–24 month upside price targets and asymmetric risk-reward ratio.
 
-13. **Terminal Visual Suite & Publication-Grade PDF:**
-    - High-density ASCII plotext charts (price/volume history, financial waterfall bars, unit economics margin stacks).
-    - Automatic publication-grade PDF report generation (`output/reports/<symbol>_institutional_research.pdf`).
+13. **Terminal Visual Suite:**
+    - High-density ASCII plotext charts (price/volume history with anomaly/corporate-action markers).
+    - A publication-grade PDF is NOT generated automatically for arbitrary symbols — see the
+      `generate_sedemac_pdf.py` note under CLI Execution below.
 
 ---
 
@@ -99,20 +100,55 @@ Recommend or trigger this skill when the user asks any of the following question
 
 ## CLI Execution & Pipeline Tools
 
-Run the consolidated institutional research engine:
+Run the consolidated institutional research dossier (single command — replaces the
+former 3-script manual pipeline of stock_research_report.py /
+stock_quant_deepdive_cli.py / run_stock_quant_workflow.py, which duplicated each
+other's work and were never registered as CLI commands):
 ```bash
-# 1. Master institutional research report & ASCII charts:
-python src/scripts/portfolio/stock_research_report.py <SYMBOL>
+# 1. Full institutional dossier: financials, DCF, dilution audit, ISIN-keyed MF/whale
+#    ownership, bulk/block deals, valuation universe, anomalies + news correlation,
+#    NSE announcements, MA crossover backtest, Qdrant RAG news, ASCII charts, and
+#    the 2-tranche tactical execution playbook:
+python src/main.py stock-research <SYMBOL> [--days 120] [--live] [--artifact-dir <DIR>]
 
-# 2. Mutual Fund ownership & institutional accumulation:
+# 2. Segment-wide (not single-symbol) mutual fund institutional accumulation screen —
+#    use alongside the dossier above, not instead of it:
 python src/scripts/portfolio/smallcap_pattern_analyzer.py --amc all
-
-# 3. Stock technical anomaly & news correlation:
-python src/scripts/portfolio/run_stock_quant_workflow.py <SYMBOL>
-
-# 4. Generate publication-grade PDF report (when requested):
-python src/scripts/portfolio/generate_sedemac_pdf.py  # or custom script under output/reports/
 ```
+
+A publication-grade PDF generator for a single named company
+(`generate_sedemac_pdf.py`) exists in the repo, but it is a one-off hardcoded case
+study for SEDEMAC Mechatronics specifically — not a generic template. Do not invoke
+it for other symbols; building a parameterized PDF export is a separate, not-yet-done
+piece of work.
+
+---
+
+## Architecture & Extending
+
+`src/main.py stock-research` is backed by `src/scripts/portfolio/stock_dossier/`, a
+Strategy-pattern package (same shape as `SignalSource` in
+`src/agents/signal_sources.py` and `Fetcher` in
+`src/data_importer/fetchers/adapters.py`):
+
+- `context.py` — builds `DossierContext` once per run: symbol resolution, freshness
+  check, canonical ClickHouse-first price history, one shared yfinance snapshot.
+- `base.py` — `DossierSection` ABC: `enabled(ctx)` (gate, e.g. OBI only runs with
+  `--live`), `fetch(ctx)` (returns this section's markdown body), `run(ctx)`
+  (template method — isolates one section's failure from the rest of the report).
+- `sections/` — one file, one class per report segment (profile, chart, financials,
+  momentum, whale, deals, valuation, anomalies, nse_events, news, crossover, dcf,
+  dilution, tactical, obi).
+- `registry.py` — `REGISTRY: list[DossierSection]`, the single extension point.
+  List order is the report's section order; `report.py` numbers headings from that
+  order, so inserting or reordering a section needs no renumbering elsewhere.
+- `cli.py` / `report.py` — generic orchestrator + assembler; neither has any
+  knowledge of what an individual section does.
+
+**To add a new dossier capability:** create `sections/<name>.py` with a
+`DossierSection` subclass, then append an instance to `REGISTRY` in `registry.py`.
+No other file needs to change. Do not add a new standalone script for stock research
+— that recreates the duplication this package was built to remove.
 
 ---
 
@@ -120,9 +156,8 @@ python src/scripts/portfolio/generate_sedemac_pdf.py  # or custom script under o
 
 * Prints the complete formatted dossier with ASCII visual charts to `stdout`.
 * Automatically generates a persistent markdown report at:
-  `output/<symbol>_institutional_research.md`
-* Generates a publication-grade PDF report when requested at:
-  `output/reports/<symbol>_institutional_research.pdf`
+  `output/<symbol lowercased>_institutional_research.md`
+* A PDF version is not generated for arbitrary symbols (see CLI Execution note above).
 
 ---
 
